@@ -1,5 +1,8 @@
 node_modules/
-dist/
 *.tsbuildinfo
 .env
 .env.*
+
+# dist/ is committed so that GitHub git-dep consumers get pre-built files
+# without needing devDependencies (tsup/typescript) installed.
+# Always run `pnpm build` before committing changes to src/.
