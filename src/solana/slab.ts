@@ -39,7 +39,7 @@ const CONFIG_OFFSET = HEADER_LEN;  // MarketConfig starts right after header
 //               oracle_authority(32) + authority_price_e6(8) + authority_timestamp(8) +
 //               oracle_price_cap_e2bps(8) + last_effective_price_e6(8)
 //             = 352 bytes
-const CONFIG_LEN = 352;
+const CONFIG_LEN = 496; // PERC-324: Updated from 352 (SBF u128 align=8)
 // Offset of _reserved field within SlabHeader (magic+version+bump+_padding+admin+pending_admin = 80)
 const RESERVED_OFF = 80;
 
@@ -295,14 +295,11 @@ export function readLastThrUpdateSlot(data: Uint8Array): bigint {
 
 // =============================================================================
 // RiskEngine Layout Constants (updated for PERC-120/121/122 struct changes 2026-02)
-// ENGINE_OFF = align_up(HEADER_LEN + CONFIG_LEN, 8) = align_up(104 + 352, 8) = 456
-//
-// RiskParams grew from 144 → 288 bytes (added: premium funding, partial liq, dynamic fees).
-// Account grew from 240 → 248 bytes (added: last_partial_liquidation_slot).
-// SlabHeader grew from 72 → 104 bytes (added: pending_admin).
-// MarketConfig grew from 320 → 352 bytes (added: premium funding config fields).
+// ENGINE_OFF = align_up(HEADER_LEN + CONFIG_LEN, 8) = align_up(104 + 496, 8) = 600
+// PERC-324: MarketConfig grew from 352 → 496 bytes (added: OI cap, ramp, adaptive funding,
+// insurance isolation, safety valve, orphan penalty, settlement dispute, LP collateral).
 // =============================================================================
-const ENGINE_OFF = 456;
+const ENGINE_OFF = 600;
 // RiskEngine struct layout (repr(C), SBF uses 8-byte alignment for u128):
 // - vault: U128 (16 bytes) at offset 0
 // - insurance_fund: InsuranceFund { balance: U128, fee_revenue: U128 } (32 bytes) at offset 16
