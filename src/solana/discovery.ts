@@ -86,7 +86,7 @@ const SLAB_DATA_SIZE = SLAB_TIERS.large.dataSize;
 /** We need header(104) + config(352) + engine up to nextAccountId (~1100). Total ~1556. Use 1600 for margin. */
 const HEADER_SLICE_LENGTH = 1600;
 
-const ENGINE_OFF = 456;
+const ENGINE_OFF = 600; // align_up(104 + 496, 8) — PERC-324
 
 function dv(data: Uint8Array): DataView {
   return new DataView(data.buffer, data.byteOffset, data.byteLength);
