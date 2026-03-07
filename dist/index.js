@@ -764,189 +764,179 @@ function readU64LE(data, off) {
 function readI64LE(data, off) {
   return dv(data).getBigInt64(off, true);
 }
+function readI128LE(buf, offset) {
+  const lo = readU64LE(buf, offset);
+  const hi = readU64LE(buf, offset + 8);
+  const unsigned = hi << 64n | lo;
+  const SIGN_BIT = 1n << 127n;
+  if (unsigned >= SIGN_BIT) {
+    return unsigned - (1n << 128n);
+  }
+  return unsigned;
+}
+function readU128LE(buf, offset) {
+  const lo = readU64LE(buf, offset);
+  const hi = readU64LE(buf, offset + 8);
+  return hi << 64n | lo;
+}
 var MAGIC = 0x504552434f4c4154n;
-var HEADER_LEN = 104;
-var CONFIG_OFFSET = HEADER_LEN;
-var CONFIG_LEN = 352;
-var RESERVED_OFF = 80;
 var FLAG_RESOLVED = 1 << 0;
-async function fetchSlab(connection, slabPubkey) {
-  const info = await connection.getAccountInfo(slabPubkey);
-  if (!info) {
-    throw new Error(`Slab account not found: ${slabPubkey.toBase58()}`);
-  }
-  return new Uint8Array(info.data);
-}
-function parseHeader(data) {
-  if (data.length < HEADER_LEN) {
-    throw new Error(`Slab data too short for header: ${data.length} < ${HEADER_LEN}`);
-  }
-  const magic = readU64LE(data, 0);
-  if (magic !== MAGIC) {
-    throw new Error(`Invalid slab magic: expected ${MAGIC.toString(16)}, got ${magic.toString(16)}`);
-  }
-  const version = readU32LE(data, 8);
-  const bump = readU8(data, 12);
-  const flags = readU8(data, 13);
-  const admin = new PublicKey3(data.subarray(16, 48));
-  const nonce = readU64LE(data, RESERVED_OFF);
-  const lastThrUpdateSlot = readU64LE(data, RESERVED_OFF + 8);
-  return {
-    magic,
-    version,
-    bump,
-    flags,
-    resolved: (flags & FLAG_RESOLVED) !== 0,
-    paused: (flags & 2) !== 0,
-    admin,
-    nonce,
-    lastThrUpdateSlot
-  };
-}
-function parseConfig(data) {
-  const minLen = CONFIG_OFFSET + CONFIG_LEN;
-  if (data.length < minLen) {
-    throw new Error(`Slab data too short for config: ${data.length} < ${minLen}`);
-  }
-  let off = CONFIG_OFFSET;
-  const collateralMint = new PublicKey3(data.subarray(off, off + 32));
-  off += 32;
-  const vaultPubkey = new PublicKey3(data.subarray(off, off + 32));
-  off += 32;
-  const indexFeedId = new PublicKey3(data.subarray(off, off + 32));
-  off += 32;
-  const maxStalenessSlots = readU64LE(data, off);
-  off += 8;
-  const confFilterBps = readU16LE(data, off);
-  off += 2;
-  const vaultAuthorityBump = readU8(data, off);
-  off += 1;
-  const invert = readU8(data, off);
-  off += 1;
-  const unitScale = readU32LE(data, off);
-  off += 4;
-  const fundingHorizonSlots = readU64LE(data, off);
-  off += 8;
-  const fundingKBps = readU64LE(data, off);
-  off += 8;
-  const fundingInvScaleNotionalE6 = readU128LE(data, off);
-  off += 16;
-  const fundingMaxPremiumBps = readI64LE(data, off);
-  off += 8;
-  const fundingMaxBpsPerSlot = readI64LE(data, off);
-  off += 8;
-  const threshFloor = readU128LE(data, off);
-  off += 16;
-  const threshRiskBps = readU64LE(data, off);
-  off += 8;
-  const threshUpdateIntervalSlots = readU64LE(data, off);
-  off += 8;
-  const threshStepBps = readU64LE(data, off);
-  off += 8;
-  const threshAlphaBps = readU64LE(data, off);
-  off += 8;
-  const threshMin = readU128LE(data, off);
-  off += 16;
-  const threshMax = readU128LE(data, off);
-  off += 16;
-  const threshMinStep = readU128LE(data, off);
-  off += 16;
-  const oracleAuthority = new PublicKey3(data.subarray(off, off + 32));
-  off += 32;
-  const authorityPriceE6 = readU64LE(data, off);
-  off += 8;
-  const authorityTimestamp = readI64LE(data, off);
-  off += 8;
-  const oraclePriceCapE2bps = readU64LE(data, off);
-  off += 8;
-  const lastEffectivePriceE6 = readU64LE(data, off);
-  return {
-    collateralMint,
-    vaultPubkey,
-    indexFeedId,
-    maxStalenessSlots,
-    confFilterBps,
-    vaultAuthorityBump,
-    invert,
-    unitScale,
-    fundingHorizonSlots,
-    fundingKBps,
-    fundingInvScaleNotionalE6,
-    fundingMaxPremiumBps,
-    fundingMaxBpsPerSlot,
-    threshFloor,
-    threshRiskBps,
-    threshUpdateIntervalSlots,
-    threshStepBps,
-    threshAlphaBps,
-    threshMin,
-    threshMax,
-    threshMinStep,
-    oracleAuthority,
-    authorityPriceE6,
-    authorityTimestamp,
-    oraclePriceCapE2bps,
-    lastEffectivePriceE6
-  };
-}
-function readNonce(data) {
-  if (data.length < RESERVED_OFF + 8) {
-    throw new Error("Slab data too short for nonce");
-  }
-  return readU64LE(data, RESERVED_OFF);
-}
-function readLastThrUpdateSlot(data) {
-  if (data.length < RESERVED_OFF + 16) {
-    throw new Error("Slab data too short for lastThrUpdateSlot");
-  }
-  return readU64LE(data, RESERVED_OFF + 8);
-}
-var ENGINE_OFF = 456;
-var ENGINE_VAULT_OFF = 0;
-var ENGINE_INSURANCE_OFF = 16;
-var ENGINE_PARAMS_OFF = 48;
-var ENGINE_CURRENT_SLOT_OFF = 336;
-var ENGINE_FUNDING_INDEX_OFF = 344;
-var ENGINE_LAST_FUNDING_SLOT_OFF = 360;
-var ENGINE_FUNDING_RATE_BPS_OFF = 368;
-var ENGINE_LAST_CRANK_SLOT_OFF = 400;
-var ENGINE_MAX_CRANK_STALENESS_OFF = 408;
-var ENGINE_TOTAL_OI_OFF = 416;
-var ENGINE_C_TOT_OFF = 432;
-var ENGINE_PNL_POS_TOT_OFF = 448;
-var ENGINE_LIQ_CURSOR_OFF = 464;
-var ENGINE_GC_CURSOR_OFF = 466;
-var ENGINE_LAST_SWEEP_START_OFF = 472;
-var ENGINE_LAST_SWEEP_COMPLETE_OFF = 480;
-var ENGINE_CRANK_CURSOR_OFF = 488;
-var ENGINE_SWEEP_START_IDX_OFF = 490;
-var ENGINE_LIFETIME_LIQUIDATIONS_OFF = 496;
-var ENGINE_LIFETIME_FORCE_CLOSES_OFF = 504;
-var ENGINE_NET_LP_POS_OFF = 512;
-var ENGINE_LP_SUM_ABS_OFF = 528;
-var ENGINE_LP_MAX_ABS_OFF = 544;
-var ENGINE_LP_MAX_ABS_SWEEP_OFF = 560;
-var ENGINE_BITMAP_OFF = 576;
-var DEFAULT_MAX_ACCOUNTS = 4096;
-var DEFAULT_BITMAP_WORDS = 64;
-var ACCOUNT_SIZE = 248;
-var ENGINE_ACCOUNTS_OFF = 9304;
-function slabLayout(maxAccounts) {
+var V0_HEADER_LEN = 72;
+var V0_CONFIG_LEN = 408;
+var V0_ENGINE_OFF = 480;
+var V0_ACCOUNT_SIZE = 240;
+var V0_RESERVED_OFF = 48;
+var V0_ENGINE_PARAMS_OFF = 48;
+var V0_PARAMS_SIZE = 56;
+var V0_ENGINE_CURRENT_SLOT_OFF = 104;
+var V0_ENGINE_FUNDING_INDEX_OFF = 112;
+var V0_ENGINE_LAST_FUNDING_SLOT_OFF = 128;
+var V0_ENGINE_FUNDING_RATE_BPS_OFF = 136;
+var V0_ENGINE_LAST_CRANK_SLOT_OFF = 144;
+var V0_ENGINE_MAX_CRANK_STALENESS_OFF = 152;
+var V0_ENGINE_TOTAL_OI_OFF = 160;
+var V0_ENGINE_C_TOT_OFF = 176;
+var V0_ENGINE_PNL_POS_TOT_OFF = 192;
+var V0_ENGINE_LIQ_CURSOR_OFF = 208;
+var V0_ENGINE_GC_CURSOR_OFF = 210;
+var V0_ENGINE_LAST_SWEEP_START_OFF = 216;
+var V0_ENGINE_LAST_SWEEP_COMPLETE_OFF = 224;
+var V0_ENGINE_CRANK_CURSOR_OFF = 232;
+var V0_ENGINE_SWEEP_START_IDX_OFF = 234;
+var V0_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 240;
+var V0_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 248;
+var V0_ENGINE_NET_LP_POS_OFF = 256;
+var V0_ENGINE_LP_SUM_ABS_OFF = 272;
+var V0_ENGINE_LP_MAX_ABS_OFF = 288;
+var V0_ENGINE_LP_MAX_ABS_SWEEP_OFF = 304;
+var V0_ENGINE_BITMAP_OFF = 320;
+var V1_HEADER_LEN = 104;
+var V1_CONFIG_LEN = 536;
+var V1_ENGINE_OFF = 640;
+var V1_ACCOUNT_SIZE = 248;
+var V1_RESERVED_OFF = 80;
+var V1_ENGINE_PARAMS_OFF = 72;
+var V1_PARAMS_SIZE = 288;
+var V1_ENGINE_CURRENT_SLOT_OFF = 360;
+var V1_ENGINE_FUNDING_INDEX_OFF = 368;
+var V1_ENGINE_LAST_FUNDING_SLOT_OFF = 384;
+var V1_ENGINE_FUNDING_RATE_BPS_OFF = 392;
+var V1_ENGINE_MARK_PRICE_OFF = 400;
+var V1_ENGINE_LAST_CRANK_SLOT_OFF = 424;
+var V1_ENGINE_MAX_CRANK_STALENESS_OFF = 432;
+var V1_ENGINE_TOTAL_OI_OFF = 440;
+var V1_ENGINE_LONG_OI_OFF = 456;
+var V1_ENGINE_SHORT_OI_OFF = 472;
+var V1_ENGINE_C_TOT_OFF = 488;
+var V1_ENGINE_PNL_POS_TOT_OFF = 504;
+var V1_ENGINE_LIQ_CURSOR_OFF = 520;
+var V1_ENGINE_GC_CURSOR_OFF = 522;
+var V1_ENGINE_LAST_SWEEP_START_OFF = 528;
+var V1_ENGINE_LAST_SWEEP_COMPLETE_OFF = 536;
+var V1_ENGINE_CRANK_CURSOR_OFF = 544;
+var V1_ENGINE_SWEEP_START_IDX_OFF = 546;
+var V1_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 552;
+var V1_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 560;
+var V1_ENGINE_NET_LP_POS_OFF = 568;
+var V1_ENGINE_LP_SUM_ABS_OFF = 584;
+var V1_ENGINE_LP_MAX_ABS_OFF = 600;
+var V1_ENGINE_LP_MAX_ABS_SWEEP_OFF = 616;
+var V1_ENGINE_EMERGENCY_OI_MODE_OFF = 632;
+var V1_ENGINE_EMERGENCY_START_SLOT_OFF = 640;
+var V1_ENGINE_LAST_BREAKER_SLOT_OFF = 648;
+var V1_ENGINE_BITMAP_OFF = 656;
+var ENGINE_OFF = V1_ENGINE_OFF;
+var ENGINE_MARK_PRICE_OFF = V1_ENGINE_MARK_PRICE_OFF;
+function computeSlabSize(engineOff, bitmapOff, accountSize, maxAccounts) {
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
   const postBitmap = 18;
   const nextFreeBytes = maxAccounts * 2;
-  const preAccountsLen = ENGINE_BITMAP_OFF + bitmapBytes + postBitmap + nextFreeBytes;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
   const accountsOff = Math.ceil(preAccountsLen / 8) * 8;
-  return { bitmapWords, accountsOff, maxAccounts };
+  return engineOff + accountsOff + maxAccounts * accountSize;
+}
+var TIERS = [64, 256, 1024, 4096];
+var V0_SIZES = /* @__PURE__ */ new Map();
+var V1_SIZES = /* @__PURE__ */ new Map();
+for (const n of TIERS) {
+  V0_SIZES.set(computeSlabSize(V0_ENGINE_OFF, V0_ENGINE_BITMAP_OFF, V0_ACCOUNT_SIZE, n), n);
+  V1_SIZES.set(computeSlabSize(V1_ENGINE_OFF, V1_ENGINE_BITMAP_OFF, V1_ACCOUNT_SIZE, n), n);
+}
+function buildLayout(version, maxAccounts) {
+  const isV0 = version === 0;
+  const engineOff = isV0 ? V0_ENGINE_OFF : V1_ENGINE_OFF;
+  const bitmapOff = isV0 ? V0_ENGINE_BITMAP_OFF : V1_ENGINE_BITMAP_OFF;
+  const accountSize = isV0 ? V0_ACCOUNT_SIZE : V1_ACCOUNT_SIZE;
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const postBitmap = 18;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
+  return {
+    version,
+    headerLen: isV0 ? V0_HEADER_LEN : V1_HEADER_LEN,
+    configOffset: isV0 ? V0_HEADER_LEN : V1_HEADER_LEN,
+    configLen: isV0 ? V0_CONFIG_LEN : V1_CONFIG_LEN,
+    reservedOff: isV0 ? V0_RESERVED_OFF : V1_RESERVED_OFF,
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+    engineInsuranceOff: 16,
+    engineParamsOff: isV0 ? V0_ENGINE_PARAMS_OFF : V1_ENGINE_PARAMS_OFF,
+    paramsSize: isV0 ? V0_PARAMS_SIZE : V1_PARAMS_SIZE,
+    engineCurrentSlotOff: isV0 ? V0_ENGINE_CURRENT_SLOT_OFF : V1_ENGINE_CURRENT_SLOT_OFF,
+    engineFundingIndexOff: isV0 ? V0_ENGINE_FUNDING_INDEX_OFF : V1_ENGINE_FUNDING_INDEX_OFF,
+    engineLastFundingSlotOff: isV0 ? V0_ENGINE_LAST_FUNDING_SLOT_OFF : V1_ENGINE_LAST_FUNDING_SLOT_OFF,
+    engineFundingRateBpsOff: isV0 ? V0_ENGINE_FUNDING_RATE_BPS_OFF : V1_ENGINE_FUNDING_RATE_BPS_OFF,
+    engineMarkPriceOff: isV0 ? -1 : V1_ENGINE_MARK_PRICE_OFF,
+    engineLastCrankSlotOff: isV0 ? V0_ENGINE_LAST_CRANK_SLOT_OFF : V1_ENGINE_LAST_CRANK_SLOT_OFF,
+    engineMaxCrankStalenessOff: isV0 ? V0_ENGINE_MAX_CRANK_STALENESS_OFF : V1_ENGINE_MAX_CRANK_STALENESS_OFF,
+    engineTotalOiOff: isV0 ? V0_ENGINE_TOTAL_OI_OFF : V1_ENGINE_TOTAL_OI_OFF,
+    engineLongOiOff: isV0 ? -1 : V1_ENGINE_LONG_OI_OFF,
+    engineShortOiOff: isV0 ? -1 : V1_ENGINE_SHORT_OI_OFF,
+    engineCTotOff: isV0 ? V0_ENGINE_C_TOT_OFF : V1_ENGINE_C_TOT_OFF,
+    enginePnlPosTotOff: isV0 ? V0_ENGINE_PNL_POS_TOT_OFF : V1_ENGINE_PNL_POS_TOT_OFF,
+    engineLiqCursorOff: isV0 ? V0_ENGINE_LIQ_CURSOR_OFF : V1_ENGINE_LIQ_CURSOR_OFF,
+    engineGcCursorOff: isV0 ? V0_ENGINE_GC_CURSOR_OFF : V1_ENGINE_GC_CURSOR_OFF,
+    engineLastSweepStartOff: isV0 ? V0_ENGINE_LAST_SWEEP_START_OFF : V1_ENGINE_LAST_SWEEP_START_OFF,
+    engineLastSweepCompleteOff: isV0 ? V0_ENGINE_LAST_SWEEP_COMPLETE_OFF : V1_ENGINE_LAST_SWEEP_COMPLETE_OFF,
+    engineCrankCursorOff: isV0 ? V0_ENGINE_CRANK_CURSOR_OFF : V1_ENGINE_CRANK_CURSOR_OFF,
+    engineSweepStartIdxOff: isV0 ? V0_ENGINE_SWEEP_START_IDX_OFF : V1_ENGINE_SWEEP_START_IDX_OFF,
+    engineLifetimeLiquidationsOff: isV0 ? V0_ENGINE_LIFETIME_LIQUIDATIONS_OFF : V1_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
+    engineLifetimeForceClosesOff: isV0 ? V0_ENGINE_LIFETIME_FORCE_CLOSES_OFF : V1_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
+    engineNetLpPosOff: isV0 ? V0_ENGINE_NET_LP_POS_OFF : V1_ENGINE_NET_LP_POS_OFF,
+    engineLpSumAbsOff: isV0 ? V0_ENGINE_LP_SUM_ABS_OFF : V1_ENGINE_LP_SUM_ABS_OFF,
+    engineLpMaxAbsOff: isV0 ? V0_ENGINE_LP_MAX_ABS_OFF : V1_ENGINE_LP_MAX_ABS_OFF,
+    engineLpMaxAbsSweepOff: isV0 ? V0_ENGINE_LP_MAX_ABS_SWEEP_OFF : V1_ENGINE_LP_MAX_ABS_SWEEP_OFF,
+    engineEmergencyOiModeOff: isV0 ? -1 : V1_ENGINE_EMERGENCY_OI_MODE_OFF,
+    engineEmergencyStartSlotOff: isV0 ? -1 : V1_ENGINE_EMERGENCY_START_SLOT_OFF,
+    engineLastBreakerSlotOff: isV0 ? -1 : V1_ENGINE_LAST_BREAKER_SLOT_OFF,
+    engineBitmapOff: isV0 ? V0_ENGINE_BITMAP_OFF : V1_ENGINE_BITMAP_OFF,
+    hasInsuranceIsolation: !isV0,
+    engineInsuranceIsolatedOff: isV0 ? -1 : 48,
+    engineInsuranceIsolationBpsOff: isV0 ? -1 : 64
+  };
+}
+function detectSlabLayout(dataLen) {
+  const v0n = V0_SIZES.get(dataLen);
+  if (v0n !== void 0) return buildLayout(0, v0n);
+  const v1n = V1_SIZES.get(dataLen);
+  if (v1n !== void 0) return buildLayout(1, v1n);
+  return null;
 }
 function detectLayout(dataLen) {
-  for (const n of [64, 256, 1024, 4096]) {
-    const layout = slabLayout(n);
-    const expectedLen = ENGINE_OFF + layout.accountsOff + n * ACCOUNT_SIZE;
-    if (dataLen === expectedLen) return layout;
-  }
-  return null;
+  const layout = detectSlabLayout(dataLen);
+  if (!layout) return null;
+  const bitmapBytes = layout.bitmapWords * 8;
+  const postBitmap = 18;
+  const nextFreeBytes = layout.maxAccounts * 2;
+  const preAccountsLen = layout.engineBitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOff = Math.ceil(preAccountsLen / 8) * 8;
+  return { bitmapWords: layout.bitmapWords, accountsOff, maxAccounts: layout.maxAccounts };
 }
 var PARAMS_WARMUP_PERIOD_OFF = 0;
 var PARAMS_MAINTENANCE_MARGIN_OFF = 8;
@@ -981,97 +971,307 @@ var AccountKind = /* @__PURE__ */ ((AccountKind2) => {
   AccountKind2[AccountKind2["LP"] = 1] = "LP";
   return AccountKind2;
 })(AccountKind || {});
-function readI128LE(buf, offset) {
-  const lo = readU64LE(buf, offset);
-  const hi = readU64LE(buf, offset + 8);
-  const unsigned = hi << 64n | lo;
-  const SIGN_BIT = 1n << 127n;
-  if (unsigned >= SIGN_BIT) {
-    return unsigned - (1n << 128n);
+async function fetchSlab(connection, slabPubkey) {
+  const info = await connection.getAccountInfo(slabPubkey);
+  if (!info) {
+    throw new Error(`Slab account not found: ${slabPubkey.toBase58()}`);
   }
-  return unsigned;
+  return new Uint8Array(info.data);
 }
-function readU128LE(buf, offset) {
-  const lo = readU64LE(buf, offset);
-  const hi = readU64LE(buf, offset + 8);
-  return hi << 64n | lo;
+var RAMP_START_BPS = 1000n;
+var DEFAULT_OI_RAMP_SLOTS = 432000n;
+function computeEffectiveOiCapBps(config, currentSlot) {
+  const target = config.oiCapMultiplierBps;
+  if (target === 0n) return 0n;
+  if (config.oiRampSlots === 0n) return target;
+  if (target <= RAMP_START_BPS) return target;
+  const elapsed = currentSlot > config.marketCreatedSlot ? currentSlot - config.marketCreatedSlot : 0n;
+  if (elapsed >= config.oiRampSlots) return target;
+  const range = target - RAMP_START_BPS;
+  const rampAdd = range * elapsed / config.oiRampSlots;
+  const result = RAMP_START_BPS + rampAdd;
+  return result < target ? result : target;
 }
-function parseParams(data) {
-  const base = ENGINE_OFF + ENGINE_PARAMS_OFF;
-  if (data.length < base + 144) {
-    throw new Error("Slab data too short for RiskParams");
+function readNonce(data) {
+  const layout = detectSlabLayout(data.length);
+  const roff = layout ? layout.reservedOff : V0_RESERVED_OFF;
+  if (data.length < roff + 8) throw new Error("Slab data too short for nonce");
+  return readU64LE(data, roff);
+}
+function readLastThrUpdateSlot(data) {
+  const layout = detectSlabLayout(data.length);
+  const roff = layout ? layout.reservedOff : V0_RESERVED_OFF;
+  if (data.length < roff + 16) throw new Error("Slab data too short for lastThrUpdateSlot");
+  return readU64LE(data, roff + 8);
+}
+function parseHeader(data) {
+  if (data.length < V0_HEADER_LEN) {
+    throw new Error(`Slab data too short for header: ${data.length} < ${V0_HEADER_LEN}`);
+  }
+  const magic = readU64LE(data, 0);
+  if (magic !== MAGIC) {
+    throw new Error(`Invalid slab magic: expected ${MAGIC.toString(16)}, got ${magic.toString(16)}`);
+  }
+  const version = readU32LE(data, 8);
+  const bump = readU8(data, 12);
+  const flags = readU8(data, 13);
+  const admin = new PublicKey3(data.subarray(16, 48));
+  const layout = detectSlabLayout(data.length);
+  const roff = layout ? layout.reservedOff : V0_RESERVED_OFF;
+  const nonce = readU64LE(data, roff);
+  const lastThrUpdateSlot = readU64LE(data, roff + 8);
+  return {
+    magic,
+    version,
+    bump,
+    flags,
+    resolved: (flags & FLAG_RESOLVED) !== 0,
+    paused: (flags & 2) !== 0,
+    admin,
+    nonce,
+    lastThrUpdateSlot
+  };
+}
+function parseConfig(data) {
+  const layout = detectSlabLayout(data.length);
+  const configOff = layout ? layout.configOffset : V0_HEADER_LEN;
+  const configLen = layout ? layout.configLen : V0_CONFIG_LEN;
+  const minLen = configOff + Math.min(configLen, 120);
+  if (data.length < minLen) {
+    throw new Error(`Slab data too short for config: ${data.length} < ${minLen}`);
+  }
+  let off = configOff;
+  const collateralMint = new PublicKey3(data.subarray(off, off + 32));
+  off += 32;
+  const vaultPubkey = new PublicKey3(data.subarray(off, off + 32));
+  off += 32;
+  const indexFeedId = new PublicKey3(data.subarray(off, off + 32));
+  off += 32;
+  const maxStalenessSlots = readU64LE(data, off);
+  off += 8;
+  const confFilterBps = readU16LE(data, off);
+  off += 2;
+  const vaultAuthorityBump = readU8(data, off);
+  off += 1;
+  const invert = readU8(data, off);
+  off += 1;
+  const unitScale = readU32LE(data, off);
+  off += 4;
+  const fundingHorizonSlots = readU64LE(data, off);
+  off += 8;
+  const fundingKBps = readU64LE(data, off);
+  off += 8;
+  const fundingInvScaleNotionalE6 = readU128LE(data, off);
+  off += 16;
+  const fundingMaxPremiumBps = readI64LE(data, off);
+  off += 8;
+  const fundingMaxBpsPerSlot = readI64LE(data, off);
+  off += 8;
+  const fundingPremiumWeightBps = readU64LE(data, off);
+  off += 8;
+  const fundingSettlementIntervalSlots = readU64LE(data, off);
+  off += 8;
+  const fundingPremiumDampeningE6 = readU64LE(data, off);
+  off += 8;
+  const fundingPremiumMaxBpsPerSlot = readU64LE(data, off);
+  off += 8;
+  const threshFloor = readU128LE(data, off);
+  off += 16;
+  const threshRiskBps = readU64LE(data, off);
+  off += 8;
+  const threshUpdateIntervalSlots = readU64LE(data, off);
+  off += 8;
+  const threshStepBps = readU64LE(data, off);
+  off += 8;
+  const threshAlphaBps = readU64LE(data, off);
+  off += 8;
+  const threshMin = readU128LE(data, off);
+  off += 16;
+  const threshMax = readU128LE(data, off);
+  off += 16;
+  const threshMinStep = readU128LE(data, off);
+  off += 16;
+  const oracleAuthority = new PublicKey3(data.subarray(off, off + 32));
+  off += 32;
+  const authorityPriceE6 = readU64LE(data, off);
+  off += 8;
+  const authorityTimestamp = readI64LE(data, off);
+  off += 8;
+  const oraclePriceCapE2bps = readU64LE(data, off);
+  off += 8;
+  const lastEffectivePriceE6 = readU64LE(data, off);
+  off += 8;
+  const oiCapMultiplierBps = readU64LE(data, off);
+  off += 8;
+  const maxPnlCap = readU64LE(data, off);
+  off += 8;
+  const remaining = configOff + configLen - off;
+  let adaptiveFundingEnabled = false;
+  let adaptiveScaleBps = 0;
+  let adaptiveMaxFundingBps = 0n;
+  let marketCreatedSlot = 0n;
+  let oiRampSlots = 0n;
+  let resolvedSlot = 0n;
+  let insuranceIsolationBps = 0;
+  if (remaining >= 40) {
+    adaptiveFundingEnabled = readU8(data, off) !== 0;
+    off += 1;
+    off += 1;
+    adaptiveScaleBps = readU16LE(data, off);
+    off += 2;
+    off += 4;
+    adaptiveMaxFundingBps = readU64LE(data, off);
+    off += 8;
+    marketCreatedSlot = readU64LE(data, off);
+    off += 8;
+    oiRampSlots = readU64LE(data, off);
+    off += 8;
+    resolvedSlot = readU64LE(data, off);
+    off += 8;
+    off += 8;
+    if (remaining >= 42) {
+      insuranceIsolationBps = readU16LE(data, off);
+    }
   }
   return {
+    collateralMint,
+    vaultPubkey,
+    indexFeedId,
+    maxStalenessSlots,
+    confFilterBps,
+    vaultAuthorityBump,
+    invert,
+    unitScale,
+    fundingHorizonSlots,
+    fundingKBps,
+    fundingInvScaleNotionalE6,
+    fundingMaxPremiumBps,
+    fundingMaxBpsPerSlot,
+    fundingPremiumWeightBps,
+    fundingSettlementIntervalSlots,
+    fundingPremiumDampeningE6,
+    fundingPremiumMaxBpsPerSlot,
+    threshFloor,
+    threshRiskBps,
+    threshUpdateIntervalSlots,
+    threshStepBps,
+    threshAlphaBps,
+    threshMin,
+    threshMax,
+    threshMinStep,
+    oracleAuthority,
+    authorityPriceE6,
+    authorityTimestamp,
+    oraclePriceCapE2bps,
+    lastEffectivePriceE6,
+    oiCapMultiplierBps,
+    maxPnlCap,
+    adaptiveFundingEnabled,
+    adaptiveScaleBps,
+    adaptiveMaxFundingBps,
+    marketCreatedSlot,
+    oiRampSlots,
+    resolvedSlot,
+    insuranceIsolationBps
+  };
+}
+function parseParams(data) {
+  const layout = detectSlabLayout(data.length);
+  const engineOff = layout ? layout.engineOff : V0_ENGINE_OFF;
+  const paramsOff = layout ? layout.engineParamsOff : V0_ENGINE_PARAMS_OFF;
+  const paramsSize = layout ? layout.paramsSize : V0_PARAMS_SIZE;
+  const base = engineOff + paramsOff;
+  if (data.length < base + Math.min(paramsSize, 56)) {
+    throw new Error("Slab data too short for RiskParams");
+  }
+  const result = {
     warmupPeriodSlots: readU64LE(data, base + PARAMS_WARMUP_PERIOD_OFF),
     maintenanceMarginBps: readU64LE(data, base + PARAMS_MAINTENANCE_MARGIN_OFF),
     initialMarginBps: readU64LE(data, base + PARAMS_INITIAL_MARGIN_OFF),
     tradingFeeBps: readU64LE(data, base + PARAMS_TRADING_FEE_OFF),
     maxAccounts: readU64LE(data, base + PARAMS_MAX_ACCOUNTS_OFF),
     newAccountFee: readU128LE(data, base + PARAMS_NEW_ACCOUNT_FEE_OFF),
-    riskReductionThreshold: readU128LE(data, base + PARAMS_RISK_THRESHOLD_OFF),
-    maintenanceFeePerSlot: readU128LE(data, base + PARAMS_MAINTENANCE_FEE_OFF),
-    maxCrankStalenessSlots: readU64LE(data, base + PARAMS_MAX_CRANK_STALENESS_OFF),
-    liquidationFeeBps: readU64LE(data, base + PARAMS_LIQUIDATION_FEE_BPS_OFF),
-    liquidationFeeCap: readU128LE(data, base + PARAMS_LIQUIDATION_FEE_CAP_OFF),
-    liquidationBufferBps: readU64LE(data, base + PARAMS_LIQUIDATION_BUFFER_OFF),
-    minLiquidationAbs: readU128LE(data, base + PARAMS_MIN_LIQUIDATION_OFF)
+    // Extended params: only read if V1 (paramsSize >= 144)
+    riskReductionThreshold: 0n,
+    maintenanceFeePerSlot: 0n,
+    maxCrankStalenessSlots: 0n,
+    liquidationFeeBps: 0n,
+    liquidationFeeCap: 0n,
+    liquidationBufferBps: 0n,
+    minLiquidationAbs: 0n
   };
+  if (paramsSize >= 144) {
+    result.riskReductionThreshold = readU128LE(data, base + PARAMS_RISK_THRESHOLD_OFF);
+    result.maintenanceFeePerSlot = readU128LE(data, base + PARAMS_MAINTENANCE_FEE_OFF);
+    result.maxCrankStalenessSlots = readU64LE(data, base + PARAMS_MAX_CRANK_STALENESS_OFF);
+    result.liquidationFeeBps = readU64LE(data, base + PARAMS_LIQUIDATION_FEE_BPS_OFF);
+    result.liquidationFeeCap = readU128LE(data, base + PARAMS_LIQUIDATION_FEE_CAP_OFF);
+    result.liquidationBufferBps = readU64LE(data, base + PARAMS_LIQUIDATION_BUFFER_OFF);
+    result.minLiquidationAbs = readU128LE(data, base + PARAMS_MIN_LIQUIDATION_OFF);
+  }
+  return result;
 }
 function parseEngine(data) {
-  const base = ENGINE_OFF;
-  const layout = detectLayout(data.length);
-  const minLen = layout ? layout.accountsOff : ENGINE_ACCOUNTS_OFF;
-  if (data.length < base + minLen) {
-    throw new Error("Slab data too short for RiskEngine");
+  const layout = detectSlabLayout(data.length);
+  if (!layout) {
+    throw new Error(`Unrecognized slab data length: ${data.length}. Cannot determine layout version.`);
   }
+  const base = layout.engineOff;
   return {
-    vault: readU128LE(data, base + ENGINE_VAULT_OFF),
+    vault: readU128LE(data, base),
     insuranceFund: {
-      balance: readU128LE(data, base + ENGINE_INSURANCE_OFF),
-      feeRevenue: readU128LE(data, base + ENGINE_INSURANCE_OFF + 16)
+      balance: readU128LE(data, base + layout.engineInsuranceOff),
+      feeRevenue: readU128LE(data, base + layout.engineInsuranceOff + 16),
+      isolatedBalance: layout.hasInsuranceIsolation ? readU128LE(data, base + layout.engineInsuranceIsolatedOff) : 0n,
+      isolationBps: layout.hasInsuranceIsolation ? readU16LE(data, base + layout.engineInsuranceIsolationBpsOff) : 0
     },
-    currentSlot: readU64LE(data, base + ENGINE_CURRENT_SLOT_OFF),
-    fundingIndexQpbE6: readI128LE(data, base + ENGINE_FUNDING_INDEX_OFF),
-    lastFundingSlot: readU64LE(data, base + ENGINE_LAST_FUNDING_SLOT_OFF),
-    fundingRateBpsPerSlotLast: readI64LE(data, base + ENGINE_FUNDING_RATE_BPS_OFF),
-    lastCrankSlot: readU64LE(data, base + ENGINE_LAST_CRANK_SLOT_OFF),
-    maxCrankStalenessSlots: readU64LE(data, base + ENGINE_MAX_CRANK_STALENESS_OFF),
-    totalOpenInterest: readU128LE(data, base + ENGINE_TOTAL_OI_OFF),
-    cTot: readU128LE(data, base + ENGINE_C_TOT_OFF),
-    pnlPosTot: readU128LE(data, base + ENGINE_PNL_POS_TOT_OFF),
-    liqCursor: readU16LE(data, base + ENGINE_LIQ_CURSOR_OFF),
-    gcCursor: readU16LE(data, base + ENGINE_GC_CURSOR_OFF),
-    lastSweepStartSlot: readU64LE(data, base + ENGINE_LAST_SWEEP_START_OFF),
-    lastSweepCompleteSlot: readU64LE(data, base + ENGINE_LAST_SWEEP_COMPLETE_OFF),
-    crankCursor: readU16LE(data, base + ENGINE_CRANK_CURSOR_OFF),
-    sweepStartIdx: readU16LE(data, base + ENGINE_SWEEP_START_IDX_OFF),
-    lifetimeLiquidations: readU64LE(data, base + ENGINE_LIFETIME_LIQUIDATIONS_OFF),
-    lifetimeForceCloses: readU64LE(data, base + ENGINE_LIFETIME_FORCE_CLOSES_OFF),
-    // LP Aggregates for funding rate calculation
-    netLpPos: readI128LE(data, base + ENGINE_NET_LP_POS_OFF),
-    lpSumAbs: readU128LE(data, base + ENGINE_LP_SUM_ABS_OFF),
-    lpMaxAbs: readU128LE(data, base + ENGINE_LP_MAX_ABS_OFF),
-    lpMaxAbsSweep: readU128LE(data, base + ENGINE_LP_MAX_ABS_SWEEP_OFF),
+    currentSlot: readU64LE(data, base + layout.engineCurrentSlotOff),
+    fundingIndexQpbE6: readI128LE(data, base + layout.engineFundingIndexOff),
+    lastFundingSlot: readU64LE(data, base + layout.engineLastFundingSlotOff),
+    fundingRateBpsPerSlotLast: readI64LE(data, base + layout.engineFundingRateBpsOff),
+    lastCrankSlot: readU64LE(data, base + layout.engineLastCrankSlotOff),
+    maxCrankStalenessSlots: readU64LE(data, base + layout.engineMaxCrankStalenessOff),
+    totalOpenInterest: readU128LE(data, base + layout.engineTotalOiOff),
+    longOi: layout.engineLongOiOff >= 0 ? readU128LE(data, base + layout.engineLongOiOff) : 0n,
+    shortOi: layout.engineShortOiOff >= 0 ? readU128LE(data, base + layout.engineShortOiOff) : 0n,
+    cTot: readU128LE(data, base + layout.engineCTotOff),
+    pnlPosTot: readU128LE(data, base + layout.enginePnlPosTotOff),
+    liqCursor: readU16LE(data, base + layout.engineLiqCursorOff),
+    gcCursor: readU16LE(data, base + layout.engineGcCursorOff),
+    lastSweepStartSlot: readU64LE(data, base + layout.engineLastSweepStartOff),
+    lastSweepCompleteSlot: readU64LE(data, base + layout.engineLastSweepCompleteOff),
+    crankCursor: readU16LE(data, base + layout.engineCrankCursorOff),
+    sweepStartIdx: readU16LE(data, base + layout.engineSweepStartIdxOff),
+    lifetimeLiquidations: readU64LE(data, base + layout.engineLifetimeLiquidationsOff),
+    lifetimeForceCloses: readU64LE(data, base + layout.engineLifetimeForceClosesOff),
+    netLpPos: readI128LE(data, base + layout.engineNetLpPosOff),
+    lpSumAbs: readU128LE(data, base + layout.engineLpSumAbsOff),
+    lpMaxAbs: readU128LE(data, base + layout.engineLpMaxAbsOff),
+    lpMaxAbsSweep: readU128LE(data, base + layout.engineLpMaxAbsSweepOff),
+    emergencyOiMode: layout.engineEmergencyOiModeOff >= 0 ? data[base + layout.engineEmergencyOiModeOff] !== 0 : false,
+    emergencyStartSlot: layout.engineEmergencyStartSlotOff >= 0 ? readU64LE(data, base + layout.engineEmergencyStartSlotOff) : 0n,
+    lastBreakerSlot: layout.engineLastBreakerSlotOff >= 0 ? readU64LE(data, base + layout.engineLastBreakerSlotOff) : 0n,
+    markPriceE6: layout.engineMarkPriceOff >= 0 ? readU64LE(data, base + layout.engineMarkPriceOff) : 0n,
     numUsedAccounts: (() => {
-      const bw = layout ? layout.bitmapWords : DEFAULT_BITMAP_WORDS;
-      return readU16LE(data, base + ENGINE_BITMAP_OFF + bw * 8);
+      const bw = layout.bitmapWords;
+      return readU16LE(data, base + layout.engineBitmapOff + bw * 8);
     })(),
     nextAccountId: (() => {
-      const bw = layout ? layout.bitmapWords : DEFAULT_BITMAP_WORDS;
-      const numUsedOff = ENGINE_BITMAP_OFF + bw * 8;
+      const bw = layout.bitmapWords;
+      const numUsedOff = layout.engineBitmapOff + bw * 8;
       return readU64LE(data, base + Math.ceil((numUsedOff + 2) / 8) * 8);
     })()
   };
 }
 function parseUsedIndices(data) {
-  const layout = detectLayout(data.length);
-  const bitmapWords = layout ? layout.bitmapWords : DEFAULT_BITMAP_WORDS;
-  const base = ENGINE_OFF + ENGINE_BITMAP_OFF;
-  if (data.length < base + bitmapWords * 8) {
+  const layout = detectSlabLayout(data.length);
+  if (!layout) throw new Error(`Unrecognized slab data length: ${data.length}`);
+  const base = layout.engineOff + layout.engineBitmapOff;
+  if (data.length < base + layout.bitmapWords * 8) {
     throw new Error("Slab data too short for bitmap");
   }
   const used = [];
-  for (let word = 0; word < bitmapWords; word++) {
+  for (let word = 0; word < layout.bitmapWords; word++) {
     const bits = readU64LE(data, base + word * 8);
     if (bits === 0n) continue;
     for (let bit = 0; bit < 64; bit++) {
@@ -1083,31 +1283,31 @@ function parseUsedIndices(data) {
   return used;
 }
 function isAccountUsed(data, idx) {
-  const layout = detectLayout(data.length);
-  const maxAcc = layout ? layout.maxAccounts : DEFAULT_MAX_ACCOUNTS;
-  if (!Number.isInteger(idx) || idx < 0 || idx >= maxAcc) return false;
-  const base = ENGINE_OFF + ENGINE_BITMAP_OFF;
+  const layout = detectSlabLayout(data.length);
+  if (!layout) return false;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= layout.maxAccounts) return false;
+  const base = layout.engineOff + layout.engineBitmapOff;
   const word = Math.floor(idx / 64);
   const bit = idx % 64;
   const bits = readU64LE(data, base + word * 8);
   return (bits >> BigInt(bit) & 1n) !== 0n;
 }
 function maxAccountIndex(dataLen) {
-  const layout = detectLayout(dataLen);
-  const accOff = layout ? layout.accountsOff : ENGINE_ACCOUNTS_OFF;
-  const accountsEnd = dataLen - ENGINE_OFF - accOff;
+  const layout = detectSlabLayout(dataLen);
+  if (!layout) return 0;
+  const accountsEnd = dataLen - layout.accountsOff;
   if (accountsEnd <= 0) return 0;
-  return Math.floor(accountsEnd / ACCOUNT_SIZE);
+  return Math.floor(accountsEnd / layout.accountSize);
 }
 function parseAccount(data, idx) {
+  const layout = detectSlabLayout(data.length);
+  if (!layout) throw new Error(`Unrecognized slab data length: ${data.length}`);
   const maxIdx = maxAccountIndex(data.length);
   if (!Number.isInteger(idx) || idx < 0 || idx >= maxIdx) {
     throw new Error(`Account index out of range: ${idx} (max: ${maxIdx - 1})`);
   }
-  const layout = detectLayout(data.length);
-  const accOff = layout ? layout.accountsOff : ENGINE_ACCOUNTS_OFF;
-  const base = ENGINE_OFF + accOff + idx * ACCOUNT_SIZE;
-  if (data.length < base + ACCOUNT_SIZE) {
+  const base = layout.accountsOff + idx * layout.accountSize;
+  if (data.length < base + layout.accountSize) {
     throw new Error("Slab data too short for account");
   }
   const kindByte = readU8(data, base + ACCT_KIND_OFF);
@@ -1205,28 +1405,50 @@ async function fetchTokenAccount(connection, address, tokenProgramId = TOKEN_PRO
 }
 
 // src/solana/discovery.ts
-var ENGINE_BITMAP_OFF2 = 576;
+var ENGINE_BITMAP_OFF = 656;
 var MAGIC_BYTES = new Uint8Array([84, 65, 76, 79, 67, 82, 69, 80]);
 var SLAB_TIERS = {
-  small: { maxAccounts: 256, dataSize: 65088, label: "Small", description: "256 slots \xB7 ~0.45 SOL" },
-  medium: { maxAccounts: 1024, dataSize: 257184, label: "Medium", description: "1,024 slots \xB7 ~1.79 SOL" },
-  large: { maxAccounts: 4096, dataSize: 1025568, label: "Large", description: "4,096 slots \xB7 ~7.14 SOL" }
+  small: { maxAccounts: 256, dataSize: 62808, label: "Small", description: "256 slots \xB7 ~0.44 SOL" },
+  medium: { maxAccounts: 1024, dataSize: 248760, label: "Medium", description: "1,024 slots \xB7 ~1.73 SOL" },
+  large: { maxAccounts: 4096, dataSize: 992568, label: "Large", description: "4,096 slots \xB7 ~6.90 SOL" }
+};
+var SLAB_TIERS_V1 = {
+  small: { maxAccounts: 256, dataSize: 65352, label: "Small", description: "256 slots \xB7 ~0.45 SOL" },
+  medium: { maxAccounts: 1024, dataSize: 257448, label: "Medium", description: "1,024 slots \xB7 ~1.79 SOL" },
+  large: { maxAccounts: 4096, dataSize: 1025832, label: "Large", description: "4,096 slots \xB7 ~7.14 SOL" }
 };
 function slabDataSize(maxAccounts) {
-  const ENGINE_OFF_LOCAL = 456;
-  const ENGINE_FIXED = 576;
-  const ACCOUNT_SIZE2 = 248;
+  const ENGINE_OFF_V0 = 480;
+  const ENGINE_BITMAP_OFF_V0 = 320;
+  const ACCOUNT_SIZE_V0 = 240;
   const bitmapBytes = Math.ceil(maxAccounts / 64) * 8;
   const postBitmap = 18;
   const nextFreeBytes = maxAccounts * 2;
-  const preAccountsLen = ENGINE_FIXED + bitmapBytes + postBitmap + nextFreeBytes;
+  const preAccountsLen = ENGINE_BITMAP_OFF_V0 + bitmapBytes + postBitmap + nextFreeBytes;
   const accountsOff = Math.ceil(preAccountsLen / 8) * 8;
-  return ENGINE_OFF_LOCAL + accountsOff + maxAccounts * ACCOUNT_SIZE2;
+  return ENGINE_OFF_V0 + accountsOff + maxAccounts * ACCOUNT_SIZE_V0;
 }
-var ALL_SLAB_SIZES = Object.values(SLAB_TIERS).map((t) => t.dataSize);
+function slabDataSizeV1(maxAccounts) {
+  const ENGINE_OFF_V1 = 640;
+  const ENGINE_BITMAP_OFF_V1 = 656;
+  const ACCOUNT_SIZE_V1 = 248;
+  const bitmapBytes = Math.ceil(maxAccounts / 64) * 8;
+  const postBitmap = 18;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = ENGINE_BITMAP_OFF_V1 + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOff = Math.ceil(preAccountsLen / 8) * 8;
+  return ENGINE_OFF_V1 + accountsOff + maxAccounts * ACCOUNT_SIZE_V1;
+}
+function validateSlabTierMatch(dataSize, programSlabLen) {
+  return dataSize === programSlabLen;
+}
+var ALL_SLAB_SIZES = [
+  ...Object.values(SLAB_TIERS).map((t) => t.dataSize),
+  ...Object.values(SLAB_TIERS_V1).map((t) => t.dataSize)
+];
 var SLAB_DATA_SIZE = SLAB_TIERS.large.dataSize;
-var HEADER_SLICE_LENGTH = 1600;
-var ENGINE_OFF2 = 456;
+var HEADER_SLICE_LENGTH = 1940;
+var ENGINE_OFF2 = ENGINE_OFF;
 function dv2(data) {
   return new DataView(data.buffer, data.byteOffset, data.byteLength);
 }
@@ -1254,12 +1476,12 @@ function readI128LE2(buf, offset) {
 }
 function parseEngineLight(data, maxAccounts = 4096) {
   const base = ENGINE_OFF2;
-  const minLen = base + ENGINE_BITMAP_OFF2;
+  const minLen = base + ENGINE_BITMAP_OFF;
   if (data.length < minLen) {
     throw new Error(`Slab data too short for engine light parse: ${data.length} < ${minLen}`);
   }
   const bitmapWords = Math.ceil(maxAccounts / 64);
-  const numUsedOff = ENGINE_BITMAP_OFF2 + bitmapWords * 8;
+  const numUsedOff = ENGINE_BITMAP_OFF + bitmapWords * 8;
   const nextAccountIdOff = Math.ceil((numUsedOff + 2) / 8) * 8;
   const canReadNumUsed = data.length >= base + numUsedOff + 2;
   const canReadNextId = data.length >= base + nextAccountIdOff + 8;
@@ -1267,31 +1489,39 @@ function parseEngineLight(data, maxAccounts = 4096) {
     vault: readU128LE2(data, base + 0),
     insuranceFund: {
       balance: readU128LE2(data, base + 16),
-      feeRevenue: readU128LE2(data, base + 32)
+      feeRevenue: readU128LE2(data, base + 32),
+      isolatedBalance: readU128LE2(data, base + 48),
+      isolationBps: readU16LE2(data, base + 64)
     },
-    currentSlot: readU64LE2(data, base + 336),
-    fundingIndexQpbE6: readI128LE2(data, base + 344),
-    lastFundingSlot: readU64LE2(data, base + 360),
-    fundingRateBpsPerSlotLast: readI64LE2(data, base + 368),
-    lastCrankSlot: readU64LE2(data, base + 400),
-    maxCrankStalenessSlots: readU64LE2(data, base + 408),
-    totalOpenInterest: readU128LE2(data, base + 416),
-    cTot: readU128LE2(data, base + 432),
-    pnlPosTot: readU128LE2(data, base + 448),
-    liqCursor: readU16LE2(data, base + 464),
-    gcCursor: readU16LE2(data, base + 466),
-    lastSweepStartSlot: readU64LE2(data, base + 472),
-    lastSweepCompleteSlot: readU64LE2(data, base + 480),
-    crankCursor: readU16LE2(data, base + 488),
-    sweepStartIdx: readU16LE2(data, base + 490),
-    lifetimeLiquidations: readU64LE2(data, base + 496),
-    lifetimeForceCloses: readU64LE2(data, base + 504),
-    netLpPos: readI128LE2(data, base + 512),
-    lpSumAbs: readU128LE2(data, base + 528),
-    lpMaxAbs: readU128LE2(data, base + 544),
-    lpMaxAbsSweep: readU128LE2(data, base + 560),
+    currentSlot: readU64LE2(data, base + 384),
+    fundingIndexQpbE6: readI128LE2(data, base + 392),
+    lastFundingSlot: readU64LE2(data, base + 384),
+    fundingRateBpsPerSlotLast: readI64LE2(data, base + 392),
+    lastCrankSlot: readU64LE2(data, base + 424),
+    maxCrankStalenessSlots: readU64LE2(data, base + 456),
+    totalOpenInterest: readU128LE2(data, base + 440),
+    longOi: readU128LE2(data, base + 456),
+    shortOi: readU128LE2(data, base + 472),
+    cTot: readU128LE2(data, base + 488),
+    pnlPosTot: readU128LE2(data, base + 552),
+    liqCursor: readU16LE2(data, base + 568),
+    gcCursor: readU16LE2(data, base + 546),
+    lastSweepStartSlot: readU64LE2(data, base + 552),
+    lastSweepCompleteSlot: readU64LE2(data, base + 584),
+    crankCursor: readU16LE2(data, base + 568),
+    sweepStartIdx: readU16LE2(data, base + 546),
+    lifetimeLiquidations: readU64LE2(data, base + 552),
+    lifetimeForceCloses: readU64LE2(data, base + 584),
+    netLpPos: readI128LE2(data, base + 568),
+    lpSumAbs: readU128LE2(data, base + 584),
+    lpMaxAbs: readU128LE2(data, base + 600),
+    lpMaxAbsSweep: readU128LE2(data, base + 640),
+    emergencyOiMode: data[base + 632] !== 0,
+    emergencyStartSlot: readU64LE2(data, base + 640),
+    lastBreakerSlot: readU64LE2(data, base + 648),
     numUsedAccounts: canReadNumUsed ? readU16LE2(data, base + numUsedOff) : 0,
-    nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
+    nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n,
+    markPriceE6: data.length >= base + ENGINE_MARK_PRICE_OFF + 8 ? readU64LE2(data, base + ENGINE_MARK_PRICE_OFF) : 0n
   };
 }
 async function discoverMarkets(connection, programId) {
@@ -2290,6 +2520,9 @@ export {
   ACCOUNTS_WITHDRAW_INSURANCE_LP,
   AccountKind,
   CTX_VAMM_OFFSET,
+  DEFAULT_OI_RAMP_SLOTS,
+  ENGINE_MARK_PRICE_OFF,
+  ENGINE_OFF,
   IX_TAG,
   MARK_PRICE_EMA_ALPHA_E6,
   MARK_PRICE_EMA_WINDOW_SLOTS,
@@ -2300,8 +2533,10 @@ export {
   PYTH_PUSH_ORACLE_PROGRAM_ID,
   PYTH_RECEIVER_PROGRAM_ID,
   PYTH_SOLANA_FEEDS,
+  RAMP_START_BPS,
   RAYDIUM_CLMM_PROGRAM_ID,
   SLAB_TIERS,
+  SLAB_TIERS_V1,
   STAKE_IX,
   STAKE_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -2311,6 +2546,7 @@ export {
   buildAccountMetas,
   buildIx,
   computeDexSpotPriceE6,
+  computeEffectiveOiCapBps,
   computeEmaMarkPrice,
   computeEstimatedEntryPrice,
   computeFundingRateAnnualized,
@@ -2335,6 +2571,7 @@ export {
   deriveVaultAuthority,
   detectDexType,
   detectLayout,
+  detectSlabLayout,
   detectTokenProgram,
   discoverMarkets,
   encBool,
@@ -2420,12 +2657,14 @@ export {
   resolvePrice,
   simulateOrSend,
   slabDataSize,
+  slabDataSizeV1,
   validateAmount,
   validateBps,
   validateI128,
   validateI64,
   validateIndex,
   validatePublicKey,
+  validateSlabTierMatch,
   validateU128,
   validateU16,
   validateU64,

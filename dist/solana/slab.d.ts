@@ -1,7 +1,70 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 /**
- * Slab header (72 bytes)
+ * Full slab layout descriptor. Returned by detectSlabLayout().
+ * All engine field offsets are relative to engineOff.
  */
+export interface SlabLayout {
+    version: 0 | 1;
+    headerLen: number;
+    configOffset: number;
+    configLen: number;
+    reservedOff: number;
+    engineOff: number;
+    accountSize: number;
+    maxAccounts: number;
+    bitmapWords: number;
+    accountsOff: number;
+    engineInsuranceOff: number;
+    engineParamsOff: number;
+    paramsSize: number;
+    engineCurrentSlotOff: number;
+    engineFundingIndexOff: number;
+    engineLastFundingSlotOff: number;
+    engineFundingRateBpsOff: number;
+    engineMarkPriceOff: number;
+    engineLastCrankSlotOff: number;
+    engineMaxCrankStalenessOff: number;
+    engineTotalOiOff: number;
+    engineLongOiOff: number;
+    engineShortOiOff: number;
+    engineCTotOff: number;
+    enginePnlPosTotOff: number;
+    engineLiqCursorOff: number;
+    engineGcCursorOff: number;
+    engineLastSweepStartOff: number;
+    engineLastSweepCompleteOff: number;
+    engineCrankCursorOff: number;
+    engineSweepStartIdxOff: number;
+    engineLifetimeLiquidationsOff: number;
+    engineLifetimeForceClosesOff: number;
+    engineNetLpPosOff: number;
+    engineLpSumAbsOff: number;
+    engineLpMaxAbsOff: number;
+    engineLpMaxAbsSweepOff: number;
+    engineEmergencyOiModeOff: number;
+    engineEmergencyStartSlotOff: number;
+    engineLastBreakerSlotOff: number;
+    engineBitmapOff: number;
+    hasInsuranceIsolation: boolean;
+    engineInsuranceIsolatedOff: number;
+    engineInsuranceIsolationBpsOff: number;
+}
+export declare const ENGINE_OFF = 640;
+export declare const ENGINE_MARK_PRICE_OFF = 400;
+/**
+ * Detect slab layout version from data length.
+ * Returns a full SlabLayout descriptor or null if unrecognized.
+ */
+export declare function detectSlabLayout(dataLen: number): SlabLayout | null;
+/**
+ * Legacy detectLayout for backward compat.
+ * Returns { bitmapWords, accountsOff, maxAccounts } or null.
+ */
+export declare function detectLayout(dataLen: number): {
+    bitmapWords: number;
+    accountsOff: number;
+    maxAccounts: number;
+} | null;
 export interface SlabHeader {
     magic: bigint;
     version: number;
@@ -13,11 +76,6 @@ export interface SlabHeader {
     nonce: bigint;
     lastThrUpdateSlot: bigint;
 }
-/**
- * Market config (starts at offset 72)
- * Layout: collateral_mint(32) + vault_pubkey(32) + index_feed_id(32)
- *         + max_staleness_secs(8) + conf_filter_bps(2) + vault_authority_bump(1) + invert(1) + unit_scale(4)
- */
 export interface MarketConfig {
     collateralMint: PublicKey;
     vaultPubkey: PublicKey;
@@ -32,6 +90,10 @@ export interface MarketConfig {
     fundingInvScaleNotionalE6: bigint;
     fundingMaxPremiumBps: bigint;
     fundingMaxBpsPerSlot: bigint;
+    fundingPremiumWeightBps: bigint;
+    fundingSettlementIntervalSlots: bigint;
+    fundingPremiumDampeningE6: bigint;
+    fundingPremiumMaxBpsPerSlot: bigint;
     threshFloor: bigint;
     threshRiskBps: bigint;
     threshUpdateIntervalSlots: bigint;
@@ -45,37 +107,21 @@ export interface MarketConfig {
     authorityTimestamp: bigint;
     oraclePriceCapE2bps: bigint;
     lastEffectivePriceE6: bigint;
+    oiCapMultiplierBps: bigint;
+    maxPnlCap: bigint;
+    adaptiveFundingEnabled: boolean;
+    adaptiveScaleBps: number;
+    adaptiveMaxFundingBps: bigint;
+    marketCreatedSlot: bigint;
+    oiRampSlots: bigint;
+    resolvedSlot: bigint;
+    insuranceIsolationBps: number;
 }
-/**
- * Fetch raw slab account data.
- */
-export declare function fetchSlab(connection: Connection, slabPubkey: PublicKey): Promise<Uint8Array>;
-/**
- * Parse slab header (first 64 bytes).
- */
-export declare function parseHeader(data: Uint8Array): SlabHeader;
-/**
- * Parse market config (starts at byte 72).
- * Layout: collateral_mint(32) + vault_pubkey(32) + index_feed_id(32)
- *         + max_staleness_secs(8) + conf_filter_bps(2) + vault_authority_bump(1) + invert(1) + unit_scale(4)
- */
-export declare function parseConfig(data: Uint8Array): MarketConfig;
-/**
- * Read nonce from slab header reserved field.
- */
-export declare function readNonce(data: Uint8Array): bigint;
-/**
- * Read last threshold update slot from slab header reserved field.
- */
-export declare function readLastThrUpdateSlot(data: Uint8Array): bigint;
-export declare function detectLayout(dataLen: number): {
-    bitmapWords: number;
-    accountsOff: number;
-    maxAccounts: number;
-} | null;
 export interface InsuranceFund {
     balance: bigint;
     feeRevenue: bigint;
+    isolatedBalance: bigint;
+    isolationBps: number;
 }
 export interface RiskParams {
     warmupPeriodSlots: bigint;
@@ -102,6 +148,8 @@ export interface EngineState {
     lastCrankSlot: bigint;
     maxCrankStalenessSlots: bigint;
     totalOpenInterest: bigint;
+    longOi: bigint;
+    shortOi: bigint;
     cTot: bigint;
     pnlPosTot: bigint;
     liqCursor: number;
@@ -116,8 +164,12 @@ export interface EngineState {
     lpSumAbs: bigint;
     lpMaxAbs: bigint;
     lpMaxAbsSweep: bigint;
+    emergencyOiMode: boolean;
+    emergencyStartSlot: bigint;
+    lastBreakerSlot: bigint;
     numUsedAccounts: number;
     nextAccountId: bigint;
+    markPriceE6: bigint;
 }
 export declare enum AccountKind {
     User = 0,
@@ -140,13 +192,30 @@ export interface Account {
     feeCredits: bigint;
     lastFeeSlot: bigint;
 }
+export declare function fetchSlab(connection: Connection, slabPubkey: PublicKey): Promise<Uint8Array>;
+export declare const RAMP_START_BPS = 1000n;
+export declare const DEFAULT_OI_RAMP_SLOTS = 432000n;
+export declare function computeEffectiveOiCapBps(config: MarketConfig, currentSlot: bigint): bigint;
+export declare function readNonce(data: Uint8Array): bigint;
+export declare function readLastThrUpdateSlot(data: Uint8Array): bigint;
 /**
- * Parse RiskParams from engine data.
- * Note: invert/unitScale are in MarketConfig, not RiskParams.
+ * Parse slab header (first 72 bytes — layout-independent).
+ */
+export declare function parseHeader(data: Uint8Array): SlabHeader;
+/**
+ * Parse market config. Layout-version aware.
+ * For V0 slabs, fields beyond the basic config are read if present in the data,
+ * otherwise defaults are returned.
+ */
+export declare function parseConfig(data: Uint8Array): MarketConfig;
+/**
+ * Parse RiskParams from engine data. Layout-version aware.
+ * For V0 slabs, extended params (risk_threshold, maintenance_fee, etc.) are
+ * not present on-chain, so defaults (0) are returned.
  */
 export declare function parseParams(data: Uint8Array): RiskParams;
 /**
- * Parse RiskEngine state (excluding accounts array).
+ * Parse RiskEngine state (excluding accounts array). Layout-version aware.
  */
 export declare function parseEngine(data: Uint8Array): EngineState;
 /**
@@ -167,7 +236,6 @@ export declare function maxAccountIndex(dataLen: number): number;
 export declare function parseAccount(data: Uint8Array, idx: number): Account;
 /**
  * Parse all used accounts.
- * Filters out indices that would be beyond the slab's account storage capacity.
  */
 export declare function parseAllAccounts(data: Uint8Array): {
     idx: number;
