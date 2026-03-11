@@ -209,9 +209,12 @@ export async function discoverMarkets(
         );
       }
     }
-    // If any tier queries failed and we found no accounts, fall back to memcmp discovery
-    if (hadRejection && rawAccounts.length === 0) {
-      console.warn("[discoverMarkets] All tier queries failed, falling back to memcmp");
+    // If dataSize filters returned no results (stale sizes after CONFIG_LEN bump), fall back to memcmp.
+    // NOTE: hadRejection guard removed — dataSize filters can silently return 0 when on-chain
+    // account sizes no longer match expected values (e.g. after CONFIG_LEN 352→496 bump).
+    // Helius/RPC returns no error in this case, so we must fallback on empty results too.
+    if (rawAccounts.length === 0) {
+      console.warn("[discoverMarkets] dataSize filters returned 0 accounts, falling back to memcmp");
       const fallback = await connection.getProgramAccounts(programId, {
         filters: [
           {

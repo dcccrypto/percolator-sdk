@@ -767,7 +767,7 @@ function readI64LE(data, off) {
 var MAGIC = 0x504552434f4c4154n;
 var HEADER_LEN = 104;
 var CONFIG_OFFSET = HEADER_LEN;
-var CONFIG_LEN = 352;
+var CONFIG_LEN = 496;
 var RESERVED_OFF = 80;
 var FLAG_RESOLVED = 1 << 0;
 async function fetchSlab(connection, slabPubkey) {
@@ -901,7 +901,7 @@ function readLastThrUpdateSlot(data) {
   }
   return readU64LE(data, RESERVED_OFF + 8);
 }
-var ENGINE_OFF = 456;
+var ENGINE_OFF = 600;
 var ENGINE_VAULT_OFF = 0;
 var ENGINE_INSURANCE_OFF = 16;
 var ENGINE_PARAMS_OFF = 48;
@@ -1208,12 +1208,12 @@ async function fetchTokenAccount(connection, address, tokenProgramId = TOKEN_PRO
 var ENGINE_BITMAP_OFF2 = 576;
 var MAGIC_BYTES = new Uint8Array([84, 65, 76, 79, 67, 82, 69, 80]);
 var SLAB_TIERS = {
-  small: { maxAccounts: 256, dataSize: 65088, label: "Small", description: "256 slots \xB7 ~0.45 SOL" },
-  medium: { maxAccounts: 1024, dataSize: 257184, label: "Medium", description: "1,024 slots \xB7 ~1.79 SOL" },
-  large: { maxAccounts: 4096, dataSize: 1025568, label: "Large", description: "4,096 slots \xB7 ~7.14 SOL" }
+  small: { maxAccounts: 256, dataSize: 65232, label: "Small", description: "256 slots \xB7 ~0.45 SOL" },
+  medium: { maxAccounts: 1024, dataSize: 257328, label: "Medium", description: "1,024 slots \xB7 ~1.79 SOL" },
+  large: { maxAccounts: 4096, dataSize: 1025712, label: "Large", description: "4,096 slots \xB7 ~7.14 SOL" }
 };
 function slabDataSize(maxAccounts) {
-  const ENGINE_OFF_LOCAL = 456;
+  const ENGINE_OFF_LOCAL = 600;
   const ENGINE_FIXED = 576;
   const ACCOUNT_SIZE2 = 248;
   const bitmapBytes = Math.ceil(maxAccounts / 64) * 8;
@@ -1319,8 +1319,8 @@ async function discoverMarkets(connection, programId) {
         );
       }
     }
-    if (hadRejection && rawAccounts.length === 0) {
-      console.warn("[discoverMarkets] All tier queries failed, falling back to memcmp");
+    if (rawAccounts.length === 0) {
+      console.warn("[discoverMarkets] dataSize filters returned 0 accounts, falling back to memcmp");
       const fallback = await connection.getProgramAccounts(programId, {
         filters: [
           {
