@@ -1549,8 +1549,8 @@ async function discoverMarkets(connection, programId) {
         );
       }
     }
-    if (hadRejection && rawAccounts.length === 0) {
-      console.warn("[discoverMarkets] All tier queries failed, falling back to memcmp");
+    if (rawAccounts.length === 0) {
+      console.warn("[discoverMarkets] dataSize filters returned 0 accounts, falling back to memcmp");
       const fallback = await connection.getProgramAccounts(programId, {
         filters: [
           {
