@@ -1,6 +1,9 @@
 import { PublicKey } from "@solana/web3.js";
 /**
- * Instruction tags - exact match to Rust ix::Instruction::decode
+ * Instruction tags - exact match to Rust src/tags.rs.
+ *
+ * ⚠️ NEVER reorder, remove, or reuse a tag number.
+ * Always append new instructions at the end, matching tags.rs.
  */
 export declare const IX_TAG: {
     readonly InitMarket: 0;
@@ -32,6 +35,76 @@ export declare const IX_TAG: {
     readonly WithdrawInsuranceLP: 26;
     readonly PauseMarket: 27;
     readonly UnpauseMarket: 28;
+    /** Two-step admin transfer: new admin accepts the proposal (PERC-110). */
+    readonly AcceptAdmin: 29;
+    /** Set insurance withdrawal policy on a resolved market (PERC-110). */
+    readonly SetInsuranceWithdrawPolicy: 30;
+    /** Withdraw limited amount from insurance fund per policy (PERC-110). */
+    readonly WithdrawInsuranceLimited: 31;
+    /** Configure on-chain Pyth oracle for a market (PERC-117). */
+    readonly SetPythOracle: 32;
+    /** Update mark price EMA (PERC-118, reserved). */
+    readonly UpdateMarkPrice: 33;
+    /** Update Hyperp mark from DEX oracle (PERC-119). */
+    readonly UpdateHyperpMark: 34;
+    /** Optimised TradeCpi with caller-provided PDA bump (PERC-154). */
+    readonly TradeCpiV2: 35;
+    /** Unresolve a market: clear RESOLVED flag, re-enable trading (PERC-273). */
+    readonly UnresolveMarket: 36;
+    /** Create LP vault: initialise state PDA + SPL mint for LP shares (PERC-272). */
+    readonly CreateLpVault: 37;
+    /** Deposit into LP vault: transfer SOL → vault, mint LP shares (PERC-272). */
+    readonly LpVaultDeposit: 38;
+    /** Withdraw from LP vault: burn LP shares, receive SOL (PERC-272). */
+    readonly LpVaultWithdraw: 39;
+    /** Permissionless crank: distribute accrued fee revenue to LP vault (PERC-272). */
+    readonly LpVaultCrankFees: 40;
+    /** Fund per-market isolated insurance balance (PERC-306). */
+    readonly FundMarketInsurance: 41;
+    /** Set insurance isolation BPS for a market (PERC-306). */
+    readonly SetInsuranceIsolation: 42;
+    /** Challenge settlement price during dispute window (PERC-314). */
+    readonly ChallengeSettlement: 43;
+    /** Resolve dispute (admin adjudication) (PERC-314). */
+    readonly ResolveDispute: 44;
+    /** Deposit LP vault tokens as perp collateral (PERC-315). */
+    readonly DepositLpCollateral: 45;
+    /** Withdraw LP collateral (position must be closed) (PERC-315). */
+    readonly WithdrawLpCollateral: 46;
+    /** Queue a large LP withdrawal (PERC-309). */
+    readonly QueueWithdrawal: 47;
+    /** Claim one epoch tranche from queued withdrawal (PERC-309). */
+    readonly ClaimQueuedWithdrawal: 48;
+    /** Cancel queued withdrawal, refund remaining (PERC-309). */
+    readonly CancelQueuedWithdrawal: 49;
+    /** Auto-deleverage: surgically close profitable positions when PnL cap hit (PERC-305). */
+    readonly ExecuteAdl: 50;
+    /** Close a stale slab (wrong size from old layout) and recover rent SOL. */
+    readonly CloseStateSlab: 51;
+    /** Reclaim rent from an uninitialised slab (magic = 0). */
+    readonly ReclaimSlabRent: 52;
+    /** Permissionless on-chain audit crank: verify conservation invariants. */
+    readonly AuditCrank: 53;
+    /** Admin: configure cross-market margin offset for a pair of slabs. */
+    readonly SetOffsetPair: 54;
+    /** Permissionless: attest user positions across two slabs for portfolio margin. */
+    readonly AttestCrossMargin: 55;
+    /** PERC-622: Advance oracle phase (permissionless crank). */
+    readonly AdvanceOraclePhase: 56;
+    /** PERC-623: Top up keeper fund (permissionless). */
+    readonly TopupKeeperFund: 57;
+    /** PERC-629: Slash creation deposit. */
+    readonly SlashCreationDeposit: 58;
+    /** PERC-628: Initialise the global shared vault. */
+    readonly InitSharedVault: 59;
+    /** PERC-628: Allocate virtual liquidity to a market. */
+    readonly AllocateMarket: 60;
+    /** PERC-628: Queue a withdrawal request for the current epoch. */
+    readonly QueueWithdrawalSv: 61;
+    /** PERC-628: Claim a queued withdrawal after epoch elapses. */
+    readonly ClaimEpochWithdrawal: 62;
+    /** PERC-628: Advance the shared vault epoch (permissionless crank). */
+    readonly AdvanceEpoch: 63;
 };
 /**
  * InitMarket instruction data (256 bytes total)
@@ -385,3 +458,97 @@ export declare const CTX_VAMM_OFFSET = 64;
  * For sells (isLong=false): price below oracle.
  */
 export declare function computeVammQuote(params: VammMatcherParams, oraclePriceE6: bigint, tradeSize: bigint, isLong: boolean): bigint;
+/**
+ * AdvanceOraclePhase (Tag 56, PERC-622) — permissionless crank.
+ * Transitions market through Phase 1→2→3 based on time + volume milestones.
+ * Instruction data: 1 byte (tag only — all params read from on-chain state).
+ */
+export declare function encodeAdvanceOraclePhase(): Uint8Array;
+/**
+ * TopupKeeperFund (Tag 57, PERC-623) — permissionless top-up.
+ * Transfers `amount` lamports from signer into the per-slab keeper fund PDA.
+ *
+ * Instruction data layout: tag(1) + amount(8) = 9 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] Payer
+ *   1. [writable]         KeeperFund PDA ["keeper_fund", slab]
+ *   2. []                 Slab
+ *   3. []                 System program
+ */
+export declare function encodeTopupKeeperFund(args: {
+    amount: bigint | string;
+}): Uint8Array;
+/**
+ * SlashCreationDeposit (Tag 58, PERC-629) — slash anti-spam deposit.
+ * Burns / redistributes the creation deposit for an abusive market.
+ * Instruction data: 1 byte (tag only).
+ *
+ * Accounts:
+ *   0. [signer] Admin
+ *   1. [writable] Slab
+ *   2. [writable] CreationDeposit PDA ["creation_deposit", slab]
+ */
+export declare function encodeSlashCreationDeposit(): Uint8Array;
+/**
+ * InitSharedVault (Tag 59, PERC-628) — initialise the global shared vault.
+ * Creates the SharedVault state PDA and associated token accounts.
+ * Instruction data: 1 byte (tag only — vault config read from InitMarket args).
+ *
+ * Accounts:
+ *   0. [signer, writable] Admin
+ *   1. [writable]         SharedVault PDA ["shared_vault"]
+ *   2. []                 System program
+ *   3. []                 Token program
+ */
+export declare function encodeInitSharedVault(): Uint8Array;
+/**
+ * AllocateMarket (Tag 60, PERC-628) — allocate virtual liquidity to a market.
+ * Sets the market's allocation from the shared vault.
+ *
+ * Instruction data layout: tag(1) + allocationLamports(8) = 9 bytes
+ *
+ * Accounts:
+ *   0. [signer] Admin
+ *   1. [writable] SharedVault PDA
+ *   2. [writable] MarketAllocation PDA ["mkt_alloc", slab]
+ *   3. [] Slab
+ */
+export declare function encodeAllocateMarket(args: {
+    allocationLamports: bigint | string;
+}): Uint8Array;
+/**
+ * QueueWithdrawalSv (Tag 61, PERC-628) — queue a shared-vault withdrawal request.
+ *
+ * Instruction data layout: tag(1) + shares(8) = 9 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] User
+ *   1. [writable]         SharedVault PDA
+ *   2. [writable]         WithdrawalRequest PDA ["sv_withdrawal", user, epoch]
+ *   3. []                 System program
+ */
+export declare function encodeQueueWithdrawalSv(args: {
+    shares: bigint | string;
+}): Uint8Array;
+/**
+ * ClaimEpochWithdrawal (Tag 62, PERC-628) — claim a queued withdrawal after epoch elapses.
+ * Instruction data: 1 byte (tag only — epoch derived from PDA).
+ *
+ * Accounts:
+ *   0. [signer, writable] User (recipient)
+ *   1. [writable]         SharedVault PDA
+ *   2. [writable]         WithdrawalRequest PDA
+ */
+export declare function encodeClaimEpochWithdrawal(): Uint8Array;
+/**
+ * AdvanceEpoch (Tag 63, PERC-628) — advance the shared vault epoch (permissionless crank).
+ * Settles pending withdrawals from the previous epoch.
+ * Instruction data: 1 byte (tag only).
+ *
+ * Accounts:
+ *   0. [signer] Cranker (anyone)
+ *   1. [writable] SharedVault PDA
+ *   2. [] Clock sysvar
+ */
+export declare function encodeAdvanceEpoch(): Uint8Array;
