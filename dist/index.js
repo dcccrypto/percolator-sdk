@@ -80,6 +80,7 @@ function concatBytes(...arrays) {
 
 // src/abi/instructions.ts
 var IX_TAG = {
+  // ── Core instructions (0-28) ──────────────────────────────────────────────
   InitMarket: 0,
   InitUser: 1,
   InitLP: 2,
@@ -108,7 +109,78 @@ var IX_TAG = {
   DepositInsuranceLP: 25,
   WithdrawInsuranceLP: 26,
   PauseMarket: 27,
-  UnpauseMarket: 28
+  UnpauseMarket: 28,
+  // ── Extended instructions (29+) ───────────────────────────────────────────
+  /** Two-step admin transfer: new admin accepts the proposal (PERC-110). */
+  AcceptAdmin: 29,
+  /** Set insurance withdrawal policy on a resolved market (PERC-110). */
+  SetInsuranceWithdrawPolicy: 30,
+  /** Withdraw limited amount from insurance fund per policy (PERC-110). */
+  WithdrawInsuranceLimited: 31,
+  /** Configure on-chain Pyth oracle for a market (PERC-117). */
+  SetPythOracle: 32,
+  /** Update mark price EMA (PERC-118, reserved). */
+  UpdateMarkPrice: 33,
+  /** Update Hyperp mark from DEX oracle (PERC-119). */
+  UpdateHyperpMark: 34,
+  /** Optimised TradeCpi with caller-provided PDA bump (PERC-154). */
+  TradeCpiV2: 35,
+  /** Unresolve a market: clear RESOLVED flag, re-enable trading (PERC-273). */
+  UnresolveMarket: 36,
+  /** Create LP vault: initialise state PDA + SPL mint for LP shares (PERC-272). */
+  CreateLpVault: 37,
+  /** Deposit into LP vault: transfer SOL → vault, mint LP shares (PERC-272). */
+  LpVaultDeposit: 38,
+  /** Withdraw from LP vault: burn LP shares, receive SOL (PERC-272). */
+  LpVaultWithdraw: 39,
+  /** Permissionless crank: distribute accrued fee revenue to LP vault (PERC-272). */
+  LpVaultCrankFees: 40,
+  /** Fund per-market isolated insurance balance (PERC-306). */
+  FundMarketInsurance: 41,
+  /** Set insurance isolation BPS for a market (PERC-306). */
+  SetInsuranceIsolation: 42,
+  /** Challenge settlement price during dispute window (PERC-314). */
+  ChallengeSettlement: 43,
+  /** Resolve dispute (admin adjudication) (PERC-314). */
+  ResolveDispute: 44,
+  /** Deposit LP vault tokens as perp collateral (PERC-315). */
+  DepositLpCollateral: 45,
+  /** Withdraw LP collateral (position must be closed) (PERC-315). */
+  WithdrawLpCollateral: 46,
+  /** Queue a large LP withdrawal (PERC-309). */
+  QueueWithdrawal: 47,
+  /** Claim one epoch tranche from queued withdrawal (PERC-309). */
+  ClaimQueuedWithdrawal: 48,
+  /** Cancel queued withdrawal, refund remaining (PERC-309). */
+  CancelQueuedWithdrawal: 49,
+  /** Auto-deleverage: surgically close profitable positions when PnL cap hit (PERC-305). */
+  ExecuteAdl: 50,
+  /** Close a stale slab (wrong size from old layout) and recover rent SOL. */
+  CloseStateSlab: 51,
+  /** Reclaim rent from an uninitialised slab (magic = 0). */
+  ReclaimSlabRent: 52,
+  /** Permissionless on-chain audit crank: verify conservation invariants. */
+  AuditCrank: 53,
+  /** Admin: configure cross-market margin offset for a pair of slabs. */
+  SetOffsetPair: 54,
+  /** Permissionless: attest user positions across two slabs for portfolio margin. */
+  AttestCrossMargin: 55,
+  /** PERC-622: Advance oracle phase (permissionless crank). */
+  AdvanceOraclePhase: 56,
+  /** PERC-623: Top up keeper fund (permissionless). */
+  TopupKeeperFund: 57,
+  /** PERC-629: Slash creation deposit. */
+  SlashCreationDeposit: 58,
+  /** PERC-628: Initialise the global shared vault. */
+  InitSharedVault: 59,
+  /** PERC-628: Allocate virtual liquidity to a market. */
+  AllocateMarket: 60,
+  /** PERC-628: Queue a withdrawal request for the current epoch. */
+  QueueWithdrawalSv: 61,
+  /** PERC-628: Claim a queued withdrawal after epoch elapses. */
+  ClaimEpochWithdrawal: 62,
+  /** PERC-628: Advance the shared vault epoch (permissionless crank). */
+  AdvanceEpoch: 63
 };
 function encodeFeedId(feedId) {
   const hex = feedId.startsWith("0x") ? feedId.slice(2) : feedId;
@@ -335,8 +407,6 @@ async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
   );
   return pda.toBase58();
 }
-IX_TAG["SetPythOracle"] = 32;
-IX_TAG["UpdateMarkPrice"] = 33;
 function encodeUpdateMarkPrice() {
   return new Uint8Array([33]);
 }
@@ -357,7 +427,6 @@ function computeEmaMarkPrice(markPrevE6, oracleE6, dtSlots, alphaE6 = MARK_PRICE
   const oneMinusAlpha = 1000000n - effectiveAlpha;
   return (oracleClamped * effectiveAlpha + markPrevE6 * oneMinusAlpha) / 1000000n;
 }
-IX_TAG["UpdateHyperpMark"] = 34;
 function encodeUpdateHyperpMark() {
   return new Uint8Array([34]);
 }
@@ -383,6 +452,30 @@ function computeVammQuote(params, oraclePriceE6, tradeSize, isLong) {
     if (totalBps >= BPS_DENOM) return 1n;
     return oraclePriceE6 * (BPS_DENOM - totalBps) / BPS_DENOM;
   }
+}
+function encodeAdvanceOraclePhase() {
+  return encU8(IX_TAG.AdvanceOraclePhase);
+}
+function encodeTopupKeeperFund(args) {
+  return concatBytes(encU8(IX_TAG.TopupKeeperFund), encU64(args.amount));
+}
+function encodeSlashCreationDeposit() {
+  return encU8(IX_TAG.SlashCreationDeposit);
+}
+function encodeInitSharedVault() {
+  return encU8(IX_TAG.InitSharedVault);
+}
+function encodeAllocateMarket(args) {
+  return concatBytes(encU8(IX_TAG.AllocateMarket), encU64(args.allocationLamports));
+}
+function encodeQueueWithdrawalSv(args) {
+  return concatBytes(encU8(IX_TAG.QueueWithdrawalSv), encU64(args.shares));
+}
+function encodeClaimEpochWithdrawal() {
+  return encU8(IX_TAG.ClaimEpochWithdrawal);
+}
+function encodeAdvanceEpoch() {
+  return encU8(IX_TAG.AdvanceEpoch);
 }
 
 // src/abi/accounts.ts
@@ -2584,6 +2677,10 @@ export {
   encU64,
   encU8,
   encodeAdminForceClose,
+  encodeAdvanceEpoch,
+  encodeAdvanceOraclePhase,
+  encodeAllocateMarket,
+  encodeClaimEpochWithdrawal,
   encodeCloseAccount,
   encodeCloseSlab,
   encodeCreateInsuranceMint,
@@ -2591,11 +2688,13 @@ export {
   encodeDepositInsuranceLP,
   encodeInitLP,
   encodeInitMarket,
+  encodeInitSharedVault,
   encodeInitUser,
   encodeKeeperCrank,
   encodeLiquidateAtOracle,
   encodePauseMarket,
   encodePushOraclePrice,
+  encodeQueueWithdrawalSv,
   encodeRenounceAdmin,
   encodeResolveMarket,
   encodeSetMaintenanceFee,
@@ -2603,6 +2702,7 @@ export {
   encodeSetOraclePriceCap,
   encodeSetPythOracle,
   encodeSetRiskThreshold,
+  encodeSlashCreationDeposit,
   encodeStakeAdminResolveMarket,
   encodeStakeAdminSetInsurancePolicy,
   encodeStakeAdminSetMaintenanceFee,
@@ -2616,6 +2716,7 @@ export {
   encodeStakeUpdateConfig,
   encodeStakeWithdraw,
   encodeTopUpInsurance,
+  encodeTopupKeeperFund,
   encodeTradeCpi,
   encodeTradeNoCpi,
   encodeUnpauseMarket,
