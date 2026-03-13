@@ -46,20 +46,33 @@ const MAGIC_BYTES = new Uint8Array([0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x
  *       RiskEngine grew by 32 bytes (PERC-298: long_oi + short_oi) + 24 (PERC-299: emergency OI).
  *       Values below must be verified against BPF build before deployment.
  */
-// V0 sizes (deployed devnet program: HEADER=72, CONFIG=408, ENGINE_OFF=480, ACCOUNT_SIZE=240)
-// V1 sizes (future upgrade: HEADER=104, CONFIG=536, ENGINE_OFF=640, ACCOUNT_SIZE=248)
-export const SLAB_TIERS = {
+// V0 sizes (legacy — pre-V1 upgrade, kept for discovery of old on-chain accounts)
+export const SLAB_TIERS_V0 = {
   small:  { maxAccounts: 256,  dataSize: 62_808,    label: "Small",  description: "256 slots · ~0.44 SOL" },
   medium: { maxAccounts: 1024, dataSize: 248_760,   label: "Medium", description: "1,024 slots · ~1.73 SOL" },
   large:  { maxAccounts: 4096, dataSize: 992_568,   label: "Large",  description: "4,096 slots · ~6.90 SOL" },
 } as const;
 
-/** V1 slab tier sizes (for use when program is upgraded to V1 layout) */
-export const SLAB_TIERS_V1 = {
+/**
+ * Current slab tier sizes — V1 layout (HEADER=104, CONFIG=536, ENGINE_OFF=640, ACCOUNT_SIZE=248).
+ * Values are empirically verified against on-chain initialized accounts:
+ *   small  = 65,352  (256-acct program, 32 accounts verified at this size)
+ *   medium = 257,448 (1024-acct program g9msRSV3, verified on-chain)
+ *   large  = 1,025,848 (4096-acct program, post-PERC-118 redeploy)
+ *
+ * NOTE: small program (FwfBKZXb) is currently compiled with wrong features
+ * (4096-acct instead of small). Devops must redeploy with --features small,devnet
+ * before small-tier market creation will work. These values are correct for
+ * a correctly compiled small binary.
+ */
+export const SLAB_TIERS = {
   small:  { maxAccounts: 256,  dataSize: 65_352,    label: "Small",  description: "256 slots · ~0.45 SOL" },
   medium: { maxAccounts: 1024, dataSize: 257_448,   label: "Medium", description: "1,024 slots · ~1.79 SOL" },
-  large:  { maxAccounts: 4096, dataSize: 1_025_832, label: "Large",  description: "4,096 slots · ~7.14 SOL" },
+  large:  { maxAccounts: 4096, dataSize: 1_025_848, label: "Large",  description: "4,096 slots · ~7.14 SOL" },
 } as const;
+
+/** @deprecated Use SLAB_TIERS (now V1) or SLAB_TIERS_V0 for legacy discovery */
+export const SLAB_TIERS_V1 = SLAB_TIERS;
 
 export type SlabTierKey = keyof typeof SLAB_TIERS;
 
@@ -89,7 +102,15 @@ export function slabDataSize(maxAccounts: number): number {
   return ENGINE_OFF_V0 + accountsOff + maxAccounts * ACCOUNT_SIZE_V0;
 }
 
-/** Calculate slab data size for V1 layout (future program upgrade). */
+/**
+ * Calculate slab data size for V1 layout.
+ *
+ * NOTE: This formula is accurate for small (256) and medium (1024) tiers but
+ * underestimates large (4096) by 16 bytes — likely due to a padding/alignment
+ * difference at high account counts or a post-PERC-118 struct addition.
+ * Always prefer the hardcoded SLAB_TIERS values (empirically verified on-chain)
+ * over this formula for production use.
+ */
 export function slabDataSizeV1(maxAccounts: number): number {
   const ENGINE_OFF_V1 = 640;
   const ENGINE_BITMAP_OFF_V1 = 656;
@@ -114,10 +135,10 @@ export function validateSlabTierMatch(dataSize: number, programSlabLen: number):
   return dataSize === programSlabLen;
 }
 
-/** All known slab data sizes for discovery (V0 + V1 tiers) */
+/** All known slab data sizes for discovery (current V1 + legacy V0 tiers) */
 const ALL_SLAB_SIZES = [
   ...Object.values(SLAB_TIERS).map(t => t.dataSize),
-  ...Object.values(SLAB_TIERS_V1).map(t => t.dataSize),
+  ...Object.values(SLAB_TIERS_V0).map(t => t.dataSize),
 ];
 
 /** Legacy constant for backward compat */
@@ -235,9 +256,12 @@ export async function discoverMarkets(
   connection: Connection,
   programId: PublicKey,
 ): Promise<DiscoveredMarket[]> {
-  // Query all known slab sizes in parallel to discover markets of any tier
-  // Track which tier each account belongs to for correct offset computation
-  const ALL_TIERS = Object.values(SLAB_TIERS);
+  // Query all known slab sizes (V1 current + V0 legacy) in parallel to discover
+  // markets of any tier, including pre-upgrade accounts with old sizes.
+  const ALL_TIERS = [
+    ...Object.values(SLAB_TIERS),
+    ...Object.values(SLAB_TIERS_V0),
+  ].filter((t, i, arr) => arr.findIndex(u => u.dataSize === t.dataSize) === i);
   let rawAccounts: { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number }[] = [];
   try {
     const queries = ALL_TIERS.map(tier =>

@@ -28,7 +28,7 @@ export interface DiscoveredMarket {
  *       RiskEngine grew by 32 bytes (PERC-298: long_oi + short_oi) + 24 (PERC-299: emergency OI).
  *       Values below must be verified against BPF build before deployment.
  */
-export declare const SLAB_TIERS: {
+export declare const SLAB_TIERS_V0: {
     readonly small: {
         readonly maxAccounts: 256;
         readonly dataSize: 62808;
@@ -48,7 +48,39 @@ export declare const SLAB_TIERS: {
         readonly description: "4,096 slots · ~6.90 SOL";
     };
 };
-/** V1 slab tier sizes (for use when program is upgraded to V1 layout) */
+/**
+ * Current slab tier sizes — V1 layout (HEADER=104, CONFIG=536, ENGINE_OFF=640, ACCOUNT_SIZE=248).
+ * Values are empirically verified against on-chain initialized accounts:
+ *   small  = 65,352  (256-acct program, 32 accounts verified at this size)
+ *   medium = 257,448 (1024-acct program g9msRSV3, verified on-chain)
+ *   large  = 1,025,848 (4096-acct program, post-PERC-118 redeploy)
+ *
+ * NOTE: small program (FwfBKZXb) is currently compiled with wrong features
+ * (4096-acct instead of small). Devops must redeploy with --features small,devnet
+ * before small-tier market creation will work. These values are correct for
+ * a correctly compiled small binary.
+ */
+export declare const SLAB_TIERS: {
+    readonly small: {
+        readonly maxAccounts: 256;
+        readonly dataSize: 65352;
+        readonly label: "Small";
+        readonly description: "256 slots · ~0.45 SOL";
+    };
+    readonly medium: {
+        readonly maxAccounts: 1024;
+        readonly dataSize: 257448;
+        readonly label: "Medium";
+        readonly description: "1,024 slots · ~1.79 SOL";
+    };
+    readonly large: {
+        readonly maxAccounts: 4096;
+        readonly dataSize: 1025848;
+        readonly label: "Large";
+        readonly description: "4,096 slots · ~7.14 SOL";
+    };
+};
+/** @deprecated Use SLAB_TIERS (now V1) or SLAB_TIERS_V0 for legacy discovery */
 export declare const SLAB_TIERS_V1: {
     readonly small: {
         readonly maxAccounts: 256;
@@ -64,7 +96,7 @@ export declare const SLAB_TIERS_V1: {
     };
     readonly large: {
         readonly maxAccounts: 4096;
-        readonly dataSize: 1025832;
+        readonly dataSize: 1025848;
         readonly label: "Large";
         readonly description: "4,096 slots · ~7.14 SOL";
     };
@@ -84,7 +116,15 @@ export type SlabTierKey = keyof typeof SLAB_TIERS;
  * Must match the on-chain program's SLAB_LEN exactly.
  */
 export declare function slabDataSize(maxAccounts: number): number;
-/** Calculate slab data size for V1 layout (future program upgrade). */
+/**
+ * Calculate slab data size for V1 layout.
+ *
+ * NOTE: This formula is accurate for small (256) and medium (1024) tiers but
+ * underestimates large (4096) by 16 bytes — likely due to a padding/alignment
+ * difference at high account counts or a post-PERC-118 struct addition.
+ * Always prefer the hardcoded SLAB_TIERS values (empirically verified on-chain)
+ * over this formula for production use.
+ */
 export declare function slabDataSizeV1(maxAccounts: number): number;
 /**
  * Validate that a slab data size matches one of the known tier sizes.
