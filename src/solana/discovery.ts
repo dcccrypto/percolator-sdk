@@ -3,6 +3,7 @@ import {
   parseHeader,
   parseConfig,
   parseParams,
+  detectSlabLayout,
   ENGINE_OFF as SLAB_ENGINE_OFF,
   ENGINE_MARK_PRICE_OFF,
   type SlabHeader,
@@ -188,18 +189,26 @@ function readI128LE(buf: Uint8Array, offset: number): bigint {
 
 /**
  * Light engine parser that works with partial slab data (dataSlice, no accounts array).
+ * Uses detectSlabLayout() for V0/V1/V2-aware offset resolution so V2 slabs
+ * (ENGINE_OFF=600, BITMAP=432) are not mis-parsed with V1 offsets (ENGINE_OFF=640, BITMAP=656).
  * @param maxAccounts — the tier's max accounts (256/1024/4096) to compute correct bitmap offsets
+ * @param slabDataLen — full slab data length used to detect layout version; defaults to V1 if unknown
  */
-function parseEngineLight(data: Uint8Array, maxAccounts: number = 4096): EngineState {
-  const base = ENGINE_OFF;
-  const minLen = base + ENGINE_BITMAP_OFF; // need at least fixed engine fields
+function parseEngineLight(data: Uint8Array, maxAccounts: number = 4096, slabDataLen?: number): EngineState {
+  // Resolve layout from full slab data length; fall back to V1 if unknown.
+  const layout = slabDataLen !== undefined ? detectSlabLayout(slabDataLen) : null;
+  const base = layout ? layout.engineOff : ENGINE_OFF;
+  const bitmapRelOff = layout ? layout.engineBitmapOff : ENGINE_BITMAP_OFF;
+  const markPriceRelOff = layout ? layout.engineMarkPriceOff : ENGINE_MARK_PRICE_OFF;
+
+  const minLen = base + bitmapRelOff; // need at least fixed engine fields
   if (data.length < minLen) {
     throw new Error(`Slab data too short for engine light parse: ${data.length} < ${minLen}`);
   }
 
   // Compute tier-dependent offsets for numUsedAccounts and nextAccountId
   const bitmapWords = Math.ceil(maxAccounts / 64);
-  const numUsedOff = ENGINE_BITMAP_OFF + bitmapWords * 8; // u16 right after bitmap
+  const numUsedOff = bitmapRelOff + bitmapWords * 8; // u16 right after bitmap
   const nextAccountIdOff = Math.ceil((numUsedOff + 2) / 8) * 8; // u64, 8-byte aligned
 
   // Check if the partial slice is long enough to read these fields
@@ -253,8 +262,8 @@ function parseEngineLight(data: Uint8Array, maxAccounts: number = 4096): EngineS
     lastBreakerSlot: readU64LE(data, base + 648),
     numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
     nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
-    markPriceE6: data.length >= base + ENGINE_MARK_PRICE_OFF + 8
-      ? readU64LE(data, base + ENGINE_MARK_PRICE_OFF)
+    markPriceE6: markPriceRelOff >= 0 && data.length >= base + markPriceRelOff + 8
+      ? readU64LE(data, base + markPriceRelOff)
       : 0n,
   };
 }
@@ -272,21 +281,23 @@ export async function discoverMarkets(
   const ALL_TIERS = [
     ...Object.values(SLAB_TIERS),
     ...Object.values(SLAB_TIERS_V0),
+    ...Object.values(SLAB_TIERS_V2),
   ].filter((t, i, arr) => arr.findIndex(u => u.dataSize === t.dataSize) === i);
-  let rawAccounts: { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number }[] = [];
+  type RawAccount = { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number; slabDataSize: number };
+  let rawAccounts: RawAccount[] = [];
   try {
     const queries = ALL_TIERS.map(tier =>
       connection.getProgramAccounts(programId, {
         filters: [{ dataSize: tier.dataSize }],
         dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
-      }).then(results => results.map(entry => ({ ...entry, maxAccounts: tier.maxAccounts })))
+      }).then(results => results.map(entry => ({ ...entry, maxAccounts: tier.maxAccounts, slabDataSize: tier.dataSize })))
     );
     const results = await Promise.allSettled(queries);
     let hadRejection = false;
     for (const result of results) {
       if (result.status === "fulfilled") {
         for (const entry of result.value) {
-          rawAccounts.push(entry as { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number });
+          rawAccounts.push(entry as RawAccount);
         }
       } else {
         hadRejection = true;
@@ -313,7 +324,8 @@ export async function discoverMarkets(
         ],
         dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
       });
-      rawAccounts = [...fallback].map(e => ({ ...e, maxAccounts: 4096 })) as { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number }[];
+      // slabDataSize unknown from memcmp fallback; use 0 so detectSlabLayout falls back to V1 defaults
+      rawAccounts = [...fallback].map(e => ({ ...e, maxAccounts: 4096, slabDataSize: 0 })) as RawAccount[];
     }
   } catch (err) {
     console.warn(
@@ -331,13 +343,13 @@ export async function discoverMarkets(
       ],
       dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
     });
-    rawAccounts = [...fallback].map(e => ({ ...e, maxAccounts: 4096 })) as { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number }[];
+    rawAccounts = [...fallback].map(e => ({ ...e, maxAccounts: 4096, slabDataSize: 0 })) as RawAccount[];
   }
   const accounts = rawAccounts;
 
   const markets: DiscoveredMarket[] = [];
 
-  for (const { pubkey, account, maxAccounts } of accounts) {
+  for (const { pubkey, account, maxAccounts, slabDataSize } of accounts) {
     const data = new Uint8Array(account.data);
 
     let valid = true;
@@ -352,7 +364,8 @@ export async function discoverMarkets(
     try {
       const header = parseHeader(data);
       const config = parseConfig(data);
-      const engine = parseEngineLight(data, maxAccounts);
+      // Pass slabDataSize so parseEngineLight resolves V0/V1/V2 layout offsets correctly.
+      const engine = parseEngineLight(data, maxAccounts, slabDataSize || undefined);
       const params = parseParams(data);
 
       markets.push({ slabAddress: pubkey, programId, header, config, engine, params });
