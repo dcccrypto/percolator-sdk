@@ -874,6 +874,35 @@ function readU128LE(buf, offset) {
 }
 var MAGIC = 0x504552434f4c4154n;
 var FLAG_RESOLVED = 1 << 0;
+var V2_HEADER_LEN = 104;
+var V2_CONFIG_LEN = 496;
+var V2_ENGINE_OFF = 600;
+var V2_ACCOUNT_SIZE = 248;
+var V2_RESERVED_OFF = 80;
+var V2_ENGINE_PARAMS_OFF = 64;
+var V2_PARAMS_SIZE = 288;
+var V2_ENGINE_CURRENT_SLOT_OFF = 352;
+var V2_ENGINE_FUNDING_INDEX_OFF = 360;
+var V2_ENGINE_LAST_FUNDING_SLOT_OFF = 376;
+var V2_ENGINE_FUNDING_RATE_BPS_OFF = 384;
+var V2_ENGINE_LAST_CRANK_SLOT_OFF = 392;
+var V2_ENGINE_MAX_CRANK_STALENESS_OFF = 400;
+var V2_ENGINE_TOTAL_OI_OFF = 408;
+var V2_ENGINE_C_TOT_OFF = 424;
+var V2_ENGINE_PNL_POS_TOT_OFF = 440;
+var V2_ENGINE_LIQ_CURSOR_OFF = 456;
+var V2_ENGINE_GC_CURSOR_OFF = 458;
+var V2_ENGINE_LAST_SWEEP_START_OFF = 464;
+var V2_ENGINE_LAST_SWEEP_COMPLETE_OFF = 472;
+var V2_ENGINE_CRANK_CURSOR_OFF = 480;
+var V2_ENGINE_SWEEP_START_IDX_OFF = 482;
+var V2_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 488;
+var V2_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 496;
+var V2_ENGINE_NET_LP_POS_OFF = 504;
+var V2_ENGINE_LP_SUM_ABS_OFF = 520;
+var V2_ENGINE_LP_MAX_ABS_OFF = 536;
+var V2_ENGINE_LP_MAX_ABS_SWEEP_OFF = 552;
+var V2_ENGINE_BITMAP_OFF = 432;
 var V0_HEADER_LEN = 72;
 var V0_CONFIG_LEN = 408;
 var V0_ENGINE_OFF = 480;
@@ -909,7 +938,6 @@ var V1_ENGINE_OFF = 640;
 var V1_ACCOUNT_SIZE = 248;
 var V1_RESERVED_OFF = 80;
 var V1_ENGINE_PARAMS_OFF = 72;
-var V1_PARAMS_SIZE = 288;
 var V1_ENGINE_CURRENT_SLOT_OFF = 360;
 var V1_ENGINE_FUNDING_INDEX_OFF = 368;
 var V1_ENGINE_LAST_FUNDING_SLOT_OFF = 384;
@@ -952,15 +980,18 @@ function computeSlabSize(engineOff, bitmapOff, accountSize, maxAccounts) {
 var TIERS = [64, 256, 1024, 4096];
 var V0_SIZES = /* @__PURE__ */ new Map();
 var V1_SIZES = /* @__PURE__ */ new Map();
+var V2_SIZES = /* @__PURE__ */ new Map();
 for (const n of TIERS) {
   V0_SIZES.set(computeSlabSize(V0_ENGINE_OFF, V0_ENGINE_BITMAP_OFF, V0_ACCOUNT_SIZE, n), n);
   V1_SIZES.set(computeSlabSize(V1_ENGINE_OFF, V1_ENGINE_BITMAP_OFF, V1_ACCOUNT_SIZE, n), n);
+  V2_SIZES.set(computeSlabSize(V2_ENGINE_OFF, V2_ENGINE_BITMAP_OFF, V2_ACCOUNT_SIZE, n), n);
 }
 function buildLayout(version, maxAccounts) {
   const isV0 = version === 0;
-  const engineOff = isV0 ? V0_ENGINE_OFF : V1_ENGINE_OFF;
-  const bitmapOff = isV0 ? V0_ENGINE_BITMAP_OFF : V1_ENGINE_BITMAP_OFF;
-  const accountSize = isV0 ? V0_ACCOUNT_SIZE : V1_ACCOUNT_SIZE;
+  const isV2 = version === 2;
+  const engineOff = isV0 ? V0_ENGINE_OFF : isV2 ? V2_ENGINE_OFF : V1_ENGINE_OFF;
+  const bitmapOff = isV0 ? V0_ENGINE_BITMAP_OFF : isV2 ? V2_ENGINE_BITMAP_OFF : V1_ENGINE_BITMAP_OFF;
+  const accountSize = isV0 ? V0_ACCOUNT_SIZE : V2_ACCOUNT_SIZE;
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
   const postBitmap = 18;
@@ -969,47 +1000,50 @@ function buildLayout(version, maxAccounts) {
   const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
   return {
     version,
-    headerLen: isV0 ? V0_HEADER_LEN : V1_HEADER_LEN,
-    configOffset: isV0 ? V0_HEADER_LEN : V1_HEADER_LEN,
-    configLen: isV0 ? V0_CONFIG_LEN : V1_CONFIG_LEN,
-    reservedOff: isV0 ? V0_RESERVED_OFF : V1_RESERVED_OFF,
+    headerLen: isV0 ? V0_HEADER_LEN : isV2 ? V2_HEADER_LEN : V1_HEADER_LEN,
+    configOffset: isV0 ? V0_HEADER_LEN : isV2 ? V2_HEADER_LEN : V1_HEADER_LEN,
+    configLen: isV0 ? V0_CONFIG_LEN : isV2 ? V2_CONFIG_LEN : V1_CONFIG_LEN,
+    reservedOff: isV0 ? V0_RESERVED_OFF : isV2 ? V2_RESERVED_OFF : V1_RESERVED_OFF,
     engineOff,
     accountSize,
     maxAccounts,
     bitmapWords,
     accountsOff: engineOff + accountsOffRel,
     engineInsuranceOff: 16,
-    engineParamsOff: isV0 ? V0_ENGINE_PARAMS_OFF : V1_ENGINE_PARAMS_OFF,
-    paramsSize: isV0 ? V0_PARAMS_SIZE : V1_PARAMS_SIZE,
-    engineCurrentSlotOff: isV0 ? V0_ENGINE_CURRENT_SLOT_OFF : V1_ENGINE_CURRENT_SLOT_OFF,
-    engineFundingIndexOff: isV0 ? V0_ENGINE_FUNDING_INDEX_OFF : V1_ENGINE_FUNDING_INDEX_OFF,
-    engineLastFundingSlotOff: isV0 ? V0_ENGINE_LAST_FUNDING_SLOT_OFF : V1_ENGINE_LAST_FUNDING_SLOT_OFF,
-    engineFundingRateBpsOff: isV0 ? V0_ENGINE_FUNDING_RATE_BPS_OFF : V1_ENGINE_FUNDING_RATE_BPS_OFF,
-    engineMarkPriceOff: isV0 ? -1 : V1_ENGINE_MARK_PRICE_OFF,
-    engineLastCrankSlotOff: isV0 ? V0_ENGINE_LAST_CRANK_SLOT_OFF : V1_ENGINE_LAST_CRANK_SLOT_OFF,
-    engineMaxCrankStalenessOff: isV0 ? V0_ENGINE_MAX_CRANK_STALENESS_OFF : V1_ENGINE_MAX_CRANK_STALENESS_OFF,
-    engineTotalOiOff: isV0 ? V0_ENGINE_TOTAL_OI_OFF : V1_ENGINE_TOTAL_OI_OFF,
-    engineLongOiOff: isV0 ? -1 : V1_ENGINE_LONG_OI_OFF,
-    engineShortOiOff: isV0 ? -1 : V1_ENGINE_SHORT_OI_OFF,
-    engineCTotOff: isV0 ? V0_ENGINE_C_TOT_OFF : V1_ENGINE_C_TOT_OFF,
-    enginePnlPosTotOff: isV0 ? V0_ENGINE_PNL_POS_TOT_OFF : V1_ENGINE_PNL_POS_TOT_OFF,
-    engineLiqCursorOff: isV0 ? V0_ENGINE_LIQ_CURSOR_OFF : V1_ENGINE_LIQ_CURSOR_OFF,
-    engineGcCursorOff: isV0 ? V0_ENGINE_GC_CURSOR_OFF : V1_ENGINE_GC_CURSOR_OFF,
-    engineLastSweepStartOff: isV0 ? V0_ENGINE_LAST_SWEEP_START_OFF : V1_ENGINE_LAST_SWEEP_START_OFF,
-    engineLastSweepCompleteOff: isV0 ? V0_ENGINE_LAST_SWEEP_COMPLETE_OFF : V1_ENGINE_LAST_SWEEP_COMPLETE_OFF,
-    engineCrankCursorOff: isV0 ? V0_ENGINE_CRANK_CURSOR_OFF : V1_ENGINE_CRANK_CURSOR_OFF,
-    engineSweepStartIdxOff: isV0 ? V0_ENGINE_SWEEP_START_IDX_OFF : V1_ENGINE_SWEEP_START_IDX_OFF,
-    engineLifetimeLiquidationsOff: isV0 ? V0_ENGINE_LIFETIME_LIQUIDATIONS_OFF : V1_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
-    engineLifetimeForceClosesOff: isV0 ? V0_ENGINE_LIFETIME_FORCE_CLOSES_OFF : V1_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
-    engineNetLpPosOff: isV0 ? V0_ENGINE_NET_LP_POS_OFF : V1_ENGINE_NET_LP_POS_OFF,
-    engineLpSumAbsOff: isV0 ? V0_ENGINE_LP_SUM_ABS_OFF : V1_ENGINE_LP_SUM_ABS_OFF,
-    engineLpMaxAbsOff: isV0 ? V0_ENGINE_LP_MAX_ABS_OFF : V1_ENGINE_LP_MAX_ABS_OFF,
-    engineLpMaxAbsSweepOff: isV0 ? V0_ENGINE_LP_MAX_ABS_SWEEP_OFF : V1_ENGINE_LP_MAX_ABS_SWEEP_OFF,
-    engineEmergencyOiModeOff: isV0 ? -1 : V1_ENGINE_EMERGENCY_OI_MODE_OFF,
-    engineEmergencyStartSlotOff: isV0 ? -1 : V1_ENGINE_EMERGENCY_START_SLOT_OFF,
-    engineLastBreakerSlotOff: isV0 ? -1 : V1_ENGINE_LAST_BREAKER_SLOT_OFF,
-    engineBitmapOff: isV0 ? V0_ENGINE_BITMAP_OFF : V1_ENGINE_BITMAP_OFF,
+    engineParamsOff: isV0 ? V0_ENGINE_PARAMS_OFF : isV2 ? V2_ENGINE_PARAMS_OFF : V1_ENGINE_PARAMS_OFF,
+    paramsSize: isV0 ? V0_PARAMS_SIZE : V2_PARAMS_SIZE,
+    // V1 and V2 share extended params size
+    engineCurrentSlotOff: isV0 ? V0_ENGINE_CURRENT_SLOT_OFF : isV2 ? V2_ENGINE_CURRENT_SLOT_OFF : V1_ENGINE_CURRENT_SLOT_OFF,
+    engineFundingIndexOff: isV0 ? V0_ENGINE_FUNDING_INDEX_OFF : isV2 ? V2_ENGINE_FUNDING_INDEX_OFF : V1_ENGINE_FUNDING_INDEX_OFF,
+    engineLastFundingSlotOff: isV0 ? V0_ENGINE_LAST_FUNDING_SLOT_OFF : isV2 ? V2_ENGINE_LAST_FUNDING_SLOT_OFF : V1_ENGINE_LAST_FUNDING_SLOT_OFF,
+    engineFundingRateBpsOff: isV0 ? V0_ENGINE_FUNDING_RATE_BPS_OFF : isV2 ? V2_ENGINE_FUNDING_RATE_BPS_OFF : V1_ENGINE_FUNDING_RATE_BPS_OFF,
+    engineMarkPriceOff: isV0 || isV2 ? -1 : V1_ENGINE_MARK_PRICE_OFF,
+    engineLastCrankSlotOff: isV0 ? V0_ENGINE_LAST_CRANK_SLOT_OFF : isV2 ? V2_ENGINE_LAST_CRANK_SLOT_OFF : V1_ENGINE_LAST_CRANK_SLOT_OFF,
+    engineMaxCrankStalenessOff: isV0 ? V0_ENGINE_MAX_CRANK_STALENESS_OFF : isV2 ? V2_ENGINE_MAX_CRANK_STALENESS_OFF : V1_ENGINE_MAX_CRANK_STALENESS_OFF,
+    engineTotalOiOff: isV0 ? V0_ENGINE_TOTAL_OI_OFF : isV2 ? V2_ENGINE_TOTAL_OI_OFF : V1_ENGINE_TOTAL_OI_OFF,
+    engineLongOiOff: isV0 || isV2 ? -1 : V1_ENGINE_LONG_OI_OFF,
+    engineShortOiOff: isV0 || isV2 ? -1 : V1_ENGINE_SHORT_OI_OFF,
+    engineCTotOff: isV0 ? V0_ENGINE_C_TOT_OFF : isV2 ? V2_ENGINE_C_TOT_OFF : V1_ENGINE_C_TOT_OFF,
+    enginePnlPosTotOff: isV0 ? V0_ENGINE_PNL_POS_TOT_OFF : isV2 ? V2_ENGINE_PNL_POS_TOT_OFF : V1_ENGINE_PNL_POS_TOT_OFF,
+    engineLiqCursorOff: isV0 ? V0_ENGINE_LIQ_CURSOR_OFF : isV2 ? V2_ENGINE_LIQ_CURSOR_OFF : V1_ENGINE_LIQ_CURSOR_OFF,
+    engineGcCursorOff: isV0 ? V0_ENGINE_GC_CURSOR_OFF : isV2 ? V2_ENGINE_GC_CURSOR_OFF : V1_ENGINE_GC_CURSOR_OFF,
+    engineLastSweepStartOff: isV0 ? V0_ENGINE_LAST_SWEEP_START_OFF : isV2 ? V2_ENGINE_LAST_SWEEP_START_OFF : V1_ENGINE_LAST_SWEEP_START_OFF,
+    engineLastSweepCompleteOff: isV0 ? V0_ENGINE_LAST_SWEEP_COMPLETE_OFF : isV2 ? V2_ENGINE_LAST_SWEEP_COMPLETE_OFF : V1_ENGINE_LAST_SWEEP_COMPLETE_OFF,
+    engineCrankCursorOff: isV0 ? V0_ENGINE_CRANK_CURSOR_OFF : isV2 ? V2_ENGINE_CRANK_CURSOR_OFF : V1_ENGINE_CRANK_CURSOR_OFF,
+    engineSweepStartIdxOff: isV0 ? V0_ENGINE_SWEEP_START_IDX_OFF : isV2 ? V2_ENGINE_SWEEP_START_IDX_OFF : V1_ENGINE_SWEEP_START_IDX_OFF,
+    engineLifetimeLiquidationsOff: isV0 ? V0_ENGINE_LIFETIME_LIQUIDATIONS_OFF : isV2 ? V2_ENGINE_LIFETIME_LIQUIDATIONS_OFF : V1_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
+    engineLifetimeForceClosesOff: isV0 ? V0_ENGINE_LIFETIME_FORCE_CLOSES_OFF : isV2 ? V2_ENGINE_LIFETIME_FORCE_CLOSES_OFF : V1_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
+    engineNetLpPosOff: isV0 ? V0_ENGINE_NET_LP_POS_OFF : isV2 ? V2_ENGINE_NET_LP_POS_OFF : V1_ENGINE_NET_LP_POS_OFF,
+    engineLpSumAbsOff: isV0 ? V0_ENGINE_LP_SUM_ABS_OFF : isV2 ? V2_ENGINE_LP_SUM_ABS_OFF : V1_ENGINE_LP_SUM_ABS_OFF,
+    engineLpMaxAbsOff: isV0 ? V0_ENGINE_LP_MAX_ABS_OFF : isV2 ? V2_ENGINE_LP_MAX_ABS_OFF : V1_ENGINE_LP_MAX_ABS_OFF,
+    engineLpMaxAbsSweepOff: isV0 ? V0_ENGINE_LP_MAX_ABS_SWEEP_OFF : isV2 ? V2_ENGINE_LP_MAX_ABS_SWEEP_OFF : V1_ENGINE_LP_MAX_ABS_SWEEP_OFF,
+    // No emergency OI fields in V0 or V2
+    engineEmergencyOiModeOff: !isV0 && !isV2 ? V1_ENGINE_EMERGENCY_OI_MODE_OFF : -1,
+    engineEmergencyStartSlotOff: !isV0 && !isV2 ? V1_ENGINE_EMERGENCY_START_SLOT_OFF : -1,
+    engineLastBreakerSlotOff: !isV0 && !isV2 ? V1_ENGINE_LAST_BREAKER_SLOT_OFF : -1,
+    engineBitmapOff: bitmapOff,
     hasInsuranceIsolation: !isV0,
+    // V2 has isolation fields in insurance struct
     engineInsuranceIsolatedOff: isV0 ? -1 : 48,
     engineInsuranceIsolationBpsOff: isV0 ? -1 : 64
   };
@@ -1017,6 +1051,8 @@ function buildLayout(version, maxAccounts) {
 function detectSlabLayout(dataLen) {
   const v0n = V0_SIZES.get(dataLen);
   if (v0n !== void 0) return buildLayout(0, v0n);
+  const v2n = V2_SIZES.get(dataLen);
+  if (v2n !== void 0) return buildLayout(2, v2n);
   const v1n = V1_SIZES.get(dataLen);
   if (v1n !== void 0) return buildLayout(1, v1n);
   return null;
@@ -1536,9 +1572,14 @@ function slabDataSizeV1(maxAccounts) {
 function validateSlabTierMatch(dataSize, programSlabLen) {
   return dataSize === programSlabLen;
 }
+var SLAB_TIERS_V2 = {
+  small: { maxAccounts: 256, dataSize: 65088, label: "Small-V2", description: "256 slots \xB7 BPF intermediate" },
+  large: { maxAccounts: 4096, dataSize: 1025568, label: "Large-V2", description: "4,096 slots \xB7 BPF intermediate" }
+};
 var ALL_SLAB_SIZES = [
   ...Object.values(SLAB_TIERS).map((t) => t.dataSize),
-  ...Object.values(SLAB_TIERS_V0).map((t) => t.dataSize)
+  ...Object.values(SLAB_TIERS_V0).map((t) => t.dataSize),
+  ...Object.values(SLAB_TIERS_V2).map((t) => t.dataSize)
 ];
 var SLAB_DATA_SIZE = SLAB_TIERS.large.dataSize;
 var HEADER_SLICE_LENGTH = 1940;
@@ -2567,7 +2608,7 @@ function getProgramId(network) {
   if (process.env.PROGRAM_ID) {
     return new PublicKey10(process.env.PROGRAM_ID);
   }
-  const targetNetwork = network ?? process.env.NETWORK ?? "devnet";
+  const targetNetwork = network ?? process.env.NETWORK ?? "mainnet";
   const programId = PROGRAM_IDS[targetNetwork].percolator;
   return new PublicKey10(programId);
 }
@@ -2575,7 +2616,7 @@ function getMatcherProgramId(network) {
   if (process.env.MATCHER_PROGRAM_ID) {
     return new PublicKey10(process.env.MATCHER_PROGRAM_ID);
   }
-  const targetNetwork = network ?? process.env.NETWORK ?? "devnet";
+  const targetNetwork = network ?? process.env.NETWORK ?? "mainnet";
   const programId = PROGRAM_IDS[targetNetwork].matcher;
   if (!programId) {
     throw new Error(`Matcher program not deployed on ${targetNetwork}`);
@@ -2584,10 +2625,10 @@ function getMatcherProgramId(network) {
 }
 function getCurrentNetwork() {
   const network = process.env.NETWORK?.toLowerCase();
-  if (network === "mainnet" || network === "mainnet-beta") {
-    return "mainnet";
+  if (network === "devnet") {
+    return "devnet";
   }
-  return "devnet";
+  return "mainnet";
 }
 export {
   ACCOUNTS_CLOSE_ACCOUNT,
@@ -2635,6 +2676,7 @@ export {
   SLAB_TIERS,
   SLAB_TIERS_V0,
   SLAB_TIERS_V1,
+  SLAB_TIERS_V2,
   STAKE_IX,
   STAKE_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,

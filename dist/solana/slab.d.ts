@@ -4,7 +4,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
  * All engine field offsets are relative to engineOff.
  */
 export interface SlabLayout {
-    version: 0 | 1;
+    version: 0 | 1 | 2;
     headerLen: number;
     configOffset: number;
     configLen: number;

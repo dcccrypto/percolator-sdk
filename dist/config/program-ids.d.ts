@@ -31,6 +31,6 @@ export declare function getProgramId(network?: Network): PublicKey;
 export declare function getMatcherProgramId(network?: Network): PublicKey;
 /**
  * Get the current network from environment
- * Defaults to devnet for safety
+ * Defaults to mainnet (fail-closed)
  */
 export declare function getCurrentNetwork(): Network;

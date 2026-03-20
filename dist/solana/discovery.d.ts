@@ -136,6 +136,25 @@ export declare function slabDataSizeV1(maxAccounts: number): number;
  */
 export declare function validateSlabTierMatch(dataSize: number, programSlabLen: number): boolean;
 /**
+ * V2 slab sizes — BPF intermediate layout (CONFIG=496, ENGINE_OFF=600, BITMAP_REL=432).
+ * Slabs initialized with the BPF program before CONFIG grew to 536.
+ * Empirically verified: 65_088 (256-acct) and 1_025_568 (4096-acct).
+ */
+export declare const SLAB_TIERS_V2: {
+    readonly small: {
+        readonly maxAccounts: 256;
+        readonly dataSize: 65088;
+        readonly label: "Small-V2";
+        readonly description: "256 slots · BPF intermediate";
+    };
+    readonly large: {
+        readonly maxAccounts: 4096;
+        readonly dataSize: 1025568;
+        readonly label: "Large-V2";
+        readonly description: "4,096 slots · BPF intermediate";
+    };
+};
+/**
  * Discover all Percolator markets owned by the given program.
  * Uses getProgramAccounts with dataSize filter + dataSlice to download only ~1400 bytes per slab.
  */
