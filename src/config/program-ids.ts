@@ -14,7 +14,7 @@ export const PROGRAM_IDS = {
   },
   mainnet: {
     percolator: "GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24",
-    matcher: "", // TODO: Deploy matcher to mainnet
+    matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX",
   },
 } as const;
 
