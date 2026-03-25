@@ -7,6 +7,7 @@ export default defineConfig({
       "test/instructions.test.ts",
       "test/pda.test.ts",
       "test/slab-parser.test.ts",
+      "test/program-ids.test.ts",
     ],
   },
 });
