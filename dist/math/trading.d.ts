@@ -27,6 +27,58 @@ export declare function computePreTradeLiqPrice(oracleE6: bigint, margin: bigint
  */
 export declare function computeTradingFee(notional: bigint, tradingFeeBps: bigint): bigint;
 /**
+ * Dynamic fee tier configuration.
+ */
+export interface FeeTierConfig {
+    /** Base trading fee (Tier 1) in bps */
+    baseBps: bigint;
+    /** Tier 2 fee in bps (0 = disabled) */
+    tier2Bps: bigint;
+    /** Tier 3 fee in bps (0 = disabled) */
+    tier3Bps: bigint;
+    /** Notional threshold to enter Tier 2 (0 = tiered fees disabled) */
+    tier2Threshold: bigint;
+    /** Notional threshold to enter Tier 3 */
+    tier3Threshold: bigint;
+}
+/**
+ * Compute the effective fee rate in bps using the tiered fee schedule.
+ *
+ * Mirrors on-chain `compute_dynamic_fee_bps` logic:
+ * - notional < tier2Threshold → baseBps (Tier 1)
+ * - notional < tier3Threshold → tier2Bps (Tier 2)
+ * - notional >= tier3Threshold → tier3Bps (Tier 3)
+ *
+ * If tier2Threshold == 0, tiered fees are disabled (flat baseBps).
+ */
+export declare function computeDynamicFeeBps(notional: bigint, config: FeeTierConfig): bigint;
+/**
+ * Compute the dynamic trading fee for a given notional and tier config.
+ *
+ * Uses ceiling division to match on-chain behavior (prevents fee evasion
+ * via micro-trades).
+ */
+export declare function computeDynamicTradingFee(notional: bigint, config: FeeTierConfig): bigint;
+/**
+ * Fee split configuration.
+ */
+export interface FeeSplitConfig {
+    /** LP vault share in bps (0–10_000) */
+    lpBps: bigint;
+    /** Protocol treasury share in bps */
+    protocolBps: bigint;
+    /** Market creator share in bps */
+    creatorBps: bigint;
+}
+/**
+ * Compute fee split for a total fee amount.
+ *
+ * Returns [lpShare, protocolShare, creatorShare].
+ * If all split params are 0, 100% goes to LP (legacy behavior).
+ * Creator gets the rounding remainder to ensure total is preserved.
+ */
+export declare function computeFeeSplit(totalFee: bigint, config: FeeSplitConfig): [bigint, bigint, bigint];
+/**
  * Compute PnL as a percentage of capital.
  *
  * Uses BigInt scaling to avoid precision loss from Number(bigint) conversion.

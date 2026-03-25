@@ -4,7 +4,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
  * All engine field offsets are relative to engineOff.
  */
 export interface SlabLayout {
-    version: 0 | 1 | 2 | 3 | 4;
+    version: 0 | 1 | 2;
     headerLen: number;
     configOffset: number;
     configLen: number;
@@ -45,27 +45,52 @@ export interface SlabLayout {
     engineEmergencyStartSlotOff: number;
     engineLastBreakerSlotOff: number;
     engineBitmapOff: number;
+    acctOwnerOff: number;
     hasInsuranceIsolation: boolean;
     engineInsuranceIsolatedOff: number;
     engineInsuranceIsolationBpsOff: number;
 }
-export declare const ENGINE_OFF = 640;
+export declare const ENGINE_OFF = 600;
 export declare const ENGINE_MARK_PRICE_OFF = 400;
 /**
- * Detect slab layout version from data length.
- * Returns a full SlabLayout descriptor or null if unrecognized.
- *
- * Known layout families (all empirically verified from on-chain accounts):
- *   V0  — HEADER=72,  CONFIG=408, ENGINE_OFF=480, BITMAP_OFF=320, ACCT=240 (deployed devnet V0)
- *   V2  — HEADER=104, CONFIG=496, ENGINE_OFF=600, BITMAP_OFF=432, ACCT=248 (BPF intermediate, e.g. 65088/1025568)
- *   V1  — HEADER=104, CONFIG=536, ENGINE_OFF=640, BITMAP_OFF=656, ACCT=248 (fully upgraded, e.g. 65352/1025832)
- *   V3  — HEADER=104, CONFIG=520, ENGINE_OFF=624, BITMAP_OFF=430, ACCT=248 (BPF intermediate, e.g. 257200)
- *   V4  — HEADER=72,  CONFIG=408, ENGINE_OFF=480, BITMAP_OFF=312, ACCT=240 (V0-variant, e.g. 992560)
+ * V2 slab tier sizes (small and large) for discovery.
+ * V2 uses ENGINE_OFF=600, BITMAP_OFF=432, ACCOUNT_SIZE=248, postBitmap=18.
+ * Sizes overlap with V1D (postBitmap=2) — disambiguation requires reading the version field.
  */
-export declare function detectSlabLayout(dataLen: number): SlabLayout | null;
+export declare const SLAB_TIERS_V2: {
+    readonly small: {
+        readonly maxAccounts: 256;
+        readonly dataSize: 65088;
+        readonly label: "Small";
+        readonly description: "256 slots (V2 BPF intermediate)";
+    };
+    readonly large: {
+        readonly maxAccounts: 4096;
+        readonly dataSize: 1025568;
+        readonly label: "Large";
+        readonly description: "4,096 slots (V2 BPF intermediate)";
+    };
+};
+/**
+ * Detect the slab layout version from the raw account data length.
+ * Returns the full SlabLayout descriptor, or null if the size is unrecognised.
+ * Checks V0, V1D, V1D-legacy, V1, and V1-legacy (pre-PERC-1094) sizes in priority order.
+ *
+ * When `data` is provided and the size matches V1D, the version field at offset 8 is read
+ * to disambiguate V2 slabs (which produce identical sizes to V1D with postBitmap=2).
+ * V2 slabs have version===2 at offset 8 (u32 LE).
+ *
+ * @param dataLen - The slab account data length in bytes
+ * @param data    - Optional raw slab data for version-field disambiguation
+ */
+export declare function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout | null;
 /**
  * Legacy detectLayout for backward compat.
  * Returns { bitmapWords, accountsOff, maxAccounts } or null.
+ *
+ * GH#1238: previously recomputed accountsOff with hardcoded postBitmap=18, which gave a value
+ * 16 bytes too large for V1D slabs (which use postBitmap=2). Now delegates directly to the
+ * SlabLayout descriptor so each variant uses its own correct accountsOff.
  */
 export declare function detectLayout(dataLen: number): {
     bitmapWords: number;
@@ -123,6 +148,12 @@ export interface MarketConfig {
     oiRampSlots: bigint;
     resolvedSlot: bigint;
     insuranceIsolationBps: number;
+    /** PERC-622: Oracle phase (0=Nascent, 1=Growing, 2=Mature) */
+    oraclePhase: number;
+    /** PERC-622: Cumulative trade volume in e6 format */
+    cumulativeVolumeE6: bigint;
+    /** PERC-622: Slots elapsed from market creation to Phase 2 entry (u24) */
+    phase2DeltaSlots: number;
 }
 export interface InsuranceFund {
     balance: bigint;
@@ -213,20 +244,30 @@ export declare function parseHeader(data: Uint8Array): SlabHeader;
  * Parse market config. Layout-version aware.
  * For V0 slabs, fields beyond the basic config are read if present in the data,
  * otherwise defaults are returned.
+ *
+ * @param data - Slab data (may be a partial slice for discovery; pass layoutHint in that case)
+ * @param layoutHint - Pre-detected layout to use; if omitted, detected from data.length.
  */
-export declare function parseConfig(data: Uint8Array): MarketConfig;
+export declare function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): MarketConfig;
 /**
  * Parse RiskParams from engine data. Layout-version aware.
  * For V0 slabs, extended params (risk_threshold, maintenance_fee, etc.) are
  * not present on-chain, so defaults (0) are returned.
+ *
+ * @param data - Slab data (may be a partial slice; pass layoutHint in that case)
+ * @param layoutHint - Pre-detected layout to use; if omitted, detected from data.length.
  */
-export declare function parseParams(data: Uint8Array): RiskParams;
+export declare function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): RiskParams;
 /**
  * Parse RiskEngine state (excluding accounts array). Layout-version aware.
  */
 export declare function parseEngine(data: Uint8Array): EngineState;
 /**
  * Read bitmap to get list of used account indices.
+ */
+/**
+ * Return all account indices whose bitmap bit is set (i.e. slot is in use).
+ * Uses the layout-aware bitmap offset so V1_LEGACY slabs (bitmap at rel+672) are handled correctly.
  */
 export declare function parseUsedIndices(data: Uint8Array): number[];
 /**

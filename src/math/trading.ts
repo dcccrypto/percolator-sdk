@@ -86,6 +86,89 @@ export function computeTradingFee(
 }
 
 /**
+ * Dynamic fee tier configuration.
+ */
+export interface FeeTierConfig {
+  /** Base trading fee (Tier 1) in bps */
+  baseBps: bigint;
+  /** Tier 2 fee in bps (0 = disabled) */
+  tier2Bps: bigint;
+  /** Tier 3 fee in bps (0 = disabled) */
+  tier3Bps: bigint;
+  /** Notional threshold to enter Tier 2 (0 = tiered fees disabled) */
+  tier2Threshold: bigint;
+  /** Notional threshold to enter Tier 3 */
+  tier3Threshold: bigint;
+}
+
+/**
+ * Compute the effective fee rate in bps using the tiered fee schedule.
+ *
+ * Mirrors on-chain `compute_dynamic_fee_bps` logic:
+ * - notional < tier2Threshold → baseBps (Tier 1)
+ * - notional < tier3Threshold → tier2Bps (Tier 2)
+ * - notional >= tier3Threshold → tier3Bps (Tier 3)
+ *
+ * If tier2Threshold == 0, tiered fees are disabled (flat baseBps).
+ */
+export function computeDynamicFeeBps(
+  notional: bigint,
+  config: FeeTierConfig,
+): bigint {
+  if (config.tier2Threshold === 0n) return config.baseBps;
+  if (config.tier3Threshold > 0n && notional >= config.tier3Threshold) return config.tier3Bps;
+  if (notional >= config.tier2Threshold) return config.tier2Bps;
+  return config.baseBps;
+}
+
+/**
+ * Compute the dynamic trading fee for a given notional and tier config.
+ *
+ * Uses ceiling division to match on-chain behavior (prevents fee evasion
+ * via micro-trades).
+ */
+export function computeDynamicTradingFee(
+  notional: bigint,
+  config: FeeTierConfig,
+): bigint {
+  const feeBps = computeDynamicFeeBps(notional, config);
+  if (notional <= 0n || feeBps <= 0n) return 0n;
+  return (notional * feeBps + 9999n) / 10000n;
+}
+
+/**
+ * Fee split configuration.
+ */
+export interface FeeSplitConfig {
+  /** LP vault share in bps (0–10_000) */
+  lpBps: bigint;
+  /** Protocol treasury share in bps */
+  protocolBps: bigint;
+  /** Market creator share in bps */
+  creatorBps: bigint;
+}
+
+/**
+ * Compute fee split for a total fee amount.
+ *
+ * Returns [lpShare, protocolShare, creatorShare].
+ * If all split params are 0, 100% goes to LP (legacy behavior).
+ * Creator gets the rounding remainder to ensure total is preserved.
+ */
+export function computeFeeSplit(
+  totalFee: bigint,
+  config: FeeSplitConfig,
+): [bigint, bigint, bigint] {
+  if (config.lpBps === 0n && config.protocolBps === 0n && config.creatorBps === 0n) {
+    return [totalFee, 0n, 0n];
+  }
+  const lp = (totalFee * config.lpBps) / 10000n;
+  const protocol = (totalFee * config.protocolBps) / 10000n;
+  const creator = totalFee - lp - protocol;
+  return [lp, protocol, creator];
+}
+
+/**
  * Compute PnL as a percentage of capital.
  *
  * Uses BigInt scaling to avoid precision loss from Number(bigint) conversion.

@@ -4,21 +4,28 @@ import { Connection, PublicKey } from "@solana/web3.js";
 // Browser-compatible read helpers using DataView
 // (the npm 'buffer' polyfill lacks readBigUInt64LE / readBigInt64LE)
 // =============================================================================
+
+/** Wrap a Uint8Array in a DataView sharing the same underlying buffer. */
 function dv(data: Uint8Array): DataView {
   return new DataView(data.buffer, data.byteOffset, data.byteLength);
 }
+/** Read a single unsigned byte at `off`. */
 function readU8(data: Uint8Array, off: number): number {
   return data[off];
 }
+/** Read a little-endian u16 at `off`. */
 function readU16LE(data: Uint8Array, off: number): number {
   return dv(data).getUint16(off, true);
 }
+/** Read a little-endian u32 at `off`. */
 function readU32LE(data: Uint8Array, off: number): number {
   return dv(data).getUint32(off, true);
 }
+/** Read a little-endian u64 at `off` as a BigInt. */
 function readU64LE(data: Uint8Array, off: number): bigint {
   return dv(data).getBigUint64(off, true);
 }
+/** Read a little-endian signed i64 at `off` as a BigInt. */
 function readI64LE(data: Uint8Array, off: number): bigint {
   return dv(data).getBigInt64(off, true);
 }
@@ -26,6 +33,11 @@ function readI64LE(data: Uint8Array, off: number): bigint {
 // =============================================================================
 // Helper: read signed/unsigned i128 from buffer
 // =============================================================================
+
+/**
+ * Read a little-endian signed i128 at `offset`.
+ * Composed from two u64 halves; sign-extends if the high bit is set.
+ */
 function readI128LE(buf: Uint8Array, offset: number): bigint {
   const lo = readU64LE(buf, offset);
   const hi = readU64LE(buf, offset + 8);
@@ -37,6 +49,7 @@ function readI128LE(buf: Uint8Array, offset: number): bigint {
   return unsigned;
 }
 
+/** Read a little-endian unsigned u128 at `offset` as a BigInt. */
 function readU128LE(buf: Uint8Array, offset: number): bigint {
   const lo = readU64LE(buf, offset);
   const hi = readU64LE(buf, offset + 8);
@@ -73,7 +86,7 @@ const FLAG_RESOLVED = 1 << 0;
  * All engine field offsets are relative to engineOff.
  */
 export interface SlabLayout {
-  version: 0 | 1 | 2 | 3 | 4;
+  version: 0 | 1 | 2;
   headerLen: number;
   configOffset: number;
   configLen: number;
@@ -116,53 +129,13 @@ export interface SlabLayout {
   engineEmergencyStartSlotOff: number;  // -1 if not present (V0)
   engineLastBreakerSlotOff: number;     // -1 if not present (V0)
   engineBitmapOff: number;              // relative to engineOff
+  acctOwnerOff: number;                 // byte offset of owner pubkey within an account slot
 
   // Insurance fund layout
   hasInsuranceIsolation: boolean;
   engineInsuranceIsolatedOff: number;   // -1 if not present (V0)
   engineInsuranceIsolationBpsOff: number; // -1 if not present (V0)
 }
-
-// ---- V2 layout constants (BPF-compiled intermediate — CONFIG=496, ENGINE_OFF=600) ----
-// These are slabs initialized with the BPF program where u128 alignment=8 (not 16),
-// so MarketConfig is 496 bytes (vs 512 on native x86). ENGINE_OFF = 104+496 = 600.
-// Empirically verified from on-chain accounts of sizes 65088 (256-acct) and 1025568 (4096-acct).
-// RiskEngine fixed block = 432 bytes before bitmap (smaller than V1=656, no emergency OI fields).
-// paramsOff=64 (vault=16 + insurance=48 before params) — insurance includes isolation fields.
-const V2_HEADER_LEN = 104;
-const V2_CONFIG_LEN = 496;   // BPF u128 align=8 (vs 536 on deployed upgrade or 512 native)
-const V2_ENGINE_OFF = 600;   // align_up(104 + 496, 8) = 600
-const V2_ACCOUNT_SIZE = 248; // same as V1
-const V2_RESERVED_OFF = 80;  // same as V1
-
-// V2 engine: vault(16) + insurance(48) + params at 64
-const V2_ENGINE_PARAMS_OFF = 64;
-const V2_PARAMS_SIZE = 288;  // same extended RiskParams as V1
-const V2_ENGINE_CURRENT_SLOT_OFF = 352;   // paramsOff(64) + paramsSize(288) = 352
-const V2_ENGINE_FUNDING_INDEX_OFF = 360;
-const V2_ENGINE_LAST_FUNDING_SLOT_OFF = 376;
-const V2_ENGINE_FUNDING_RATE_BPS_OFF = 384;
-// V2 has no mark_price field (pre-PERC-306)
-const V2_ENGINE_LAST_CRANK_SLOT_OFF = 392;
-const V2_ENGINE_MAX_CRANK_STALENESS_OFF = 400;
-const V2_ENGINE_TOTAL_OI_OFF = 408;
-// V2 has no long_oi / short_oi (pre-PERC-298)
-const V2_ENGINE_C_TOT_OFF = 424;
-const V2_ENGINE_PNL_POS_TOT_OFF = 440;
-const V2_ENGINE_LIQ_CURSOR_OFF = 456;
-const V2_ENGINE_GC_CURSOR_OFF = 458;
-const V2_ENGINE_LAST_SWEEP_START_OFF = 464;
-const V2_ENGINE_LAST_SWEEP_COMPLETE_OFF = 472;
-const V2_ENGINE_CRANK_CURSOR_OFF = 480;
-const V2_ENGINE_SWEEP_START_IDX_OFF = 482;
-const V2_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 488;
-const V2_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 496;
-const V2_ENGINE_NET_LP_POS_OFF = 504;
-const V2_ENGINE_LP_SUM_ABS_OFF = 520;
-const V2_ENGINE_LP_MAX_ABS_OFF = 536;
-const V2_ENGINE_LP_MAX_ABS_SWEEP_OFF = 552;
-// No emergency OI fields in V2
-const V2_ENGINE_BITMAP_OFF = 432; // empirically verified from on-chain data
 
 // ---- V0 layout constants (deployed devnet program) ----
 const V0_HEADER_LEN = 72;
@@ -198,10 +171,16 @@ const V0_ENGINE_LP_MAX_ABS_OFF = 288;
 const V0_ENGINE_LP_MAX_ABS_SWEEP_OFF = 304;
 const V0_ENGINE_BITMAP_OFF = 320;
 
-// ---- V1 layout constants (future program upgrade) ----
+// ---- V1 layout constants (deployed devnet program, PERC-1094 corrected) ----
+// BPF (SBF) target: u128 alignment = 8, so CONFIG_LEN = 496 on-chain.
+// ENGINE_OFF = align_up(HEADER=104 + CONFIG=496, 8) = 600.
+// Previous value (640) was wrong — it assumed CONFIG_LEN=536 from the native build assertion.
 const V1_HEADER_LEN = 104;
-const V1_CONFIG_LEN = 536;
-const V1_ENGINE_OFF = 640;   // align_up(104 + 536, 8) = 640
+const V1_CONFIG_LEN = 496;   // BPF (SBF) on-chain value; native test build would be 512
+const V1_ENGINE_OFF = 600;   // align_up(104 + 496, 8) = 600  (was 640 — corrected in PERC-1094)
+// Legacy: CONFIG_LEN=536 was used in pre-PERC-1094 SDK. Some orphaned slabs on devnet may use
+// ENGINE_OFF=640 (65352 bytes for small). We add them to V1_SIZES_LEGACY for read-only parsing.
+const V1_ENGINE_OFF_LEGACY = 640;
 const V1_ACCOUNT_SIZE = 248;
 const V1_RESERVED_OFF = 80;
 
@@ -237,88 +216,92 @@ const V1_ENGINE_EMERGENCY_OI_MODE_OFF = 632;
 const V1_ENGINE_EMERGENCY_START_SLOT_OFF = 640;
 const V1_ENGINE_LAST_BREAKER_SLOT_OFF = 648;
 const V1_ENGINE_BITMAP_OFF = 656;
+// On-chain V1_LEGACY slabs (65352 bytes) place the bitmap 16 bytes later than
+// computeSlabSize predicts (formula bitmapOff=656 gives size=65352 correctly, but
+// the deployed program stores the bitmap at rel=672 and the owner field at +200).
+// These corrected values must be used for actual byte-level parsing.
+const V1_LEGACY_ENGINE_BITMAP_OFF_ACTUAL = 672;  // relative to engineOff (abs = 640+672 = 1312)
+const V1_LEGACY_ACCT_OWNER_OFF = 200;            // vs the usual ACCT_OWNER_OFF=184
 
-// ---- V3 layout constants (BPF intermediate — HEADER=104, CONFIG=520, ENGINE_OFF=624) ----
-// These are slabs initialized with a BPF program build where MarketConfig is 520 bytes.
-// ENGINE_OFF = align_up(104 + 520, 8) = 624.
-// Empirically verified from on-chain accounts of size 257200 (1024-acct).
-// Engine structure is similar to V2 but bitmapOff=430 instead of 432 (2-byte struct diff).
-// Account layout same as V2/V1 (248 bytes).
-const V3_HEADER_LEN = 104;
-const V3_CONFIG_LEN = 520;   // larger than V2 (496) but smaller than V1 (536)
-const V3_ENGINE_OFF = 624;   // align_up(104 + 520, 8) = 624
-const V3_ACCOUNT_SIZE = 248; // same as V1/V2
-const V3_RESERVED_OFF = 80;  // same as V1/V2
+// ---- V1D layout constants (actually deployed devnet V1 program, rev ac18a0e) ----
+// The deployed V1 program has a DIFFERENT struct layout than the V1 constants above.
+// Key differences:
+//   - MarketConfig is smaller (BPF CONFIG_LEN=320 vs V1's 496) — older revision
+//   - InsuranceFund is 80 bytes (V1 assumed 56), so params starts at engine+96 (not 72)
+//   - Engine lacks lp_max_abs, lp_max_abs_sweep, emergency_oi, trade_twap fields
+//   - Bitmap at engine+624 (not 656)
+// Confirmed by on-chain probing of slab 6ZytbpV4 (the only active V1 market).
+const V1D_CONFIG_LEN = 320;
+const V1D_ENGINE_OFF = 424;   // align_up(104 + 320, 8) = 424
+const V1D_ACCOUNT_SIZE = 248;
 
-// V3 engine: vault(16) + insurance(48) + params at 64 — same structure as V2
-const V3_ENGINE_PARAMS_OFF = 64;
-const V3_PARAMS_SIZE = 288;
-const V3_ENGINE_CURRENT_SLOT_OFF = 352;
-const V3_ENGINE_FUNDING_INDEX_OFF = 360;
-const V3_ENGINE_LAST_FUNDING_SLOT_OFF = 376;
-const V3_ENGINE_FUNDING_RATE_BPS_OFF = 384;
-// V3 has no mark_price field (pre-PERC-306)
-const V3_ENGINE_LAST_CRANK_SLOT_OFF = 392;
-const V3_ENGINE_MAX_CRANK_STALENESS_OFF = 400;
-const V3_ENGINE_TOTAL_OI_OFF = 408;
-// V3 has no long_oi / short_oi (pre-PERC-298)
-const V3_ENGINE_C_TOT_OFF = 424;
-const V3_ENGINE_PNL_POS_TOT_OFF = 440;
-const V3_ENGINE_LIQ_CURSOR_OFF = 456;
-const V3_ENGINE_GC_CURSOR_OFF = 458;
-const V3_ENGINE_LAST_SWEEP_START_OFF = 464;
-const V3_ENGINE_LAST_SWEEP_COMPLETE_OFF = 472;
-const V3_ENGINE_CRANK_CURSOR_OFF = 480;
-const V3_ENGINE_SWEEP_START_IDX_OFF = 482;
-const V3_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 488;
-const V3_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 496;
-const V3_ENGINE_NET_LP_POS_OFF = 504;
-const V3_ENGINE_LP_SUM_ABS_OFF = 520;
-const V3_ENGINE_LP_MAX_ABS_OFF = 536;
-const V3_ENGINE_LP_MAX_ABS_SWEEP_OFF = 552;
-// No emergency OI fields in V3
-// bitmapOff=430 (2 bytes less than V2's 432 — empirically verified from 257200-byte slabs)
-const V3_ENGINE_BITMAP_OFF = 430;
+// V1D engine field offsets (relative to engineOff):
+// vault(16) + InsuranceFund(80) → params at 96; RiskParams(288) → runtime at 384
+const V1D_ENGINE_INSURANCE_OFF = 16;
+const V1D_ENGINE_PARAMS_OFF = 96;
+const V1D_PARAMS_SIZE = 288;
+const V1D_ENGINE_CURRENT_SLOT_OFF = 384;
+const V1D_ENGINE_FUNDING_INDEX_OFF = 392;
+const V1D_ENGINE_LAST_FUNDING_SLOT_OFF = 408;
+const V1D_ENGINE_FUNDING_RATE_BPS_OFF = 416;
+const V1D_ENGINE_MARK_PRICE_OFF = 424;
+// funding_frozen(1+7pad) at 432, funding_frozen_rate(8) at 440
+const V1D_ENGINE_LAST_CRANK_SLOT_OFF = 448;
+const V1D_ENGINE_MAX_CRANK_STALENESS_OFF = 456;
+const V1D_ENGINE_TOTAL_OI_OFF = 464;
+const V1D_ENGINE_LONG_OI_OFF = 480;
+const V1D_ENGINE_SHORT_OI_OFF = 496;
+const V1D_ENGINE_C_TOT_OFF = 512;
+const V1D_ENGINE_PNL_POS_TOT_OFF = 528;
+const V1D_ENGINE_LIQ_CURSOR_OFF = 544;
+const V1D_ENGINE_GC_CURSOR_OFF = 546;
+const V1D_ENGINE_LAST_SWEEP_START_OFF = 552;
+const V1D_ENGINE_LAST_SWEEP_COMPLETE_OFF = 560;
+const V1D_ENGINE_CRANK_CURSOR_OFF = 568;
+const V1D_ENGINE_SWEEP_START_IDX_OFF = 570;
+const V1D_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 576;
+const V1D_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 584;
+const V1D_ENGINE_NET_LP_POS_OFF = 592;
+const V1D_ENGINE_LP_SUM_ABS_OFF = 608;
+// lp_max_abs, lp_max_abs_sweep, emergency_*, trade_twap_* do NOT exist in this version
+const V1D_ENGINE_BITMAP_OFF = 624;
 
-// ---- V4 layout constants (V0-variant — HEADER=72, CONFIG=408, ENGINE_OFF=480, BITMAP_OFF=312) ----
-// These are slabs initialized with an early program where MarketConfig is 408 bytes
-// but the engine RiskEngine block is 8 bytes shorter than V0 (bitmapOff=312 vs V0's 320).
-// ENGINE_OFF = align_up(72 + 408, 8) = 480 (same as V0).
-// Empirically verified from on-chain accounts of size 992560 (4096-acct).
-// Account layout same as V0 (240 bytes).
-const V4_HEADER_LEN = 72;
-const V4_CONFIG_LEN = 408;   // same as V0
-const V4_ENGINE_OFF = 480;   // same as V0
-const V4_ACCOUNT_SIZE = 240; // same as V0
-const V4_RESERVED_OFF = 48;  // same as V0
+// ---- V2 layout constants (BPF intermediate layout, ENGINE_OFF=600, BITMAP_OFF=432) ----
+// V2 shares ENGINE_OFF=600 with V1, but has a completely different engine struct layout:
+//   - CONFIG_LEN=496 (same as V1 on-chain), HEADER_LEN=104, ACCOUNT_SIZE=248
+//   - Engine lacks mark_price, long_oi, short_oi, emergency OI fields
+//   - Different field offsets than V1D (which has ENGINE_OFF=424)
+// V2 is identified by reading the version field at slab header offset 8 (u32 LE) == 2.
+// Without data, V2 cannot be distinguished from V1D by size alone (postBitmap=18 produces
+// identical sizes to V1D postBitmap=2 — both 65088 for 256 accounts).
+const V2_HEADER_LEN = 104;
+const V2_CONFIG_LEN = 496;
+const V2_ENGINE_OFF = 600;    // align_up(104 + 496, 8) = 600
+const V2_ACCOUNT_SIZE = 248;
+const V2_ENGINE_BITMAP_OFF = 432;
 
-// V4 engine is same as V0 except bitmapOff is 8 bytes shorter (312 vs 320)
-// This means one u64 field was removed from the pre-bitmap runtime block.
-const V4_ENGINE_PARAMS_OFF = 48;  // same as V0
-const V4_PARAMS_SIZE = 56;        // same as V0
-const V4_ENGINE_CURRENT_SLOT_OFF = 104;
-const V4_ENGINE_FUNDING_INDEX_OFF = 112;
-const V4_ENGINE_LAST_FUNDING_SLOT_OFF = 128;
-const V4_ENGINE_FUNDING_RATE_BPS_OFF = 136;
-const V4_ENGINE_LAST_CRANK_SLOT_OFF = 144;
-const V4_ENGINE_MAX_CRANK_STALENESS_OFF = 152;
-const V4_ENGINE_TOTAL_OI_OFF = 160;
-const V4_ENGINE_C_TOT_OFF = 176;
-const V4_ENGINE_PNL_POS_TOT_OFF = 192;
-const V4_ENGINE_LIQ_CURSOR_OFF = 208;
-const V4_ENGINE_GC_CURSOR_OFF = 210;
-const V4_ENGINE_LAST_SWEEP_START_OFF = 216;
-const V4_ENGINE_LAST_SWEEP_COMPLETE_OFF = 224;
-const V4_ENGINE_CRANK_CURSOR_OFF = 232;
-const V4_ENGINE_SWEEP_START_IDX_OFF = 234;
-const V4_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 240;
-const V4_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 248;
-const V4_ENGINE_NET_LP_POS_OFF = 256;
-const V4_ENGINE_LP_SUM_ABS_OFF = 272;
-const V4_ENGINE_LP_MAX_ABS_OFF = 288;
-const V4_ENGINE_LP_MAX_ABS_SWEEP_OFF = 304;
-// bitmapOff=312 (8 bytes less than V0's 320 — empirically verified from 992560-byte slabs)
-const V4_ENGINE_BITMAP_OFF = 312;
+// V2 engine field offsets (relative to engineOff)
+const V2_ENGINE_CURRENT_SLOT_OFF = 352;
+const V2_ENGINE_FUNDING_INDEX_OFF = 360;
+const V2_ENGINE_LAST_FUNDING_SLOT_OFF = 376;
+const V2_ENGINE_FUNDING_RATE_BPS_OFF = 384;
+const V2_ENGINE_LAST_CRANK_SLOT_OFF = 392;
+const V2_ENGINE_MAX_CRANK_STALENESS_OFF = 400;
+const V2_ENGINE_TOTAL_OI_OFF = 408;
+const V2_ENGINE_C_TOT_OFF = 424;
+const V2_ENGINE_PNL_POS_TOT_OFF = 440;
+const V2_ENGINE_LIQ_CURSOR_OFF = 456;
+const V2_ENGINE_GC_CURSOR_OFF = 458;
+const V2_ENGINE_LAST_SWEEP_START_OFF = 464;
+const V2_ENGINE_LAST_SWEEP_COMPLETE_OFF = 472;
+const V2_ENGINE_CRANK_CURSOR_OFF = 480;
+const V2_ENGINE_SWEEP_START_IDX_OFF = 482;
+const V2_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 488;
+const V2_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 496;
+const V2_ENGINE_NET_LP_POS_OFF = 504;
+const V2_ENGINE_LP_SUM_ABS_OFF = 520;
+const V2_ENGINE_LP_MAX_ABS_OFF = 536;
+const V2_ENGINE_LP_MAX_ABS_SWEEP_OFF = 552;
 
 // For backward compatibility, export ENGINE_OFF and ENGINE_MARK_PRICE_OFF
 // (used by reinit-slab and other scripts). These refer to V1 layout.
@@ -327,15 +310,22 @@ export const ENGINE_MARK_PRICE_OFF = V1_ENGINE_MARK_PRICE_OFF;
 
 // ---- Known slab sizes per version and tier ----
 
+/**
+ * Compute the total byte size of a slab given its layout parameters.
+ * Used to pre-populate the known-size lookup maps at module load time.
+ */
 function computeSlabSize(
   engineOff: number,
   bitmapOff: number,
   accountSize: number,
   maxAccounts: number,
+  // postBitmap bytes immediately after the free-slot bitmap:
+  //   SDK default (V0/V1/V1-legacy): 18 = num_used(u16,2) + pad(6) + next_account_id(u64,8) + free_head(u16,2)
+  //   V1D deployed program:            2 = free_head(u16,2) only — no num_used, pad, or next_account_id
+  postBitmap = 18,
 ): number {
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
-  const postBitmap = 18; // num_used(u16,2) + pad(6) + next_account_id(u64,8) + free_head(u16,2)
   const nextFreeBytes = maxAccounts * 2;
   const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
   const accountsOff = Math.ceil(preAccountsLen / 8) * 8;
@@ -347,37 +337,202 @@ const TIERS = [64, 256, 1024, 4096] as const;
 // Pre-compute known slab sizes for fast lookup
 const V0_SIZES = new Map<number, number>();
 const V1_SIZES = new Map<number, number>();
+// Legacy V1 sizes using incorrect ENGINE_OFF=640 (pre-PERC-1094). Orphaned on devnet; read-only.
+const V1_SIZES_LEGACY = new Map<number, number>();
+// V1D: actually deployed V1 program (ENGINE_OFF=424, BITMAP_OFF=624)
+const V1D_SIZES = new Map<number, number>();
+// V1D_SIZES_LEGACY: on-chain slabs created before GH#1234 when SDK assumed postBitmap=18.
+// These are 16 bytes larger per tier (micro=17080, small=65104, medium=257200, large=1025584).
+// The top active market (6ZytbpV4, $14k 24h vol) was created with postBitmap=18 and uses 65104.
+// PR #1236 fixed postBitmap for new slabs (→2) but broke recognition of these legacy 65104 slabs.
+// GH#1237: add both size variants so detectSlabLayout handles both old and new V1D on-chain data.
+// V2: ENGINE_OFF=600, BITMAP_OFF=432, ACCOUNT_SIZE=248, postBitmap=18
 const V2_SIZES = new Map<number, number>();
-const V3_SIZES = new Map<number, number>();
-const V4_SIZES = new Map<number, number>();
+const V1D_SIZES_LEGACY = new Map<number, number>();
 for (const n of TIERS) {
   V0_SIZES.set(computeSlabSize(V0_ENGINE_OFF, V0_ENGINE_BITMAP_OFF, V0_ACCOUNT_SIZE, n), n);
   V1_SIZES.set(computeSlabSize(V1_ENGINE_OFF, V1_ENGINE_BITMAP_OFF, V1_ACCOUNT_SIZE, n), n);
-  V2_SIZES.set(computeSlabSize(V2_ENGINE_OFF, V2_ENGINE_BITMAP_OFF, V2_ACCOUNT_SIZE, n), n);
-  V3_SIZES.set(computeSlabSize(V3_ENGINE_OFF, V3_ENGINE_BITMAP_OFF, V3_ACCOUNT_SIZE, n), n);
-  V4_SIZES.set(computeSlabSize(V4_ENGINE_OFF, V4_ENGINE_BITMAP_OFF, V4_ACCOUNT_SIZE, n), n);
+  V1_SIZES_LEGACY.set(computeSlabSize(V1_ENGINE_OFF_LEGACY, V1_ENGINE_BITMAP_OFF, V1_ACCOUNT_SIZE, n), n);
+  // GH#1234: V1D deployed program omits num_used/pad/next_account_id → postBitmap=2 (free_head only).
+  // This yields 65088 (n=256) and 1025568 (n=4096) matching actual devnet account sizes.
+  V1D_SIZES.set(computeSlabSize(V1D_ENGINE_OFF, V1D_ENGINE_BITMAP_OFF, V1D_ACCOUNT_SIZE, n, 2), n);
+  // GH#1237: also register the legacy postBitmap=18 sizes for slabs created before GH#1234 fix.
+  V1D_SIZES_LEGACY.set(computeSlabSize(V1D_ENGINE_OFF, V1D_ENGINE_BITMAP_OFF, V1D_ACCOUNT_SIZE, n, 18), n);
+  // V2: postBitmap=18 — produces same sizes as V1D postBitmap=2 (e.g. 65088 for n=256).
+  // Disambiguation requires peeking at the version field in the slab header.
+  V2_SIZES.set(computeSlabSize(V2_ENGINE_OFF, V2_ENGINE_BITMAP_OFF, V2_ACCOUNT_SIZE, n, 18), n);
 }
 
-function buildLayout(version: 0 | 1 | 2 | 3 | 4, maxAccounts: number): SlabLayout {
+/**
+ * V2 slab tier sizes (small and large) for discovery.
+ * V2 uses ENGINE_OFF=600, BITMAP_OFF=432, ACCOUNT_SIZE=248, postBitmap=18.
+ * Sizes overlap with V1D (postBitmap=2) — disambiguation requires reading the version field.
+ */
+export const SLAB_TIERS_V2 = {
+  small: { maxAccounts: 256,  dataSize: 65_088,    label: "Small",  description: "256 slots (V2 BPF intermediate)" },
+  large: { maxAccounts: 4096, dataSize: 1_025_568, label: "Large",  description: "4,096 slots (V2 BPF intermediate)" },
+} as const;
+
+/**
+ * Build a complete SlabLayout descriptor for V0 or V1 (including V1-legacy) slabs.
+ * Pass `engineOffOverride` to handle orphaned pre-PERC-1094 slabs that used ENGINE_OFF=640.
+ */
+function buildLayout(version: 0 | 1, maxAccounts: number, engineOffOverride?: number): SlabLayout {
   const isV0 = version === 0;
-  const isV1 = version === 1;
-  const isV2 = version === 2;
-  const isV3 = version === 3;
-  const isV4 = version === 4;
-  // V0/V4 use 240-byte accounts; V1/V2/V3 use 248-byte accounts
-  const isV0Like = isV0 || isV4;
-  // V0/V4 use 72-byte header; V1/V2/V3 use 104-byte header
-  const engineOff = isV0 ? V0_ENGINE_OFF
-    : isV2 ? V2_ENGINE_OFF
-    : isV3 ? V3_ENGINE_OFF
-    : isV4 ? V4_ENGINE_OFF
-    : V1_ENGINE_OFF;
-  const bitmapOff = isV0 ? V0_ENGINE_BITMAP_OFF
-    : isV2 ? V2_ENGINE_BITMAP_OFF
-    : isV3 ? V3_ENGINE_BITMAP_OFF
-    : isV4 ? V4_ENGINE_BITMAP_OFF
-    : V1_ENGINE_BITMAP_OFF;
-  const accountSize = isV0Like ? (isV4 ? V4_ACCOUNT_SIZE : V0_ACCOUNT_SIZE) : V2_ACCOUNT_SIZE; // V1/V2/V3 share 248
+  const engineOff = engineOffOverride ?? (isV0 ? V0_ENGINE_OFF : V1_ENGINE_OFF);
+  const isV1Legacy = !isV0 && engineOffOverride === V1_ENGINE_OFF_LEGACY;
+  // For accountsOff calculation, V1_LEGACY must use its actual bitmap offset (672, not 656).
+  // Using the formula bitmapOff (656) produces accountsOff=1864, but accounts actually
+  // start at 1880 — a 16-byte gap caused by the extra fields in the V1_LEGACY engine.
+  // Non-V1_LEGACY slabs: actualBitmapOff === bitmapOff, so no change.
+  const bitmapOff = isV0 ? V0_ENGINE_BITMAP_OFF : V1_ENGINE_BITMAP_OFF;
+  const actualBitmapOff = isV1Legacy ? V1_LEGACY_ENGINE_BITMAP_OFF_ACTUAL
+    : (isV0 ? V0_ENGINE_BITMAP_OFF : V1_ENGINE_BITMAP_OFF);
+  const accountSize = isV0 ? V0_ACCOUNT_SIZE : V1_ACCOUNT_SIZE;
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const postBitmap = 18;
+  const nextFreeBytes = maxAccounts * 2;
+  // Use actualBitmapOff so V1_LEGACY gets accountsOff=1880 (not 1864).
+  const preAccountsLen = actualBitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
+
+  return {
+    version,
+    headerLen: isV0 ? V0_HEADER_LEN : V1_HEADER_LEN,
+    configOffset: isV0 ? V0_HEADER_LEN : V1_HEADER_LEN,
+    configLen: isV0 ? V0_CONFIG_LEN : V1_CONFIG_LEN,
+    reservedOff: isV0 ? V0_RESERVED_OFF : V1_RESERVED_OFF,
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+
+    engineInsuranceOff: 16,
+    engineParamsOff: isV0 ? V0_ENGINE_PARAMS_OFF : V1_ENGINE_PARAMS_OFF,
+    paramsSize: isV0 ? V0_PARAMS_SIZE : V1_PARAMS_SIZE,
+    engineCurrentSlotOff: isV0 ? V0_ENGINE_CURRENT_SLOT_OFF : V1_ENGINE_CURRENT_SLOT_OFF,
+    engineFundingIndexOff: isV0 ? V0_ENGINE_FUNDING_INDEX_OFF : V1_ENGINE_FUNDING_INDEX_OFF,
+    engineLastFundingSlotOff: isV0 ? V0_ENGINE_LAST_FUNDING_SLOT_OFF : V1_ENGINE_LAST_FUNDING_SLOT_OFF,
+    engineFundingRateBpsOff: isV0 ? V0_ENGINE_FUNDING_RATE_BPS_OFF : V1_ENGINE_FUNDING_RATE_BPS_OFF,
+    engineMarkPriceOff: isV0 ? -1 : V1_ENGINE_MARK_PRICE_OFF,
+    engineLastCrankSlotOff: isV0 ? V0_ENGINE_LAST_CRANK_SLOT_OFF : V1_ENGINE_LAST_CRANK_SLOT_OFF,
+    engineMaxCrankStalenessOff: isV0 ? V0_ENGINE_MAX_CRANK_STALENESS_OFF : V1_ENGINE_MAX_CRANK_STALENESS_OFF,
+    engineTotalOiOff: isV0 ? V0_ENGINE_TOTAL_OI_OFF : V1_ENGINE_TOTAL_OI_OFF,
+    engineLongOiOff: isV0 ? -1 : V1_ENGINE_LONG_OI_OFF,
+    engineShortOiOff: isV0 ? -1 : V1_ENGINE_SHORT_OI_OFF,
+    engineCTotOff: isV0 ? V0_ENGINE_C_TOT_OFF : V1_ENGINE_C_TOT_OFF,
+    enginePnlPosTotOff: isV0 ? V0_ENGINE_PNL_POS_TOT_OFF : V1_ENGINE_PNL_POS_TOT_OFF,
+    engineLiqCursorOff: isV0 ? V0_ENGINE_LIQ_CURSOR_OFF : V1_ENGINE_LIQ_CURSOR_OFF,
+    engineGcCursorOff: isV0 ? V0_ENGINE_GC_CURSOR_OFF : V1_ENGINE_GC_CURSOR_OFF,
+    engineLastSweepStartOff: isV0 ? V0_ENGINE_LAST_SWEEP_START_OFF : V1_ENGINE_LAST_SWEEP_START_OFF,
+    engineLastSweepCompleteOff: isV0 ? V0_ENGINE_LAST_SWEEP_COMPLETE_OFF : V1_ENGINE_LAST_SWEEP_COMPLETE_OFF,
+    engineCrankCursorOff: isV0 ? V0_ENGINE_CRANK_CURSOR_OFF : V1_ENGINE_CRANK_CURSOR_OFF,
+    engineSweepStartIdxOff: isV0 ? V0_ENGINE_SWEEP_START_IDX_OFF : V1_ENGINE_SWEEP_START_IDX_OFF,
+    engineLifetimeLiquidationsOff: isV0 ? V0_ENGINE_LIFETIME_LIQUIDATIONS_OFF : V1_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
+    engineLifetimeForceClosesOff: isV0 ? V0_ENGINE_LIFETIME_FORCE_CLOSES_OFF : V1_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
+    engineNetLpPosOff: isV0 ? V0_ENGINE_NET_LP_POS_OFF : V1_ENGINE_NET_LP_POS_OFF,
+    engineLpSumAbsOff: isV0 ? V0_ENGINE_LP_SUM_ABS_OFF : V1_ENGINE_LP_SUM_ABS_OFF,
+    engineLpMaxAbsOff: isV0 ? V0_ENGINE_LP_MAX_ABS_OFF : V1_ENGINE_LP_MAX_ABS_OFF,
+    engineLpMaxAbsSweepOff: isV0 ? V0_ENGINE_LP_MAX_ABS_SWEEP_OFF : V1_ENGINE_LP_MAX_ABS_SWEEP_OFF,
+    engineEmergencyOiModeOff: isV0 ? -1 : V1_ENGINE_EMERGENCY_OI_MODE_OFF,
+    engineEmergencyStartSlotOff: isV0 ? -1 : V1_ENGINE_EMERGENCY_START_SLOT_OFF,
+    engineLastBreakerSlotOff: isV0 ? -1 : V1_ENGINE_LAST_BREAKER_SLOT_OFF,
+    engineBitmapOff: actualBitmapOff,
+    // V1_LEGACY: accountsOff is now correctly 1880 (fixed above), so standard +184 applies.
+    acctOwnerOff: ACCT_OWNER_OFF,
+
+    hasInsuranceIsolation: !isV0,
+    engineInsuranceIsolatedOff: isV0 ? -1 : 48,
+    engineInsuranceIsolationBpsOff: isV0 ? -1 : 64,
+  };
+}
+
+/**
+ * Build layout for V1D (actually deployed V1 program, rev ac18a0e).
+ * Uses correct field offsets derived from on-chain probing.
+ *
+ * @param maxAccounts - Number of account slots in the slab
+ * @param postBitmap  - Bytes after the bitmap before next_free array.
+ *   2  = free_head(u16) only — deployed program (GH#1234, default for new slabs)
+ *   18 = num_used(u16)+pad(6)+next_account_id(u64)+free_head(u16) — legacy on-chain slabs (GH#1237)
+ */
+/**
+ * Build a SlabLayout for the actually-deployed V1D program (ENGINE_OFF=424).
+ * `postBitmap` is 2 for new slabs (free_head only) and 18 for legacy on-chain slabs
+ * created before the GH#1234 fix that removed num_used/pad/next_account_id.
+ */
+function buildLayoutV1D(maxAccounts: number, postBitmap = 2): SlabLayout {
+  const engineOff = V1D_ENGINE_OFF;
+  const bitmapOff = V1D_ENGINE_BITMAP_OFF;
+  const accountSize = V1D_ACCOUNT_SIZE;
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
+
+  return {
+    version: 1,
+    headerLen: V1_HEADER_LEN,
+    configOffset: V1_HEADER_LEN,
+    configLen: V1D_CONFIG_LEN,
+    reservedOff: V1_RESERVED_OFF,
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+
+    engineInsuranceOff: V1D_ENGINE_INSURANCE_OFF,
+    engineParamsOff: V1D_ENGINE_PARAMS_OFF,
+    paramsSize: V1D_PARAMS_SIZE,
+    engineCurrentSlotOff: V1D_ENGINE_CURRENT_SLOT_OFF,
+    engineFundingIndexOff: V1D_ENGINE_FUNDING_INDEX_OFF,
+    engineLastFundingSlotOff: V1D_ENGINE_LAST_FUNDING_SLOT_OFF,
+    engineFundingRateBpsOff: V1D_ENGINE_FUNDING_RATE_BPS_OFF,
+    engineMarkPriceOff: V1D_ENGINE_MARK_PRICE_OFF,
+    engineLastCrankSlotOff: V1D_ENGINE_LAST_CRANK_SLOT_OFF,
+    engineMaxCrankStalenessOff: V1D_ENGINE_MAX_CRANK_STALENESS_OFF,
+    engineTotalOiOff: V1D_ENGINE_TOTAL_OI_OFF,
+    engineLongOiOff: V1D_ENGINE_LONG_OI_OFF,
+    engineShortOiOff: V1D_ENGINE_SHORT_OI_OFF,
+    engineCTotOff: V1D_ENGINE_C_TOT_OFF,
+    enginePnlPosTotOff: V1D_ENGINE_PNL_POS_TOT_OFF,
+    engineLiqCursorOff: V1D_ENGINE_LIQ_CURSOR_OFF,
+    engineGcCursorOff: V1D_ENGINE_GC_CURSOR_OFF,
+    engineLastSweepStartOff: V1D_ENGINE_LAST_SWEEP_START_OFF,
+    engineLastSweepCompleteOff: V1D_ENGINE_LAST_SWEEP_COMPLETE_OFF,
+    engineCrankCursorOff: V1D_ENGINE_CRANK_CURSOR_OFF,
+    engineSweepStartIdxOff: V1D_ENGINE_SWEEP_START_IDX_OFF,
+    engineLifetimeLiquidationsOff: V1D_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
+    engineLifetimeForceClosesOff: V1D_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
+    engineNetLpPosOff: V1D_ENGINE_NET_LP_POS_OFF,
+    engineLpSumAbsOff: V1D_ENGINE_LP_SUM_ABS_OFF,
+    engineLpMaxAbsOff: -1,              // not present in deployed V1
+    engineLpMaxAbsSweepOff: -1,         // not present in deployed V1
+    engineEmergencyOiModeOff: -1,       // not present in deployed V1
+    engineEmergencyStartSlotOff: -1,    // not present in deployed V1
+    engineLastBreakerSlotOff: -1,       // not present in deployed V1
+    engineBitmapOff: V1D_ENGINE_BITMAP_OFF,
+    acctOwnerOff: ACCT_OWNER_OFF,
+
+    hasInsuranceIsolation: true,
+    engineInsuranceIsolatedOff: 48,     // same within InsuranceFund
+    engineInsuranceIsolationBpsOff: 64, // same within InsuranceFund
+  };
+}
+
+/**
+ * Build a SlabLayout for V2 (BPF intermediate layout).
+ * ENGINE_OFF=600, BITMAP_OFF=432, ACCOUNT_SIZE=248, postBitmap=18.
+ * V2 lacks mark_price, long_oi, short_oi, emergency OI fields.
+ */
+function buildLayoutV2(maxAccounts: number): SlabLayout {
+  const engineOff = V2_ENGINE_OFF;
+  const bitmapOff = V2_ENGINE_BITMAP_OFF;
+  const accountSize = V2_ACCOUNT_SIZE;
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
   const postBitmap = 18;
@@ -386,11 +541,11 @@ function buildLayout(version: 0 | 1 | 2 | 3 | 4, maxAccounts: number): SlabLayou
   const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
 
   return {
-    version,
-    headerLen: isV0Like ? (isV4 ? V4_HEADER_LEN : V0_HEADER_LEN) : isV2 ? V2_HEADER_LEN : isV3 ? V3_HEADER_LEN : V1_HEADER_LEN,
-    configOffset: isV0Like ? (isV4 ? V4_HEADER_LEN : V0_HEADER_LEN) : isV2 ? V2_HEADER_LEN : isV3 ? V3_HEADER_LEN : V1_HEADER_LEN,
-    configLen: isV0Like ? (isV4 ? V4_CONFIG_LEN : V0_CONFIG_LEN) : isV2 ? V2_CONFIG_LEN : isV3 ? V3_CONFIG_LEN : V1_CONFIG_LEN,
-    reservedOff: isV0Like ? (isV4 ? V4_RESERVED_OFF : V0_RESERVED_OFF) : isV2 ? V2_RESERVED_OFF : isV3 ? V3_RESERVED_OFF : V1_RESERVED_OFF,
+    version: 2,
+    headerLen: V2_HEADER_LEN,
+    configOffset: V2_HEADER_LEN,
+    configLen: V2_CONFIG_LEN,
+    reservedOff: V1_RESERVED_OFF,   // V2 shares V1's header layout (reserved at 80)
     engineOff,
     accountSize,
     maxAccounts,
@@ -398,167 +553,89 @@ function buildLayout(version: 0 | 1 | 2 | 3 | 4, maxAccounts: number): SlabLayou
     accountsOff: engineOff + accountsOffRel,
 
     engineInsuranceOff: 16,
-    engineParamsOff: isV0 ? V0_ENGINE_PARAMS_OFF
-      : isV2 ? V2_ENGINE_PARAMS_OFF
-      : isV3 ? V3_ENGINE_PARAMS_OFF
-      : isV4 ? V4_ENGINE_PARAMS_OFF
-      : V1_ENGINE_PARAMS_OFF,
-    paramsSize: isV0Like ? (isV4 ? V4_PARAMS_SIZE : V0_PARAMS_SIZE) : V2_PARAMS_SIZE, // V1/V2/V3 share extended params size
-    engineCurrentSlotOff: isV0 ? V0_ENGINE_CURRENT_SLOT_OFF
-      : isV2 ? V2_ENGINE_CURRENT_SLOT_OFF
-      : isV3 ? V3_ENGINE_CURRENT_SLOT_OFF
-      : isV4 ? V4_ENGINE_CURRENT_SLOT_OFF
-      : V1_ENGINE_CURRENT_SLOT_OFF,
-    engineFundingIndexOff: isV0 ? V0_ENGINE_FUNDING_INDEX_OFF
-      : isV2 ? V2_ENGINE_FUNDING_INDEX_OFF
-      : isV3 ? V3_ENGINE_FUNDING_INDEX_OFF
-      : isV4 ? V4_ENGINE_FUNDING_INDEX_OFF
-      : V1_ENGINE_FUNDING_INDEX_OFF,
-    engineLastFundingSlotOff: isV0 ? V0_ENGINE_LAST_FUNDING_SLOT_OFF
-      : isV2 ? V2_ENGINE_LAST_FUNDING_SLOT_OFF
-      : isV3 ? V3_ENGINE_LAST_FUNDING_SLOT_OFF
-      : isV4 ? V4_ENGINE_LAST_FUNDING_SLOT_OFF
-      : V1_ENGINE_LAST_FUNDING_SLOT_OFF,
-    engineFundingRateBpsOff: isV0 ? V0_ENGINE_FUNDING_RATE_BPS_OFF
-      : isV2 ? V2_ENGINE_FUNDING_RATE_BPS_OFF
-      : isV3 ? V3_ENGINE_FUNDING_RATE_BPS_OFF
-      : isV4 ? V4_ENGINE_FUNDING_RATE_BPS_OFF
-      : V1_ENGINE_FUNDING_RATE_BPS_OFF,
-    engineMarkPriceOff: (isV0Like || isV2 || isV3) ? -1 : V1_ENGINE_MARK_PRICE_OFF,
-    engineLastCrankSlotOff: isV0 ? V0_ENGINE_LAST_CRANK_SLOT_OFF
-      : isV2 ? V2_ENGINE_LAST_CRANK_SLOT_OFF
-      : isV3 ? V3_ENGINE_LAST_CRANK_SLOT_OFF
-      : isV4 ? V4_ENGINE_LAST_CRANK_SLOT_OFF
-      : V1_ENGINE_LAST_CRANK_SLOT_OFF,
-    engineMaxCrankStalenessOff: isV0 ? V0_ENGINE_MAX_CRANK_STALENESS_OFF
-      : isV2 ? V2_ENGINE_MAX_CRANK_STALENESS_OFF
-      : isV3 ? V3_ENGINE_MAX_CRANK_STALENESS_OFF
-      : isV4 ? V4_ENGINE_MAX_CRANK_STALENESS_OFF
-      : V1_ENGINE_MAX_CRANK_STALENESS_OFF,
-    engineTotalOiOff: isV0 ? V0_ENGINE_TOTAL_OI_OFF
-      : isV2 ? V2_ENGINE_TOTAL_OI_OFF
-      : isV3 ? V3_ENGINE_TOTAL_OI_OFF
-      : isV4 ? V4_ENGINE_TOTAL_OI_OFF
-      : V1_ENGINE_TOTAL_OI_OFF,
-    engineLongOiOff: (isV0Like || isV2 || isV3) ? -1 : V1_ENGINE_LONG_OI_OFF,
-    engineShortOiOff: (isV0Like || isV2 || isV3) ? -1 : V1_ENGINE_SHORT_OI_OFF,
-    engineCTotOff: isV0 ? V0_ENGINE_C_TOT_OFF
-      : isV2 ? V2_ENGINE_C_TOT_OFF
-      : isV3 ? V3_ENGINE_C_TOT_OFF
-      : isV4 ? V4_ENGINE_C_TOT_OFF
-      : V1_ENGINE_C_TOT_OFF,
-    enginePnlPosTotOff: isV0 ? V0_ENGINE_PNL_POS_TOT_OFF
-      : isV2 ? V2_ENGINE_PNL_POS_TOT_OFF
-      : isV3 ? V3_ENGINE_PNL_POS_TOT_OFF
-      : isV4 ? V4_ENGINE_PNL_POS_TOT_OFF
-      : V1_ENGINE_PNL_POS_TOT_OFF,
-    engineLiqCursorOff: isV0 ? V0_ENGINE_LIQ_CURSOR_OFF
-      : isV2 ? V2_ENGINE_LIQ_CURSOR_OFF
-      : isV3 ? V3_ENGINE_LIQ_CURSOR_OFF
-      : isV4 ? V4_ENGINE_LIQ_CURSOR_OFF
-      : V1_ENGINE_LIQ_CURSOR_OFF,
-    engineGcCursorOff: isV0 ? V0_ENGINE_GC_CURSOR_OFF
-      : isV2 ? V2_ENGINE_GC_CURSOR_OFF
-      : isV3 ? V3_ENGINE_GC_CURSOR_OFF
-      : isV4 ? V4_ENGINE_GC_CURSOR_OFF
-      : V1_ENGINE_GC_CURSOR_OFF,
-    engineLastSweepStartOff: isV0 ? V0_ENGINE_LAST_SWEEP_START_OFF
-      : isV2 ? V2_ENGINE_LAST_SWEEP_START_OFF
-      : isV3 ? V3_ENGINE_LAST_SWEEP_START_OFF
-      : isV4 ? V4_ENGINE_LAST_SWEEP_START_OFF
-      : V1_ENGINE_LAST_SWEEP_START_OFF,
-    engineLastSweepCompleteOff: isV0 ? V0_ENGINE_LAST_SWEEP_COMPLETE_OFF
-      : isV2 ? V2_ENGINE_LAST_SWEEP_COMPLETE_OFF
-      : isV3 ? V3_ENGINE_LAST_SWEEP_COMPLETE_OFF
-      : isV4 ? V4_ENGINE_LAST_SWEEP_COMPLETE_OFF
-      : V1_ENGINE_LAST_SWEEP_COMPLETE_OFF,
-    engineCrankCursorOff: isV0 ? V0_ENGINE_CRANK_CURSOR_OFF
-      : isV2 ? V2_ENGINE_CRANK_CURSOR_OFF
-      : isV3 ? V3_ENGINE_CRANK_CURSOR_OFF
-      : isV4 ? V4_ENGINE_CRANK_CURSOR_OFF
-      : V1_ENGINE_CRANK_CURSOR_OFF,
-    engineSweepStartIdxOff: isV0 ? V0_ENGINE_SWEEP_START_IDX_OFF
-      : isV2 ? V2_ENGINE_SWEEP_START_IDX_OFF
-      : isV3 ? V3_ENGINE_SWEEP_START_IDX_OFF
-      : isV4 ? V4_ENGINE_SWEEP_START_IDX_OFF
-      : V1_ENGINE_SWEEP_START_IDX_OFF,
-    engineLifetimeLiquidationsOff: isV0 ? V0_ENGINE_LIFETIME_LIQUIDATIONS_OFF
-      : isV2 ? V2_ENGINE_LIFETIME_LIQUIDATIONS_OFF
-      : isV3 ? V3_ENGINE_LIFETIME_LIQUIDATIONS_OFF
-      : isV4 ? V4_ENGINE_LIFETIME_LIQUIDATIONS_OFF
-      : V1_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
-    engineLifetimeForceClosesOff: isV0 ? V0_ENGINE_LIFETIME_FORCE_CLOSES_OFF
-      : isV2 ? V2_ENGINE_LIFETIME_FORCE_CLOSES_OFF
-      : isV3 ? V3_ENGINE_LIFETIME_FORCE_CLOSES_OFF
-      : isV4 ? V4_ENGINE_LIFETIME_FORCE_CLOSES_OFF
-      : V1_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
-    engineNetLpPosOff: isV0 ? V0_ENGINE_NET_LP_POS_OFF
-      : isV2 ? V2_ENGINE_NET_LP_POS_OFF
-      : isV3 ? V3_ENGINE_NET_LP_POS_OFF
-      : isV4 ? V4_ENGINE_NET_LP_POS_OFF
-      : V1_ENGINE_NET_LP_POS_OFF,
-    engineLpSumAbsOff: isV0 ? V0_ENGINE_LP_SUM_ABS_OFF
-      : isV2 ? V2_ENGINE_LP_SUM_ABS_OFF
-      : isV3 ? V3_ENGINE_LP_SUM_ABS_OFF
-      : isV4 ? V4_ENGINE_LP_SUM_ABS_OFF
-      : V1_ENGINE_LP_SUM_ABS_OFF,
-    engineLpMaxAbsOff: isV0 ? V0_ENGINE_LP_MAX_ABS_OFF
-      : isV2 ? V2_ENGINE_LP_MAX_ABS_OFF
-      : isV3 ? V3_ENGINE_LP_MAX_ABS_OFF
-      : isV4 ? V4_ENGINE_LP_MAX_ABS_OFF
-      : V1_ENGINE_LP_MAX_ABS_OFF,
-    engineLpMaxAbsSweepOff: isV0 ? V0_ENGINE_LP_MAX_ABS_SWEEP_OFF
-      : isV2 ? V2_ENGINE_LP_MAX_ABS_SWEEP_OFF
-      : isV3 ? V3_ENGINE_LP_MAX_ABS_SWEEP_OFF
-      : isV4 ? V4_ENGINE_LP_MAX_ABS_SWEEP_OFF
-      : V1_ENGINE_LP_MAX_ABS_SWEEP_OFF,
-    // No emergency OI fields in V0/V2/V3/V4 — only V1
-    engineEmergencyOiModeOff: isV1 ? V1_ENGINE_EMERGENCY_OI_MODE_OFF : -1,
-    engineEmergencyStartSlotOff: isV1 ? V1_ENGINE_EMERGENCY_START_SLOT_OFF : -1,
-    engineLastBreakerSlotOff: isV1 ? V1_ENGINE_LAST_BREAKER_SLOT_OFF : -1,
-    engineBitmapOff: bitmapOff,
+    engineParamsOff: V1_ENGINE_PARAMS_OFF,  // same as V1: 72
+    paramsSize: V1_PARAMS_SIZE,             // same as V1: 288
+    engineCurrentSlotOff: V2_ENGINE_CURRENT_SLOT_OFF,
+    engineFundingIndexOff: V2_ENGINE_FUNDING_INDEX_OFF,
+    engineLastFundingSlotOff: V2_ENGINE_LAST_FUNDING_SLOT_OFF,
+    engineFundingRateBpsOff: V2_ENGINE_FUNDING_RATE_BPS_OFF,
+    engineMarkPriceOff: -1,                 // V2 has no mark_price
+    engineLastCrankSlotOff: V2_ENGINE_LAST_CRANK_SLOT_OFF,
+    engineMaxCrankStalenessOff: V2_ENGINE_MAX_CRANK_STALENESS_OFF,
+    engineTotalOiOff: V2_ENGINE_TOTAL_OI_OFF,
+    engineLongOiOff: -1,                    // V2 has no long_oi
+    engineShortOiOff: -1,                   // V2 has no short_oi
+    engineCTotOff: V2_ENGINE_C_TOT_OFF,
+    enginePnlPosTotOff: V2_ENGINE_PNL_POS_TOT_OFF,
+    engineLiqCursorOff: V2_ENGINE_LIQ_CURSOR_OFF,
+    engineGcCursorOff: V2_ENGINE_GC_CURSOR_OFF,
+    engineLastSweepStartOff: V2_ENGINE_LAST_SWEEP_START_OFF,
+    engineLastSweepCompleteOff: V2_ENGINE_LAST_SWEEP_COMPLETE_OFF,
+    engineCrankCursorOff: V2_ENGINE_CRANK_CURSOR_OFF,
+    engineSweepStartIdxOff: V2_ENGINE_SWEEP_START_IDX_OFF,
+    engineLifetimeLiquidationsOff: V2_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
+    engineLifetimeForceClosesOff: V2_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
+    engineNetLpPosOff: V2_ENGINE_NET_LP_POS_OFF,
+    engineLpSumAbsOff: V2_ENGINE_LP_SUM_ABS_OFF,
+    engineLpMaxAbsOff: V2_ENGINE_LP_MAX_ABS_OFF,
+    engineLpMaxAbsSweepOff: V2_ENGINE_LP_MAX_ABS_SWEEP_OFF,
+    engineEmergencyOiModeOff: -1,           // V2 has no emergency OI fields
+    engineEmergencyStartSlotOff: -1,
+    engineLastBreakerSlotOff: -1,
+    engineBitmapOff: V2_ENGINE_BITMAP_OFF,
+    acctOwnerOff: ACCT_OWNER_OFF,
 
-    hasInsuranceIsolation: !isV0Like,  // V1/V2/V3 have isolation fields in insurance struct; V0/V4 do not
-    engineInsuranceIsolatedOff: isV0Like ? -1 : 48,
-    engineInsuranceIsolationBpsOff: isV0Like ? -1 : 64,
+    hasInsuranceIsolation: true,
+    engineInsuranceIsolatedOff: 48,
+    engineInsuranceIsolationBpsOff: 64,
   };
 }
 
 /**
- * Detect slab layout version from data length.
- * Returns a full SlabLayout descriptor or null if unrecognized.
+ * Detect the slab layout version from the raw account data length.
+ * Returns the full SlabLayout descriptor, or null if the size is unrecognised.
+ * Checks V0, V1D, V1D-legacy, V1, and V1-legacy (pre-PERC-1094) sizes in priority order.
  *
- * Known layout families (all empirically verified from on-chain accounts):
- *   V0  — HEADER=72,  CONFIG=408, ENGINE_OFF=480, BITMAP_OFF=320, ACCT=240 (deployed devnet V0)
- *   V2  — HEADER=104, CONFIG=496, ENGINE_OFF=600, BITMAP_OFF=432, ACCT=248 (BPF intermediate, e.g. 65088/1025568)
- *   V1  — HEADER=104, CONFIG=536, ENGINE_OFF=640, BITMAP_OFF=656, ACCT=248 (fully upgraded, e.g. 65352/1025832)
- *   V3  — HEADER=104, CONFIG=520, ENGINE_OFF=624, BITMAP_OFF=430, ACCT=248 (BPF intermediate, e.g. 257200)
- *   V4  — HEADER=72,  CONFIG=408, ENGINE_OFF=480, BITMAP_OFF=312, ACCT=240 (V0-variant, e.g. 992560)
+ * When `data` is provided and the size matches V1D, the version field at offset 8 is read
+ * to disambiguate V2 slabs (which produce identical sizes to V1D with postBitmap=2).
+ * V2 slabs have version===2 at offset 8 (u32 LE).
+ *
+ * @param dataLen - The slab account data length in bytes
+ * @param data    - Optional raw slab data for version-field disambiguation
  */
-export function detectSlabLayout(dataLen: number): SlabLayout | null {
-  // Check V0 sizes first (deployed devnet program, oldest)
+export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout | null {
+  // Check V0 sizes first (deployed devnet V0 program)
   const v0n = V0_SIZES.get(dataLen);
   if (v0n !== undefined) return buildLayout(0, v0n);
 
-  // Check V4 sizes — V4 is a V0-variant with bitmapOff=312 (vs V0's 320).
-  // Empirically verified from on-chain slabs of size 992560 (4096-acct).
-  const v4n = V4_SIZES.get(dataLen);
-  if (v4n !== undefined) return buildLayout(4, v4n);
+  // Check V1D sizes (actually deployed V1 program — ENGINE_OFF=424, correct struct layout).
+  // V2 slabs produce identical sizes (postBitmap=18 for V2 == postBitmap=2 for V1D).
+  // When data is available, peek at the version field to disambiguate.
+  const v1dn = V1D_SIZES.get(dataLen);
+  if (v1dn !== undefined) {
+    if (data && data.length >= 12) {
+      const version = readU32LE(data, 8);
+      if (version === 2) return buildLayoutV2(v1dn);
+    }
+    return buildLayoutV1D(v1dn, 2);
+  }
 
-  // Check V3 sizes — V3 is a BPF intermediate with CONFIG=520, ENGINE_OFF=624, BITMAP_OFF=430.
-  // Empirically verified from on-chain slabs of size 257200 (1024-acct).
-  const v3n = V3_SIZES.get(dataLen);
-  if (v3n !== undefined) return buildLayout(3, v3n);
+  // Check V1D legacy sizes (postBitmap=18 on-chain slabs created before GH#1234 fix).
+  // e.g. slab 6ZytbpV4 (TEST/USD, top active market) = 65104 bytes, uses postBitmap=18.
+  // PR #1236 broke these by only registering the postBitmap=2 size; GH#1237 restores support.
+  const v1dln = V1D_SIZES_LEGACY.get(dataLen);
+  if (v1dln !== undefined) return buildLayoutV1D(v1dln, 18);
 
-  // Check V2 sizes before V1 — V2 is the BPF intermediate (CONFIG=496, ENGINE_OFF=600).
-  // Empirically verified from on-chain slabs 65088 (256-acct) and 1025568 (4096-acct).
-  // Must check V2 before V1 to avoid a false V1 match on a hypothetical collision.
-  const v2n = V2_SIZES.get(dataLen);
-  if (v2n !== undefined) return buildLayout(2, v2n);
-
-  // Check V1 sizes (fully upgraded program, CONFIG=536, ENGINE_OFF=640)
+  // Check V1 sizes (future V1 program — ENGINE_OFF=600, PERC-1094 corrected)
   const v1n = V1_SIZES.get(dataLen);
   if (v1n !== undefined) return buildLayout(1, v1n);
+
+  // Check legacy V1 sizes (pre-PERC-1094 SDK used ENGINE_OFF=640; orphaned on devnet)
+  const v1ln = V1_SIZES_LEGACY.get(dataLen);
+  // PERC-1095 follow-up: must pass V1_ENGINE_OFF_LEGACY (640) so the returned SlabLayout
+  // has .engineOff=640 — without the override buildLayout would use V1_ENGINE_OFF=600,
+  // causing all engine reads on legacy slabs to land at the wrong byte offset.
+  if (v1ln !== undefined) return buildLayout(1, v1ln, V1_ENGINE_OFF_LEGACY);
 
   return null;
 }
@@ -566,16 +643,15 @@ export function detectSlabLayout(dataLen: number): SlabLayout | null {
 /**
  * Legacy detectLayout for backward compat.
  * Returns { bitmapWords, accountsOff, maxAccounts } or null.
+ *
+ * GH#1238: previously recomputed accountsOff with hardcoded postBitmap=18, which gave a value
+ * 16 bytes too large for V1D slabs (which use postBitmap=2). Now delegates directly to the
+ * SlabLayout descriptor so each variant uses its own correct accountsOff.
  */
 export function detectLayout(dataLen: number) {
   const layout = detectSlabLayout(dataLen);
   if (!layout) return null;
-  const bitmapBytes = layout.bitmapWords * 8;
-  const postBitmap = 18;
-  const nextFreeBytes = layout.maxAccounts * 2;
-  const preAccountsLen = layout.engineBitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
-  const accountsOff = Math.ceil(preAccountsLen / 8) * 8;
-  return { bitmapWords: layout.bitmapWords, accountsOff, maxAccounts: layout.maxAccounts };
+  return { bitmapWords: layout.bitmapWords, accountsOff: layout.accountsOff, maxAccounts: layout.maxAccounts };
 }
 
 // =============================================================================
@@ -673,6 +749,12 @@ export interface MarketConfig {
   oiRampSlots: bigint;
   resolvedSlot: bigint;
   insuranceIsolationBps: number;
+  /** PERC-622: Oracle phase (0=Nascent, 1=Growing, 2=Mature) */
+  oraclePhase: number;
+  /** PERC-622: Cumulative trade volume in e6 format */
+  cumulativeVolumeE6: bigint;
+  /** PERC-622: Slots elapsed from market creation to Phase 2 entry (u24) */
+  phase2DeltaSlots: number;
 }
 
 export interface InsuranceFund {
@@ -855,9 +937,12 @@ export function parseHeader(data: Uint8Array): SlabHeader {
  * Parse market config. Layout-version aware.
  * For V0 slabs, fields beyond the basic config are read if present in the data,
  * otherwise defaults are returned.
+ *
+ * @param data - Slab data (may be a partial slice for discovery; pass layoutHint in that case)
+ * @param layoutHint - Pre-detected layout to use; if omitted, detected from data.length.
  */
-export function parseConfig(data: Uint8Array): MarketConfig {
-  const layout = detectSlabLayout(data.length);
+export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): MarketConfig {
+  const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length);
   const configOff = layout ? layout.configOffset : V0_HEADER_LEN;
   const configLen = layout ? layout.configLen : V0_CONFIG_LEN;
 
@@ -980,6 +1065,9 @@ export function parseConfig(data: Uint8Array): MarketConfig {
   let oiRampSlots = 0n;
   let resolvedSlot = 0n;
   let insuranceIsolationBps = 0;
+  let oraclePhase = 0;
+  let cumulativeVolumeE6 = 0n;
+  let phase2DeltaSlots = 0;
 
   if (remaining >= 40) {
     // V1 extended fields (adaptive funding, maturity ramp, auto-unresolve)
@@ -1003,6 +1091,16 @@ export function parseConfig(data: Uint8Array): MarketConfig {
     off += 8; // _perc301_reserved
     if (remaining >= 42) {
       insuranceIsolationBps = readU16LE(data, off);
+      // PERC-622: Read oracle phase fields from _insurance_isolation_padding
+      // padding starts at off + 2 (after u16 insuranceIsolationBps)
+      // [0..2] = mark_oracle_weight (PERC-118), [2] = oracle_phase, [3..11] = cumulative_volume, [11..14] = phase2_delta
+      if (remaining >= 56) { // 42 + 14 bytes padding
+        const padOff = off + 2;
+        oraclePhase = Math.min(readU8(data, padOff + 2), 2);
+        cumulativeVolumeE6 = readU64LE(data, padOff + 3);
+        // phase2_delta_slots is u24 LE (3 bytes)
+        phase2DeltaSlots = data[padOff + 11] | (data[padOff + 12] << 8) | (data[padOff + 13] << 16);
+      }
     }
   }
 
@@ -1046,6 +1144,9 @@ export function parseConfig(data: Uint8Array): MarketConfig {
     oiRampSlots,
     resolvedSlot,
     insuranceIsolationBps,
+    oraclePhase,
+    cumulativeVolumeE6,
+    phase2DeltaSlots,
   };
 }
 
@@ -1053,9 +1154,12 @@ export function parseConfig(data: Uint8Array): MarketConfig {
  * Parse RiskParams from engine data. Layout-version aware.
  * For V0 slabs, extended params (risk_threshold, maintenance_fee, etc.) are
  * not present on-chain, so defaults (0) are returned.
+ *
+ * @param data - Slab data (may be a partial slice; pass layoutHint in that case)
+ * @param layoutHint - Pre-detected layout to use; if omitted, detected from data.length.
  */
-export function parseParams(data: Uint8Array): RiskParams {
-  const layout = detectSlabLayout(data.length);
+export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): RiskParams {
+  const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length);
   const engineOff = layout ? layout.engineOff : V0_ENGINE_OFF;
   const paramsOff = layout ? layout.engineParamsOff : V0_ENGINE_PARAMS_OFF;
   const paramsSize = layout ? layout.paramsSize : V0_PARAMS_SIZE;
@@ -1144,8 +1248,8 @@ export function parseEngine(data: Uint8Array): EngineState {
     lifetimeForceCloses: readU64LE(data, base + layout.engineLifetimeForceClosesOff),
     netLpPos: readI128LE(data, base + layout.engineNetLpPosOff),
     lpSumAbs: readU128LE(data, base + layout.engineLpSumAbsOff),
-    lpMaxAbs: readU128LE(data, base + layout.engineLpMaxAbsOff),
-    lpMaxAbsSweep: readU128LE(data, base + layout.engineLpMaxAbsSweepOff),
+    lpMaxAbs: layout.engineLpMaxAbsOff >= 0 ? readU128LE(data, base + layout.engineLpMaxAbsOff) : 0n,
+    lpMaxAbsSweep: layout.engineLpMaxAbsSweepOff >= 0 ? readU128LE(data, base + layout.engineLpMaxAbsSweepOff) : 0n,
     emergencyOiMode: layout.engineEmergencyOiModeOff >= 0
       ? data[base + layout.engineEmergencyOiModeOff] !== 0
       : false,
@@ -1172,6 +1276,10 @@ export function parseEngine(data: Uint8Array): EngineState {
 
 /**
  * Read bitmap to get list of used account indices.
+ */
+/**
+ * Return all account indices whose bitmap bit is set (i.e. slot is in use).
+ * Uses the layout-aware bitmap offset so V1_LEGACY slabs (bitmap at rel+672) are handled correctly.
  */
 export function parseUsedIndices(data: Uint8Array): number[] {
   const layout = detectSlabLayout(data.length);
@@ -1253,7 +1361,7 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
     fundingIndex: readI128LE(data, base + ACCT_FUNDING_INDEX_OFF),
     matcherProgram: new PublicKey(data.subarray(base + ACCT_MATCHER_PROGRAM_OFF, base + ACCT_MATCHER_PROGRAM_OFF + 32)),
     matcherContext: new PublicKey(data.subarray(base + ACCT_MATCHER_CONTEXT_OFF, base + ACCT_MATCHER_CONTEXT_OFF + 32)),
-    owner: new PublicKey(data.subarray(base + ACCT_OWNER_OFF, base + ACCT_OWNER_OFF + 32)),
+    owner: new PublicKey(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
     feeCredits: readI128LE(data, base + ACCT_FEE_CREDITS_OFF),
     lastFeeSlot: readU64LE(data, base + ACCT_LAST_FEE_SLOT_OFF),
   };

@@ -14,7 +14,7 @@ export const PROGRAM_IDS = {
   },
   mainnet: {
     percolator: "GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24",
-    matcher: "", // TODO: Deploy matcher to mainnet
+    matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX",
   },
 } as const;
 
@@ -26,7 +26,7 @@ export type Network = "devnet" | "mainnet";
  * Priority:
  * 1. PROGRAM_ID env var (explicit override)
  * 2. Network-specific default (NETWORK env var)
- * 3. Devnet default (safest fallback)
+ * 3. Devnet default (safest fallback — bug bounty PERC-697)
  */
 export function getProgramId(network?: Network): PublicKey {
   // Explicit override takes precedence
@@ -34,10 +34,9 @@ export function getProgramId(network?: Network): PublicKey {
     return new PublicKey(process.env.PROGRAM_ID);
   }
 
-  // Use provided network or detect from env
-  // Fail-closed: default to mainnet (not devnet) — matches RULES.md pattern.
-  // Devnet must be explicitly requested via NETWORK=devnet or parameter.
-  const targetNetwork = network ?? (process.env.NETWORK as Network) ?? "mainnet";
+  // Use provided network or detect from env — default to devnet (never mainnet silently)
+  const detectedNetwork = getCurrentNetwork();
+  const targetNetwork = network ?? detectedNetwork;
   const programId = PROGRAM_IDS[targetNetwork].percolator;
 
   return new PublicKey(programId);
@@ -52,9 +51,9 @@ export function getMatcherProgramId(network?: Network): PublicKey {
     return new PublicKey(process.env.MATCHER_PROGRAM_ID);
   }
 
-  // Use provided network or detect from env
-  // Fail-closed: default to mainnet (not devnet)
-  const targetNetwork = network ?? (process.env.NETWORK as Network) ?? "mainnet";
+  // Use provided network or detect from env — default to devnet (never mainnet silently)
+  const detectedNetwork = getCurrentNetwork();
+  const targetNetwork = network ?? detectedNetwork;
   const programId = PROGRAM_IDS[targetNetwork].matcher;
 
   if (!programId) {
@@ -65,14 +64,22 @@ export function getMatcherProgramId(network?: Network): PublicKey {
 }
 
 /**
- * Get the current network from environment
- * Defaults to mainnet (fail-closed)
+ * Get the current network from environment.
+ *
+ * SECURITY (PERC-697): Removed silent mainnet default.
+ * Previously defaulted to "mainnet" when NETWORK was unset, which could cause
+ * crank/keeper scripts run without env vars to silently target mainnet program IDs.
+ *
+ * Now defaults to "devnet" — the safer fallback for a devnet-first protocol.
+ * Production deployments always set NETWORK explicitly via Railway/env.
+ * For mainnet operations use networkValidation.ts (ensureNetworkConfigValid) which
+ * enforces FORCE_MAINNET=1.
  */
 export function getCurrentNetwork(): Network {
   const network = process.env.NETWORK?.toLowerCase();
-  if (network === "devnet") {
-    return "devnet";
+  if (network === "mainnet" || network === "mainnet-beta") {
+    return "mainnet";
   }
-  // Fail-closed: default to mainnet
-  return "mainnet";
+  // devnet, testnet, or unset → devnet (fail-open to devnet, not mainnet)
+  return "devnet";
 }

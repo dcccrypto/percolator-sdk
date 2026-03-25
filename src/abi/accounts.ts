@@ -95,13 +95,12 @@ export const ACCOUNTS_KEEPER_CRANK: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * TradeNoCpi: 5 accounts
+ * TradeNoCpi: 4 accounts (PERC-199: clock sysvar removed — uses Clock::get() syscall)
  */
 export const ACCOUNTS_TRADE_NOCPI: readonly AccountSpec[] = [
   { name: "user", signer: true, writable: true },
   { name: "lp", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
-  { name: "clock", signer: false, writable: false },
   { name: "oracle", signer: false, writable: false },
 ] as const;
 
@@ -142,13 +141,12 @@ export const ACCOUNTS_TOPUP_INSURANCE: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * TradeCpi: 8 accounts
+ * TradeCpi: 7 accounts (PERC-199: clock sysvar removed — uses Clock::get() syscall)
  */
 export const ACCOUNTS_TRADE_CPI: readonly AccountSpec[] = [
   { name: "user", signer: true, writable: true },
   { name: "lpOwner", signer: false, writable: false },  // LP delegated to matcher - no signature needed
   { name: "slab", signer: false, writable: true },
-  { name: "clock", signer: false, writable: false },
   { name: "oracle", signer: false, writable: false },
   { name: "matcherProg", signer: false, writable: false },
   { name: "matcherCtx", signer: false, writable: true },
@@ -200,6 +198,15 @@ export const ACCOUNTS_SET_MAINTENANCE_FEE: readonly AccountSpec[] = [
  * Sets the oracle price authority (admin only)
  */
 export const ACCOUNTS_SET_ORACLE_AUTHORITY: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+/**
+ * SetOraclePriceCap: 2 accounts
+ * Set oracle price circuit breaker cap (admin only)
+ */
+export const ACCOUNTS_SET_ORACLE_PRICE_CAP: readonly AccountSpec[] = [
   { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
 ] as const;
@@ -257,19 +264,43 @@ export const ACCOUNTS_UNPAUSE_MARKET: readonly AccountSpec[] = [
 
 /**
  * Build AccountMeta array from spec and provided pubkeys.
- * Keys must be provided in the same order as the spec.
+ *
+ * Accepts either:
+ *   - `PublicKey[]`  — ordered array, one entry per spec account (legacy form)
+ *   - `Record<string, PublicKey>` — named map keyed by account `name` (preferred form)
+ *
+ * Named-map form resolves accounts by spec name so callers don't have to
+ * remember the positional order, and errors clearly on missing names.
  */
 export function buildAccountMetas(
   spec: readonly AccountSpec[],
-  keys: PublicKey[]
+  keys: PublicKey[] | Record<string, PublicKey>
 ): AccountMeta[] {
-  if (keys.length !== spec.length) {
+  let keysArray: PublicKey[];
+
+  if (Array.isArray(keys)) {
+    keysArray = keys;
+  } else {
+    // Named map: resolve by spec name
+    keysArray = spec.map((s) => {
+      const key = (keys as Record<string, PublicKey>)[s.name];
+      if (!key) {
+        throw new Error(
+          `buildAccountMetas: missing key for account "${s.name}". ` +
+          `Provided keys: [${Object.keys(keys).join(", ")}]`
+        );
+      }
+      return key;
+    });
+  }
+
+  if (keysArray.length !== spec.length) {
     throw new Error(
-      `Account count mismatch: expected ${spec.length}, got ${keys.length}`
+      `Account count mismatch: expected ${spec.length}, got ${keysArray.length}`
     );
   }
   return spec.map((s, i) => ({
-    pubkey: keys[i],
+    pubkey: keysArray[i],
     isSigner: s.signer,
     isWritable: s.writable,
   }));
@@ -320,6 +351,67 @@ export const ACCOUNTS_WITHDRAW_INSURANCE_LP: readonly AccountSpec[] = [
   { name: "withdrawerLpAta", signer: false, writable: true },
   { name: "vaultAuthority", signer: false, writable: false },
 ] as const;
+
+/**
+ * FundMarketInsurance: 5 accounts (PERC-306)
+ * Fund per-market isolated insurance balance.
+ */
+export const ACCOUNTS_FUND_MARKET_INSURANCE: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "adminAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+] as const;
+
+/**
+ * SetInsuranceIsolation: 2 accounts (PERC-306)
+ * Set max % of global fund this market can access.
+ */
+export const ACCOUNTS_SET_INSURANCE_ISOLATION: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+/**
+ * ExecuteAdl: NOT IMPLEMENTED ON-CHAIN (PERC-305 pending).
+ * Tag 43 is ChallengeSettlement (PERC-314). This constant is retained
+ * for reference only — do NOT use it to build instructions.
+ * @deprecated PERC-305 is not deployed. Using this would invoke ChallengeSettlement.
+ */
+export const ACCOUNTS_EXECUTE_ADL: readonly AccountSpec[] = [
+  { name: "keeper", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+// ============================================================================
+// PERC-622: AdvanceOraclePhase (permissionless)
+// ============================================================================
+
+/**
+ * AdvanceOraclePhase: 1 account
+ * Permissionless — no signer required beyond fee payer.
+ */
+export const ACCOUNTS_ADVANCE_ORACLE_PHASE: readonly AccountSpec[] = [
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+// ============================================================================
+// PERC-623: Keeper Fund Instructions
+// ============================================================================
+
+/**
+ * TopUpKeeperFund: 3 accounts
+ * Permissionless — anyone can fund. Transfers lamports directly (no system program).
+ */
+export const ACCOUNTS_TOPUP_KEEPER_FUND: readonly AccountSpec[] = [
+  { name: "funder", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "keeperFund", signer: false, writable: true },
+] as const;
+
+// Note: WithdrawKeeperReward has no separate instruction.
+// Rewards are paid automatically during KeeperCrank (tag 5).
 
 // ============================================================================
 // WELL-KNOWN PROGRAM/SYSVAR KEYS
