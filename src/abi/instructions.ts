@@ -351,6 +351,33 @@ export function encodeTradeCpi(args: TradeCpiArgs): Uint8Array {
 }
 
 /**
+ * TradeCpiV2 instruction data (22 bytes) — PERC-154 optimized trade CPI.
+ *
+ * Same as TradeCpi but includes a caller-provided PDA bump byte.
+ * Uses create_program_address instead of find_program_address,
+ * saving ~1500 CU per trade. The bump should be obtained once via
+ * deriveLpPda() and cached for the lifetime of the market.
+ *
+ * GH#19: Added missing export — previously only existed in packages/core.
+ */
+export interface TradeCpiV2Args {
+  lpIdx: number;
+  userIdx: number;
+  size: bigint | string;
+  bump: number;
+}
+
+export function encodeTradeCpiV2(args: TradeCpiV2Args): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.TradeCpiV2),
+    encU16(args.lpIdx),
+    encU16(args.userIdx),
+    encI128(args.size),
+    encU8(args.bump),
+  );
+}
+
+/**
  * SetRiskThreshold instruction data (17 bytes)
  */
 export interface SetRiskThresholdArgs {
