@@ -20,7 +20,7 @@ export type Network = "devnet" | "mainnet";
  * Get the Percolator program ID for the current network
  *
  * Priority:
- * 1. PROGRAM_ID env var (explicit override)
+ * 1. PROGRAM_ID env var (explicit override, allowlist-validated)
  * 2. Network-specific default (NETWORK env var)
  * 3. Devnet default (safest fallback)
  */

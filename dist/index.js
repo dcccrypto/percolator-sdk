@@ -282,6 +282,15 @@ function encodeTradeCpi(args) {
     encI128(args.size)
   );
 }
+function encodeTradeCpiV2(args) {
+  return concatBytes(
+    encU8(IX_TAG.TradeCpiV2),
+    encU16(args.lpIdx),
+    encU16(args.userIdx),
+    encI128(args.size),
+    encU8(args.bump)
+  );
+}
 function encodeSetRiskThreshold(args) {
   return concatBytes(
     encU8(IX_TAG.SetRiskThreshold),
@@ -810,6 +819,51 @@ var PERCOLATOR_ERRORS = {
   33: {
     name: "MarketPaused",
     hint: "This market is currently paused by the admin. Trading, deposits, and withdrawals are disabled."
+  },
+  // GH#18: Sync error codes 34-44 from packages/core (added for LpVault, RenounceAdmin, etc.)
+  34: {
+    name: "AdminRenounceNotAllowed",
+    hint: "Cannot renounce admin \u2014 the market must be RESOLVED first before renouncing admin control."
+  },
+  35: {
+    name: "InvalidConfirmation",
+    hint: "Invalid confirmation code for RenounceAdmin. This is a safety check \u2014 please verify the code."
+  },
+  36: {
+    name: "InsufficientSeed",
+    hint: "Vault seed balance is below the required minimum (500,000,000 raw tokens). Deposit more tokens to the vault before InitMarket."
+  },
+  37: {
+    name: "InsufficientDexLiquidity",
+    hint: "DEX pool has insufficient liquidity for safe Hyperp oracle bootstrapping. The quote-side reserves must meet the minimum threshold."
+  },
+  38: {
+    name: "LpVaultAlreadyExists",
+    hint: "LP vault already created for this market. Each market can only have one LP vault."
+  },
+  39: {
+    name: "LpVaultNotCreated",
+    hint: "LP vault not yet created. Call CreateLpVault first before depositing or withdrawing."
+  },
+  40: {
+    name: "LpVaultZeroAmount",
+    hint: "LP vault deposit or withdrawal amount must be greater than zero."
+  },
+  41: {
+    name: "LpVaultSupplyMismatch",
+    hint: "LP vault supply/capital mismatch \u2014 LP share supply > 0 but vault capital is 0. This is an internal error \u2014 please report it."
+  },
+  42: {
+    name: "LpVaultWithdrawExceedsAvailable",
+    hint: "LP vault withdrawal exceeds available capital. Some capital is reserved for open interest coverage."
+  },
+  43: {
+    name: "LpVaultInvalidFeeShare",
+    hint: "LP vault fee share basis points out of range. Must be 0\u201310,000 (0%\u2013100%)."
+  },
+  44: {
+    name: "LpVaultNoNewFees",
+    hint: "No new fees to distribute to LP vault. Wait for more trading activity to accrue fees."
   }
 };
 function decodeError(code) {
@@ -2676,9 +2730,31 @@ var PROGRAM_IDS = {
     matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX"
   }
 };
+var KNOWN_PROGRAM_IDS = /* @__PURE__ */ new Set([
+  PROGRAM_IDS.devnet.percolator,
+  PROGRAM_IDS.devnet.matcher,
+  PROGRAM_IDS.mainnet.percolator
+  // mainnet matcher intentionally omitted until deployed
+]);
+function validateProgramId(raw, source) {
+  let pk;
+  try {
+    pk = new PublicKey10(raw);
+  } catch {
+    throw new Error(
+      `[SECURITY] ${source} contains an invalid base58 public key: "${raw}". This is a hard error \u2014 check your environment variables.`
+    );
+  }
+  if (!KNOWN_PROGRAM_IDS.has(pk.toBase58())) {
+    throw new Error(
+      `[SECURITY] ${source} value "${pk.toBase58()}" is not in the known program ID allowlist. Accepting unknown program IDs is a fund-theft vector. If you are deploying a new program, add its ID to PROGRAM_IDS in program-ids.ts and rebuild.`
+    );
+  }
+  return pk;
+}
 function getProgramId(network) {
   if (process.env.PROGRAM_ID) {
-    return new PublicKey10(process.env.PROGRAM_ID);
+    return validateProgramId(process.env.PROGRAM_ID, "PROGRAM_ID env var");
   }
   const targetNetwork = network ?? process.env.NETWORK ?? "mainnet";
   const programId = PROGRAM_IDS[targetNetwork].percolator;
@@ -2686,7 +2762,7 @@ function getProgramId(network) {
 }
 function getMatcherProgramId(network) {
   if (process.env.MATCHER_PROGRAM_ID) {
-    return new PublicKey10(process.env.MATCHER_PROGRAM_ID);
+    return validateProgramId(process.env.MATCHER_PROGRAM_ID, "MATCHER_PROGRAM_ID env var");
   }
   const targetNetwork = network ?? process.env.NETWORK ?? "mainnet";
   const programId = PROGRAM_IDS[targetNetwork].matcher;
@@ -2837,6 +2913,7 @@ export {
   encodeTopUpInsurance,
   encodeTopupKeeperFund,
   encodeTradeCpi,
+  encodeTradeCpiV2,
   encodeTradeNoCpi,
   encodeUnpauseMarket,
   encodeUpdateAdmin,
