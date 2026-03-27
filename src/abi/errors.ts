@@ -144,7 +144,6 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "MarketPaused",
     hint: "This market is currently paused by the admin. Trading, deposits, and withdrawals are disabled.",
   },
-  // GH#18: Sync error codes 34-44 from packages/core (added for LpVault, RenounceAdmin, etc.)
   34: {
     name: "AdminRenounceNotAllowed",
     hint: "Cannot renounce admin — the market must be RESOLVED first before renouncing admin control.",

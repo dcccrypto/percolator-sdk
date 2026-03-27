@@ -3,20 +3,65 @@
  * Percolator Insurance LP Staking program — instruction encoders, PDA derivation, and account specs.
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
- * Deployed devnet: 4mJ8Cas... (TODO: confirm full address from devops)
+ * Deployed devnet:  6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k
+ * Deployed mainnet: (pending deployment — DevOps must set STAKE_PROGRAM_ID env var or deploy and update STAKE_PROGRAM_IDS.mainnet)
  */
 
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 // ═══════════════════════════════════════════════════════════════
-// Program ID
+// Program ID — network-conditional (mirrors program-ids.ts pattern)
 // ═══════════════════════════════════════════════════════════════
 
-/** Percolator Stake program ID (devnet). Update for mainnet. */
-export const STAKE_PROGRAM_ID = new PublicKey(
-  '4mJ8CasWfJCGEjGNaJThNfFfUWJTfZLBwz6qmUGqxVMc'
-);
+/** Known stake program addresses per network. Mainnet is empty until deployed. */
+export const STAKE_PROGRAM_IDS = {
+  devnet: '6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k',
+  mainnet: '', // TODO: populate once DevOps deploys percolator-stake to mainnet
+} as const;
+
+/**
+ * Resolve the stake program ID for the given network.
+ *
+ * Priority:
+ *  1. STAKE_PROGRAM_ID env var (explicit override — DevOps sets this for mainnet until constant is filled)
+ *  2. Network-specific constant from STAKE_PROGRAM_IDS
+ *
+ * Throws a clear error on mainnet when no address is available so callers
+ * surface the gap instead of silently hitting the devnet program.
+ */
+export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
+  if (process.env.STAKE_PROGRAM_ID) {
+    return new PublicKey(process.env.STAKE_PROGRAM_ID);
+  }
+
+  const detectedNetwork =
+    network ??
+    (() => {
+      const n = process.env.NEXT_PUBLIC_DEFAULT_NETWORK?.toLowerCase() ??
+                process.env.NETWORK?.toLowerCase() ?? '';
+      return n === 'mainnet' || n === 'mainnet-beta' ? 'mainnet' : 'devnet';
+    })();
+
+  const id = STAKE_PROGRAM_IDS[detectedNetwork];
+  if (!id) {
+    throw new Error(
+      `Stake program not deployed on ${detectedNetwork}. ` +
+      `Set STAKE_PROGRAM_ID env var or wait for DevOps to deploy and update STAKE_PROGRAM_IDS.mainnet.`,
+    );
+  }
+  return new PublicKey(id);
+}
+
+/**
+ * Default export — resolves for the current runtime network.
+ * Use getStakeProgramId() with an explicit network argument where possible.
+ *
+ * @deprecated Direct use of STAKE_PROGRAM_ID is being phased out in favour of
+ *   getStakeProgramId() so mainnet callers get a clear error rather than silently
+ *   resolving to the devnet address.
+ */
+export const STAKE_PROGRAM_ID = new PublicKey(STAKE_PROGRAM_IDS.devnet);
 
 // ═══════════════════════════════════════════════════════════════
 // Instruction Tags (match src/instruction.rs)
@@ -35,6 +80,16 @@ export const STAKE_IX = {
   AdminResolveMarket: 9,
   AdminWithdrawInsurance: 10,
   AdminSetInsurancePolicy: 11,
+  /** PERC-272: Accrue trading fees to LP vault */
+  AccrueFees: 12,
+  /** PERC-272: Init pool in trading LP mode */
+  InitTradingPool: 13,
+  /** PERC-313: Set HWM config (enable + floor bps) */
+  AdminSetHwmConfig: 14,
+  /** PERC-303: Enable/configure senior-junior LP tranches */
+  AdminSetTrancheConfig: 15,
+  /** PERC-303: Deposit into junior (first-loss) tranche */
+  DepositJunior: 16,
 } as const;
 
 // ═══════════════════════════════════════════════════════════════
@@ -42,27 +97,46 @@ export const STAKE_IX = {
 // ═══════════════════════════════════════════════════════════════
 
 /** Derive the stake pool PDA for a given slab (market). */
-export function deriveStakePool(slab: PublicKey, programId = STAKE_PROGRAM_ID) {
+export function deriveStakePool(slab: PublicKey, programId?: PublicKey) {
   return PublicKey.findProgramAddressSync(
     [Buffer.from('stake_pool'), slab.toBuffer()],
-    programId,
+    programId ?? getStakeProgramId(),
   );
 }
 
 /** Derive the vault authority PDA (signs CPI, owns LP mint + vault). */
-export function deriveStakeVaultAuth(pool: PublicKey, programId = STAKE_PROGRAM_ID) {
+export function deriveStakeVaultAuth(pool: PublicKey, programId?: PublicKey) {
   return PublicKey.findProgramAddressSync(
     [Buffer.from('vault_auth'), pool.toBuffer()],
-    programId,
+    programId ?? getStakeProgramId(),
   );
 }
 
 /** Derive the per-user deposit PDA (tracks cooldown, deposit time). */
-export function deriveDepositPda(pool: PublicKey, user: PublicKey, programId = STAKE_PROGRAM_ID) {
+export function deriveDepositPda(pool: PublicKey, user: PublicKey, programId?: PublicKey) {
   return PublicKey.findProgramAddressSync(
     [Buffer.from('deposit'), pool.toBuffer(), user.toBuffer()],
-    programId,
+    programId ?? getStakeProgramId(),
   );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Browser-safe binary helpers (DataView — no Buffer BigInt methods)
+// Buffer.writeBigUInt64LE / readBigUInt64LE are Node.js-only; the
+// browser polyfill may not implement them. DataView.getBigUint64 /
+// setBigUint64 are part of the ECMAScript spec and work everywhere.
+// ═══════════════════════════════════════════════════════════════
+
+/** Read a u64 little-endian from a Uint8Array at the given offset. */
+function readU64LE(data: Uint8Array, off: number): bigint {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return view.getBigUint64(off, /* littleEndian= */ true);
+}
+
+/** Read a u16 little-endian from a Uint8Array at the given offset. */
+function readU16LE(data: Uint8Array, off: number): number {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return view.getUint16(off, /* littleEndian= */ true);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -70,23 +144,24 @@ export function deriveDepositPda(pool: PublicKey, user: PublicKey, programId = S
 // ═══════════════════════════════════════════════════════════════
 
 function u64Le(v: bigint | number): Buffer {
-  const buf = Buffer.alloc(8);
-  buf.writeBigUInt64LE(BigInt(v));
-  return buf;
+  const arr = new Uint8Array(8);
+  new DataView(arr.buffer).setBigUint64(0, BigInt(v), /* littleEndian= */ true);
+  return Buffer.from(arr);
 }
 
 function u128Le(v: bigint | number): Buffer {
-  const buf = Buffer.alloc(16);
+  const arr = new Uint8Array(16);
+  const view = new DataView(arr.buffer);
   const big = BigInt(v);
-  buf.writeBigUInt64LE(big & 0xFFFFFFFFFFFFFFFFn, 0);
-  buf.writeBigUInt64LE(big >> 64n, 8);
-  return buf;
+  view.setBigUint64(0, big & 0xFFFFFFFFFFFFFFFFn, /* littleEndian= */ true);
+  view.setBigUint64(8, big >> 64n, /* littleEndian= */ true);
+  return Buffer.from(arr);
 }
 
 function u16Le(v: number): Buffer {
-  const buf = Buffer.alloc(2);
-  buf.writeUInt16LE(v);
-  return buf;
+  const arr = new Uint8Array(2);
+  new DataView(arr.buffer).setUint16(0, v, /* littleEndian= */ true);
+  return Buffer.from(arr);
 }
 
 /** Tag 0: InitPool — create stake pool for a slab. */
@@ -169,6 +244,45 @@ export function encodeStakeAdminWithdrawInsurance(amount: bigint | number): Buff
   ]);
 }
 
+/** Tag 12: AccrueFees — permissionless: accrue trading fees to LP vault. */
+export function encodeStakeAccrueFees(): Buffer {
+  return Buffer.from([STAKE_IX.AccrueFees]);
+}
+
+/** Tag 13: InitTradingPool — create pool in trading LP mode (pool_mode = 1). */
+export function encodeStakeInitTradingPool(cooldownSlots: bigint | number, depositCap: bigint | number): Buffer {
+  return Buffer.concat([
+    Buffer.from([STAKE_IX.InitTradingPool]),
+    u64Le(cooldownSlots),
+    u64Le(depositCap),
+  ]);
+}
+
+/** Tag 14 (PERC-313): AdminSetHwmConfig — enable HWM protection and set floor BPS. */
+export function encodeStakeAdminSetHwmConfig(
+  enabled: boolean,
+  hwmFloorBps: number,
+): Buffer {
+  return Buffer.concat([
+    Buffer.from([STAKE_IX.AdminSetHwmConfig]),
+    Buffer.from([enabled ? 1 : 0]),
+    u16Le(hwmFloorBps),
+  ]);
+}
+
+/** Tag 15 (PERC-303): AdminSetTrancheConfig — enable senior/junior LP tranches. */
+export function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps: number): Buffer {
+  return Buffer.concat([
+    Buffer.from([STAKE_IX.AdminSetTrancheConfig]),
+    u16Le(juniorFeeMultBps),
+  ]);
+}
+
+/** Tag 16 (PERC-303): DepositJunior — deposit into first-loss junior tranche. */
+export function encodeStakeDepositJunior(amount: bigint | number): Buffer {
+  return Buffer.concat([Buffer.from([STAKE_IX.DepositJunior]), u64Le(amount)]);
+}
+
 /** Tag 11: AdminSetInsurancePolicy — set withdrawal policy on wrapper. */
 export function encodeStakeAdminSetInsurancePolicy(
   authority: PublicKey,
@@ -183,6 +297,155 @@ export function encodeStakeAdminSetInsurancePolicy(
     u16Le(maxWithdrawBps),
     u64Le(cooldownSlots),
   ]);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// On-Chain State Layout — StakePool decoded fields
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Decoded StakePool state (352 bytes on-chain).
+ * Includes PERC-272 (fee yield), PERC-313 (HWM), and PERC-303 (tranches).
+ */
+export interface StakePoolState {
+  isInitialized: boolean;
+  bump: number;
+  vaultAuthorityBump: number;
+  adminTransferred: boolean;
+
+  slab: PublicKey;
+  admin: PublicKey;
+  collateralMint: PublicKey;
+  lpMint: PublicKey;
+  vault: PublicKey;
+
+  totalDeposited: bigint;
+  totalLpSupply: bigint;
+  cooldownSlots: bigint;
+  depositCap: bigint;
+  totalFlushed: bigint;
+  totalReturned: bigint;
+  totalWithdrawn: bigint;
+
+  percolatorProgram: PublicKey;
+
+  // PERC-272: Fee yield fields
+  totalFeesEarned: bigint;
+  lastFeeAccrualSlot: bigint;
+  lastVaultSnapshot: bigint;
+  poolMode: number;
+
+  // _reserved layout (64 bytes):
+  // [0..8]   discriminator
+  // [8]      version
+  // [9..32]  PERC-313 HWM
+  // [32..51] PERC-303 tranches
+  // [51..64] free
+
+  // PERC-313: HWM fields (from _reserved[9..32])
+  hwmEnabled: boolean;
+  epochHighWaterTvl: bigint;
+  hwmFloorBps: number;
+
+  // PERC-303: Tranche fields (from _reserved[32..51])
+  trancheEnabled: boolean;
+  juniorBalance: bigint;
+  juniorTotalLp: bigint;
+  juniorFeeMultBps: number;
+}
+
+/** Size of StakePool on-chain (bytes). */
+export const STAKE_POOL_SIZE = 352;
+
+/**
+ * Decode a StakePool account from raw data buffer.
+ * Uses DataView for all u64/u16 reads — browser-safe (no Buffer.readBigUInt64LE).
+ */
+export function decodeStakePool(data: Buffer | Uint8Array): StakePoolState {
+  if (data.length < STAKE_POOL_SIZE) {
+    throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE}`);
+  }
+  // Wrap in a Uint8Array view so readU64LE / readU16LE helpers work in any environment.
+  // Buffer extends Uint8Array, so new Uint8Array(data.buffer, ...) works for both types.
+  const bytes: Uint8Array = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  let off = 0;
+
+  const isInitialized = bytes[off] === 1; off += 1;
+  const bump = bytes[off]; off += 1;
+  const vaultAuthorityBump = bytes[off]; off += 1;
+  const adminTransferred = bytes[off] === 1; off += 1;
+  off += 4; // _padding
+
+  const slab = new PublicKey(bytes.subarray(off, off + 32)); off += 32;
+  const admin = new PublicKey(bytes.subarray(off, off + 32)); off += 32;
+  const collateralMint = new PublicKey(bytes.subarray(off, off + 32)); off += 32;
+  const lpMint = new PublicKey(bytes.subarray(off, off + 32)); off += 32;
+  const vault = new PublicKey(bytes.subarray(off, off + 32)); off += 32;
+
+  const totalDeposited = readU64LE(bytes, off); off += 8;
+  const totalLpSupply = readU64LE(bytes, off); off += 8;
+  const cooldownSlots = readU64LE(bytes, off); off += 8;
+  const depositCap = readU64LE(bytes, off); off += 8;
+  const totalFlushed = readU64LE(bytes, off); off += 8;
+  const totalReturned = readU64LE(bytes, off); off += 8;
+  const totalWithdrawn = readU64LE(bytes, off); off += 8;
+
+  const percolatorProgram = new PublicKey(bytes.subarray(off, off + 32)); off += 32;
+
+  // PERC-272 fields
+  const totalFeesEarned = readU64LE(bytes, off); off += 8;
+  const lastFeeAccrualSlot = readU64LE(bytes, off); off += 8;
+  const lastVaultSnapshot = readU64LE(bytes, off); off += 8;
+  const poolMode = bytes[off]; off += 1;
+  off += 7; // _mode_padding
+
+  // _reserved (64 bytes) starts at off
+  const reservedStart = off;
+  // _reserved[8] = version (skipped)
+  // PERC-313: _reserved[9] = hwm_enabled, [10..26] = epoch_high_water_tvl (u128), [26..28] = hwm_floor_bps (u16)
+  const hwmEnabled = bytes[reservedStart + 9] === 1;
+  // Read u128 as two u64 parts
+  const hwmTvlLow = readU64LE(bytes, reservedStart + 10);
+  const hwmTvlHigh = readU64LE(bytes, reservedStart + 18);
+  const epochHighWaterTvl = hwmTvlLow + (hwmTvlHigh << 64n);
+  const hwmFloorBps = readU16LE(bytes, reservedStart + 26);
+
+  // PERC-303: _reserved[32] = tranche_enabled, [33..41] = junior_balance, [41..49] = junior_total_lp, [49..51] = junior_fee_mult_bps
+  const trancheEnabled = bytes[reservedStart + 32] === 1;
+  const juniorBalance = readU64LE(bytes, reservedStart + 33);
+  const juniorTotalLp = readU64LE(bytes, reservedStart + 41);
+  const juniorFeeMultBps = readU16LE(bytes, reservedStart + 49);
+
+  return {
+    isInitialized,
+    bump,
+    vaultAuthorityBump,
+    adminTransferred,
+    slab,
+    admin,
+    collateralMint,
+    lpMint,
+    vault,
+    totalDeposited,
+    totalLpSupply,
+    cooldownSlots,
+    depositCap,
+    totalFlushed,
+    totalReturned,
+    totalWithdrawn,
+    percolatorProgram,
+    totalFeesEarned,
+    lastFeeAccrualSlot,
+    lastVaultSnapshot,
+    poolMode,
+    hwmEnabled,
+    epochHighWaterTvl,
+    hwmFloorBps,
+    trancheEnabled,
+    juniorBalance,
+    juniorTotalLp,
+    juniorFeeMultBps,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════

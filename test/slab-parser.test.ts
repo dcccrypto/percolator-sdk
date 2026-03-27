@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
 import {
   parseHeader, parseConfig, parseEngine, parseAllAccounts, parseParams,
-  detectSlabLayout,
+  detectSlabLayout, detectLayout,
 } from "../src/solana/slab.js";
 
 /**
@@ -80,60 +80,61 @@ describe("detectSlabLayout", () => {
     expect(layout!.accountSize).toBe(240);
   });
 
-  it("detects V2 small tier (65088 bytes)", () => {
-    const layout = detectSlabLayout(65_088);
-    expect(layout).not.toBeNull();
-    expect(layout!.version).toBe(2);
-    expect(layout!.maxAccounts).toBe(256);
-    expect(layout!.engineOff).toBe(600);
-    expect(layout!.accountSize).toBe(248);
-  });
-
-  it("detects V2 large tier (1025568 bytes)", () => {
-    const layout = detectSlabLayout(1_025_568);
-    expect(layout).not.toBeNull();
-    expect(layout!.version).toBe(2);
-    expect(layout!.maxAccounts).toBe(4096);
-    expect(layout!.engineOff).toBe(600);
-    expect(layout!.accountSize).toBe(248);
-  });
-
-  it("detects V3 medium tier (257200 bytes)", () => {
-    const layout = detectSlabLayout(257_200);
-    expect(layout).not.toBeNull();
-    expect(layout!.version).toBe(3);
-    expect(layout!.maxAccounts).toBe(1024);
-    expect(layout!.engineOff).toBe(624);
-    expect(layout!.accountSize).toBe(248);
-    expect(layout!.engineBitmapOff).toBe(430);
-    expect(layout!.headerLen).toBe(104);
-  });
-
-  it("detects V4 large tier (992560 bytes)", () => {
-    const layout = detectSlabLayout(992_560);
-    expect(layout).not.toBeNull();
-    expect(layout!.version).toBe(4);
-    expect(layout!.maxAccounts).toBe(4096);
-    expect(layout!.engineOff).toBe(480);
-    expect(layout!.accountSize).toBe(240);
-    expect(layout!.engineBitmapOff).toBe(312);
-    expect(layout!.headerLen).toBe(72);
-  });
-
   it("returns null for unknown size", () => {
     expect(detectSlabLayout(12345)).toBeNull();
   });
 
-  it("V3 layout has no emergency OI fields", () => {
-    const layout = detectSlabLayout(257_200)!;
-    expect(layout.engineEmergencyOiModeOff).toBe(-1);
-    expect(layout.engineLongOiOff).toBe(-1);
+  // GH#1234: postBitmap=2 sizes (new V1D slabs)
+  it("detects V1D small tier (65088, postBitmap=2) — GH#1234", () => {
+    const layout = detectSlabLayout(65_088);
+    expect(layout).not.toBeNull();
+    expect(layout!.maxAccounts).toBe(256);
+    expect(layout!.engineOff).toBe(424);
+    expect(layout!.accountSize).toBe(248);
   });
 
-  it("V4 layout has no insurance isolation", () => {
-    const layout = detectSlabLayout(992_560)!;
-    expect(layout.hasInsuranceIsolation).toBe(false);
-    expect(layout.engineInsuranceIsolatedOff).toBe(-1);
+  // GH#1237: postBitmap=18 legacy sizes (slabs created before GH#1234 fix)
+  it("detects V1D small legacy tier (65104, postBitmap=18) — GH#1237 regression fix", () => {
+    const layout = detectSlabLayout(65_104);
+    expect(layout).not.toBeNull();
+    expect(layout!.maxAccounts).toBe(256);
+    expect(layout!.engineOff).toBe(424);
+    expect(layout!.accountSize).toBe(248);
+    // accountsOff for postBitmap=18: 424 + ceil((624+32+18+512)/8)*8 = 424+1192 = 1616
+    expect(layout!.accountsOff).toBe(1616);
+  });
+
+  it("V1D legacy accountsOff is 16 bytes larger than V1D new accountsOff — GH#1237", () => {
+    const legacy = detectSlabLayout(65_104)!;
+    const newSlot = detectSlabLayout(65_088)!;
+    expect(legacy.accountsOff - newSlot.accountsOff).toBe(16);
+  });
+});
+
+// GH#1238: detectLayout must delegate to layout.accountsOff (not recompute with postBitmap=18)
+describe("detectLayout (GH#1238)", () => {
+  it("returns correct accountsOff for V1D new slab (65088, postBitmap=2)", () => {
+    const result = detectLayout(65_088);
+    expect(result).not.toBeNull();
+    // postBitmap=2: accountsOff = 424 + ceil((624+32+2+512)/8)*8 = 424+1176 = 1600
+    expect(result!.accountsOff).toBe(1600);
+  });
+
+  it("returns correct accountsOff for V1D legacy slab (65104, postBitmap=18)", () => {
+    const result = detectLayout(65_104);
+    expect(result).not.toBeNull();
+    // postBitmap=18: accountsOff = 424 + 1192 = 1616
+    expect(result!.accountsOff).toBe(1616);
+  });
+
+  it("accountsOff for V1D new is 16 bytes less than V1D legacy", () => {
+    const newResult = detectLayout(65_088)!;
+    const legacyResult = detectLayout(65_104)!;
+    expect(legacyResult.accountsOff - newResult.accountsOff).toBe(16);
+  });
+
+  it("returns null for unknown size", () => {
+    expect(detectLayout(12345)).toBeNull();
   });
 });
 

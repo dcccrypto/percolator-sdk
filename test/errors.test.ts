@@ -12,8 +12,8 @@ import {
 // ============================================================================
 
 describe("PERCOLATOR_ERRORS table", () => {
-  it("has contiguous error codes from 0 to 33", () => {
-    for (let i = 0; i <= 33; i++) {
+  it("has contiguous error codes from 0 to 44", () => {
+    for (let i = 0; i <= 44; i++) {
       expect(PERCOLATOR_ERRORS[i]).toBeDefined();
       expect(PERCOLATOR_ERRORS[i].name).toBeTruthy();
       expect(PERCOLATOR_ERRORS[i].hint).toBeTruthy();
@@ -46,6 +46,8 @@ describe("PERCOLATOR_ERRORS table", () => {
     expect(PERCOLATOR_ERRORS[22].name).toBe("EngineRiskReductionOnlyMode");
     expect(PERCOLATOR_ERRORS[27].name).toBe("HyperpTradeNoCpiDisabled");
     expect(PERCOLATOR_ERRORS[33].name).toBe("MarketPaused");
+    expect(PERCOLATOR_ERRORS[34].name).toBe("AdminRenounceNotAllowed");
+    expect(PERCOLATOR_ERRORS[44].name).toBe("LpVaultNoNewFees");
   });
 });
 
@@ -66,12 +68,16 @@ describe("decodeError", () => {
     expect(info!.name).toBe("MarketPaused");
   });
 
+  it("returns error info for code 34 (AdminRenounceNotAllowed)", () => {
+    const info = decodeError(34);
+    expect(info).toBeDefined();
+    expect(info!.name).toBe("AdminRenounceNotAllowed");
+  });
+
   it("returns undefined for unknown code", () => {
     expect(decodeError(999)).toBeUndefined();
     expect(decodeError(-1)).toBeUndefined();
-    // GH#18: code 34 is now AdminRenounceNotAllowed (no longer unknown)
-    expect(decodeError(34)).toBeDefined();
-    expect(decodeError(34)?.name).toBe("AdminRenounceNotAllowed");
+    expect(decodeError(45)).toBeUndefined();
   });
 });
 
@@ -186,70 +192,5 @@ describe("parseErrorFromLogs", () => {
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
     expect(result!.code).toBe(6); // OracleStale — the first one
-  });
-});
-
-// GH#18: Verify error codes 34-44 (LpVault + RenounceAdmin) are now defined
-describe("GH#18: Error codes 34-44 (LpVault + RenounceAdmin)", () => {
-  it("decodes code 34 — AdminRenounceNotAllowed", () => {
-    const info = decodeError(34);
-    expect(info?.name).toBe("AdminRenounceNotAllowed");
-    expect(info?.hint).toBeTruthy();
-  });
-
-  it("decodes code 35 — InvalidConfirmation", () => {
-    expect(decodeError(35)?.name).toBe("InvalidConfirmation");
-  });
-
-  it("decodes code 36 — InsufficientSeed", () => {
-    expect(decodeError(36)?.name).toBe("InsufficientSeed");
-  });
-
-  it("decodes code 37 — InsufficientDexLiquidity", () => {
-    expect(decodeError(37)?.name).toBe("InsufficientDexLiquidity");
-  });
-
-  it("decodes code 38 — LpVaultAlreadyExists", () => {
-    expect(decodeError(38)?.name).toBe("LpVaultAlreadyExists");
-  });
-
-  it("decodes code 39 — LpVaultNotCreated", () => {
-    const info = decodeError(39);
-    expect(info?.name).toBe("LpVaultNotCreated");
-    expect(info?.hint).toContain("CreateLpVault");
-  });
-
-  it("decodes code 40 — LpVaultZeroAmount", () => {
-    expect(decodeError(40)?.name).toBe("LpVaultZeroAmount");
-  });
-
-  it("decodes code 41 — LpVaultSupplyMismatch", () => {
-    expect(decodeError(41)?.name).toBe("LpVaultSupplyMismatch");
-  });
-
-  it("decodes code 42 — LpVaultWithdrawExceedsAvailable", () => {
-    expect(decodeError(42)?.name).toBe("LpVaultWithdrawExceedsAvailable");
-  });
-
-  it("decodes code 43 — LpVaultInvalidFeeShare", () => {
-    expect(decodeError(43)?.name).toBe("LpVaultInvalidFeeShare");
-  });
-
-  it("decodes code 44 — LpVaultNoNewFees", () => {
-    expect(decodeError(44)?.name).toBe("LpVaultNoNewFees");
-  });
-
-  it("parseErrorFromLogs handles LpVaultAlreadyExists (0x26)", () => {
-    const logs = ["Program xyz failed: custom program error: 0x26"]; // 0x26 = 38
-    const result = parseErrorFromLogs(logs);
-    expect(result?.name).toBe("LpVaultAlreadyExists");
-    expect(result?.code).toBe(38);
-  });
-
-  it("parseErrorFromLogs handles AdminRenounceNotAllowed (0x22)", () => {
-    const logs = ["Program xyz failed: custom program error: 0x22"]; // 0x22 = 34
-    const result = parseErrorFromLogs(logs);
-    expect(result?.name).toBe("AdminRenounceNotAllowed");
-    expect(result?.code).toBe(34);
   });
 });

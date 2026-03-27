@@ -243,8 +243,8 @@ function computeMeteoraDlmmPriceE6(data: Uint8Array): bigint {
   }
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-  const binStep = dv.getUint16(74, true);
-  const activeId = dv.getInt32(77, true);
+  const binStep = dv.getUint16(73, true);
+  const activeId = dv.getInt32(76, true);
 
   if (binStep === 0) return 0n;
 

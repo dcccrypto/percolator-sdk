@@ -1,7 +1,6 @@
 {
   "name": "@percolator/sdk",
   "version": "0.1.0",
-  "description": "TypeScript SDK for interacting with Percolator on-chain programs",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -9,20 +8,17 @@
   "exports": {
     ".": {
       "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    },
-    "./package.json": "./package.json"
+    }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup && tsc --emitDeclarationOnly --declaration --outDir dist",
-    "test": "vitest run",
-    "test:legacy": "tsx test/abi.test.ts && tsx test/pda.test.ts && tsx test/slab.test.ts && tsx test/validation.test.ts && tsx test/dex-oracle.test.ts",
-    "lint": "tsc --noEmit",
-    "prepare": "tsup && tsc --emitDeclarationOnly --declaration --outDir dist",
-    "prepublishOnly": "pnpm build"
+    "build": "tsup",
+    "test": "tsx test/abi.test.ts && tsx test/pda.test.ts && tsx test/slab.test.ts && tsx test/validation.test.ts && tsx test/dex-oracle.test.ts && tsx test/trading.test.ts && tsx test/warmup-leverage-cap.test.ts && tsx test/dynamic-fees.test.ts && tsx test/oracle.test.ts"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",
@@ -34,16 +30,5 @@
     "tsx": "^4.21.0",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/dcccrypto/percolator-sdk.git"
-  },
-  "keywords": [
-    "solana",
-    "percolator",
-    "sdk",
-    "defi",
-    "perpetuals"
-  ]
+  }
 }

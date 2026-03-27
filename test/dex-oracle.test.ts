@@ -265,8 +265,8 @@ function makeMeteoraData(binStep: number, activeId: number): Uint8Array {
   const buf = new Uint8Array(200);
   fillPubkey(buf, 81, 1);   // baseMint
   fillPubkey(buf, 113, 33); // quoteMint
-  writeU16LE(buf, 74, binStep);
-  writeI32LE(buf, 77, activeId);
+  writeU16LE(buf, 73, binStep);
+  writeI32LE(buf, 76, activeId);
   return buf;
 }
 

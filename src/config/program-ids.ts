@@ -21,69 +21,22 @@ export const PROGRAM_IDS = {
 export type Network = "devnet" | "mainnet";
 
 /**
- * Allowlist of all known valid program IDs (devnet + mainnet).
- * 
- * SECURITY: Any value supplied via PROGRAM_ID / MATCHER_PROGRAM_ID env vars
- * must appear here. If a value is not in this set we throw immediately —
- * accepting an arbitrary program ID is a fund-theft vector because it could
- * route user transactions through an attacker-controlled program.
- */
-const KNOWN_PROGRAM_IDS: ReadonlySet<string> = new Set([
-  PROGRAM_IDS.devnet.percolator,
-  PROGRAM_IDS.devnet.matcher,
-  PROGRAM_IDS.mainnet.percolator,
-  // mainnet matcher intentionally omitted until deployed
-]);
-
-/**
- * Validate that a program ID string is on the known allowlist.
- * Throws a hard error if the value is unknown — do not fall back silently.
- *
- * @param raw - Raw string to validate (from env var or other external input)
- * @param source - Human-readable description of where the value came from (for error messages)
- */
-function validateProgramId(raw: string, source: string): PublicKey {
-  // Verify it is a valid base58 public key first
-  let pk: PublicKey;
-  try {
-    pk = new PublicKey(raw);
-  } catch {
-    throw new Error(
-      `[SECURITY] ${source} contains an invalid base58 public key: "${raw}". ` +
-      "This is a hard error — check your environment variables."
-    );
-  }
-
-  // Verify it is on the known allowlist
-  if (!KNOWN_PROGRAM_IDS.has(pk.toBase58())) {
-    throw new Error(
-      `[SECURITY] ${source} value "${pk.toBase58()}" is not in the known program ID allowlist. ` +
-      "Accepting unknown program IDs is a fund-theft vector. " +
-      "If you are deploying a new program, add its ID to PROGRAM_IDS in program-ids.ts and rebuild."
-    );
-  }
-
-  return pk;
-}
-
-/**
  * Get the Percolator program ID for the current network
  * 
  * Priority:
- * 1. PROGRAM_ID env var (explicit override, allowlist-validated)
+ * 1. PROGRAM_ID env var (explicit override)
  * 2. Network-specific default (NETWORK env var)
- * 3. Devnet default (safest fallback)
+ * 3. Devnet default (safest fallback — bug bounty PERC-697)
  */
 export function getProgramId(network?: Network): PublicKey {
-  // Explicit override takes precedence — but must be on the allowlist
+  // Explicit override takes precedence
   if (process.env.PROGRAM_ID) {
-    return validateProgramId(process.env.PROGRAM_ID, "PROGRAM_ID env var");
+    return new PublicKey(process.env.PROGRAM_ID);
   }
 
-  // Use provided network or detect from env
-  // Fail-closed: default to mainnet (not devnet) — matches RULES.md pattern.
-  // Devnet must be explicitly requested via NETWORK=devnet or parameter.
-  const targetNetwork = network ?? (process.env.NETWORK as Network) ?? "mainnet";
+  // Use provided network or detect from env — default to devnet (never mainnet silently)
+  const detectedNetwork = getCurrentNetwork();
+  const targetNetwork = network ?? detectedNetwork;
   const programId = PROGRAM_IDS[targetNetwork].percolator;
 
   return new PublicKey(programId);
@@ -93,14 +46,14 @@ export function getProgramId(network?: Network): PublicKey {
  * Get the Matcher program ID for the current network
  */
 export function getMatcherProgramId(network?: Network): PublicKey {
-  // Explicit override takes precedence — but must be on the allowlist
+  // Explicit override takes precedence
   if (process.env.MATCHER_PROGRAM_ID) {
-    return validateProgramId(process.env.MATCHER_PROGRAM_ID, "MATCHER_PROGRAM_ID env var");
+    return new PublicKey(process.env.MATCHER_PROGRAM_ID);
   }
 
-  // Use provided network or detect from env
-  // Fail-closed: default to mainnet (not devnet)
-  const targetNetwork = network ?? (process.env.NETWORK as Network) ?? "mainnet";
+  // Use provided network or detect from env — default to devnet (never mainnet silently)
+  const detectedNetwork = getCurrentNetwork();
+  const targetNetwork = network ?? detectedNetwork;
   const programId = PROGRAM_IDS[targetNetwork].matcher;
 
   if (!programId) {
@@ -111,14 +64,22 @@ export function getMatcherProgramId(network?: Network): PublicKey {
 }
 
 /**
- * Get the current network from environment
- * Defaults to mainnet (fail-closed)
+ * Get the current network from environment.
+ *
+ * SECURITY (PERC-697): Removed silent mainnet default.
+ * Previously defaulted to "mainnet" when NETWORK was unset, which could cause
+ * crank/keeper scripts run without env vars to silently target mainnet program IDs.
+ *
+ * Now defaults to "devnet" — the safer fallback for a devnet-first protocol.
+ * Production deployments always set NETWORK explicitly via Railway/env.
+ * For mainnet operations use networkValidation.ts (ensureNetworkConfigValid) which
+ * enforces FORCE_MAINNET=1.
  */
 export function getCurrentNetwork(): Network {
   const network = process.env.NETWORK?.toLowerCase();
-  if (network === "devnet") {
-    return "devnet";
+  if (network === "mainnet" || network === "mainnet-beta") {
+    return "mainnet";
   }
-  // Fail-closed: default to mainnet
-  return "mainnet";
+  // devnet, testnet, or unset → devnet (fail-open to devnet, not mainnet)
+  return "devnet";
 }

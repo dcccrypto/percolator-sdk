@@ -21,7 +21,7 @@ import {
   ACCOUNTS_PUSH_ORACLE_PRICE,
   ACCOUNTS_RESOLVE_MARKET,
   ACCOUNTS_WITHDRAW_INSURANCE,
-  ACCOUNTS_INIT_VAMM,
+  ACCOUNTS_SET_ORACLE_PRICE_CAP,
   ACCOUNTS_PAUSE_MARKET,
   ACCOUNTS_UNPAUSE_MARKET,
   ACCOUNTS_CREATE_INSURANCE_MINT,
@@ -65,7 +65,7 @@ describe("Account orderings", () => {
     ["ACCOUNTS_PUSH_ORACLE_PRICE", ACCOUNTS_PUSH_ORACLE_PRICE],
     ["ACCOUNTS_RESOLVE_MARKET", ACCOUNTS_RESOLVE_MARKET],
     ["ACCOUNTS_WITHDRAW_INSURANCE", ACCOUNTS_WITHDRAW_INSURANCE],
-    ["ACCOUNTS_INIT_VAMM", ACCOUNTS_INIT_VAMM],
+    ["ACCOUNTS_SET_ORACLE_PRICE_CAP", ACCOUNTS_SET_ORACLE_PRICE_CAP],
     ["ACCOUNTS_PAUSE_MARKET", ACCOUNTS_PAUSE_MARKET],
     ["ACCOUNTS_UNPAUSE_MARKET", ACCOUNTS_UNPAUSE_MARKET],
     ["ACCOUNTS_CREATE_INSURANCE_MINT", ACCOUNTS_CREATE_INSURANCE_MINT],
@@ -115,8 +115,8 @@ describe("Account orderings", () => {
     expect(ACCOUNTS_KEEPER_CRANK).toHaveLength(4);
   });
 
-  it("ACCOUNTS_TRADE_NOCPI has 5 accounts", () => {
-    expect(ACCOUNTS_TRADE_NOCPI).toHaveLength(5);
+  it("ACCOUNTS_TRADE_NOCPI has 4 accounts (PERC-199: clock removed)", () => {
+    expect(ACCOUNTS_TRADE_NOCPI).toHaveLength(4);
   });
 
   it("ACCOUNTS_LIQUIDATE_AT_ORACLE has 4 accounts", () => {
@@ -131,8 +131,8 @@ describe("Account orderings", () => {
     expect(ACCOUNTS_TOPUP_INSURANCE).toHaveLength(5);
   });
 
-  it("ACCOUNTS_TRADE_CPI has 8 accounts", () => {
-    expect(ACCOUNTS_TRADE_CPI).toHaveLength(8);
+  it("ACCOUNTS_TRADE_CPI has 7 accounts (PERC-199: clock removed)", () => {
+    expect(ACCOUNTS_TRADE_CPI).toHaveLength(7);
   });
 
   it("ACCOUNTS_SET_RISK_THRESHOLD has 2 accounts", () => {
@@ -155,8 +155,8 @@ describe("Account orderings", () => {
     expect(ACCOUNTS_WITHDRAW_INSURANCE_LP).toHaveLength(8);
   });
 
-  it("ACCOUNTS_INIT_VAMM has 4 accounts", () => {
-    expect(ACCOUNTS_INIT_VAMM).toHaveLength(4);
+  it("ACCOUNTS_SET_ORACLE_PRICE_CAP has 2 accounts", () => {
+    expect(ACCOUNTS_SET_ORACLE_PRICE_CAP).toHaveLength(2);
   });
 
   it("ACCOUNTS_PAUSE_MARKET has 2 accounts", () => {
@@ -317,6 +317,38 @@ describe("buildAccountMetas", () => {
       [key]
     );
     expect(metas[0].pubkey).toBe(key);
+  });
+
+  // Named-map form (Record<string, PublicKey>)
+  it("accepts a named-map object for CloseSlab (2 accounts)", () => {
+    const [admin, slab] = makeKeys(2);
+    const metas = buildAccountMetas(ACCOUNTS_CLOSE_SLAB, { admin, slab });
+    expect(metas).toHaveLength(2);
+    expect(metas[0].pubkey.equals(admin)).toBe(true);
+    expect(metas[0].isSigner).toBe(true);
+    expect(metas[0].isWritable).toBe(true);
+    expect(metas[1].pubkey.equals(slab)).toBe(true);
+    expect(metas[1].isSigner).toBe(false);
+    expect(metas[1].isWritable).toBe(true);
+  });
+
+  it("accepts a named-map object for InitMarket (9 accounts)", () => {
+    const [admin, slab, mint, vault, tokenProgram, clock, rent, dummyAta, systemProgram] = makeKeys(9);
+    const metas = buildAccountMetas(ACCOUNTS_INIT_MARKET, {
+      admin, slab, mint, vault, tokenProgram, clock, rent, dummyAta, systemProgram,
+    });
+    expect(metas).toHaveLength(9);
+    expect(metas[0].pubkey.equals(admin)).toBe(true);
+    expect(metas[1].pubkey.equals(slab)).toBe(true);
+    expect(metas[8].pubkey.equals(systemProgram)).toBe(true);
+  });
+
+  it("throws a clear error when a named-map is missing a required key", () => {
+    const [admin] = makeKeys(1);
+    // ACCOUNTS_CLOSE_SLAB needs both "admin" and "slab"
+    expect(() => buildAccountMetas(ACCOUNTS_CLOSE_SLAB, { admin } as Record<string, PublicKey>)).toThrow(
+      'buildAccountMetas: missing key for account "slab"'
+    );
   });
 });
 

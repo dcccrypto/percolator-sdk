@@ -12,13 +12,9 @@ import {
 } from "./encode.js";
 
 /**
- * Instruction tags - exact match to Rust src/tags.rs.
- *
- * ⚠️ NEVER reorder, remove, or reuse a tag number.
- * Always append new instructions at the end, matching tags.rs.
+ * Instruction tags - exact match to Rust ix::Instruction::decode
  */
 export const IX_TAG = {
-  // ── Core instructions (0-28) ──────────────────────────────────────────────
   InitMarket: 0,
   InitUser: 1,
   InitLP: 2,
@@ -48,76 +44,53 @@ export const IX_TAG = {
   WithdrawInsuranceLP: 26,
   PauseMarket: 27,
   UnpauseMarket: 28,
-  // ── Extended instructions (29+) ───────────────────────────────────────────
-  /** Two-step admin transfer: new admin accepts the proposal (PERC-110). */
   AcceptAdmin: 29,
-  /** Set insurance withdrawal policy on a resolved market (PERC-110). */
   SetInsuranceWithdrawPolicy: 30,
-  /** Withdraw limited amount from insurance fund per policy (PERC-110). */
   WithdrawInsuranceLimited: 31,
-  /** Configure on-chain Pyth oracle for a market (PERC-117). */
   SetPythOracle: 32,
-  /** Update mark price EMA (PERC-118, reserved). */
   UpdateMarkPrice: 33,
-  /** Update Hyperp mark from DEX oracle (PERC-119). */
   UpdateHyperpMark: 34,
-  /** Optimised TradeCpi with caller-provided PDA bump (PERC-154). */
   TradeCpiV2: 35,
-  /** Unresolve a market: clear RESOLVED flag, re-enable trading (PERC-273). */
   UnresolveMarket: 36,
-  /** Create LP vault: initialise state PDA + SPL mint for LP shares (PERC-272). */
   CreateLpVault: 37,
-  /** Deposit into LP vault: transfer SOL → vault, mint LP shares (PERC-272). */
   LpVaultDeposit: 38,
-  /** Withdraw from LP vault: burn LP shares, receive SOL (PERC-272). */
   LpVaultWithdraw: 39,
-  /** Permissionless crank: distribute accrued fee revenue to LP vault (PERC-272). */
   LpVaultCrankFees: 40,
-  /** Fund per-market isolated insurance balance (PERC-306). */
+  /** PERC-306: Fund per-market isolated insurance balance */
   FundMarketInsurance: 41,
-  /** Set insurance isolation BPS for a market (PERC-306). */
+  /** PERC-306: Set insurance isolation BPS for a market */
   SetInsuranceIsolation: 42,
-  /** Challenge settlement price during dispute window (PERC-314). */
+  // Tag 43 is ChallengeSettlement on-chain (PERC-314).
+  // PERC-305 (ExecuteAdl) is NOT implemented on-chain — do NOT assign tag 43 here.
+  // When PERC-305 is implemented, assign a new unused tag (≥47).
+  /** PERC-314: Challenge settlement price during dispute window */
   ChallengeSettlement: 43,
-  /** Resolve dispute (admin adjudication) (PERC-314). */
+  /** PERC-314: Resolve dispute (admin adjudication) */
   ResolveDispute: 44,
-  /** Deposit LP vault tokens as perp collateral (PERC-315). */
+  /** PERC-315: Deposit LP vault tokens as perp collateral */
   DepositLpCollateral: 45,
-  /** Withdraw LP collateral (position must be closed) (PERC-315). */
+  /** PERC-315: Withdraw LP collateral (position must be closed) */
   WithdrawLpCollateral: 46,
-  /** Queue a large LP withdrawal (PERC-309). */
-  QueueWithdrawal: 47,
-  /** Claim one epoch tranche from queued withdrawal (PERC-309). */
-  ClaimQueuedWithdrawal: 48,
-  /** Cancel queued withdrawal, refund remaining (PERC-309). */
-  CancelQueuedWithdrawal: 49,
-  /** Auto-deleverage: surgically close profitable positions when PnL cap hit (PERC-305). */
-  ExecuteAdl: 50,
-  /** Close a stale slab (wrong size from old layout) and recover rent SOL. */
-  CloseStateSlab: 51,
-  /** Reclaim rent from an uninitialised slab (magic = 0). */
-  ReclaimSlabRent: 52,
-  /** Permissionless on-chain audit crank: verify conservation invariants. */
-  AuditCrank: 53,
-  /** Admin: configure cross-market margin offset for a pair of slabs. */
+  // Tags 47-53 reserved
+  /** Cross-Market Portfolio Margining: SetOffsetPair */
   SetOffsetPair: 54,
-  /** Permissionless: attest user positions across two slabs for portfolio margin. */
+  /** Cross-Market Portfolio Margining: AttestCrossMargin */
   AttestCrossMargin: 55,
-  /** PERC-622: Advance oracle phase (permissionless crank). */
+  /** PERC-622: Advance oracle phase (permissionless crank) */
   AdvanceOraclePhase: 56,
-  /** PERC-623: Top up keeper fund (permissionless). */
-  TopupKeeperFund: 57,
-  /** PERC-629: Slash creation deposit. */
+  /** PERC-623: Top up a market's keeper fund (permissionless) */
+  TopUpKeeperFund: 57,
+  /** PERC-629: Slash a market creator's deposit (permissionless) */
   SlashCreationDeposit: 58,
-  /** PERC-628: Initialise the global shared vault. */
+  /** PERC-628: Initialize the global shared vault (admin) */
   InitSharedVault: 59,
-  /** PERC-628: Allocate virtual liquidity to a market. */
+  /** PERC-628: Allocate virtual liquidity to a market (admin) */
   AllocateMarket: 60,
-  /** PERC-628: Queue a withdrawal request for the current epoch. */
-  QueueWithdrawalSv: 61,
-  /** PERC-628: Claim a queued withdrawal after epoch elapses. */
+  /** PERC-628: Queue a withdrawal for the current epoch */
+  QueueWithdrawalSV: 61,
+  /** PERC-628: Claim a queued withdrawal after epoch elapses */
   ClaimEpochWithdrawal: 62,
-  /** PERC-628: Advance the shared vault epoch (permissionless crank). */
+  /** PERC-628: Advance the shared vault epoch (permissionless crank) */
   AdvanceEpoch: 63,
 } as const;
 
@@ -357,8 +330,6 @@ export function encodeTradeCpi(args: TradeCpiArgs): Uint8Array {
  * Uses create_program_address instead of find_program_address,
  * saving ~1500 CU per trade. The bump should be obtained once via
  * deriveLpPda() and cached for the lifetime of the market.
- *
- * GH#19: Added missing export — previously only existed in packages/core.
  */
 export interface TradeCpiV2Args {
   lpIdx: number;
@@ -695,12 +666,14 @@ export async function derivePythPriceUpdateAccount(
   return pda.toBase58();
 }
 
-// SetPythOracle is now included in IX_TAG as a proper const property.
+// Add SetPythOracle to the tag registry
+(IX_TAG as Record<string, number>)['SetPythOracle'] = 32;
 
 // PERC-118: Mark Price EMA Instructions
 // ============================================================================
 
 // Tag 33 — permissionless mark price EMA crank
+(IX_TAG as Record<string, number>)['UpdateMarkPrice'] = 33;
 
 /**
  * UpdateMarkPrice (Tag 33) — permissionless EMA mark price crank.
@@ -758,6 +731,7 @@ export function computeEmaMarkPrice(
 // ============================================================================
 
 // Tag 34 — permissionless Hyperp mark price oracle (reads DEX AMM pool)
+(IX_TAG as Record<string, number>)['UpdateHyperpMark'] = 34;
 
 /**
  * UpdateHyperpMark (Tag 34) — permissionless Hyperp EMA oracle crank.
@@ -780,6 +754,38 @@ export function computeEmaMarkPrice(
 export function encodeUpdateHyperpMark(): Uint8Array {
   return new Uint8Array([34]);
 }
+
+// ============================================================================
+// PERC-306: Per-Market Insurance Isolation
+// ============================================================================
+
+/**
+ * Fund per-market isolated insurance balance.
+ * Accounts: [admin(signer,writable), slab(writable), admin_ata(writable), vault(writable), token_program]
+ */
+export function encodeFundMarketInsurance(args: { amount: bigint }): Uint8Array {
+  return concatBytes(encU8(IX_TAG.FundMarketInsurance), encU64(args.amount));
+}
+
+/**
+ * Set insurance isolation BPS for a market.
+ * Accounts: [admin(signer), slab(writable)]
+ */
+export function encodeSetInsuranceIsolation(args: { bps: number }): Uint8Array {
+  return concatBytes(encU8(IX_TAG.SetInsuranceIsolation), encU16(args.bps));
+}
+
+// ============================================================================
+// PERC-305: Partial Auto-Deleveraging — NOT YET IMPLEMENTED ON-CHAIN
+// ============================================================================
+// encodeExecuteAdl() has been REMOVED. The on-chain program does NOT have an
+// ExecuteAdl instruction. Tag 43 is ChallengeSettlement (PERC-314).
+// Calling the old encodeExecuteAdl() would have invoked ChallengeSettlement
+// with a garbled data layout — a critical security vulnerability (PERC-319).
+//
+// When PERC-305 is implemented on-chain, add the encoder here with a new
+// unused tag (≥47). See tags.rs for the single source of truth.
+// ============================================================================
 
 // ============================================================================
 // SMART PRICE ROUTER — quote computation for LP selection
@@ -843,116 +849,219 @@ export function computeVammQuote(
 }
 
 // ============================================================================
-// PERC-622/623/628/629 — New instruction encoders (tags 56-63)
+// PERC-622: AdvanceOraclePhase (permissionless crank)
 // ============================================================================
 
 /**
- * AdvanceOraclePhase (Tag 56, PERC-622) — permissionless crank.
- * Transitions market through Phase 1→2→3 based on time + volume milestones.
- * Instruction data: 1 byte (tag only — all params read from on-chain state).
+ * AdvanceOraclePhase (Tag 56) — permissionless oracle phase advancement.
+ *
+ * Checks if a market should transition from Phase 0→1→2 based on
+ * time elapsed and cumulative volume. Anyone can call this.
+ *
+ * Instruction data: 1 byte (tag only)
+ *
+ * Accounts:
+ *   0. [writable] Slab
  */
 export function encodeAdvanceOraclePhase(): Uint8Array {
   return encU8(IX_TAG.AdvanceOraclePhase);
 }
 
-/**
- * TopupKeeperFund (Tag 57, PERC-623) — permissionless top-up.
- * Transfers `amount` lamports from signer into the per-slab keeper fund PDA.
- *
- * Instruction data layout: tag(1) + amount(8) = 9 bytes
- *
- * Accounts:
- *   0. [signer, writable] Payer
- *   1. [writable]         KeeperFund PDA ["keeper_fund", slab]
- *   2. []                 Slab
- *   3. []                 System program
- */
-export function encodeTopupKeeperFund(args: { amount: bigint | string }): Uint8Array {
-  return concatBytes(encU8(IX_TAG.TopupKeeperFund), encU64(args.amount));
-}
+/** Oracle phase constants matching on-chain values */
+export const ORACLE_PHASE_NASCENT = 0;
+export const ORACLE_PHASE_GROWING = 1;
+export const ORACLE_PHASE_MATURE = 2;
+
+/** Phase transition thresholds (must match program constants) */
+export const PHASE1_MIN_SLOTS = 648_000n;         // ~72h at 400ms
+export const PHASE1_VOLUME_MIN_SLOTS = 36_000n;    // ~4h at 400ms
+export const PHASE2_VOLUME_THRESHOLD = 100_000_000_000n; // $100K in e6
+export const PHASE2_MATURITY_SLOTS = 3_024_000n;   // ~14 days at 400ms
 
 /**
- * SlashCreationDeposit (Tag 58, PERC-629) — slash anti-spam deposit.
- * Burns / redistributes the creation deposit for an abusive market.
- * Instruction data: 1 byte (tag only).
+ * Check if an oracle phase transition is due (TypeScript mirror of on-chain logic).
+ *
+ * @returns [newPhase, shouldTransition]
+ */
+export function checkPhaseTransition(
+  currentSlot: bigint,
+  marketCreatedSlot: bigint,
+  oraclePhase: number,
+  cumulativeVolumeE6: bigint,
+  phase2DeltaSlots: number,
+  hasMatureOracle: boolean,
+): [number, boolean] {
+  switch (oraclePhase) {
+    case 0: {
+      const elapsed = currentSlot - (marketCreatedSlot > 0n ? marketCreatedSlot : currentSlot);
+      const timeReady = elapsed >= PHASE1_MIN_SLOTS;
+      const volumeReady = elapsed >= PHASE1_VOLUME_MIN_SLOTS
+        && cumulativeVolumeE6 >= PHASE2_VOLUME_THRESHOLD;
+      if (timeReady || volumeReady) {
+        return [ORACLE_PHASE_GROWING, true];
+      }
+      return [ORACLE_PHASE_NASCENT, false];
+    }
+    case 1: {
+      if (hasMatureOracle) return [ORACLE_PHASE_MATURE, true];
+      const phase2Start = marketCreatedSlot + BigInt(phase2DeltaSlots);
+      const elapsedSincePhase2 = currentSlot - phase2Start;
+      if (elapsedSincePhase2 >= PHASE2_MATURITY_SLOTS) {
+        return [ORACLE_PHASE_MATURE, true];
+      }
+      return [ORACLE_PHASE_GROWING, false];
+    }
+    default:
+      return [ORACLE_PHASE_MATURE, false];
+  }
+}
+
+// ============================================================================
+// PERC-623: Keeper Fund Instructions
+// ============================================================================
+
+/**
+ * TopUpKeeperFund (Tag 57) — permissionless keeper fund top-up.
+ *
+ * Instruction data: tag(1) + amount(8) = 9 bytes
  *
  * Accounts:
- *   0. [signer] Admin
- *   1. [writable] Slab
- *   2. [writable] CreationDeposit PDA ["creation_deposit", slab]
+ *   0. [signer, writable] Funder
+ *   1. [writable]         Slab
+ *   2. [writable]         Keeper fund PDA
+ *   3. []                 System program
+ */
+export interface TopUpKeeperFundArgs {
+  amount: bigint | string;
+}
+
+export function encodeTopUpKeeperFund(args: TopUpKeeperFundArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.TopUpKeeperFund), encU64(args.amount));
+}
+
+// Note: WithdrawKeeperReward does NOT exist as a separate instruction.
+// Keeper rewards are paid automatically during KeeperCrank (tag 5).
+// The keeper fund PDA is debited in-place when a successful crank is executed.
+
+// ============================================================================
+// PERC-629: Dynamic Creation Deposit
+// ============================================================================
+
+/**
+ * SlashCreationDeposit (Tag 58) — permissionless: slash a market creator's deposit
+ * after the spam grace period has elapsed (PERC-629).
+ *
+ * Instruction data: 1 byte (tag only)
+ *
+ * Accounts:
+ *   0. [signer]           Caller (anyone)
+ *   1. []                 Slab
+ *   2. [writable]         Creator history PDA
+ *   3. [writable]         Insurance vault
+ *   4. [writable]         Treasury
+ *   5. []                 System program
  */
 export function encodeSlashCreationDeposit(): Uint8Array {
   return encU8(IX_TAG.SlashCreationDeposit);
 }
 
+// ============================================================================
+// PERC-628: Elastic Shared Vault + Epoch Withdrawals
+// ============================================================================
+
 /**
- * InitSharedVault (Tag 59, PERC-628) — initialise the global shared vault.
- * Creates the SharedVault state PDA and associated token accounts.
- * Instruction data: 1 byte (tag only — vault config read from InitMarket args).
+ * InitSharedVault (Tag 59) — admin: create the global shared vault PDA (PERC-628).
+ *
+ * Instruction data: tag(1) + epochDurationSlots(8) + maxMarketExposureBps(2) = 11 bytes
  *
  * Accounts:
- *   0. [signer, writable] Admin
- *   1. [writable]         SharedVault PDA ["shared_vault"]
+ *   0. [signer]           Admin
+ *   1. [writable]         Shared vault PDA
  *   2. []                 System program
- *   3. []                 Token program
  */
-export function encodeInitSharedVault(): Uint8Array {
-  return encU8(IX_TAG.InitSharedVault);
+export interface InitSharedVaultArgs {
+  epochDurationSlots: bigint | string;
+  maxMarketExposureBps: number;
+}
+
+export function encodeInitSharedVault(args: InitSharedVaultArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.InitSharedVault),
+    encU64(args.epochDurationSlots),
+    encU16(args.maxMarketExposureBps),
+  );
 }
 
 /**
- * AllocateMarket (Tag 60, PERC-628) — allocate virtual liquidity to a market.
- * Sets the market's allocation from the shared vault.
+ * AllocateMarket (Tag 60) — admin: allocate virtual liquidity from the shared vault
+ * to a market (PERC-628).
  *
- * Instruction data layout: tag(1) + allocationLamports(8) = 9 bytes
+ * Instruction data: tag(1) + amount(16) = 17 bytes
  *
  * Accounts:
- *   0. [signer] Admin
- *   1. [writable] SharedVault PDA
- *   2. [writable] MarketAllocation PDA ["mkt_alloc", slab]
- *   3. [] Slab
+ *   0. [signer]           Admin
+ *   1. []                 Slab
+ *   2. [writable]         Shared vault PDA
+ *   3. [writable]         Market alloc PDA
+ *   4. []                 System program
  */
-export function encodeAllocateMarket(args: { allocationLamports: bigint | string }): Uint8Array {
-  return concatBytes(encU8(IX_TAG.AllocateMarket), encU64(args.allocationLamports));
+export interface AllocateMarketArgs {
+  amount: bigint | string;
+}
+
+export function encodeAllocateMarket(args: AllocateMarketArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.AllocateMarket), encU128(args.amount));
 }
 
 /**
- * QueueWithdrawalSv (Tag 61, PERC-628) — queue a shared-vault withdrawal request.
+ * QueueWithdrawalSV (Tag 61) — user: queue a withdrawal request for the current
+ * epoch (PERC-628). Tokens are locked until the epoch elapses.
  *
- * Instruction data layout: tag(1) + shares(8) = 9 bytes
+ * Instruction data: tag(1) + lpAmount(8) = 9 bytes
  *
  * Accounts:
- *   0. [signer, writable] User
- *   1. [writable]         SharedVault PDA
- *   2. [writable]         WithdrawalRequest PDA ["sv_withdrawal", user, epoch]
+ *   0. [signer]           User
+ *   1. [writable]         Shared vault PDA
+ *   2. [writable]         Withdraw request PDA
  *   3. []                 System program
  */
-export function encodeQueueWithdrawalSv(args: { shares: bigint | string }): Uint8Array {
-  return concatBytes(encU8(IX_TAG.QueueWithdrawalSv), encU64(args.shares));
+export interface QueueWithdrawalSVArgs {
+  lpAmount: bigint | string;
+}
+
+export function encodeQueueWithdrawalSV(args: QueueWithdrawalSVArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.QueueWithdrawalSV), encU64(args.lpAmount));
 }
 
 /**
- * ClaimEpochWithdrawal (Tag 62, PERC-628) — claim a queued withdrawal after epoch elapses.
- * Instruction data: 1 byte (tag only — epoch derived from PDA).
+ * ClaimEpochWithdrawal (Tag 62) — user: claim a queued withdrawal after the epoch
+ * has elapsed (PERC-628). Receives pro-rata collateral from the vault.
+ *
+ * Instruction data: 1 byte (tag only)
  *
  * Accounts:
- *   0. [signer, writable] User (recipient)
- *   1. [writable]         SharedVault PDA
- *   2. [writable]         WithdrawalRequest PDA
+ *   0. [signer]           User
+ *   1. [writable]         Shared vault PDA
+ *   2. [writable]         Withdraw request PDA
+ *   3. []                 Slab
+ *   4. [writable]         Vault
+ *   5. [writable]         User ATA
+ *   6. []                 Vault authority
+ *   7. []                 Token program
  */
 export function encodeClaimEpochWithdrawal(): Uint8Array {
   return encU8(IX_TAG.ClaimEpochWithdrawal);
 }
 
 /**
- * AdvanceEpoch (Tag 63, PERC-628) — advance the shared vault epoch (permissionless crank).
- * Settles pending withdrawals from the previous epoch.
- * Instruction data: 1 byte (tag only).
+ * AdvanceEpoch (Tag 63) — permissionless crank: move the shared vault to the next
+ * epoch once `epoch_duration_slots` have elapsed (PERC-628).
+ *
+ * Instruction data: 1 byte (tag only)
  *
  * Accounts:
- *   0. [signer] Cranker (anyone)
- *   1. [writable] SharedVault PDA
- *   2. [] Clock sysvar
+ *   0. [signer]           Caller (anyone)
+ *   1. [writable]         Shared vault PDA
  */
 export function encodeAdvanceEpoch(): Uint8Array {
   return encU8(IX_TAG.AdvanceEpoch);

@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import {
   encodeInitMarket, encodeInitUser, encodeInitLP,
   encodeDepositCollateral, encodeWithdrawCollateral,
-  encodeKeeperCrank, encodeTradeNoCpi, encodeTradeCpi, encodeTradeCpiV2,
+  encodeKeeperCrank, encodeTradeNoCpi, encodeTradeCpi,
   encodeLiquidateAtOracle, encodeCloseAccount,
   encodeTopUpInsurance, encodeSetRiskThreshold, encodeUpdateAdmin,
   encodeCloseSlab, encodeUpdateConfig, encodeSetMaintenanceFee,
@@ -139,44 +139,5 @@ describe("instruction encoders", () => {
 
   it("encodeWithdrawInsurance produces 1 byte", () => {
     expect(encodeWithdrawInsurance()[0]).toBe(IX_TAG.WithdrawInsurance);
-  });
-});
-
-// GH#19: encodeTradeCpiV2 — PERC-154 optimized trade CPI with caller-provided bump
-describe("GH#19: encodeTradeCpiV2", () => {
-  it("produces 22 bytes (1 tag + 2 lpIdx + 2 userIdx + 16 size + 1 bump)", () => {
-    const data = encodeTradeCpiV2({ lpIdx: 0, userIdx: 1, size: "1000000", bump: 255 });
-    expect(data.length).toBe(22);
-  });
-
-  it("first byte is IX_TAG.TradeCpiV2 (35)", () => {
-    const data = encodeTradeCpiV2({ lpIdx: 0, userIdx: 0, size: "0", bump: 0 });
-    expect(data[0]).toBe(IX_TAG.TradeCpiV2);
-    expect(IX_TAG.TradeCpiV2).toBe(35);
-  });
-
-  it("encodes bump as last byte", () => {
-    const data = encodeTradeCpiV2({ lpIdx: 0, userIdx: 0, size: "0", bump: 123 });
-    expect(data[21]).toBe(123);
-  });
-
-  it("encodes negative size (short trade)", () => {
-    // Should not throw — encI128 handles negative values
-    expect(() => encodeTradeCpiV2({ lpIdx: 1, userIdx: 2, size: "-500000", bump: 254 })).not.toThrow();
-    const data = encodeTradeCpiV2({ lpIdx: 1, userIdx: 2, size: "-500000", bump: 254 });
-    expect(data.length).toBe(22);
-    expect(data[0]).toBe(35);
-    expect(data[21]).toBe(254);
-  });
-
-  it("matches encodeTradeCpi in first 21 bytes for same lpIdx/userIdx/size", () => {
-    // TradeCpiV2 is TradeCpi + bump byte — first 21 bytes should encode same data
-    // except byte 0 (different opcode)
-    const v1 = encodeTradeCpi({ lpIdx: 3, userIdx: 7, size: "1000" });
-    const v2 = encodeTradeCpiV2({ lpIdx: 3, userIdx: 7, size: "1000", bump: 0 });
-    // Bytes 1-20 (lpIdx, userIdx, size) should be identical
-    for (let i = 1; i < 21; i++) {
-      expect(v2[i]).toBe(v1[i]);
-    }
   });
 });

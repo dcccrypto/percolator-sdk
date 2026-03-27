@@ -10,6 +10,7 @@ import {
   parseUsedIndices,
   isAccountUsed,
   AccountKind,
+  detectSlabLayout,
 } from "../src/solana/slab.js";
 
 function assert(cond: boolean, msg: string): void {
@@ -347,3 +348,150 @@ function createFullMockSlab(): Buffer {
 console.log("\n✅ All account tests passed!");
 
 console.log("\n✅ All slab tests passed!");
+
+// ─── V1_LEGACY slab tests (65,352 bytes, engineOff=640) ─────────────────────
+// Root cause: buildLayout() used bitmapOff=656 for preAccountsLen, giving accountsOff=1864.
+// Actual accounts start at 1880 (verified empirically on devnet).
+// Fix: use actualBitmapOff=672 in preAccountsLen → accountsOff=1880.
+// With base correct, all standard offsets (owner=+184, capital=+8) work as-is.
+{
+  console.log("\nTesting V1_LEGACY slab layout (65,352-byte slabs)...");
+
+  // V1_LEGACY constants (on-chain actual values — verified against devnet slab)
+  const V1L_ENGINE_OFF = 640;
+  const V1L_BITMAP_OFF_REL = 672;    // relative to engineOff → abs 1312
+  const V1L_ACCOUNTS_OFF = 1880;     // accountsOff absolute (empirically confirmed)
+  const V1L_ACCT_OWNER_OFF = 184;    // standard owner offset — correct now that base is right
+  const V1L_ACCT_CAPITAL_OFF = 8;    // standard capital offset
+  const V1L_ACCT_SIZE = 248;
+  const V1L_SIZE = 65_352;
+
+  const slab65352 = Buffer.alloc(V1L_SIZE);
+
+  // Set bitmap: bits 0 and 1 used (word 0 = 0x03)
+  const bitmapAbs = V1L_ENGINE_OFF + V1L_BITMAP_OFF_REL; // 1312
+  slab65352.writeBigUInt64LE(0x03n, bitmapAbs);
+
+  // Write two accounts at correct V1_LEGACY positions (base=1880)
+  const ownerA = Buffer.alloc(32); ownerA[0] = 0xAA;
+  const ownerB = Buffer.alloc(32); ownerB[0] = 0xBB;
+  ownerA.copy(slab65352, V1L_ACCOUNTS_OFF + 0 * V1L_ACCT_SIZE + V1L_ACCT_OWNER_OFF);
+  ownerB.copy(slab65352, V1L_ACCOUNTS_OFF + 1 * V1L_ACCT_SIZE + V1L_ACCT_OWNER_OFF);
+
+  // Write capital values to verify field reads correctly
+  const CAPITAL_A = 2_055_000_000n;
+  const CAPITAL_B = 555_000_000n;
+  slab65352.writeBigUInt64LE(CAPITAL_A, V1L_ACCOUNTS_OFF + 0 * V1L_ACCT_SIZE + V1L_ACCT_CAPITAL_OFF);
+  slab65352.writeBigUInt64LE(CAPITAL_B, V1L_ACCOUNTS_OFF + 1 * V1L_ACCT_SIZE + V1L_ACCT_CAPITAL_OFF);
+
+  // detectSlabLayout must recognise 65352
+  const layout = detectSlabLayout(V1L_SIZE);
+  assert(layout !== null, "detectSlabLayout must handle 65352 bytes");
+  assert(layout!.engineOff === V1L_ENGINE_OFF, `engineOff must be 640, got ${layout!.engineOff}`);
+  assert(layout!.accountsOff === V1L_ACCOUNTS_OFF,
+    `accountsOff must be 1880 for V1_LEGACY, got ${layout!.accountsOff}`);
+  assert(layout!.acctOwnerOff === V1L_ACCT_OWNER_OFF,
+    `acctOwnerOff must be 184 for V1_LEGACY, got ${layout!.acctOwnerOff}`);
+  assert(layout!.engineBitmapOff === V1L_BITMAP_OFF_REL,
+    `engineBitmapOff must be 672 for V1_LEGACY, got ${layout!.engineBitmapOff}`);
+  console.log("  ✓ detectSlabLayout recognises 65,352-byte V1_LEGACY slab");
+  console.log("  ✓ accountsOff=1880 (root cause fix: actualBitmapOff used in preAccountsLen)");
+
+  // parseUsedIndices must return [0, 1]
+  const indices = parseUsedIndices(slab65352);
+  assert(indices.length === 2 && indices[0] === 0 && indices[1] === 1,
+    `expected indices [0,1] got [${indices}]`);
+  console.log("  ✓ parseUsedIndices returns correct indices (0,1) not (128,129)");
+
+  // parseAccount must read owner and capital from correct offsets
+  const acc0 = parseAccount(slab65352, 0);
+  assert(acc0.owner.toBytes()[0] === 0xAA,
+    `account 0 owner first byte must be 0xAA (got ${acc0.owner.toBytes()[0]})`);
+  assert(acc0.capital === CAPITAL_A,
+    `account 0 capital must be ${CAPITAL_A} (got ${acc0.capital})`);
+  const acc1 = parseAccount(slab65352, 1);
+  assert(acc1.owner.toBytes()[0] === 0xBB,
+    `account 1 owner first byte must be 0xBB (got ${acc1.owner.toBytes()[0]})`);
+  assert(acc1.capital === CAPITAL_B,
+    `account 1 capital must be ${CAPITAL_B} (got ${acc1.capital})`);
+  console.log("  ✓ parseAccount reads owner at +184 and capital at +8 correctly for V1_LEGACY");
+
+  console.log("✅ V1_LEGACY slab tests passed!");
+}
+
+// ─── V2 slab layout tests (ENGINE_OFF=600, BITMAP_OFF=432) ──────────────────
+// V2 slabs produce identical data sizes to V1D (postBitmap=2) slabs.
+// Disambiguation requires reading version field at offset 8.
+{
+  console.log("\nTesting V2 slab layout (BPF intermediate)...");
+
+  // V2 small slab size = 65088 (same as V1D small)
+  const V2_SIZE = 65_088;
+
+  // Create minimal buffer with version=2 at offset 8
+  const v2buf = Buffer.alloc(V2_SIZE);
+  // Write PERCOLAT magic
+  v2buf.writeBigUInt64LE(0x504552434f4c4154n, 0);
+  // Write version=2 at offset 8
+  v2buf.writeUInt32LE(2, 8);
+
+  // Without data, detectSlabLayout should return V1D (backward compat)
+  const layoutNoData = detectSlabLayout(V2_SIZE);
+  assert(layoutNoData !== null, "detectSlabLayout(65088) without data should return non-null");
+  assert(layoutNoData!.version === 1, `Without data, version should be 1 (V1D), got ${layoutNoData!.version}`);
+  assert(layoutNoData!.engineOff === 424, `Without data, engineOff should be 424 (V1D), got ${layoutNoData!.engineOff}`);
+  console.log("  ✓ detectSlabLayout without data returns V1D (backward compat)");
+
+  // With data containing version=2, should return V2 layout
+  const layoutV2 = detectSlabLayout(V2_SIZE, v2buf);
+  assert(layoutV2 !== null, "detectSlabLayout with V2 data should return non-null");
+  assert(layoutV2!.version === 2, `With V2 data, version should be 2, got ${layoutV2!.version}`);
+  assert(layoutV2!.engineOff === 600, `V2 engineOff should be 600, got ${layoutV2!.engineOff}`);
+  assert(layoutV2!.engineBitmapOff === 432, `V2 engineBitmapOff should be 432, got ${layoutV2!.engineBitmapOff}`);
+  assert(layoutV2!.accountSize === 248, `V2 accountSize should be 248, got ${layoutV2!.accountSize}`);
+  assert(layoutV2!.maxAccounts === 256, `V2 maxAccounts should be 256, got ${layoutV2!.maxAccounts}`);
+  console.log("  ✓ detectSlabLayout with V2 data returns version=2 layout");
+
+  // V2 should have no mark_price, long_oi, short_oi, emergency fields
+  assert(layoutV2!.engineMarkPriceOff === -1, "V2 should have no mark_price");
+  assert(layoutV2!.engineLongOiOff === -1, "V2 should have no long_oi");
+  assert(layoutV2!.engineShortOiOff === -1, "V2 should have no short_oi");
+  assert(layoutV2!.engineEmergencyOiModeOff === -1, "V2 should have no emergency OI mode");
+  assert(layoutV2!.engineEmergencyStartSlotOff === -1, "V2 should have no emergency start slot");
+  assert(layoutV2!.engineLastBreakerSlotOff === -1, "V2 should have no last breaker slot");
+  console.log("  ✓ V2 layout correctly reports missing fields as -1");
+
+  // V2 engine field offsets should match specification
+  assert(layoutV2!.engineCurrentSlotOff === 352, "V2 currentSlot offset");
+  assert(layoutV2!.engineFundingIndexOff === 360, "V2 fundingIndex offset");
+  assert(layoutV2!.engineTotalOiOff === 408, "V2 totalOI offset");
+  assert(layoutV2!.engineCTotOff === 424, "V2 cTot offset");
+  assert(layoutV2!.engineLiqCursorOff === 456, "V2 liqCursor offset");
+  assert(layoutV2!.engineNetLpPosOff === 504, "V2 netLpPos offset");
+  assert(layoutV2!.engineLpMaxAbsOff === 536, "V2 lpMaxAbs offset");
+  assert(layoutV2!.engineLpMaxAbsSweepOff === 552, "V2 lpMaxAbsSweep offset");
+  console.log("  ✓ V2 engine field offsets match specification");
+
+  // With data containing version=1 (V1D), should still return V1D
+  const v1dBuf = Buffer.alloc(V2_SIZE);
+  v1dBuf.writeBigUInt64LE(0x504552434f4c4154n, 0);
+  v1dBuf.writeUInt32LE(1, 8);
+  const layoutV1D = detectSlabLayout(V2_SIZE, v1dBuf);
+  assert(layoutV1D !== null, "detectSlabLayout with V1D data should return non-null");
+  assert(layoutV1D!.version === 1, `With V1D data, version should be 1, got ${layoutV1D!.version}`);
+  assert(layoutV1D!.engineOff === 424, `With V1D data, engineOff should be 424, got ${layoutV1D!.engineOff}`);
+  console.log("  ✓ detectSlabLayout with version=1 data returns V1D layout");
+
+  // V2 large slab size = 1025568 (same as V1D large)
+  const V2_LARGE_SIZE = 1_025_568;
+  const v2LargeBuf = Buffer.alloc(64); // minimal for version read
+  v2LargeBuf.writeBigUInt64LE(0x504552434f4c4154n, 0);
+  v2LargeBuf.writeUInt32LE(2, 8);
+  const layoutV2Large = detectSlabLayout(V2_LARGE_SIZE, v2LargeBuf);
+  assert(layoutV2Large !== null, "detectSlabLayout for V2 large should return non-null");
+  assert(layoutV2Large!.version === 2, `V2 large version should be 2, got ${layoutV2Large!.version}`);
+  assert(layoutV2Large!.maxAccounts === 4096, `V2 large maxAccounts should be 4096, got ${layoutV2Large!.maxAccounts}`);
+  console.log("  ✓ V2 large slab (1025568) detected correctly");
+
+  console.log("✅ V2 slab layout tests passed!");
+}
