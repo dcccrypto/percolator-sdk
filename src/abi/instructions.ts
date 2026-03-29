@@ -71,7 +71,20 @@ export const IX_TAG = {
   DepositLpCollateral: 45,
   /** PERC-315: Withdraw LP collateral (position must be closed) */
   WithdrawLpCollateral: 46,
-  // Tags 47-53 reserved
+  /** PERC-309: Queue a large LP withdrawal (user; creates withdraw_queue PDA). */
+  QueueWithdrawal: 47,
+  /** PERC-309: Claim one epoch tranche from a queued LP withdrawal (user). */
+  ClaimQueuedWithdrawal: 48,
+  /** PERC-309: Cancel a queued withdrawal, refund remaining LP tokens (user). */
+  CancelQueuedWithdrawal: 49,
+  /** PERC-305: Auto-deleverage — surgically close profitable positions when PnL cap is exceeded (permissionless). */
+  ExecuteAdl: 50,
+  /** Close a stale slab of an invalid/old layout and recover rent SOL (admin only). */
+  CloseStaleSlabs: 51,
+  /** Reclaim rent from an uninitialised slab whose market creation failed mid-flow. Slab must sign. */
+  ReclaimSlabRent: 52,
+  /** Permissionless on-chain audit crank: verifies conservation invariants and pauses market on violation. */
+  AuditCrank: 53,
   /** Cross-Market Portfolio Margining: SetOffsetPair */
   SetOffsetPair: 54,
   /** Cross-Market Portfolio Margining: AttestCrossMargin */
@@ -487,7 +500,16 @@ export function encodePushOraclePrice(args: PushOraclePriceArgs): Uint8Array {
 /**
  * SetOraclePriceCap instruction data (9 bytes)
  * Set oracle price circuit breaker cap (admin only).
- * max_change_e2bps in 0.01 bps units (1_000_000 = 100%). 0 = disabled.
+ *
+ * max_change_e2bps: maximum oracle price movement per slot in 0.01 bps units.
+ *   1_000_000 = 100% max move per slot.
+ *
+ * ⚠️ PERC-8191 (PR#150): cap=0 is NO LONGER accepted for admin-oracle markets.
+ *   - Hyperp markets: rejected if cap < DEFAULT_HYPERP_PRICE_CAP_E2BPS (1000).
+ *   - Admin-oracle markets: rejected if cap == 0 (circuit breaker bypass prevention).
+ *   - Pyth-pinned markets: immune (oracle_authority zeroed), any value accepted.
+ *
+ * Use a non-zero cap for all admin-oracle and Hyperp markets.
  */
 export interface SetOraclePriceCapArgs {
   maxChangeE2bps: bigint | string;
@@ -792,16 +814,142 @@ export function encodeSetInsuranceIsolation(args: { bps: number }): Uint8Array {
 }
 
 // ============================================================================
-// PERC-305: Partial Auto-Deleveraging — NOT YET IMPLEMENTED ON-CHAIN
+// NOTE: encodeExecuteAdl() was historically removed when it was discovered
+// that PERC-305 was NOT implemented on-chain and tag 43 was ChallengeSettlement.
+// PERC-305 (ExecuteAdl) is now live at tag 50. Encoder added below.
 // ============================================================================
-// encodeExecuteAdl() has been REMOVED. The on-chain program does NOT have an
-// ExecuteAdl instruction. Tag 43 is ChallengeSettlement (PERC-314).
-// Calling the old encodeExecuteAdl() would have invoked ChallengeSettlement
-// with a garbled data layout — a critical security vulnerability (PERC-319).
-//
-// When PERC-305 is implemented on-chain, add the encoder here with a new
-// unused tag (≥47). See tags.rs for the single source of truth.
+
 // ============================================================================
+// PERC-309: QueueWithdrawal / ClaimQueuedWithdrawal / CancelQueuedWithdrawal
+// ============================================================================
+
+/**
+ * QueueWithdrawal (Tag 47, PERC-309) — queue a large LP withdrawal.
+ *
+ * Creates a withdraw_queue PDA. The LP tokens are claimed in epoch tranches
+ * via ClaimQueuedWithdrawal. Call CancelQueuedWithdrawal to abort.
+ *
+ * Accounts: [user(signer,writable), slab(writable), lpVaultState, withdrawQueue(writable), systemProgram]
+ *
+ * @param lpAmount - Amount of LP tokens to queue for withdrawal.
+ *
+ * @example
+ * ```ts
+ * const data = encodeQueueWithdrawal({ lpAmount: 1_000_000_000n });
+ * ```
+ */
+export function encodeQueueWithdrawal(args: { lpAmount: bigint | string }): Uint8Array {
+  return concatBytes(encU8(IX_TAG.QueueWithdrawal), encU64(args.lpAmount));
+}
+
+/**
+ * ClaimQueuedWithdrawal (Tag 48, PERC-309) — claim one epoch tranche from a queued withdrawal.
+ *
+ * Burns LP tokens and releases one tranche of SOL to the user.
+ * Call once per epoch until epochs_remaining == 0.
+ *
+ * Accounts: [user(signer,writable), slab(writable), withdrawQueue(writable),
+ *            lpVaultMint(writable), userLpAta(writable), vault(writable),
+ *            userAta(writable), vaultAuthority, tokenProgram, lpVaultState(writable)]
+ */
+export function encodeClaimQueuedWithdrawal(): Uint8Array {
+  return encU8(IX_TAG.ClaimQueuedWithdrawal);
+}
+
+/**
+ * CancelQueuedWithdrawal (Tag 49, PERC-309) — cancel a queued withdrawal, refund remaining LP.
+ *
+ * Closes the withdraw_queue PDA and returns its rent lamports to the user.
+ * The queued LP amount that was not yet claimed is NOT refunded — it is burned.
+ * Use only to abandon a partial withdrawal.
+ *
+ * Accounts: [user(signer,writable), slab, withdrawQueue(writable)]
+ */
+export function encodeCancelQueuedWithdrawal(): Uint8Array {
+  return encU8(IX_TAG.CancelQueuedWithdrawal);
+}
+
+// ============================================================================
+// PERC-305: ExecuteAdl (Tag 50) — Auto-Deleverage
+// ============================================================================
+
+/**
+ * ExecuteAdl (Tag 50, PERC-305) — auto-deleverage the most profitable position.
+ *
+ * Permissionless. Surgically closes or reduces `targetIdx` position when
+ * `pnl_pos_tot > max_pnl_cap` on the market. The caller receives no reward —
+ * the incentive is unblocking the market for normal trading.
+ *
+ * Requires `UpdateRiskParams.max_pnl_cap > 0` on the market.
+ *
+ * Accounts: [caller(signer), slab(writable), clock, oracle, ...backupOracles?]
+ *
+ * @param targetIdx - Account index of the position to deleverage.
+ *
+ * @example
+ * ```ts
+ * const data = encodeExecuteAdl({ targetIdx: 5 });
+ * ```
+ */
+export interface ExecuteAdlArgs {
+  targetIdx: number;
+}
+
+export function encodeExecuteAdl(args: ExecuteAdlArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.ExecuteAdl), encU16(args.targetIdx));
+}
+
+// ============================================================================
+// CloseStaleSlabs (Tag 51) / ReclaimSlabRent (Tag 52) — Slab recovery
+// ============================================================================
+
+/**
+ * CloseStaleSlabs (Tag 51) — close a slab of an invalid/old layout and recover rent SOL.
+ *
+ * Admin only. Skips slab_guard; validates header magic + admin authority instead.
+ * Use for slabs created by old program layouts (e.g. pre-PERC-120 devnet deploys)
+ * whose size does not match any current valid tier.
+ *
+ * Accounts: [dest(signer,writable), slab(writable)]
+ */
+export function encodeCloseStaleSlabs(): Uint8Array {
+  return encU8(IX_TAG.CloseStaleSlabs);
+}
+
+/**
+ * ReclaimSlabRent (Tag 52) — reclaim rent from an uninitialised slab.
+ *
+ * For use when market creation failed mid-flow (slab funded but InitMarket not called).
+ * The slab account must sign (proves the caller holds the slab keypair).
+ * Cannot close an initialised slab (magic == PERCOLAT) — use CloseSlab (tag 13).
+ *
+ * Accounts: [dest(signer,writable), slab(signer,writable)]
+ */
+export function encodeReclaimSlabRent(): Uint8Array {
+  return encU8(IX_TAG.ReclaimSlabRent);
+}
+
+// ============================================================================
+// AuditCrank (Tag 53) — Permissionless on-chain invariant check
+// ============================================================================
+
+/**
+ * AuditCrank (Tag 53) — verify conservation invariants on-chain (permissionless).
+ *
+ * Walks all accounts and verifies: capital sum, pnl_pos_tot, total_oi, LP consistency,
+ * and solvency. Sets FLAG_PAUSED on violation (with a 150-slot cooldown guard to
+ * prevent DoS from transient failures).
+ *
+ * Accounts: [slab(writable)]
+ *
+ * @example
+ * ```ts
+ * const data = encodeAuditCrank();
+ * ```
+ */
+export function encodeAuditCrank(): Uint8Array {
+  return encU8(IX_TAG.AuditCrank);
+}
 
 // ============================================================================
 // SMART PRICE ROUTER — quote computation for LP selection

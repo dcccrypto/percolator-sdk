@@ -373,14 +373,97 @@ export const ACCOUNTS_SET_INSURANCE_ISOLATION: readonly AccountSpec[] = [
   { name: "slab", signer: false, writable: true },
 ] as const;
 
+// ============================================================================
+// PERC-309: QueueWithdrawal / ClaimQueuedWithdrawal / CancelQueuedWithdrawal
+// ============================================================================
+
 /**
- * ExecuteAdl: NOT IMPLEMENTED ON-CHAIN (PERC-305 pending).
- * Tag 43 is ChallengeSettlement (PERC-314). This constant is retained
- * for reference only — do NOT use it to build instructions.
- * @deprecated PERC-305 is not deployed. Using this would invoke ChallengeSettlement.
+ * QueueWithdrawal: 5 accounts (PERC-309)
+ * User queues a large LP withdrawal. Creates withdraw_queue PDA.
+ */
+export const ACCOUNTS_QUEUE_WITHDRAWAL: readonly AccountSpec[] = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "lpVaultState", signer: false, writable: false },
+  { name: "withdrawQueue", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false },
+] as const;
+
+/**
+ * ClaimQueuedWithdrawal: 10 accounts (PERC-309)
+ * Burns LP tokens and releases one epoch tranche of SOL.
+ */
+export const ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL: readonly AccountSpec[] = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "withdrawQueue", signer: false, writable: true },
+  { name: "lpVaultMint", signer: false, writable: true },
+  { name: "userLpAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "userAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true },
+] as const;
+
+/**
+ * CancelQueuedWithdrawal: 3 accounts (PERC-309)
+ * Cancels queue, closes withdraw_queue PDA, returns rent to user.
+ */
+export const ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL: readonly AccountSpec[] = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: false },
+  { name: "withdrawQueue", signer: false, writable: true },
+] as const;
+
+// ============================================================================
+// PERC-305: ExecuteAdl (tag 50) — Auto-Deleverage
+// ============================================================================
+
+/**
+ * ExecuteAdl: 4+ accounts (PERC-305, tag 50)
+ * Permissionless — surgically close/reduce the most profitable position
+ * when pnl_pos_tot > max_pnl_cap. For non-Hyperp markets with backup oracles,
+ * pass additional oracle accounts at accounts[4..].
  */
 export const ACCOUNTS_EXECUTE_ADL: readonly AccountSpec[] = [
-  { name: "keeper", signer: true, writable: false },
+  { name: "caller", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false },
+] as const;
+
+// ============================================================================
+// CloseStaleSlabs (tag 51) / ReclaimSlabRent (tag 52)
+// ============================================================================
+
+/**
+ * CloseStaleSlabs: 2 accounts (tag 51)
+ * Admin closes a slab of an invalid/old layout and recovers rent SOL.
+ */
+export const ACCOUNTS_CLOSE_STALE_SLABS: readonly AccountSpec[] = [
+  { name: "dest", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+/**
+ * ReclaimSlabRent: 2 accounts (tag 52)
+ * Reclaim rent from an uninitialised slab. Both dest and slab must sign.
+ */
+export const ACCOUNTS_RECLAIM_SLAB_RENT: readonly AccountSpec[] = [
+  { name: "dest", signer: true, writable: true },
+  { name: "slab", signer: true, writable: true },
+] as const;
+
+// ============================================================================
+// AuditCrank (tag 53) — Permissionless invariant check
+// ============================================================================
+
+/**
+ * AuditCrank: 1 account (tag 53)
+ * Permissionless. Verifies conservation invariants; pauses market on violation.
+ */
+export const ACCOUNTS_AUDIT_CRANK: readonly AccountSpec[] = [
   { name: "slab", signer: false, writable: true },
 ] as const;
 
