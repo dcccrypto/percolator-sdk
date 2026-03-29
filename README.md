@@ -83,7 +83,70 @@ const tradeData = buildTradeNoCpiIxData({
 });
 ```
 
-**Supported instructions:** `InitMarket`, `InitUser`, `InitLP`, `DepositCollateral`, `WithdrawCollateral`, `KeeperCrank`, `TradeNoCpi`, `TradeCpi`, `LiquidateAtOracle`, `CloseAccount`, `TopUpInsurance`, `SetRiskThreshold`, `UpdateAdmin`, `UpdateConfig`, `SetMaintenanceFee`, `PushOraclePrice`, `ResolveMarket`, and more.
+**Supported instructions:** `InitMarket`, `InitUser`, `InitLP`, `DepositCollateral`, `WithdrawCollateral`, `KeeperCrank`, `TradeNoCpi`, `TradeCpi`, `LiquidateAtOracle`, `CloseAccount`, `TopUpInsurance`, `SetRiskThreshold`, `UpdateAdmin`, `UpdateConfig`, `SetMaintenanceFee`, `PushOraclePrice`, `ResolveMarket`, `SetOiImbalanceHardBlock`, `SetOracleAuthority`, and more.
+
+### Admin Instructions
+
+#### SetOiImbalanceHardBlock (tag=71)
+
+Prevents new trades from pushing the long/short OI skew above a configurable threshold.
+When triggered, the on-chain error `OiImbalanceHardBlock` (code 59) is returned.
+
+```typescript
+import {
+  encodeSetOiImbalanceHardBlock,
+  ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK,
+  buildAccountMetas,
+  buildIx,
+  simulateOrSend,
+} from "@percolator/sdk";
+
+// threshold_bps = 0         → hard block disabled (default)
+// threshold_bps = 5_000     → block trades that push skew above 50%
+// threshold_bps = 8_000     → block trades that push skew above 80%
+// threshold_bps = 10_000    → lock dominant side once any OI exists
+
+const data = encodeSetOiImbalanceHardBlock({ thresholdBps: 8_000 });
+const keys = buildAccountMetas(ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK, [
+  adminPublicKey,  // [signer]
+  slabPublicKey,   // [writable]
+]);
+const ix = buildIx({ programId, keys, data });
+
+const result = await simulateOrSend({ connection, ix, signers: [admin] });
+console.log("signature:", result.signature);
+```
+
+#### SetOracleAuthority (tag=16)
+
+Delegates the `PushOraclePrice` right to a specific keypair (e.g. a crank bot).
+Pass `PublicKey.default` (all zeros) to revoke — the program then falls back to Pyth/Chainlink.
+
+```typescript
+import { PublicKey } from "@solana/web3.js";
+import {
+  encodeSetOracleAuthority,
+  ACCOUNTS_SET_ORACLE_AUTHORITY,
+  buildAccountMetas,
+  buildIx,
+  simulateOrSend,
+} from "@percolator/sdk";
+
+// Delegate to a crank bot
+const data = encodeSetOracleAuthority({ newAuthority: crankBot.publicKey });
+const keys = buildAccountMetas(ACCOUNTS_SET_ORACLE_AUTHORITY, [
+  adminPublicKey,  // [signer, writable]
+  slabPublicKey,   // [writable]
+]);
+const ix = buildIx({ programId, keys, data });
+
+await simulateOrSend({ connection, ix, signers: [admin] });
+
+// Revoke — fall back to Pyth/Chainlink
+const revokeData = encodeSetOracleAuthority({ newAuthority: PublicKey.default });
+```
+
+See [`examples/admin-instructions.ts`](examples/admin-instructions.ts) for full end-to-end examples.
 
 ### Account Deserialization
 
