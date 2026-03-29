@@ -92,6 +92,20 @@ export const IX_TAG = {
   ClaimEpochWithdrawal: 62,
   /** PERC-628: Advance the shared vault epoch (permissionless crank) */
   AdvanceEpoch: 63,
+  /** PERC-608: Mint a Position NFT for a user's open position. */
+  MintPositionNft: 64,
+  /** PERC-608: Transfer position ownership via the NFT (keeper-gated). */
+  TransferPositionOwnership: 65,
+  /** PERC-608: Burn the Position NFT when a position is closed. */
+  BurnPositionNft: 66,
+  /** PERC-608: Keeper sets pending_settlement flag before a funding transfer. */
+  SetPendingSettlement: 67,
+  /** PERC-608: Keeper clears pending_settlement flag after KeeperCrank. */
+  ClearPendingSettlement: 68,
+  /** PERC-608: Internal CPI call from percolator-nft TransferHook to update on-chain owner. */
+  TransferOwnershipCpi: 69,
+  /** PERC-8111: Set per-wallet position cap (admin only, cap_e6=0 disables). */
+  SetWalletCap: 70,
   /** PERC-8110: Set OI imbalance hard-block threshold (admin only). */
   SetOiImbalanceHardBlock: 71,
 } as const;
@@ -1103,4 +1117,215 @@ export function encodeSetOiImbalanceHardBlock(args: { thresholdBps: number }): U
     throw new Error(`encodeSetOiImbalanceHardBlock: thresholdBps must be 0–10_000, got ${args.thresholdBps}`);
   }
   return concatBytes(encU8(IX_TAG.SetOiImbalanceHardBlock), encU16(args.thresholdBps));
+}
+
+// ============================================================================
+// PERC-608 — Position NFT instructions (tags 64–69)
+// ============================================================================
+
+/**
+ * MintPositionNft (Tag 64, PERC-608) — mint a Token-2022 NFT representing a position.
+ *
+ * Creates a PositionNft PDA + Token-2022 mint with metadata, then mints 1 NFT to the
+ * position owner's ATA. The NFT represents ownership of `user_idx` in the slab.
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] payer
+ *   1. [writable]         slab
+ *   2. [writable]         position_nft PDA  (created — seeds: ["pos_nft", slab, user_idx])
+ *   3. [writable]         nft_mint PDA      (created)
+ *   4. [writable]         owner_ata         (Token-2022 ATA for owner)
+ *   5. [signer]           owner             (must match engine account owner)
+ *   6. []                 vault_authority PDA
+ *   7. []                 token_2022_program
+ *   8. []                 system_program
+ *   9. []                 rent sysvar
+ *
+ * @example
+ * ```ts
+ * const ix = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_MINT_POSITION_NFT, [payer, slab, nftPda, nftMint, ownerAta, owner, vaultAuth, TOKEN_2022_PROGRAM_ID, SystemProgram.programId, SYSVAR_RENT_PUBKEY]),
+ *   data: Buffer.from(encodeMintPositionNft({ userIdx: 5 })),
+ * });
+ * ```
+ */
+export interface MintPositionNftArgs {
+  userIdx: number;
+}
+
+export function encodeMintPositionNft(args: MintPositionNftArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.MintPositionNft), encU16(args.userIdx));
+}
+
+/**
+ * TransferPositionOwnership (Tag 65, PERC-608) — transfer an open position to a new owner.
+ *
+ * Transfers the Token-2022 NFT from current owner to new owner and updates the on-chain
+ * engine account's owner field. Requires `pending_settlement == 0`.
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] current_owner
+ *   1. [writable]         slab
+ *   2. [writable]         position_nft PDA
+ *   3. [writable]         nft_mint PDA
+ *   4. [writable]         current_owner_ata  (source Token-2022 ATA)
+ *   5. [writable]         new_owner_ata      (destination Token-2022 ATA)
+ *   6. []                 new_owner
+ *   7. []                 token_2022_program
+ */
+export interface TransferPositionOwnershipArgs {
+  userIdx: number;
+}
+
+export function encodeTransferPositionOwnership(args: TransferPositionOwnershipArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.TransferPositionOwnership), encU16(args.userIdx));
+}
+
+/**
+ * BurnPositionNft (Tag 66, PERC-608) — burn the Position NFT when a position is closed.
+ *
+ * Burns the NFT, closes the PositionNft PDA and the mint PDA, returning rent to the owner.
+ * Can only be called after the position is fully closed (size == 0).
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer, writable] owner
+ *   1. [writable]         slab
+ *   2. [writable]         position_nft PDA  (closed — rent to owner)
+ *   3. [writable]         nft_mint PDA      (closed via Token-2022 close_account)
+ *   4. [writable]         owner_ata         (Token-2022 ATA, balance burned)
+ *   5. []                 vault_authority PDA
+ *   6. []                 token_2022_program
+ */
+export interface BurnPositionNftArgs {
+  userIdx: number;
+}
+
+export function encodeBurnPositionNft(args: BurnPositionNftArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.BurnPositionNft), encU16(args.userIdx));
+}
+
+/**
+ * SetPendingSettlement (Tag 67, PERC-608) — keeper sets the pending_settlement flag.
+ *
+ * Called by the keeper/admin before performing a funding settlement transfer.
+ * Blocks NFT transfers until ClearPendingSettlement is called.
+ * Admin-only (protected by GH#1475 keeper allowlist guard).
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer]   keeper / admin
+ *   1. []         slab  (read — for PDA verification + admin check)
+ *   2. [writable] position_nft PDA
+ */
+export interface SetPendingSettlementArgs {
+  userIdx: number;
+}
+
+export function encodeSetPendingSettlement(args: SetPendingSettlementArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.SetPendingSettlement), encU16(args.userIdx));
+}
+
+/**
+ * ClearPendingSettlement (Tag 68, PERC-608) — keeper clears the pending_settlement flag.
+ *
+ * Called by the keeper/admin after KeeperCrank has run and funding is settled.
+ * Admin-only (protected by GH#1475 keeper allowlist guard).
+ *
+ * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer]   keeper / admin
+ *   1. []         slab  (read — for PDA verification + admin check)
+ *   2. [writable] position_nft PDA
+ */
+export interface ClearPendingSettlementArgs {
+  userIdx: number;
+}
+
+export function encodeClearPendingSettlement(args: ClearPendingSettlementArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.ClearPendingSettlement), encU16(args.userIdx));
+}
+
+/**
+ * TransferOwnershipCpi (Tag 69, PERC-608) — internal CPI target for percolator-nft TransferHook.
+ *
+ * Called by the Token-2022 TransferHook on the percolator-nft program during an NFT transfer.
+ * Updates the engine account's owner field to the new_owner public key.
+ * NOT intended for direct external use — always called via Token-2022 CPI.
+ *
+ * Instruction data layout: tag(1) + user_idx(2) + new_owner(32) = 35 bytes
+ *
+ * Accounts:
+ *   0. [signer]   nft TransferHook program (CPI caller)
+ *   1. [writable] slab
+ *   (remaining accounts per Token-2022 ExtraAccountMeta spec)
+ */
+export interface TransferOwnershipCpiArgs {
+  userIdx: number;
+  newOwner: PublicKey | string;
+}
+
+export function encodeTransferOwnershipCpi(args: TransferOwnershipCpiArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.TransferOwnershipCpi),
+    encU16(args.userIdx),
+    encPubkey(args.newOwner),
+  );
+}
+
+// ============================================================================
+// PERC-8111 — SetWalletCap (tag 70)
+// ============================================================================
+
+/**
+ * SetWalletCap (Tag 70, PERC-8111) — set the per-wallet position cap (admin only).
+ *
+ * Limits the maximum absolute position size any single wallet may hold on this market.
+ * Enforced on every trade (TradeNoCpi + TradeCpi) after execute_trade.
+ *
+ * - `capE6 = 0`: disable per-wallet cap (no limit, default).
+ * - `capE6 > 0`: max |position_size| in e6 units ($1 = 1_000_000).
+ *   Phase 1 launch value: 1_000_000_000n ($1,000).
+ *
+ * When a trade would breach the cap, the on-chain error `WalletPositionCapExceeded`
+ * (error code 58) is returned.
+ *
+ * Instruction data layout: tag(1) + cap_e6(8) = 9 bytes
+ *
+ * Accounts:
+ *   0. [signer]   admin
+ *   1. [writable] slab
+ *
+ * @example
+ * ```ts
+ * // Set $1K per-wallet cap
+ * const ix = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_SET_WALLET_CAP, [admin, slab]),
+ *   data: Buffer.from(encodeSetWalletCap({ capE6: 1_000_000_000n })),
+ * });
+ *
+ * // Disable cap
+ * const disableIx = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_SET_WALLET_CAP, [admin, slab]),
+ *   data: Buffer.from(encodeSetWalletCap({ capE6: 0n })),
+ * });
+ * ```
+ */
+export interface SetWalletCapArgs {
+  /** Max position size in e6 units. 0 = disabled. $1 = 1_000_000n, $1K = 1_000_000_000n. */
+  capE6: bigint | string;
+}
+
+export function encodeSetWalletCap(args: SetWalletCapArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.SetWalletCap), encU64(args.capE6));
 }

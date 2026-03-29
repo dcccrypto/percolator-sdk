@@ -23,6 +23,14 @@ import {
   encodeSetRiskThreshold,
   encodeUpdateAdmin,
   encodeInitLP,
+  encodeSetOiImbalanceHardBlock,
+  encodeSetWalletCap,
+  encodeMintPositionNft,
+  encodeTransferPositionOwnership,
+  encodeBurnPositionNft,
+  encodeSetPendingSettlement,
+  encodeClearPendingSettlement,
+  encodeTransferOwnershipCpi,
   IX_TAG,
 } from "../src/abi/instructions.js";
 
@@ -463,6 +471,108 @@ assert(IX_TAG.TradeCpiV2 === TRADE_CPI_V2_TAG, "TradeCpiV2 IX_TAG parity");
   const decoded = decI128Le(data, 5);
   assert(decoded === largeSize, `TradeCpiV2 large size round-trip: expected ${largeSize}, got ${decoded}`);
   console.log("✓ encodeTradeCpiV2 (boundary leverage)");
+}
+
+// ── PERC-608 / PERC-8111: New instruction encoders ──────────────────────────
+
+// Test SetOiImbalanceHardBlock (tag=71)
+{
+  const data = encodeSetOiImbalanceHardBlock({ thresholdBps: 8_000 });
+  assertBuf(data, [71, 64, 31], "SetOiImbalanceHardBlock(8000) bytes"); // 8000 = 0x1F40 LE = [0x40, 0x1F]
+  assert(data.length === 3, "SetOiImbalanceHardBlock length=3");
+
+  const zero = encodeSetOiImbalanceHardBlock({ thresholdBps: 0 });
+  assertBuf(zero, [71, 0, 0], "SetOiImbalanceHardBlock(0) disables");
+
+  const max = encodeSetOiImbalanceHardBlock({ thresholdBps: 10_000 });
+  assert(max.length === 3, "SetOiImbalanceHardBlock(10000) length=3");
+
+  let threw = false;
+  try { encodeSetOiImbalanceHardBlock({ thresholdBps: 10_001 }); } catch { threw = true; }
+  assert(threw, "SetOiImbalanceHardBlock rejects >10_000");
+
+  console.log("✓ encodeSetOiImbalanceHardBlock");
+}
+
+// Test SetWalletCap (tag=70)
+{
+  const data = encodeSetWalletCap({ capE6: 1_000_000_000n }); // $1K
+  assert(data.length === 9, "SetWalletCap length=9");
+  assert(data[0] === IX_TAG.SetWalletCap, "SetWalletCap tag=70");
+
+  // LE u64: 1_000_000_000 = 0x3B9ACA00 → [0x00, 0xCA, 0x9A, 0x3B, 0, 0, 0, 0]
+  assertBuf(data, [70, 0x00, 0xCA, 0x9A, 0x3B, 0, 0, 0, 0], "SetWalletCap($1K) bytes");
+
+  const disable = encodeSetWalletCap({ capE6: 0n });
+  assertBuf(disable, [70, 0, 0, 0, 0, 0, 0, 0, 0], "SetWalletCap(0) disables");
+
+  console.log("✓ encodeSetWalletCap");
+}
+
+// Test MintPositionNft (tag=64)
+{
+  const data = encodeMintPositionNft({ userIdx: 5 });
+  assert(data.length === 3, "MintPositionNft length=3");
+  assertBuf(data, [64, 5, 0], "MintPositionNft(userIdx=5)");
+  assert(data[0] === IX_TAG.MintPositionNft, "MintPositionNft tag=64");
+  console.log("✓ encodeMintPositionNft");
+}
+
+// Test TransferPositionOwnership (tag=65)
+{
+  const data = encodeTransferPositionOwnership({ userIdx: 7 });
+  assert(data.length === 3, "TransferPositionOwnership length=3");
+  assertBuf(data, [65, 7, 0], "TransferPositionOwnership(userIdx=7)");
+  assert(data[0] === IX_TAG.TransferPositionOwnership, "TransferPositionOwnership tag=65");
+  console.log("✓ encodeTransferPositionOwnership");
+}
+
+// Test BurnPositionNft (tag=66)
+{
+  const data = encodeBurnPositionNft({ userIdx: 12 });
+  assert(data.length === 3, "BurnPositionNft length=3");
+  assertBuf(data, [66, 12, 0], "BurnPositionNft(userIdx=12)");
+  assert(data[0] === IX_TAG.BurnPositionNft, "BurnPositionNft tag=66");
+  console.log("✓ encodeBurnPositionNft");
+}
+
+// Test SetPendingSettlement (tag=67)
+{
+  const data = encodeSetPendingSettlement({ userIdx: 3 });
+  assert(data.length === 3, "SetPendingSettlement length=3");
+  assertBuf(data, [67, 3, 0], "SetPendingSettlement(userIdx=3)");
+  console.log("✓ encodeSetPendingSettlement");
+}
+
+// Test ClearPendingSettlement (tag=68)
+{
+  const data = encodeClearPendingSettlement({ userIdx: 3 });
+  assert(data.length === 3, "ClearPendingSettlement length=3");
+  assertBuf(data, [68, 3, 0], "ClearPendingSettlement(userIdx=3)");
+  console.log("✓ encodeClearPendingSettlement");
+}
+
+// Test TransferOwnershipCpi (tag=69)
+{
+  const newOwner = new PublicKey("11111111111111111111111111111111");
+  const data = encodeTransferOwnershipCpi({ userIdx: 2, newOwner });
+  assert(data.length === 35, "TransferOwnershipCpi length=35 (tag+u16+pubkey)");
+  assert(data[0] === IX_TAG.TransferOwnershipCpi, "TransferOwnershipCpi tag=69");
+  assert(data[1] === 2 && data[2] === 0, "TransferOwnershipCpi userIdx=2 LE");
+  console.log("✓ encodeTransferOwnershipCpi");
+}
+
+// Test IX_TAG completeness — verify tags 64–71 all present
+{
+  assert(IX_TAG.MintPositionNft === 64, "IX_TAG.MintPositionNft=64");
+  assert(IX_TAG.TransferPositionOwnership === 65, "IX_TAG.TransferPositionOwnership=65");
+  assert(IX_TAG.BurnPositionNft === 66, "IX_TAG.BurnPositionNft=66");
+  assert(IX_TAG.SetPendingSettlement === 67, "IX_TAG.SetPendingSettlement=67");
+  assert(IX_TAG.ClearPendingSettlement === 68, "IX_TAG.ClearPendingSettlement=68");
+  assert(IX_TAG.TransferOwnershipCpi === 69, "IX_TAG.TransferOwnershipCpi=69");
+  assert(IX_TAG.SetWalletCap === 70, "IX_TAG.SetWalletCap=70");
+  assert(IX_TAG.SetOiImbalanceHardBlock === 71, "IX_TAG.SetOiImbalanceHardBlock=71");
+  console.log("✓ IX_TAG completeness (tags 64–71)");
 }
 
 console.log("\n✅ All tests passed!");

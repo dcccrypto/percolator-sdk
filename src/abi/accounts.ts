@@ -427,6 +427,91 @@ export const ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
+// PERC-608: Position NFT Instructions (tags 64–69)
+// ============================================================================
+
+/**
+ * MintPositionNft: 10 accounts
+ * Creates a Token-2022 position NFT for an open position.
+ */
+export const ACCOUNTS_MINT_POSITION_NFT: readonly AccountSpec[] = [
+  { name: "payer", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "positionNftPda", signer: false, writable: true },
+  { name: "nftMint", signer: false, writable: true },
+  { name: "ownerAta", signer: false, writable: true },
+  { name: "owner", signer: true, writable: false },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "token2022Program", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "rent", signer: false, writable: false },
+] as const;
+
+/**
+ * TransferPositionOwnership: 8 accounts
+ * Transfer position NFT and update on-chain owner. Requires pending_settlement == 0.
+ */
+export const ACCOUNTS_TRANSFER_POSITION_OWNERSHIP: readonly AccountSpec[] = [
+  { name: "currentOwner", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "positionNftPda", signer: false, writable: true },
+  { name: "nftMint", signer: false, writable: true },
+  { name: "currentOwnerAta", signer: false, writable: true },
+  { name: "newOwnerAta", signer: false, writable: true },
+  { name: "newOwner", signer: false, writable: false },
+  { name: "token2022Program", signer: false, writable: false },
+] as const;
+
+/**
+ * BurnPositionNft: 7 accounts
+ * Burns NFT and closes PositionNft + mint PDAs after position is closed.
+ */
+export const ACCOUNTS_BURN_POSITION_NFT: readonly AccountSpec[] = [
+  { name: "owner", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "positionNftPda", signer: false, writable: true },
+  { name: "nftMint", signer: false, writable: true },
+  { name: "ownerAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "token2022Program", signer: false, writable: false },
+] as const;
+
+/**
+ * SetPendingSettlement: 3 accounts
+ * Keeper/admin sets pending_settlement flag before funding transfer.
+ * Protected by admin allowlist (GH#1475).
+ */
+export const ACCOUNTS_SET_PENDING_SETTLEMENT: readonly AccountSpec[] = [
+  { name: "keeper", signer: true, writable: false },
+  { name: "slab", signer: false, writable: false },
+  { name: "positionNftPda", signer: false, writable: true },
+] as const;
+
+/**
+ * ClearPendingSettlement: 3 accounts
+ * Keeper/admin clears pending_settlement flag after KeeperCrank.
+ * Protected by admin allowlist (GH#1475).
+ */
+export const ACCOUNTS_CLEAR_PENDING_SETTLEMENT: readonly AccountSpec[] = [
+  { name: "keeper", signer: true, writable: false },
+  { name: "slab", signer: false, writable: false },
+  { name: "positionNftPda", signer: false, writable: true },
+] as const;
+
+// ============================================================================
+// PERC-8111: SetWalletCap
+// ============================================================================
+
+/**
+ * SetWalletCap: 2 accounts
+ * Sets the per-wallet position cap (admin only). capE6=0 disables.
+ */
+export const ACCOUNTS_SET_WALLET_CAP: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+// ============================================================================
 // WELL-KNOWN PROGRAM/SYSVAR KEYS
 // ============================================================================
 
