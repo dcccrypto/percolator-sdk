@@ -57,6 +57,8 @@ const MAGIC_BYTES = new Uint8Array([0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x
 export const SLAB_TIERS = {
   small:  { maxAccounts: 256,  dataSize: 65_352,    label: "Small",  description: "256 slots · ~0.45 SOL" },
   medium: { maxAccounts: 1024, dataSize: 257_448,   label: "Medium", description: "1,024 slots · ~1.79 SOL" },
+  /** Mainnet medium tier — Account struct is 8 bytes larger (cf35789 warmup fields) */
+  medium_mainnet: { maxAccounts: 1024, dataSize: 257_512, label: "Medium", description: "1,024 slots · ~1.79 SOL (mainnet)" },
   large:  { maxAccounts: 4096, dataSize: 1_025_832, label: "Large",  description: "4,096 slots · ~7.14 SOL" },
 } as const;
 
