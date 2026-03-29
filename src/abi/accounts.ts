@@ -414,6 +414,19 @@ export const ACCOUNTS_TOPUP_KEEPER_FUND: readonly AccountSpec[] = [
 // Rewards are paid automatically during KeeperCrank (tag 5).
 
 // ============================================================================
+// PERC-8110: SetOiImbalanceHardBlock
+// ============================================================================
+
+/**
+ * SetOiImbalanceHardBlock: 2 accounts
+ * Sets the OI imbalance hard-block threshold (admin only)
+ */
+export const ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+// ============================================================================
 // WELL-KNOWN PROGRAM/SYSVAR KEYS
 // ============================================================================
 

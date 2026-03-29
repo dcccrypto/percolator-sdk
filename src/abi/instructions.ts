@@ -92,6 +92,8 @@ export const IX_TAG = {
   ClaimEpochWithdrawal: 62,
   /** PERC-628: Advance the shared vault epoch (permissionless crank) */
   AdvanceEpoch: 63,
+  /** PERC-8110: Set OI imbalance hard-block threshold (admin only). */
+  SetOiImbalanceHardBlock: 71,
 } as const;
 
 /**
@@ -1065,4 +1067,40 @@ export function encodeClaimEpochWithdrawal(): Uint8Array {
  */
 export function encodeAdvanceEpoch(): Uint8Array {
   return encU8(IX_TAG.AdvanceEpoch);
+}
+
+// PERC-628: Tag 63 ─────────────────────────────────────────────────────────
+
+// PERC-8110 ────────────────────────────────────────────────────────────────
+
+/**
+ * SetOiImbalanceHardBlock (Tag 71, PERC-8110) — set OI imbalance hard-block threshold (admin only).
+ *
+ * When `|long_oi − short_oi| / total_oi * 10_000 >= threshold_bps`, any new trade that would
+ * *increase* the imbalance is rejected with `OiImbalanceHardBlock` (error code 59).
+ *
+ * - `threshold_bps = 0`: hard block disabled.
+ * - `threshold_bps = 8_000`: block trades that push skew above 80%.
+ * - `threshold_bps = 10_000`: never allow >100% skew (always blocks one side when oi > 0).
+ *
+ * Instruction data layout: tag(1) + threshold_bps(2) = 3 bytes
+ *
+ * Accounts:
+ *   0. [signer]   admin
+ *   1. [writable] slab
+ *
+ * @example
+ * ```ts
+ * const ix = new TransactionInstruction({
+ *   programId: PROGRAM_ID,
+ *   keys: buildAccountMetas(ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK, { admin, slab }),
+ *   data: Buffer.from(encodeSetOiImbalanceHardBlock({ thresholdBps: 8_000 })),
+ * });
+ * ```
+ */
+export function encodeSetOiImbalanceHardBlock(args: { thresholdBps: number }): Uint8Array {
+  if (args.thresholdBps < 0 || args.thresholdBps > 10_000) {
+    throw new Error(`encodeSetOiImbalanceHardBlock: thresholdBps must be 0–10_000, got ${args.thresholdBps}`);
+  }
+  return concatBytes(encU8(IX_TAG.SetOiImbalanceHardBlock), encU16(args.thresholdBps));
 }

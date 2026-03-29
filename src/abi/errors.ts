@@ -188,6 +188,71 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "LpVaultNoNewFees",
     hint: "No new fees to distribute to LP vault. Wait for more trading activity to accrue fees.",
   },
+  // ── PERC-312 / PERC-314 / PERC-315 / PERC-309 / PERC-8111 / PERC-8110 (codes 45–60) ─────────
+  45: {
+    name: "SafetyValveDominantSideBlocked",
+    hint: "New position on the dominant side is blocked while the market is rebalancing (safety valve).",
+  },
+  46: {
+    name: "DisputeWindowClosed",
+    hint: "The dispute window for this resolved market has closed.",
+  },
+  47: {
+    name: "DisputeAlreadyExists",
+    hint: "A dispute already exists for this market — cannot open another.",
+  },
+  48: {
+    name: "MarketNotResolved",
+    hint: "Market is not resolved — cannot dispute an active market.",
+  },
+  49: {
+    name: "NoActiveDispute",
+    hint: "No active dispute found for this market.",
+  },
+  50: {
+    name: "LpCollateralDisabled",
+    hint: "LP collateral is not enabled for this market.",
+  },
+  51: {
+    name: "LpCollateralPositionOpen",
+    hint: "Cannot withdraw LP collateral while a position is still open.",
+  },
+  52: {
+    name: "WithdrawQueueAlreadyExists",
+    hint: "A withdrawal queue entry already exists for this user/market.",
+  },
+  53: {
+    name: "WithdrawQueueNotFound",
+    hint: "No queued withdrawal found for this user/market.",
+  },
+  54: {
+    name: "WithdrawQueueNothingClaimable",
+    hint: "Nothing is claimable from the withdrawal queue this epoch — wait for the next epoch.",
+  },
+  55: {
+    name: "AuditViolation",
+    hint: "Audit crank detected a conservation invariant violation — this is a critical internal error, please report it.",
+  },
+  56: {
+    name: "CrossMarginPairNotFound",
+    hint: "Cross-margin offset pair is not configured for these two slabs.",
+  },
+  57: {
+    name: "CrossMarginAttestationStale",
+    hint: "Cross-margin attestation is stale — too many slots have elapsed since the last attestation.",
+  },
+  58: {
+    name: "WalletPositionCapExceeded",
+    hint: "Trade rejected: the resulting position would exceed the per-wallet position cap (max_wallet_pos_e6) for this market.",
+  },
+  59: {
+    name: "OiImbalanceHardBlock",
+    hint: "Trade rejected: it would increase the OI imbalance (|long_oi − short_oi| / total_oi) beyond the configured hard-block threshold (oi_imbalance_hard_block_bps). Try the opposite side.",
+  },
+  60: {
+    name: "EngineInvalidEntryPrice",
+    hint: "Entry price must be positive when opening a position.",
+  },
 };
 
 /**
