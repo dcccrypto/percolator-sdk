@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
-import { deriveVaultAuthority, deriveLpPda } from "../src/solana/pda.js";
+import { deriveVaultAuthority, deriveLpPda, deriveCreatorLockPda, CREATOR_LOCK_SEED } from "../src/solana/pda.js";
 
 const PROGRAM_ID = new PublicKey("EXsr2Tfz8ntWYP3vgCStdknFBoafvJQugJKAh4nFdo8f");
 const SLAB = new PublicKey("11111111111111111111111111111111");
@@ -35,5 +35,25 @@ describe("deriveLpPda", () => {
     const [pda1] = deriveLpPda(PROGRAM_ID, SLAB, 0);
     const [pda2] = deriveLpPda(PROGRAM_ID, SLAB, 1);
     expect(pda1.equals(pda2)).toBe(false);
+  });
+});
+
+describe("deriveCreatorLockPda", () => {
+  it("returns deterministic results", () => {
+    const [pda1, bump1] = deriveCreatorLockPda(PROGRAM_ID, SLAB);
+    const [pda2, bump2] = deriveCreatorLockPda(PROGRAM_ID, SLAB);
+    expect(pda1.equals(pda2)).toBe(true);
+    expect(bump1).toBe(bump2);
+  });
+
+  it("different slabs produce different PDAs", () => {
+    const slab2 = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const [pda1] = deriveCreatorLockPda(PROGRAM_ID, SLAB);
+    const [pda2] = deriveCreatorLockPda(PROGRAM_ID, slab2);
+    expect(pda1.equals(pda2)).toBe(false);
+  });
+
+  it("CREATOR_LOCK_SEED is the expected string", () => {
+    expect(CREATOR_LOCK_SEED).toBe("creator_lock");
   });
 });

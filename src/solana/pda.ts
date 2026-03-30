@@ -89,6 +89,44 @@ export const PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey(
   "pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT"
 );
 
+// ---------------------------------------------------------------------------
+// Creator Lock PDA (PERC-627)
+// ---------------------------------------------------------------------------
+
+/**
+ * Seed used to derive the creator lock PDA.
+ * Matches `creator_lock::CREATOR_LOCK_SEED` in percolator-prog.
+ */
+export const CREATOR_LOCK_SEED = "creator_lock";
+
+/**
+ * Derive the creator lock PDA for a given slab.
+ * Seeds: ["creator_lock", slab_key]
+ *
+ * This PDA is required as accounts[9] in every LpVaultWithdraw instruction
+ * since percolator-prog PR#170 (GH#1926 / PERC-8287).
+ * Non-creator withdrawers must pass this key; if no lock exists on-chain the
+ * enforcement is a no-op. The SDK must ALWAYS include it — passing it is mandatory.
+ *
+ * @param programId - The percolator program ID.
+ * @param slab      - The slab (market) public key.
+ * @returns [pda, bump]
+ *
+ * @example
+ * ```ts
+ * const [creatorLockPda] = deriveCreatorLockPda(PROGRAM_ID, slabKey);
+ * ```
+ */
+export function deriveCreatorLockPda(
+  programId: PublicKey,
+  slab: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [textEncoder.encode(CREATOR_LOCK_SEED), slab.toBytes()],
+    programId
+  );
+}
+
 /**
  * Derive the Pyth Push Oracle PDA for a given feed ID.
  * Seeds: [shard_id(u16 LE, always 0), feed_id(32 bytes)]

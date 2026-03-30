@@ -620,6 +620,59 @@ export function encodeWithdrawInsuranceLP(args: WithdrawInsuranceLPArgs): Uint8A
   return concatBytes(encU8(IX_TAG.WithdrawInsuranceLP), encU64(args.lpAmount));
 }
 
+// ============================================================================
+// PERC-627 / GH#1926: LpVaultWithdraw (tag 39)
+// ============================================================================
+
+/**
+ * LpVaultWithdraw (Tag 39, PERC-627 / GH#1926 / PERC-8287) — burn LP vault tokens and
+ * withdraw proportional collateral.
+ *
+ * **BREAKING (PR#170):** accounts[9] = creatorLockPda is now REQUIRED.
+ * Always include `deriveCreatorLockPda(programId, slab)` at position 9.
+ * Non-creator withdrawers pass the derived PDA; if no lock exists on-chain
+ * the check is a no-op. Omitting this account causes `ExpectLenFailed` on-chain.
+ *
+ * Instruction data: tag(1) + lp_amount(8) = 9 bytes
+ *
+ * Accounts (use ACCOUNTS_LP_VAULT_WITHDRAW):
+ *  [0] withdrawer        signer
+ *  [1] slab              writable
+ *  [2] withdrawerAta     writable
+ *  [3] vault             writable
+ *  [4] tokenProgram
+ *  [5] lpVaultMint       writable
+ *  [6] withdrawerLpAta   writable
+ *  [7] vaultAuthority
+ *  [8] lpVaultState      writable
+ *  [9] creatorLockPda    writable  ← derive with deriveCreatorLockPda(programId, slab)
+ *
+ * @param lpAmount - Amount of LP vault tokens to burn.
+ *
+ * @example
+ * ```ts
+ * import { encodeLpVaultWithdraw, ACCOUNTS_LP_VAULT_WITHDRAW, buildAccountMetas } from "@percolator/sdk";
+ * import { deriveCreatorLockPda, deriveVaultAuthority } from "@percolator/sdk";
+ *
+ * const [creatorLockPda] = deriveCreatorLockPda(PROGRAM_ID, slabKey);
+ * const [vaultAuthority] = deriveVaultAuthority(PROGRAM_ID, slabKey);
+ *
+ * const data = encodeLpVaultWithdraw({ lpAmount: 1_000_000_000n });
+ * const keys = buildAccountMetas(ACCOUNTS_LP_VAULT_WITHDRAW, {
+ *   withdrawer, slab: slabKey, withdrawerAta, vault, tokenProgram: TOKEN_PROGRAM_ID,
+ *   lpVaultMint, withdrawerLpAta, vaultAuthority, lpVaultState, creatorLockPda,
+ * });
+ * ```
+ */
+export interface LpVaultWithdrawArgs {
+  /** Amount of LP vault tokens to burn. */
+  lpAmount: bigint | string;
+}
+
+export function encodeLpVaultWithdraw(args: LpVaultWithdrawArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.LpVaultWithdraw), encU64(args.lpAmount));
+}
+
 /**
  * PauseMarket instruction data (1 byte)
  * Pauses the market — disables trading, deposits, and withdrawals.
