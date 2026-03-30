@@ -6,6 +6,7 @@ import {
   detectSlabLayout,
   SLAB_TIERS_V1M,
   SLAB_TIERS_V2,
+  SLAB_TIERS_V_ADL,
   type SlabHeader,
   type MarketConfig,
   type EngineState,
@@ -111,6 +112,15 @@ export const SLAB_TIERS_V1D_LEGACY = {
 /** @deprecated Alias — use SLAB_TIERS (already V1) */
 export const SLAB_TIERS_V1 = SLAB_TIERS;
 
+/**
+ * V_ADL slab tier sizes — PERC-8270/8271 ADL-upgraded program.
+ * ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312, postBitmap=18.
+ * New account layout adds ADL tracking fields (+64 bytes/account).
+ * BPF SLAB_LEN verified by cargo build-sbf in PERC-8271: large (4096) = 1288304 bytes.
+ */
+// Single source of truth lives in slab.ts (SLAB_TIERS_V_ADL).
+export const SLAB_TIERS_V_ADL_DISCOVERY = SLAB_TIERS_V_ADL;
+
 export type SlabTierKey = keyof typeof SLAB_TIERS;
 
 /** Calculate slab data size for arbitrary account count.
@@ -172,13 +182,14 @@ export function validateSlabTierMatch(dataSize: number, programSlabLen: number):
   return dataSize === programSlabLen;
 }
 
-/** All known slab data sizes for discovery (V0 + V1 + V1D + V1D legacy + V1M tiers) */
+/** All known slab data sizes for discovery (V0 + V1 + V1D + V1D legacy + V1M + V_ADL tiers) */
 const ALL_SLAB_SIZES = [
   ...Object.values(SLAB_TIERS).map(t => t.dataSize),
   ...Object.values(SLAB_TIERS_V0).map(t => t.dataSize),
   ...Object.values(SLAB_TIERS_V1D).map(t => t.dataSize),
   ...Object.values(SLAB_TIERS_V1D_LEGACY).map(t => t.dataSize),
   ...Object.values(SLAB_TIERS_V1M).map(t => t.dataSize),
+  ...Object.values(SLAB_TIERS_V_ADL).map(t => t.dataSize),
 ];
 
 /** Legacy constant for backward compat */
@@ -337,6 +348,52 @@ function parseEngineLight(
     };
   }
 
+  // V_ADL engine struct (PERC-8270/8271): ENGINE_OFF=624, layout-driven offsets.
+  // Must branch here because V_ADL has version===1 same as V1/V1M — differentiate by engineOff.
+  // All offsets from SlabLayout descriptor, which is computed by buildLayoutVADL().
+  const isVAdl = layout !== null && layout.engineOff === 624 && layout.accountSize === 312;
+  if (isVAdl) {
+    const l = layout!;
+    return {
+      vault: readU128LE(data, base + 0),
+      insuranceFund: {
+        balance: readU128LE(data, base + l.engineInsuranceOff),
+        feeRevenue: readU128LE(data, base + l.engineInsuranceOff + 16),
+        isolatedBalance: readU128LE(data, base + l.engineInsuranceIsolatedOff),
+        isolationBps: readU16LE(data, base + l.engineInsuranceIsolationBpsOff),
+      },
+      currentSlot: readU64LE(data, base + l.engineCurrentSlotOff),
+      fundingIndexQpbE6: readI128LE(data, base + l.engineFundingIndexOff),
+      lastFundingSlot: readU64LE(data, base + l.engineLastFundingSlotOff),
+      fundingRateBpsPerSlotLast: readI64LE(data, base + l.engineFundingRateBpsOff),
+      lastCrankSlot: readU64LE(data, base + l.engineLastCrankSlotOff),
+      maxCrankStalenessSlots: readU64LE(data, base + l.engineMaxCrankStalenessOff),
+      totalOpenInterest: readU128LE(data, base + l.engineTotalOiOff),
+      longOi: l.engineLongOiOff >= 0 ? readU128LE(data, base + l.engineLongOiOff) : 0n,
+      shortOi: l.engineShortOiOff >= 0 ? readU128LE(data, base + l.engineShortOiOff) : 0n,
+      cTot: readU128LE(data, base + l.engineCTotOff),
+      pnlPosTot: readU128LE(data, base + l.enginePnlPosTotOff),
+      liqCursor: readU16LE(data, base + l.engineLiqCursorOff),
+      gcCursor: readU16LE(data, base + l.engineGcCursorOff),
+      lastSweepStartSlot: readU64LE(data, base + l.engineLastSweepStartOff),
+      lastSweepCompleteSlot: readU64LE(data, base + l.engineLastSweepCompleteOff),
+      crankCursor: readU16LE(data, base + l.engineCrankCursorOff),
+      sweepStartIdx: readU16LE(data, base + l.engineSweepStartIdxOff),
+      lifetimeLiquidations: readU64LE(data, base + l.engineLifetimeLiquidationsOff),
+      lifetimeForceCloses: readU64LE(data, base + l.engineLifetimeForceClosesOff),
+      netLpPos: readI128LE(data, base + l.engineNetLpPosOff),
+      lpSumAbs: readU128LE(data, base + l.engineLpSumAbsOff),
+      lpMaxAbs: readU128LE(data, base + l.engineLpMaxAbsOff),
+      lpMaxAbsSweep: readU128LE(data, base + l.engineLpMaxAbsSweepOff),
+      emergencyOiMode: l.engineEmergencyOiModeOff >= 0 ? data[base + l.engineEmergencyOiModeOff] !== 0 : false,
+      emergencyStartSlot: l.engineEmergencyStartSlotOff >= 0 ? readU64LE(data, base + l.engineEmergencyStartSlotOff) : 0n,
+      lastBreakerSlot: l.engineLastBreakerSlotOff >= 0 ? readU64LE(data, base + l.engineLastBreakerSlotOff) : 0n,
+      markPriceE6: l.engineMarkPriceOff >= 0 ? readU64LE(data, base + l.engineMarkPriceOff) : 0n,
+      numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
+      nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
+    };
+  }
+
   // V1 engine struct (PERC-1094 corrected): ENGINE_OFF=600 (BPF/SBF, CONFIG_LEN=496)
   // vault(0,16) + insurance(16,56) + params(72,288) + currentSlot(360) + fundingIndex(368,16)
   // + lastFundingSlot(384) + fundingRateBps(392) + markPrice(400) + lastCrankSlot(424)
@@ -458,6 +515,7 @@ export async function discoverMarkets(
     ...Object.values(SLAB_TIERS_V1D_LEGACY),
     ...Object.values(SLAB_TIERS_V2),
     ...Object.values(SLAB_TIERS_V1M),
+    ...Object.values(SLAB_TIERS_V_ADL),
   ];
   type RawEntry = { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number; dataSize: number };
   let rawAccounts: RawEntry[] = [];
