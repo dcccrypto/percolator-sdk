@@ -2228,7 +2228,7 @@ function parseAccount(data, idx) {
     accountId: readU64LE(data, base + ACCT_ACCOUNT_ID_OFF),
     capital: readU128LE(data, base + ACCT_CAPITAL_OFF),
     pnl: readI128LE(data, base + ACCT_PNL_OFF),
-    reservedPnl: readU64LE(data, base + ACCT_RESERVED_PNL_OFF),
+    reservedPnl: isAdl ? readU128LE(data, base + ACCT_RESERVED_PNL_OFF) : readU64LE(data, base + ACCT_RESERVED_PNL_OFF),
     warmupStartedAtSlot: readU64LE(data, base + warmupStartedOff),
     warmupSlopePerStep: readU128LE(data, base + warmupSlopeOff),
     positionSize: readI128LE(data, base + positionSizeOff),
@@ -2292,10 +2292,29 @@ var METEORA_DLMM_PROGRAM_ID = new PublicKey4(
 var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey4(
   "pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT"
 );
+var PYTH_FEED_ID_HEX_LEN = 64;
+function normalizePythFeedIdHex(feedIdHex) {
+  let s = feedIdHex.trim();
+  if (s.startsWith("0x") || s.startsWith("0X")) {
+    s = s.slice(2);
+  }
+  return s;
+}
 function derivePythPushOraclePDA(feedIdHex) {
+  const normalized = normalizePythFeedIdHex(feedIdHex);
+  if (normalized.length !== PYTH_FEED_ID_HEX_LEN) {
+    throw new Error(
+      `derivePythPushOraclePDA: feedIdHex must be ${PYTH_FEED_ID_HEX_LEN} hex digits (32 bytes); got length ${normalized.length}`
+    );
+  }
+  if (!/^[0-9a-fA-F]+$/.test(normalized)) {
+    throw new Error(
+      "derivePythPushOraclePDA: feedIdHex must contain only hexadecimal digits"
+    );
+  }
   const feedId = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
-    feedId[i] = parseInt(feedIdHex.substring(i * 2, i * 2 + 2), 16);
+    feedId[i] = parseInt(normalized.substring(i * 2, i * 2 + 2), 16);
   }
   const shardBuf = new Uint8Array(2);
   return PublicKey4.findProgramAddressSync(
@@ -2347,11 +2366,7 @@ var SLAB_TIERS_V1D_LEGACY = {
   large: { maxAccounts: 4096, dataSize: 1025584, label: "Large", description: "4,096 slots (V1D legacy, postBitmap=18)" }
 };
 var SLAB_TIERS_V1 = SLAB_TIERS;
-var SLAB_TIERS_V_ADL_DISCOVERY = {
-  small: { maxAccounts: 256, dataSize: 82064, label: "Small", description: "256 slots (V_ADL PERC-8270)" },
-  medium: { maxAccounts: 1024, dataSize: 323312, label: "Medium", description: "1,024 slots (V_ADL PERC-8270)" },
-  large: { maxAccounts: 4096, dataSize: 1288304, label: "Large", description: "4,096 slots (V_ADL PERC-8270) \xB7 ~8.95 SOL" }
-};
+var SLAB_TIERS_V_ADL_DISCOVERY = SLAB_TIERS_V_ADL;
 function slabDataSize(maxAccounts) {
   const ENGINE_OFF_V0 = 480;
   const ENGINE_BITMAP_OFF_V02 = 320;
@@ -2507,6 +2522,48 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       lastBreakerSlot: 0n,
       markPriceE6: 0n,
       // V2 has no mark_price
+      numUsedAccounts: canReadNumUsed ? readU16LE2(data, base + numUsedOff) : 0,
+      nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
+    };
+  }
+  const isVAdl = layout !== null && layout.engineOff === 624 && layout.accountSize === 312;
+  if (isVAdl) {
+    const l = layout;
+    return {
+      vault: readU128LE2(data, base + 0),
+      insuranceFund: {
+        balance: readU128LE2(data, base + l.engineInsuranceOff),
+        feeRevenue: readU128LE2(data, base + l.engineInsuranceOff + 16),
+        isolatedBalance: readU128LE2(data, base + l.engineInsuranceIsolatedOff),
+        isolationBps: readU16LE2(data, base + l.engineInsuranceIsolationBpsOff)
+      },
+      currentSlot: readU64LE2(data, base + l.engineCurrentSlotOff),
+      fundingIndexQpbE6: readI128LE2(data, base + l.engineFundingIndexOff),
+      lastFundingSlot: readU64LE2(data, base + l.engineLastFundingSlotOff),
+      fundingRateBpsPerSlotLast: readI64LE2(data, base + l.engineFundingRateBpsOff),
+      lastCrankSlot: readU64LE2(data, base + l.engineLastCrankSlotOff),
+      maxCrankStalenessSlots: readU64LE2(data, base + l.engineMaxCrankStalenessOff),
+      totalOpenInterest: readU128LE2(data, base + l.engineTotalOiOff),
+      longOi: l.engineLongOiOff >= 0 ? readU128LE2(data, base + l.engineLongOiOff) : 0n,
+      shortOi: l.engineShortOiOff >= 0 ? readU128LE2(data, base + l.engineShortOiOff) : 0n,
+      cTot: readU128LE2(data, base + l.engineCTotOff),
+      pnlPosTot: readU128LE2(data, base + l.enginePnlPosTotOff),
+      liqCursor: readU16LE2(data, base + l.engineLiqCursorOff),
+      gcCursor: readU16LE2(data, base + l.engineGcCursorOff),
+      lastSweepStartSlot: readU64LE2(data, base + l.engineLastSweepStartOff),
+      lastSweepCompleteSlot: readU64LE2(data, base + l.engineLastSweepCompleteOff),
+      crankCursor: readU16LE2(data, base + l.engineCrankCursorOff),
+      sweepStartIdx: readU16LE2(data, base + l.engineSweepStartIdxOff),
+      lifetimeLiquidations: readU64LE2(data, base + l.engineLifetimeLiquidationsOff),
+      lifetimeForceCloses: readU64LE2(data, base + l.engineLifetimeForceClosesOff),
+      netLpPos: readI128LE2(data, base + l.engineNetLpPosOff),
+      lpSumAbs: readU128LE2(data, base + l.engineLpSumAbsOff),
+      lpMaxAbs: readU128LE2(data, base + l.engineLpMaxAbsOff),
+      lpMaxAbsSweep: readU128LE2(data, base + l.engineLpMaxAbsSweepOff),
+      emergencyOiMode: l.engineEmergencyOiModeOff >= 0 ? data[base + l.engineEmergencyOiModeOff] !== 0 : false,
+      emergencyStartSlot: l.engineEmergencyStartSlotOff >= 0 ? readU64LE2(data, base + l.engineEmergencyStartSlotOff) : 0n,
+      lastBreakerSlot: l.engineLastBreakerSlotOff >= 0 ? readU64LE2(data, base + l.engineLastBreakerSlotOff) : 0n,
+      markPriceE6: l.engineMarkPriceOff >= 0 ? readU64LE2(data, base + l.engineMarkPriceOff) : 0n,
       numUsedAccounts: canReadNumUsed ? readU16LE2(data, base + numUsedOff) : 0,
       nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
     };
