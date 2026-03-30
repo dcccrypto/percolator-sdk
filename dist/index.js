@@ -136,7 +136,20 @@ var IX_TAG = {
   DepositLpCollateral: 45,
   /** PERC-315: Withdraw LP collateral (position must be closed) */
   WithdrawLpCollateral: 46,
-  // Tags 47-53 reserved
+  /** PERC-309: Queue a large LP withdrawal (user; creates withdraw_queue PDA). */
+  QueueWithdrawal: 47,
+  /** PERC-309: Claim one epoch tranche from a queued LP withdrawal (user). */
+  ClaimQueuedWithdrawal: 48,
+  /** PERC-309: Cancel a queued withdrawal, refund remaining LP tokens (user). */
+  CancelQueuedWithdrawal: 49,
+  /** PERC-305: Auto-deleverage — surgically close profitable positions when PnL cap is exceeded (permissionless). */
+  ExecuteAdl: 50,
+  /** Close a stale slab of an invalid/old layout and recover rent SOL (admin only). */
+  CloseStaleSlabs: 51,
+  /** Reclaim rent from an uninitialised slab whose market creation failed mid-flow. Slab must sign. */
+  ReclaimSlabRent: 52,
+  /** Permissionless on-chain audit crank: verifies conservation invariants and pauses market on violation. */
+  AuditCrank: 53,
   /** Cross-Market Portfolio Margining: SetOffsetPair */
   SetOffsetPair: 54,
   /** Cross-Market Portfolio Margining: AttestCrossMargin */
@@ -156,7 +169,23 @@ var IX_TAG = {
   /** PERC-628: Claim a queued withdrawal after epoch elapses */
   ClaimEpochWithdrawal: 62,
   /** PERC-628: Advance the shared vault epoch (permissionless crank) */
-  AdvanceEpoch: 63
+  AdvanceEpoch: 63,
+  /** PERC-608: Mint a Position NFT for a user's open position. */
+  MintPositionNft: 64,
+  /** PERC-608: Transfer position ownership via the NFT (keeper-gated). */
+  TransferPositionOwnership: 65,
+  /** PERC-608: Burn the Position NFT when a position is closed. */
+  BurnPositionNft: 66,
+  /** PERC-608: Keeper sets pending_settlement flag before a funding transfer. */
+  SetPendingSettlement: 67,
+  /** PERC-608: Keeper clears pending_settlement flag after KeeperCrank. */
+  ClearPendingSettlement: 68,
+  /** PERC-608: Internal CPI call from percolator-nft TransferHook to update on-chain owner. */
+  TransferOwnershipCpi: 69,
+  /** PERC-8111: Set per-wallet position cap (admin only, cap_e6=0 disables). */
+  SetWalletCap: 70,
+  /** PERC-8110: Set OI imbalance hard-block threshold (admin only). */
+  SetOiImbalanceHardBlock: 71
 };
 function encodeFeedId(feedId) {
   const hex = feedId.startsWith("0x") ? feedId.slice(2) : feedId;
@@ -424,6 +453,27 @@ function encodeFundMarketInsurance(args) {
 function encodeSetInsuranceIsolation(args) {
   return concatBytes(encU8(IX_TAG.SetInsuranceIsolation), encU16(args.bps));
 }
+function encodeQueueWithdrawal(args) {
+  return concatBytes(encU8(IX_TAG.QueueWithdrawal), encU64(args.lpAmount));
+}
+function encodeClaimQueuedWithdrawal() {
+  return encU8(IX_TAG.ClaimQueuedWithdrawal);
+}
+function encodeCancelQueuedWithdrawal() {
+  return encU8(IX_TAG.CancelQueuedWithdrawal);
+}
+function encodeExecuteAdl(args) {
+  return concatBytes(encU8(IX_TAG.ExecuteAdl), encU16(args.targetIdx));
+}
+function encodeCloseStaleSlabs() {
+  return encU8(IX_TAG.CloseStaleSlabs);
+}
+function encodeReclaimSlabRent() {
+  return encU8(IX_TAG.ReclaimSlabRent);
+}
+function encodeAuditCrank() {
+  return encU8(IX_TAG.AuditCrank);
+}
 var VAMM_MAGIC = 0x504552434d415443n;
 var CTX_VAMM_OFFSET = 64;
 var BPS_DENOM = 10000n;
@@ -505,6 +555,37 @@ function encodeClaimEpochWithdrawal() {
 }
 function encodeAdvanceEpoch() {
   return encU8(IX_TAG.AdvanceEpoch);
+}
+function encodeSetOiImbalanceHardBlock(args) {
+  if (args.thresholdBps < 0 || args.thresholdBps > 1e4) {
+    throw new Error(`encodeSetOiImbalanceHardBlock: thresholdBps must be 0\u201310_000, got ${args.thresholdBps}`);
+  }
+  return concatBytes(encU8(IX_TAG.SetOiImbalanceHardBlock), encU16(args.thresholdBps));
+}
+function encodeMintPositionNft(args) {
+  return concatBytes(encU8(IX_TAG.MintPositionNft), encU16(args.userIdx));
+}
+function encodeTransferPositionOwnership(args) {
+  return concatBytes(encU8(IX_TAG.TransferPositionOwnership), encU16(args.userIdx));
+}
+function encodeBurnPositionNft(args) {
+  return concatBytes(encU8(IX_TAG.BurnPositionNft), encU16(args.userIdx));
+}
+function encodeSetPendingSettlement(args) {
+  return concatBytes(encU8(IX_TAG.SetPendingSettlement), encU16(args.userIdx));
+}
+function encodeClearPendingSettlement(args) {
+  return concatBytes(encU8(IX_TAG.ClearPendingSettlement), encU16(args.userIdx));
+}
+function encodeTransferOwnershipCpi(args) {
+  return concatBytes(
+    encU8(IX_TAG.TransferOwnershipCpi),
+    encU16(args.userIdx),
+    encPubkey(args.newOwner)
+  );
+}
+function encodeSetWalletCap(args) {
+  return concatBytes(encU8(IX_TAG.SetWalletCap), encU64(args.capE6));
 }
 
 // src/abi/accounts.ts
@@ -722,8 +803,45 @@ var ACCOUNTS_SET_INSURANCE_ISOLATION = [
   { name: "admin", signer: true, writable: false },
   { name: "slab", signer: false, writable: true }
 ];
+var ACCOUNTS_QUEUE_WITHDRAWAL = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "lpVaultState", signer: false, writable: false },
+  { name: "withdrawQueue", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false }
+];
+var ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "withdrawQueue", signer: false, writable: true },
+  { name: "lpVaultMint", signer: false, writable: true },
+  { name: "userLpAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "userAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true }
+];
+var ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: false },
+  { name: "withdrawQueue", signer: false, writable: true }
+];
 var ACCOUNTS_EXECUTE_ADL = [
-  { name: "keeper", signer: true, writable: false },
+  { name: "caller", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false }
+];
+var ACCOUNTS_CLOSE_STALE_SLABS = [
+  { name: "dest", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_RECLAIM_SLAB_RENT = [
+  { name: "dest", signer: true, writable: true },
+  { name: "slab", signer: true, writable: true }
+];
+var ACCOUNTS_AUDIT_CRANK = [
   { name: "slab", signer: false, writable: true }
 ];
 var ACCOUNTS_ADVANCE_ORACLE_PHASE = [
@@ -733,6 +851,55 @@ var ACCOUNTS_TOPUP_KEEPER_FUND = [
   { name: "funder", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
   { name: "keeperFund", signer: false, writable: true }
+];
+var ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_MINT_POSITION_NFT = [
+  { name: "payer", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "positionNftPda", signer: false, writable: true },
+  { name: "nftMint", signer: false, writable: true },
+  { name: "ownerAta", signer: false, writable: true },
+  { name: "owner", signer: true, writable: false },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "token2022Program", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "rent", signer: false, writable: false }
+];
+var ACCOUNTS_TRANSFER_POSITION_OWNERSHIP = [
+  { name: "currentOwner", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "positionNftPda", signer: false, writable: true },
+  { name: "nftMint", signer: false, writable: true },
+  { name: "currentOwnerAta", signer: false, writable: true },
+  { name: "newOwnerAta", signer: false, writable: true },
+  { name: "newOwner", signer: false, writable: false },
+  { name: "token2022Program", signer: false, writable: false }
+];
+var ACCOUNTS_BURN_POSITION_NFT = [
+  { name: "owner", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "positionNftPda", signer: false, writable: true },
+  { name: "nftMint", signer: false, writable: true },
+  { name: "ownerAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "token2022Program", signer: false, writable: false }
+];
+var ACCOUNTS_SET_PENDING_SETTLEMENT = [
+  { name: "keeper", signer: true, writable: false },
+  { name: "slab", signer: false, writable: false },
+  { name: "positionNftPda", signer: false, writable: true }
+];
+var ACCOUNTS_CLEAR_PENDING_SETTLEMENT = [
+  { name: "keeper", signer: true, writable: false },
+  { name: "slab", signer: false, writable: false },
+  { name: "positionNftPda", signer: false, writable: true }
+];
+var ACCOUNTS_SET_WALLET_CAP = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true }
 ];
 var WELL_KNOWN = {
   tokenProgram: TOKEN_PROGRAM_ID,
@@ -922,6 +1089,71 @@ var PERCOLATOR_ERRORS = {
   44: {
     name: "LpVaultNoNewFees",
     hint: "No new fees to distribute to LP vault. Wait for more trading activity to accrue fees."
+  },
+  // ── PERC-312 / PERC-314 / PERC-315 / PERC-309 / PERC-8111 / PERC-8110 (codes 45–60) ─────────
+  45: {
+    name: "SafetyValveDominantSideBlocked",
+    hint: "New position on the dominant side is blocked while the market is rebalancing (safety valve)."
+  },
+  46: {
+    name: "DisputeWindowClosed",
+    hint: "The dispute window for this resolved market has closed."
+  },
+  47: {
+    name: "DisputeAlreadyExists",
+    hint: "A dispute already exists for this market \u2014 cannot open another."
+  },
+  48: {
+    name: "MarketNotResolved",
+    hint: "Market is not resolved \u2014 cannot dispute an active market."
+  },
+  49: {
+    name: "NoActiveDispute",
+    hint: "No active dispute found for this market."
+  },
+  50: {
+    name: "LpCollateralDisabled",
+    hint: "LP collateral is not enabled for this market."
+  },
+  51: {
+    name: "LpCollateralPositionOpen",
+    hint: "Cannot withdraw LP collateral while a position is still open."
+  },
+  52: {
+    name: "WithdrawQueueAlreadyExists",
+    hint: "A withdrawal queue entry already exists for this user/market."
+  },
+  53: {
+    name: "WithdrawQueueNotFound",
+    hint: "No queued withdrawal found for this user/market."
+  },
+  54: {
+    name: "WithdrawQueueNothingClaimable",
+    hint: "Nothing is claimable from the withdrawal queue this epoch \u2014 wait for the next epoch."
+  },
+  55: {
+    name: "AuditViolation",
+    hint: "Audit crank detected a conservation invariant violation \u2014 this is a critical internal error, please report it."
+  },
+  56: {
+    name: "CrossMarginPairNotFound",
+    hint: "Cross-margin offset pair is not configured for these two slabs."
+  },
+  57: {
+    name: "CrossMarginAttestationStale",
+    hint: "Cross-margin attestation is stale \u2014 too many slots have elapsed since the last attestation."
+  },
+  58: {
+    name: "WalletPositionCapExceeded",
+    hint: "Trade rejected: the resulting position would exceed the per-wallet position cap (max_wallet_pos_e6) for this market."
+  },
+  59: {
+    name: "OiImbalanceHardBlock",
+    hint: "Trade rejected: it would increase the OI imbalance (|long_oi \u2212 short_oi| / total_oi) beyond the configured hard-block threshold (oi_imbalance_hard_block_bps). Try the opposite side."
+  },
+  60: {
+    name: "EngineInvalidEntryPrice",
+    hint: "Entry price must be positive when opening a position."
   }
 };
 function decodeError(code) {
@@ -1843,6 +2075,11 @@ var SLAB_TIERS = {
   medium: { maxAccounts: 1024, dataSize: 257448, label: "Medium", description: "1,024 slots \xB7 ~1.79 SOL" },
   large: { maxAccounts: 4096, dataSize: 1025832, label: "Large", description: "4,096 slots \xB7 ~7.14 SOL" }
 };
+var SLAB_TIERS_MAINNET = {
+  small: { maxAccounts: 256, dataSize: 65416, label: "Small", description: "256 slots \xB7 ~0.46 SOL (mainnet)" },
+  medium: { maxAccounts: 1024, dataSize: 257512, label: "Medium", description: "1,024 slots \xB7 ~1.79 SOL (mainnet)" },
+  large: { maxAccounts: 4096, dataSize: 1025896, label: "Large", description: "4,096 slots \xB7 ~7.14 SOL (mainnet)" }
+};
 var SLAB_TIERS_V0 = {
   small: { maxAccounts: 256, dataSize: 62808, label: "Small", description: "256 slots \xB7 ~0.44 SOL" },
   medium: { maxAccounts: 1024, dataSize: 248760, label: "Medium", description: "1,024 slots \xB7 ~1.73 SOL" },
@@ -1888,6 +2125,7 @@ function validateSlabTierMatch(dataSize, programSlabLen) {
 }
 var ALL_SLAB_SIZES = [
   ...Object.values(SLAB_TIERS).map((t) => t.dataSize),
+  ...Object.values(SLAB_TIERS_MAINNET).map((t) => t.dataSize),
   ...Object.values(SLAB_TIERS_V0).map((t) => t.dataSize),
   ...Object.values(SLAB_TIERS_V1D).map((t) => t.dataSize),
   ...Object.values(SLAB_TIERS_V1D_LEGACY).map((t) => t.dataSize)
@@ -2075,6 +2313,7 @@ async function discoverMarkets(connection, programId, options = {}) {
   } = options;
   const ALL_TIERS = [
     ...Object.values(SLAB_TIERS),
+    ...Object.values(SLAB_TIERS_MAINNET),
     ...Object.values(SLAB_TIERS_V0),
     ...Object.values(SLAB_TIERS_V1D),
     ...Object.values(SLAB_TIERS_V1D_LEGACY),
@@ -3369,8 +3608,14 @@ function getCurrentNetwork() {
 }
 export {
   ACCOUNTS_ADVANCE_ORACLE_PHASE,
+  ACCOUNTS_AUDIT_CRANK,
+  ACCOUNTS_BURN_POSITION_NFT,
+  ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL,
+  ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL,
+  ACCOUNTS_CLEAR_PENDING_SETTLEMENT,
   ACCOUNTS_CLOSE_ACCOUNT,
   ACCOUNTS_CLOSE_SLAB,
+  ACCOUNTS_CLOSE_STALE_SLABS,
   ACCOUNTS_CREATE_INSURANCE_MINT,
   ACCOUNTS_DEPOSIT_COLLATERAL,
   ACCOUNTS_DEPOSIT_INSURANCE_LP,
@@ -3381,18 +3626,25 @@ export {
   ACCOUNTS_INIT_USER,
   ACCOUNTS_KEEPER_CRANK,
   ACCOUNTS_LIQUIDATE_AT_ORACLE,
+  ACCOUNTS_MINT_POSITION_NFT,
   ACCOUNTS_PAUSE_MARKET,
   ACCOUNTS_PUSH_ORACLE_PRICE,
+  ACCOUNTS_QUEUE_WITHDRAWAL,
+  ACCOUNTS_RECLAIM_SLAB_RENT,
   ACCOUNTS_RESOLVE_MARKET,
   ACCOUNTS_SET_INSURANCE_ISOLATION,
   ACCOUNTS_SET_MAINTENANCE_FEE,
+  ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK,
   ACCOUNTS_SET_ORACLE_AUTHORITY,
   ACCOUNTS_SET_ORACLE_PRICE_CAP,
+  ACCOUNTS_SET_PENDING_SETTLEMENT,
   ACCOUNTS_SET_RISK_THRESHOLD,
+  ACCOUNTS_SET_WALLET_CAP,
   ACCOUNTS_TOPUP_INSURANCE,
   ACCOUNTS_TOPUP_KEEPER_FUND,
   ACCOUNTS_TRADE_CPI,
   ACCOUNTS_TRADE_NOCPI,
+  ACCOUNTS_TRANSFER_POSITION_OWNERSHIP,
   ACCOUNTS_UNPAUSE_MARKET,
   ACCOUNTS_UPDATE_ADMIN,
   ACCOUNTS_UPDATE_CONFIG,
@@ -3428,6 +3680,7 @@ export {
   RAMP_START_BPS,
   RAYDIUM_CLMM_PROGRAM_ID,
   SLAB_TIERS,
+  SLAB_TIERS_MAINNET,
   SLAB_TIERS_V0,
   SLAB_TIERS_V1,
   SLAB_TIERS_V1D,
@@ -3494,12 +3747,19 @@ export {
   encodeAdvanceEpoch,
   encodeAdvanceOraclePhase,
   encodeAllocateMarket,
+  encodeAuditCrank,
+  encodeBurnPositionNft,
+  encodeCancelQueuedWithdrawal,
   encodeClaimEpochWithdrawal,
+  encodeClaimQueuedWithdrawal,
+  encodeClearPendingSettlement,
   encodeCloseAccount,
   encodeCloseSlab,
+  encodeCloseStaleSlabs,
   encodeCreateInsuranceMint,
   encodeDepositCollateral,
   encodeDepositInsuranceLP,
+  encodeExecuteAdl,
   encodeFundMarketInsurance,
   encodeInitLP,
   encodeInitMarket,
@@ -3507,17 +3767,23 @@ export {
   encodeInitUser,
   encodeKeeperCrank,
   encodeLiquidateAtOracle,
+  encodeMintPositionNft,
   encodePauseMarket,
   encodePushOraclePrice,
+  encodeQueueWithdrawal,
   encodeQueueWithdrawalSV,
+  encodeReclaimSlabRent,
   encodeRenounceAdmin,
   encodeResolveMarket,
   encodeSetInsuranceIsolation,
   encodeSetMaintenanceFee,
+  encodeSetOiImbalanceHardBlock,
   encodeSetOracleAuthority,
   encodeSetOraclePriceCap,
+  encodeSetPendingSettlement,
   encodeSetPythOracle,
   encodeSetRiskThreshold,
+  encodeSetWalletCap,
   encodeSlashCreationDeposit,
   encodeStakeAccrueFees,
   encodeStakeAdminResolveMarket,
@@ -3541,6 +3807,8 @@ export {
   encodeTradeCpi,
   encodeTradeCpiV2,
   encodeTradeNoCpi,
+  encodeTransferOwnershipCpi,
+  encodeTransferPositionOwnership,
   encodeUnpauseMarket,
   encodeUpdateAdmin,
   encodeUpdateConfig,
