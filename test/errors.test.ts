@@ -12,8 +12,8 @@ import {
 // ============================================================================
 
 describe("PERCOLATOR_ERRORS table", () => {
-  it("has contiguous error codes from 0 to 44", () => {
-    for (let i = 0; i <= 44; i++) {
+  it("has contiguous error codes from 0 to 60", () => {
+    for (let i = 0; i <= 60; i++) {
       expect(PERCOLATOR_ERRORS[i]).toBeDefined();
       expect(PERCOLATOR_ERRORS[i].name).toBeTruthy();
       expect(PERCOLATOR_ERRORS[i].hint).toBeTruthy();
@@ -48,6 +48,9 @@ describe("PERCOLATOR_ERRORS table", () => {
     expect(PERCOLATOR_ERRORS[33].name).toBe("MarketPaused");
     expect(PERCOLATOR_ERRORS[34].name).toBe("AdminRenounceNotAllowed");
     expect(PERCOLATOR_ERRORS[44].name).toBe("LpVaultNoNewFees");
+    expect(PERCOLATOR_ERRORS[45].name).toBe("SafetyValveDominantSideBlocked");
+    expect(PERCOLATOR_ERRORS[59].name).toBe("OiImbalanceHardBlock");
+    expect(PERCOLATOR_ERRORS[60].name).toBe("EngineInvalidEntryPrice");
   });
 });
 
@@ -77,7 +80,12 @@ describe("decodeError", () => {
   it("returns undefined for unknown code", () => {
     expect(decodeError(999)).toBeUndefined();
     expect(decodeError(-1)).toBeUndefined();
-    expect(decodeError(45)).toBeUndefined();
+    expect(decodeError(61)).toBeUndefined();
+  });
+
+  it("returns error info for PERC extension codes 45 and 59", () => {
+    expect(decodeError(45)!.name).toBe("SafetyValveDominantSideBlocked");
+    expect(decodeError(59)!.name).toBe("OiImbalanceHardBlock");
   });
 });
 
