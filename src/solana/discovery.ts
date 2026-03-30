@@ -118,11 +118,8 @@ export const SLAB_TIERS_V1 = SLAB_TIERS;
  * New account layout adds ADL tracking fields (+64 bytes/account).
  * BPF SLAB_LEN verified by cargo build-sbf in PERC-8271: large (4096) = 1288304 bytes.
  */
-export const SLAB_TIERS_V_ADL_DISCOVERY = {
-  small:  { maxAccounts: 256,  dataSize: 82_064,    label: "Small",  description: "256 slots (V_ADL PERC-8270)" },
-  medium: { maxAccounts: 1024, dataSize: 323_312,   label: "Medium", description: "1,024 slots (V_ADL PERC-8270)" },
-  large:  { maxAccounts: 4096, dataSize: 1_288_304, label: "Large",  description: "4,096 slots (V_ADL PERC-8270) · ~8.95 SOL" },
-} as const;
+// Single source of truth lives in slab.ts (SLAB_TIERS_V_ADL).
+export const SLAB_TIERS_V_ADL_DISCOVERY = SLAB_TIERS_V_ADL;
 
 export type SlabTierKey = keyof typeof SLAB_TIERS;
 
@@ -346,6 +343,52 @@ function parseEngineLight(
       emergencyStartSlot: 0n,
       lastBreakerSlot: 0n,
       markPriceE6: 0n,          // V2 has no mark_price
+      numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
+      nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
+    };
+  }
+
+  // V_ADL engine struct (PERC-8270/8271): ENGINE_OFF=624, layout-driven offsets.
+  // Must branch here because V_ADL has version===1 same as V1/V1M — differentiate by engineOff.
+  // All offsets from SlabLayout descriptor, which is computed by buildLayoutVADL().
+  const isVAdl = layout !== null && layout.engineOff === 624 && layout.accountSize === 312;
+  if (isVAdl) {
+    const l = layout!;
+    return {
+      vault: readU128LE(data, base + 0),
+      insuranceFund: {
+        balance: readU128LE(data, base + l.engineInsuranceOff),
+        feeRevenue: readU128LE(data, base + l.engineInsuranceOff + 16),
+        isolatedBalance: readU128LE(data, base + l.engineInsuranceIsolatedOff),
+        isolationBps: readU16LE(data, base + l.engineInsuranceIsolationBpsOff),
+      },
+      currentSlot: readU64LE(data, base + l.engineCurrentSlotOff),
+      fundingIndexQpbE6: readI128LE(data, base + l.engineFundingIndexOff),
+      lastFundingSlot: readU64LE(data, base + l.engineLastFundingSlotOff),
+      fundingRateBpsPerSlotLast: readI64LE(data, base + l.engineFundingRateBpsOff),
+      lastCrankSlot: readU64LE(data, base + l.engineLastCrankSlotOff),
+      maxCrankStalenessSlots: readU64LE(data, base + l.engineMaxCrankStalenessOff),
+      totalOpenInterest: readU128LE(data, base + l.engineTotalOiOff),
+      longOi: l.engineLongOiOff >= 0 ? readU128LE(data, base + l.engineLongOiOff) : 0n,
+      shortOi: l.engineShortOiOff >= 0 ? readU128LE(data, base + l.engineShortOiOff) : 0n,
+      cTot: readU128LE(data, base + l.engineCTotOff),
+      pnlPosTot: readU128LE(data, base + l.enginePnlPosTotOff),
+      liqCursor: readU16LE(data, base + l.engineLiqCursorOff),
+      gcCursor: readU16LE(data, base + l.engineGcCursorOff),
+      lastSweepStartSlot: readU64LE(data, base + l.engineLastSweepStartOff),
+      lastSweepCompleteSlot: readU64LE(data, base + l.engineLastSweepCompleteOff),
+      crankCursor: readU16LE(data, base + l.engineCrankCursorOff),
+      sweepStartIdx: readU16LE(data, base + l.engineSweepStartIdxOff),
+      lifetimeLiquidations: readU64LE(data, base + l.engineLifetimeLiquidationsOff),
+      lifetimeForceCloses: readU64LE(data, base + l.engineLifetimeForceClosesOff),
+      netLpPos: readI128LE(data, base + l.engineNetLpPosOff),
+      lpSumAbs: readU128LE(data, base + l.engineLpSumAbsOff),
+      lpMaxAbs: readU128LE(data, base + l.engineLpMaxAbsOff),
+      lpMaxAbsSweep: readU128LE(data, base + l.engineLpMaxAbsSweepOff),
+      emergencyOiMode: l.engineEmergencyOiModeOff >= 0 ? data[base + l.engineEmergencyOiModeOff] !== 0 : false,
+      emergencyStartSlot: l.engineEmergencyStartSlotOff >= 0 ? readU64LE(data, base + l.engineEmergencyStartSlotOff) : 0n,
+      lastBreakerSlot: l.engineLastBreakerSlotOff >= 0 ? readU64LE(data, base + l.engineLastBreakerSlotOff) : 0n,
+      markPriceE6: l.engineMarkPriceOff >= 0 ? readU64LE(data, base + l.engineMarkPriceOff) : 0n,
       numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
       nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
     };

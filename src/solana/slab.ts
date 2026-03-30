@@ -1679,7 +1679,7 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
     accountId: readU64LE(data, base + ACCT_ACCOUNT_ID_OFF),
     capital: readU128LE(data, base + ACCT_CAPITAL_OFF),
     pnl: readI128LE(data, base + ACCT_PNL_OFF),
-    reservedPnl: readU64LE(data, base + ACCT_RESERVED_PNL_OFF),
+    reservedPnl: isAdl ? readU128LE(data, base + ACCT_RESERVED_PNL_OFF) : readU64LE(data, base + ACCT_RESERVED_PNL_OFF),
     warmupStartedAtSlot: readU64LE(data, base + warmupStartedOff),
     warmupSlopePerStep: readU128LE(data, base + warmupSlopeOff),
     positionSize: readI128LE(data, base + positionSizeOff),
