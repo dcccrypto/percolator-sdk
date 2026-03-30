@@ -581,11 +581,28 @@ export function encodeUpdateRiskParams(args: UpdateRiskParamsArgs): Uint8Array {
 }
 
 /**
- * RenounceAdmin instruction data (1 byte)
+ * On-chain confirmation code for RenounceAdmin (must match program constant).
+ * ASCII "RENOUNCE" as u64 LE = 0x52454E4F554E4345.
+ */
+export const RENOUNCE_ADMIN_CONFIRMATION = 0x52454E4F554E4345n;
+
+/**
+ * On-chain confirmation code for UnresolveMarket (must match program constant).
+ */
+export const UNRESOLVE_CONFIRMATION = 0xDEAD_BEEF_CAFE_1234n;
+
+/**
+ * RenounceAdmin instruction data (9 bytes)
  * Irreversibly set admin to all zeros. After this, all admin-only instructions fail.
+ *
+ * Requires the confirmation code 0x52454E4F554E4345 ("RENOUNCE" as u64 LE)
+ * to prevent accidental invocation.
  */
 export function encodeRenounceAdmin(): Uint8Array {
-  return encU8(IX_TAG.RenounceAdmin);
+  return concatBytes(
+    encU8(IX_TAG.RenounceAdmin),
+    encU64(RENOUNCE_ADMIN_CONFIRMATION),
+  );
 }
 
 /**
@@ -1168,6 +1185,10 @@ export function encodeTopUpKeeperFund(args: TopUpKeeperFundArgs): Uint8Array {
  * SlashCreationDeposit (Tag 58) — permissionless: slash a market creator's deposit
  * after the spam grace period has elapsed (PERC-629).
  *
+ * **WARNING**: Tag 58 is reserved in tags.rs but has NO instruction decoder or
+ * handler in the on-chain program. Sending this instruction will fail with
+ * `InvalidInstructionData`. Do not use until the on-chain handler is deployed.
+ *
  * Instruction data: 1 byte (tag only)
  *
  * Accounts:
@@ -1177,6 +1198,8 @@ export function encodeTopUpKeeperFund(args: TopUpKeeperFundArgs): Uint8Array {
  *   3. [writable]         Insurance vault
  *   4. [writable]         Treasury
  *   5. []                 System program
+ *
+ * @deprecated Not yet implemented on-chain — will fail with InvalidInstructionData.
  */
 export function encodeSlashCreationDeposit(): Uint8Array {
   return encU8(IX_TAG.SlashCreationDeposit);
@@ -1335,7 +1358,7 @@ export function encodeSetOiImbalanceHardBlock(args: { thresholdBps: number }): U
  * Accounts:
  *   0. [signer, writable] payer
  *   1. [writable]         slab
- *   2. [writable]         position_nft PDA  (created — seeds: ["pos_nft", slab, user_idx])
+ *   2. [writable]         position_nft PDA  (created — seeds: ["position_nft", slab, user_idx])
  *   3. [writable]         nft_mint PDA      (created)
  *   4. [writable]         owner_ata         (Token-2022 ATA for owner)
  *   5. [signer]           owner             (must match engine account owner)
