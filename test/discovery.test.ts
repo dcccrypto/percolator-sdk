@@ -6,9 +6,13 @@ import {
   SLAB_TIERS_V1D_LEGACY,
   slabDataSize,
   slabDataSizeV1,
-  type SlabTierKey,
 } from "../src/solana/discovery.js";
-import { detectSlabLayout, SLAB_TIERS_V2 } from "../src/solana/slab.js";
+import {
+  detectSlabLayout,
+  SLAB_TIERS_V2,
+  SLAB_TIERS_V1M,
+  SLAB_TIERS_V_ADL,
+} from "../src/solana/slab.js";
 
 // ============================================================================
 // SLAB_TIERS constants
@@ -431,7 +435,14 @@ describe("discoverMarkets — sequential mode (PERC-1650)", () => {
     ).resolves.toEqual([]);
 
     // Each tier got exactly ONE call (no retry on non-429)
-    const allTierCount = 3 + 3 + 4 + 4 + 4; // SLAB_TIERS + V0 + V1D + V1D_LEGACY + V2
+    const allTierCount =
+      Object.keys(SLAB_TIERS).length +
+      Object.keys(SLAB_TIERS_V0).length +
+      Object.keys(SLAB_TIERS_V1D).length +
+      Object.keys(SLAB_TIERS_V1D_LEGACY).length +
+      Object.keys(SLAB_TIERS_V2).length +
+      Object.keys(SLAB_TIERS_V1M).length +
+      Object.keys(SLAB_TIERS_V_ADL).length;
     expect(callCount).toBeLessThanOrEqual(allTierCount + 2); // +2 for rounding
     // Memcmp fallback was called (0 raw accounts → fallback triggered)
     expect(memcmpCallCount).toBe(1);

@@ -77,7 +77,13 @@ describe("decodeError", () => {
   it("returns undefined for unknown code", () => {
     expect(decodeError(999)).toBeUndefined();
     expect(decodeError(-1)).toBeUndefined();
-    expect(decodeError(45)).toBeUndefined();
+    expect(decodeError(10_000)).toBeUndefined();
+  });
+
+  it("returns error info for code 45 (SafetyValveDominantSideBlocked)", () => {
+    const info = decodeError(45);
+    expect(info).toBeDefined();
+    expect(info!.name).toBe("SafetyValveDominantSideBlocked");
   });
 });
 
