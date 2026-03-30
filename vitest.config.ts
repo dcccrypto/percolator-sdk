@@ -10,9 +10,9 @@ export default defineConfig({
       "test/price-router.test.ts",
       "test/discovery.test.ts",
       "test/slab-parser.test.ts",
-      "test/program-ids.test.ts",
       "test/adl.test.ts",
       "test/accounts.test.ts",
+      "test/program-ids.test.ts",
     ],
   },
 });

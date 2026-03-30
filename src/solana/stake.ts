@@ -9,6 +9,7 @@
 
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { safeEnv } from '../config/program-ids.js';
 
 // ═══════════════════════════════════════════════════════════════
 // Program ID — network-conditional (mirrors program-ids.ts pattern)
@@ -31,15 +32,16 @@ export const STAKE_PROGRAM_IDS = {
  * surface the gap instead of silently hitting the devnet program.
  */
 export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
-  if (process.env.STAKE_PROGRAM_ID) {
-    return new PublicKey(process.env.STAKE_PROGRAM_ID);
+  const override = safeEnv('STAKE_PROGRAM_ID');
+  if (override) {
+    return new PublicKey(override);
   }
 
   const detectedNetwork =
     network ??
     (() => {
-      const n = process.env.NEXT_PUBLIC_DEFAULT_NETWORK?.toLowerCase() ??
-                process.env.NETWORK?.toLowerCase() ?? '';
+      const n = safeEnv('NEXT_PUBLIC_DEFAULT_NETWORK')?.toLowerCase() ??
+                safeEnv('NETWORK')?.toLowerCase() ?? '';
       return n === 'mainnet' || n === 'mainnet-beta' ? 'mainnet' : 'devnet';
     })();
 
