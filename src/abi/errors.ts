@@ -276,19 +276,38 @@ export function getErrorHint(code: number): string | undefined {
   return PERCOLATOR_ERRORS[code]?.hint;
 }
 
+/** Max hex digits for `custom program error: 0x...` — Solana custom errors are u32. */
+const CUSTOM_ERROR_HEX_MAX_LEN = 8;
+
 /**
  * Parse error from transaction logs.
  * Looks for "Program ... failed: custom program error: 0x..."
+ *
+ * Hex capture is bounded (1–8 digits) so pathological logs cannot feed unbounded
+ * strings into `parseInt` or produce precision-loss codes above u32.
  */
 export function parseErrorFromLogs(logs: string[]): {
   code: number;
   name: string;
   hint?: string;
 } | null {
+  if (!Array.isArray(logs)) {
+    return null;
+  }
+  const re = new RegExp(
+    `custom program error: 0x([0-9a-fA-F]{1,${CUSTOM_ERROR_HEX_MAX_LEN}})(?![0-9a-fA-F])`,
+    "i",
+  );
   for (const log of logs) {
-    const match = log.match(/custom program error: 0x([0-9a-fA-F]+)/);
+    if (typeof log !== "string") {
+      continue;
+    }
+    const match = log.match(re);
     if (match) {
       const code = parseInt(match[1], 16);
+      if (!Number.isFinite(code) || code < 0 || code > 0xffff_ffff) {
+        continue;
+      }
       const info = decodeError(code);
       return {
         code,
