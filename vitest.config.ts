@@ -9,6 +9,7 @@ export default defineConfig({
       "test/pda.test.ts",
       "test/slab-parser.test.ts",
       "test/program-ids.test.ts",
+      "test/adl.test.ts",
     ],
   },
 });

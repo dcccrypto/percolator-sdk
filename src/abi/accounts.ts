@@ -352,6 +352,45 @@ export const ACCOUNTS_WITHDRAW_INSURANCE_LP: readonly AccountSpec[] = [
   { name: "vaultAuthority", signer: false, writable: false },
 ] as const;
 
+// ============================================================================
+// PERC-627 / GH#1926: LpVaultWithdraw (tag 39)
+// ============================================================================
+
+/**
+ * LpVaultWithdraw: 10 accounts (tag 39, PERC-627 / GH#1926 / PERC-8287)
+ *
+ * Burn LP vault tokens and withdraw proportional collateral from the LP vault.
+ *
+ * accounts[9] = creatorLockPda is REQUIRED since percolator-prog PR#170.
+ * Non-creator withdrawers must pass the derived PDA key; if no lock exists
+ * on-chain the enforcement is a no-op. Omitting it was the bypass vector
+ * fixed in GH#1926. Use `deriveCreatorLockPda(programId, slab)` to compute.
+ *
+ * Accounts:
+ *  [0] withdrawer        signer, read-only
+ *  [1] slab              writable
+ *  [2] withdrawerAta     writable (collateral destination)
+ *  [3] vault             writable (collateral source)
+ *  [4] tokenProgram      read-only
+ *  [5] lpVaultMint       writable (LP tokens burned from here)
+ *  [6] withdrawerLpAta   writable (LP tokens source)
+ *  [7] vaultAuthority    read-only (PDA that signs token transfers)
+ *  [8] lpVaultState      writable
+ *  [9] creatorLockPda    writable (REQUIRED — derived from ["creator_lock", slab])
+ */
+export const ACCOUNTS_LP_VAULT_WITHDRAW: readonly AccountSpec[] = [
+  { name: "withdrawer", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "withdrawerAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpVaultMint", signer: false, writable: true },
+  { name: "withdrawerLpAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true },
+  { name: "creatorLockPda", signer: false, writable: true },
+] as const;
+
 /**
  * FundMarketInsurance: 5 accounts (PERC-306)
  * Fund per-market isolated insurance balance.
