@@ -465,6 +465,20 @@ export interface DiscoverMarketsOptions {
    * Only used when sequential=true.  Default: [1_000, 3_000, 9_000, 27_000].
    */
   rateLimitBackoffMs?: number[];
+
+  /**
+   * In parallel mode (the default), cap how many tier RPC requests are in-flight
+   * at once to avoid accidental RPC storms from client code.
+   *
+   * Default: 6
+   */
+  maxParallelTiers?: number;
+
+  /**
+   * Hard cap on how many tier dataSize queries are attempted.
+   * Default: all known tiers.
+   */
+  maxTierQueries?: number;
 }
 
 /** Return true if the error looks like an HTTP 429 / rate-limit response. */
@@ -498,6 +512,7 @@ export async function discoverMarkets(
     sequential = false,
     interTierDelayMs = 200,
     rateLimitBackoffMs = [1_000, 3_000, 9_000, 27_000],
+    maxParallelTiers = 6,
   } = options;
 
   // Query all known slab sizes in parallel — V0, V1D (deployed devnet), V1D legacy, and V1 (upgraded) tiers.
@@ -554,41 +569,55 @@ export async function discoverMarkets(
     return [];
   }
 
+  const maxTierQueries = options.maxTierQueries ?? ALL_TIERS.length;
+  const tiersToQuery = ALL_TIERS.slice(0, maxTierQueries);
+
+  // Avoid accidental `0`/negative or NaN causing infinite loops.
+  const effectiveMaxParallelTiers = Math.max(1, Number.isFinite(maxParallelTiers) ? maxParallelTiers : 6);
+
   try {
     if (sequential) {
       // PERC-1650: sequential mode — one tier at a time with inter-tier spacing + per-tier 429 retry.
-      for (let i = 0; i < ALL_TIERS.length; i++) {
-        const tier = ALL_TIERS[i];
+      for (let i = 0; i < tiersToQuery.length; i++) {
+        const tier = tiersToQuery[i];
         const entries = await fetchTierWithRetry(tier);
         rawAccounts.push(...entries);
-        if (i < ALL_TIERS.length - 1) {
+        if (i < tiersToQuery.length - 1) {
           await new Promise(r => setTimeout(r, interTierDelayMs));
         }
       }
     } else {
-      // Original parallel mode: fire all tier queries simultaneously.
-      const queries = ALL_TIERS.map(tier =>
-        connection.getProgramAccounts(programId, {
-          filters: [{ dataSize: tier.dataSize }],
-          dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
-        }).then(results => results.map(entry => ({ ...entry, maxAccounts: tier.maxAccounts, dataSize: tier.dataSize })))
-      );
-      const results = await Promise.allSettled(queries);
-      let hadRejection = false;
-      for (const result of results) {
-        if (result.status === "fulfilled") {
-          for (const entry of result.value) {
-            rawAccounts.push(entry as RawEntry);
+      // Parallel mode: cap tier concurrency so we don't fire 20+ large
+      // getProgramAccounts calls at once from a single client call.
+      for (let offset = 0; offset < tiersToQuery.length; offset += effectiveMaxParallelTiers) {
+        const chunk = tiersToQuery.slice(offset, offset + effectiveMaxParallelTiers);
+        const queries = chunk.map(tier =>
+          connection.getProgramAccounts(programId, {
+            filters: [{ dataSize: tier.dataSize }],
+            dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
+          }).then(results =>
+            results.map(entry => ({
+              ...entry,
+              maxAccounts: tier.maxAccounts,
+              dataSize: tier.dataSize,
+            })),
+          ),
+        );
+
+        const results = await Promise.allSettled(queries);
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            for (const entry of result.value) {
+              rawAccounts.push(entry as RawEntry);
+            }
+          } else {
+            console.warn(
+              "[discoverMarkets] Tier query rejected:",
+              result.reason instanceof Error ? result.reason.message : result.reason,
+            );
           }
-        } else {
-          hadRejection = true;
-          console.warn(
-            "[discoverMarkets] Tier query rejected:",
-            result.reason instanceof Error ? result.reason.message : result.reason,
-          );
         }
       }
-      void hadRejection; // intentionally unused — see NOTE below
     }
 
     // NOTE: hadRejection guard removed — dataSize filters silently return 0 when on-chain
