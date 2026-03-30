@@ -6,6 +6,7 @@ import {
   detectSlabLayout,
   SLAB_TIERS_V1M,
   SLAB_TIERS_V2,
+  SLAB_TIERS_V_ADL,
   type SlabHeader,
   type MarketConfig,
   type EngineState,
@@ -111,6 +112,18 @@ export const SLAB_TIERS_V1D_LEGACY = {
 /** @deprecated Alias — use SLAB_TIERS (already V1) */
 export const SLAB_TIERS_V1 = SLAB_TIERS;
 
+/**
+ * V_ADL slab tier sizes — PERC-8270/8271 ADL-upgraded program.
+ * ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312, postBitmap=18.
+ * New account layout adds ADL tracking fields (+64 bytes/account).
+ * BPF SLAB_LEN verified by cargo build-sbf in PERC-8271: large (4096) = 1288304 bytes.
+ */
+export const SLAB_TIERS_V_ADL_DISCOVERY = {
+  small:  { maxAccounts: 256,  dataSize: 82_064,    label: "Small",  description: "256 slots (V_ADL PERC-8270)" },
+  medium: { maxAccounts: 1024, dataSize: 323_312,   label: "Medium", description: "1,024 slots (V_ADL PERC-8270)" },
+  large:  { maxAccounts: 4096, dataSize: 1_288_304, label: "Large",  description: "4,096 slots (V_ADL PERC-8270) · ~8.95 SOL" },
+} as const;
+
 export type SlabTierKey = keyof typeof SLAB_TIERS;
 
 /** Calculate slab data size for arbitrary account count.
@@ -172,13 +185,14 @@ export function validateSlabTierMatch(dataSize: number, programSlabLen: number):
   return dataSize === programSlabLen;
 }
 
-/** All known slab data sizes for discovery (V0 + V1 + V1D + V1D legacy + V1M tiers) */
+/** All known slab data sizes for discovery (V0 + V1 + V1D + V1D legacy + V1M + V_ADL tiers) */
 const ALL_SLAB_SIZES = [
   ...Object.values(SLAB_TIERS).map(t => t.dataSize),
   ...Object.values(SLAB_TIERS_V0).map(t => t.dataSize),
   ...Object.values(SLAB_TIERS_V1D).map(t => t.dataSize),
   ...Object.values(SLAB_TIERS_V1D_LEGACY).map(t => t.dataSize),
   ...Object.values(SLAB_TIERS_V1M).map(t => t.dataSize),
+  ...Object.values(SLAB_TIERS_V_ADL).map(t => t.dataSize),
 ];
 
 /** Legacy constant for backward compat */
@@ -458,6 +472,7 @@ export async function discoverMarkets(
     ...Object.values(SLAB_TIERS_V1D_LEGACY),
     ...Object.values(SLAB_TIERS_V2),
     ...Object.values(SLAB_TIERS_V1M),
+    ...Object.values(SLAB_TIERS_V_ADL),
   ];
   type RawEntry = { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number; dataSize: number };
   let rawAccounts: RawEntry[] = [];

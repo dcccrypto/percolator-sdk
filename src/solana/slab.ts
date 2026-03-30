@@ -303,6 +303,88 @@ const V2_ENGINE_LP_SUM_ABS_OFF = 520;
 const V2_ENGINE_LP_MAX_ABS_OFF = 536;
 const V2_ENGINE_LP_MAX_ABS_SWEEP_OFF = 552;
 
+// ---- V_ADL layout constants (ADL-upgraded program, PERC-8270/8271) ----
+// This layout corresponds to the percolator lib at commit ed01137 (PERC-8270) which adds:
+//   - Account: position_basis_q(i128,16)+adl_a_basis(u128,16)+adl_k_snap(i128,16)+adl_epoch_snap(u64,8) = +56 bytes
+//     Plus 8-byte padding before position_basis_q (i128 requires 16-byte align on BPF) → +64 bytes/account
+//   - RiskEngine: last_market_slot(u64)+funding_price_sample_last(u64)+materialized_account_count(u64)+last_oracle_price(u64) = +32 bytes
+//   - Also adds: InsuranceFund expanded to 80 bytes (balance_incentive_reserve + _rebate_pad + _isolation_padding),
+//     RiskParams expanded to 336 bytes (min_nonzero_mm_req, min_nonzero_im_req, insurance_floor, etc.),
+//     pnl_matured_pos_tot(u128,16) field in RiskEngine (PERC-8267),
+//     ADL side state fields (PERC-8268, +224 bytes engine before bitmap)
+//
+// BPF SLAB_LEN: 1288304 (large/4096-account tier) — verified by cargo build-sbf (PERC-8271)
+// ENGINE_OFF = 624 (HEADER=104 + CONFIG=520 native, aligned to 8 = 624)
+// ACCOUNT_SIZE = 312 (248 old + 8 pad for i128 alignment + 16+16+16+8 new ADL fields)
+// ENGINE_BITMAP_OFF = 1006 (sum of all fixed RiskEngine scalar fields before [u64; BITMAP_WORDS])
+// Derivation: SLAB_LEN=1288304 = 624 + accountsOff + 4096*312, accountsOff=9728,
+//   bitmapOff=1006 → preAccountsLen=1006+512+18+8192=9728 (4096 accounts)
+const V_ADL_ENGINE_OFF = 624;      // align_up(HEADER=104 + CONFIG=520, 8) = 624
+const V_ADL_CONFIG_LEN = 520;      // BPF/native MarketConfig with current fields
+const V_ADL_ACCOUNT_SIZE = 312;    // 248 + 8(pad) + 56(new ADL fields) = 312 bytes
+const V_ADL_ENGINE_PARAMS_OFF = 96; // vault(16) + InsuranceFund(80) = 96
+
+// V_ADL RiskParams: 336 bytes (same as V1M, includes all dynamic fee params)
+const V_ADL_PARAMS_SIZE = 336;
+
+// V_ADL engine field offsets (relative to engineOff=624):
+// vault(16) + InsuranceFund(80) + RiskParams(336) = 432 bytes before current_slot
+const V_ADL_ENGINE_CURRENT_SLOT_OFF = 432;     // 96 + 336 = 432
+const V_ADL_ENGINE_FUNDING_INDEX_OFF = 440;    // 432 + 8
+const V_ADL_ENGINE_LAST_FUNDING_SLOT_OFF = 456; // 440 + 16
+const V_ADL_ENGINE_FUNDING_RATE_BPS_OFF = 464; // 456 + 8
+// PERC-8270 new fields at 472-504:
+// last_market_slot(8)@472, funding_price_sample_last(8)@480, materialized_account_count(8)@488, last_oracle_price(8)@496
+const V_ADL_ENGINE_MARK_PRICE_OFF = 504;       // 464+8+32 = 504 (shifted +104 from V1's 400)
+// funding_frozen(1+7pad=8)@512, funding_frozen_rate_snapshot(i64,8)@520
+const V_ADL_ENGINE_LAST_CRANK_SLOT_OFF = 528;  // was 424 in V1, +104
+const V_ADL_ENGINE_MAX_CRANK_STALENESS_OFF = 536;
+const V_ADL_ENGINE_TOTAL_OI_OFF = 544;         // was 440 in V1, +104
+const V_ADL_ENGINE_LONG_OI_OFF = 560;          // was 456 in V1, +104
+const V_ADL_ENGINE_SHORT_OI_OFF = 576;         // was 472 in V1, +104
+const V_ADL_ENGINE_C_TOT_OFF = 592;            // was 488 in V1, +104
+const V_ADL_ENGINE_PNL_POS_TOT_OFF = 608;      // was 504 in V1, +104
+// pnl_matured_pos_tot(u128,16)@624 — NEW in PERC-8267
+const V_ADL_ENGINE_LIQ_CURSOR_OFF = 640;       // was 520 in V1, +120 (extra 16 for pnl_matured)
+const V_ADL_ENGINE_GC_CURSOR_OFF = 642;
+// last_sweep_start(u64)@648, last_sweep_complete(u64)@656, crank_cursor(u16)@664, sweep_idx(u16)@666
+const V_ADL_ENGINE_LAST_SWEEP_START_OFF = 648;
+const V_ADL_ENGINE_LAST_SWEEP_COMPLETE_OFF = 656;
+const V_ADL_ENGINE_CRANK_CURSOR_OFF = 664;
+const V_ADL_ENGINE_SWEEP_START_IDX_OFF = 666;
+// lifetime_liquidations(u64)@672, lifetime_force_closes(u64)@680
+const V_ADL_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 672;
+const V_ADL_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 680;
+// ADL side state (PERC-8268, 224 bytes):
+// adl_mult_long/short(16ea), adl_coeff_long/short(16ea), adl_epoch_long/short(8ea),
+// adl_epoch_start_k_long/short(16ea), oi_eff_long/short_q(16ea),
+// side_mode_long(u8)+side_mode_short(u8)+pad(6), stored_pos_count×2, stale_count×2(all u64,8),
+// phantom_dust_bound_long/short_q(16ea) = 224 bytes at offsets 688–911
+// Then LP aggregates:
+const V_ADL_ENGINE_NET_LP_POS_OFF = 904;       // after ADL side state
+const V_ADL_ENGINE_LP_SUM_ABS_OFF = 920;
+const V_ADL_ENGINE_LP_MAX_ABS_OFF = 936;
+const V_ADL_ENGINE_LP_MAX_ABS_SWEEP_OFF = 952;
+// emergency fields:
+const V_ADL_ENGINE_EMERGENCY_OI_MODE_OFF = 968;
+const V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF = 976;
+const V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF = 984;
+// trade_twap_e6(8)@992, twap_last_slot(8)@1000
+const V_ADL_ENGINE_BITMAP_OFF = 1006;           // Verified: 1006+512+18+8192=9728 ✓ for 4096 accts
+
+// V_ADL account field offsets (relative to account slot start):
+// account_id(8)+capital(U128,16)+kind(u8+pad7=8)+pnl(I128,16)+reserved_pnl(u128,16)=64
+const V_ADL_ACCT_WARMUP_STARTED_OFF = 64;      // was 56
+const V_ADL_ACCT_WARMUP_SLOPE_OFF = 72;        // was 64
+const V_ADL_ACCT_POSITION_SIZE_OFF = 88;       // was 80
+const V_ADL_ACCT_ENTRY_PRICE_OFF = 104;        // was 96
+const V_ADL_ACCT_FUNDING_INDEX_OFF = 112;      // was 104
+const V_ADL_ACCT_MATCHER_PROGRAM_OFF = 128;    // was 120
+const V_ADL_ACCT_MATCHER_CONTEXT_OFF = 160;    // was 152
+const V_ADL_ACCT_OWNER_OFF = 192;              // was 184 (shifted +8 from reserved_pnl u64→u128)
+const V_ADL_ACCT_FEE_CREDITS_OFF = 224;        // was 216
+const V_ADL_ACCT_LAST_FEE_SLOT_OFF = 240;      // was 232
+
 // ---- V1M layout constants (mainnet-deployed V1 program, ESa89R5) ----
 // The mainnet program has a LARGER RiskParams (336 bytes vs V1's 288) and 22 extra
 // bytes in the runtime state (trade_twap_e6 + twap_last_slot + alignment padding).
@@ -398,6 +480,8 @@ const V1D_SIZES = new Map<number, number>();
 const V2_SIZES = new Map<number, number>();
 // V1M: mainnet-deployed V1 program (ENGINE_OFF=640, BITMAP_OFF=726, expanded RiskParams)
 const V1M_SIZES = new Map<number, number>();
+// V_ADL: PERC-8270/8271 ADL-upgraded program (ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312)
+const V_ADL_SIZES = new Map<number, number>();
 const V1D_SIZES_LEGACY = new Map<number, number>();
 for (const n of TIERS) {
   V0_SIZES.set(computeSlabSize(V0_ENGINE_OFF, V0_ENGINE_BITMAP_OFF, V0_ACCOUNT_SIZE, n), n);
@@ -414,6 +498,9 @@ for (const n of TIERS) {
   // V1M: mainnet program with expanded RiskParams (336 bytes) and trade_twap fields.
   // e.g. n=1024 → 257512 bytes (confirmed on-chain for slab 8NY7rvQ).
   V1M_SIZES.set(computeSlabSize(V1M_ENGINE_OFF, V1M_ENGINE_BITMAP_OFF, V1M_ACCOUNT_SIZE, n, 18), n);
+  // V_ADL: PERC-8270 ADL-upgraded program — new account size (312) and expanded engine layout.
+  // e.g. n=4096 → 1288304 bytes (verified by cargo build-sbf in PERC-8271).
+  V_ADL_SIZES.set(computeSlabSize(V_ADL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18), n);
 }
 
 /**
@@ -436,6 +523,18 @@ export const SLAB_TIERS_V1M: Record<string, { maxAccounts: number; dataSize: num
 for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]] as const) {
   const size = computeSlabSize(V1M_ENGINE_OFF, V1M_ENGINE_BITMAP_OFF, V1M_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V1M[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V1M mainnet)` };
+}
+
+/**
+ * V_ADL slab tier sizes — PERC-8270/8271 ADL-upgraded program.
+ * ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312, postBitmap=18.
+ * New account layout adds ADL tracking fields (+64 bytes/account including alignment padding).
+ * BPF SLAB_LEN verified by cargo build-sbf in PERC-8271: large (4096) = 1288304 bytes.
+ */
+export const SLAB_TIERS_V_ADL: Record<string, { maxAccounts: number; dataSize: number; label: string; description: string }> = {};
+for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]] as const) {
+  const size = computeSlabSize(V_ADL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18);
+  SLAB_TIERS_V_ADL[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V_ADL PERC-8270)` };
 }
 
 /**
@@ -725,9 +824,80 @@ function buildLayoutV1M(maxAccounts: number): SlabLayout {
 }
 
 /**
+ * Build a SlabLayout for the ADL-upgraded program (PERC-8270/8271).
+ * ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312.
+ *
+ * Verified slab sizes (BPF, cargo build-sbf):
+ *   large  (4096 accounts): 1288304 bytes ← PERC-8271 confirmed
+ *   medium (1024 accounts): 323312 bytes
+ *   small  (256 accounts):  82064 bytes
+ */
+function buildLayoutVADL(maxAccounts: number): SlabLayout {
+  const engineOff = V_ADL_ENGINE_OFF;
+  const bitmapOff = V_ADL_ENGINE_BITMAP_OFF;
+  const accountSize = V_ADL_ACCOUNT_SIZE;
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const postBitmap = 18;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
+
+  return {
+    version: 1,
+    headerLen: V1_HEADER_LEN,       // 104 (unchanged)
+    configOffset: V1_HEADER_LEN,
+    configLen: V_ADL_CONFIG_LEN,    // 520
+    reservedOff: V1_RESERVED_OFF,   // 80
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+
+    engineInsuranceOff: 16,
+    engineParamsOff: V_ADL_ENGINE_PARAMS_OFF,      // 96 (vault=16 + InsuranceFund=80)
+    paramsSize: V_ADL_PARAMS_SIZE,                 // 336
+    engineCurrentSlotOff: V_ADL_ENGINE_CURRENT_SLOT_OFF,       // 432
+    engineFundingIndexOff: V_ADL_ENGINE_FUNDING_INDEX_OFF,     // 440
+    engineLastFundingSlotOff: V_ADL_ENGINE_LAST_FUNDING_SLOT_OFF, // 456
+    engineFundingRateBpsOff: V_ADL_ENGINE_FUNDING_RATE_BPS_OFF,  // 464
+    engineMarkPriceOff: V_ADL_ENGINE_MARK_PRICE_OFF,           // 504
+    engineLastCrankSlotOff: V_ADL_ENGINE_LAST_CRANK_SLOT_OFF,  // 528
+    engineMaxCrankStalenessOff: V_ADL_ENGINE_MAX_CRANK_STALENESS_OFF, // 536
+    engineTotalOiOff: V_ADL_ENGINE_TOTAL_OI_OFF,               // 544
+    engineLongOiOff: V_ADL_ENGINE_LONG_OI_OFF,                 // 560
+    engineShortOiOff: V_ADL_ENGINE_SHORT_OI_OFF,               // 576
+    engineCTotOff: V_ADL_ENGINE_C_TOT_OFF,                     // 592
+    enginePnlPosTotOff: V_ADL_ENGINE_PNL_POS_TOT_OFF,         // 608
+    engineLiqCursorOff: V_ADL_ENGINE_LIQ_CURSOR_OFF,           // 640
+    engineGcCursorOff: V_ADL_ENGINE_GC_CURSOR_OFF,             // 642
+    engineLastSweepStartOff: V_ADL_ENGINE_LAST_SWEEP_START_OFF,     // 648
+    engineLastSweepCompleteOff: V_ADL_ENGINE_LAST_SWEEP_COMPLETE_OFF, // 656
+    engineCrankCursorOff: V_ADL_ENGINE_CRANK_CURSOR_OFF,       // 664
+    engineSweepStartIdxOff: V_ADL_ENGINE_SWEEP_START_IDX_OFF,  // 666
+    engineLifetimeLiquidationsOff: V_ADL_ENGINE_LIFETIME_LIQUIDATIONS_OFF, // 672
+    engineLifetimeForceClosesOff: V_ADL_ENGINE_LIFETIME_FORCE_CLOSES_OFF,  // 680
+    engineNetLpPosOff: V_ADL_ENGINE_NET_LP_POS_OFF,            // 904
+    engineLpSumAbsOff: V_ADL_ENGINE_LP_SUM_ABS_OFF,            // 920
+    engineLpMaxAbsOff: V_ADL_ENGINE_LP_MAX_ABS_OFF,            // 936
+    engineLpMaxAbsSweepOff: V_ADL_ENGINE_LP_MAX_ABS_SWEEP_OFF, // 952
+    engineEmergencyOiModeOff: V_ADL_ENGINE_EMERGENCY_OI_MODE_OFF,    // 968
+    engineEmergencyStartSlotOff: V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF, // 976
+    engineLastBreakerSlotOff: V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF,    // 984
+    engineBitmapOff: V_ADL_ENGINE_BITMAP_OFF,                  // 1006
+    acctOwnerOff: V_ADL_ACCT_OWNER_OFF,                        // 192
+
+    hasInsuranceIsolation: true,
+    engineInsuranceIsolatedOff: 48,
+    engineInsuranceIsolationBpsOff: 64,
+  };
+}
+
+/**
  * Detect the slab layout version from the raw account data length.
  * Returns the full SlabLayout descriptor, or null if the size is unrecognised.
- * Checks V0, V1M, V1D, V1D-legacy, V1, and V1-legacy (pre-PERC-1094) sizes in priority order.
+ * Checks V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes in priority order.
  *
  * When `data` is provided and the size matches V1D, the version field at offset 8 is read
  * to disambiguate V2 slabs (which produce identical sizes to V1D with postBitmap=2).
@@ -737,7 +907,12 @@ function buildLayoutV1M(maxAccounts: number): SlabLayout {
  * @param data    - Optional raw slab data for version-field disambiguation
  */
 export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout | null {
-  // Check V1M sizes first (mainnet-deployed V1 program, ESa89R5).
+  // Check V_ADL sizes first — PERC-8270 ADL-upgraded program with new account layout (312 bytes).
+  // Must be checked before V1M because V_ADL sizes are unique (larger accounts).
+  const vadln = V_ADL_SIZES.get(dataLen);
+  if (vadln !== undefined) return buildLayoutVADL(vadln);
+
+  // Check V1M sizes (mainnet-deployed V1 program, ESa89R5).
   // Must be checked before V1_LEGACY because V1M sizes are unique and don't overlap.
   const v1mn = V1M_SIZES.get(dataLen);
   if (v1mn !== undefined) return buildLayoutV1M(v1mn);
@@ -1483,6 +1658,19 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
     throw new Error("Slab data too short for account");
   }
 
+  // Select layout-dependent account field offsets.
+  // V_ADL slabs (account_size=312) have shifted offsets from reserved_pnl growing u64→u128 (PERC-8267).
+  const isAdl = layout.accountSize >= 312;
+  const warmupStartedOff = isAdl ? V_ADL_ACCT_WARMUP_STARTED_OFF : ACCT_WARMUP_STARTED_OFF;
+  const warmupSlopeOff   = isAdl ? V_ADL_ACCT_WARMUP_SLOPE_OFF   : ACCT_WARMUP_SLOPE_OFF;
+  const positionSizeOff  = isAdl ? V_ADL_ACCT_POSITION_SIZE_OFF  : ACCT_POSITION_SIZE_OFF;
+  const entryPriceOff    = isAdl ? V_ADL_ACCT_ENTRY_PRICE_OFF    : ACCT_ENTRY_PRICE_OFF;
+  const fundingIndexOff  = isAdl ? V_ADL_ACCT_FUNDING_INDEX_OFF  : ACCT_FUNDING_INDEX_OFF;
+  const matcherProgOff   = isAdl ? V_ADL_ACCT_MATCHER_PROGRAM_OFF: ACCT_MATCHER_PROGRAM_OFF;
+  const matcherCtxOff    = isAdl ? V_ADL_ACCT_MATCHER_CONTEXT_OFF: ACCT_MATCHER_CONTEXT_OFF;
+  const feeCreditsOff    = isAdl ? V_ADL_ACCT_FEE_CREDITS_OFF    : ACCT_FEE_CREDITS_OFF;
+  const lastFeeSlotOff   = isAdl ? V_ADL_ACCT_LAST_FEE_SLOT_OFF  : ACCT_LAST_FEE_SLOT_OFF;
+
   const kindByte = readU8(data, base + ACCT_KIND_OFF);
   const kind = kindByte === 1 ? AccountKind.LP : AccountKind.User;
 
@@ -1492,16 +1680,16 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
     capital: readU128LE(data, base + ACCT_CAPITAL_OFF),
     pnl: readI128LE(data, base + ACCT_PNL_OFF),
     reservedPnl: readU64LE(data, base + ACCT_RESERVED_PNL_OFF),
-    warmupStartedAtSlot: readU64LE(data, base + ACCT_WARMUP_STARTED_OFF),
-    warmupSlopePerStep: readU128LE(data, base + ACCT_WARMUP_SLOPE_OFF),
-    positionSize: readI128LE(data, base + ACCT_POSITION_SIZE_OFF),
-    entryPrice: readU64LE(data, base + ACCT_ENTRY_PRICE_OFF),
-    fundingIndex: readI128LE(data, base + ACCT_FUNDING_INDEX_OFF),
-    matcherProgram: new PublicKey(data.subarray(base + ACCT_MATCHER_PROGRAM_OFF, base + ACCT_MATCHER_PROGRAM_OFF + 32)),
-    matcherContext: new PublicKey(data.subarray(base + ACCT_MATCHER_CONTEXT_OFF, base + ACCT_MATCHER_CONTEXT_OFF + 32)),
+    warmupStartedAtSlot: readU64LE(data, base + warmupStartedOff),
+    warmupSlopePerStep: readU128LE(data, base + warmupSlopeOff),
+    positionSize: readI128LE(data, base + positionSizeOff),
+    entryPrice: readU64LE(data, base + entryPriceOff),
+    fundingIndex: readI128LE(data, base + fundingIndexOff),
+    matcherProgram: new PublicKey(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
+    matcherContext: new PublicKey(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
     owner: new PublicKey(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
-    feeCredits: readI128LE(data, base + ACCT_FEE_CREDITS_OFF),
-    lastFeeSlot: readU64LE(data, base + ACCT_LAST_FEE_SLOT_OFF),
+    feeCredits: readI128LE(data, base + feeCreditsOff),
+    lastFeeSlot: readU64LE(data, base + lastFeeSlotOff),
   };
 }
 

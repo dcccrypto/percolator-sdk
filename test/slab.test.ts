@@ -495,3 +495,57 @@ console.log("\n✅ All slab tests passed!");
 
   console.log("✅ V2 slab layout tests passed!");
 }
+
+// ─── V_ADL slab layout tests (PERC-8270/8271 ADL upgrade) ──────────────────
+// V_ADL slabs use ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312.
+// BPF-compiled SLAB_LEN verified by cargo build-sbf in PERC-8271.
+{
+  console.log("\nTesting V_ADL slab layout (PERC-8270/8271 ADL upgrade)...");
+
+  // Large tier: 4096 accounts × 312 bytes/account, bitmapOff=1006
+  const V_ADL_LARGE_SIZE = 1_288_304;
+  const layoutLarge = detectSlabLayout(V_ADL_LARGE_SIZE);
+  assert(layoutLarge !== null, `detectSlabLayout(1288304) must return non-null`);
+  assert(layoutLarge!.engineOff === 624, `V_ADL engineOff should be 624, got ${layoutLarge!.engineOff}`);
+  assert(layoutLarge!.accountSize === 312, `V_ADL accountSize should be 312, got ${layoutLarge!.accountSize}`);
+  assert(layoutLarge!.maxAccounts === 4096, `V_ADL maxAccounts should be 4096, got ${layoutLarge!.maxAccounts}`);
+  assert(layoutLarge!.engineBitmapOff === 1006, `V_ADL bitmapOff should be 1006, got ${layoutLarge!.engineBitmapOff}`);
+  assert(layoutLarge!.acctOwnerOff === 192, `V_ADL acctOwnerOff should be 192, got ${layoutLarge!.acctOwnerOff}`);
+  console.log("  ✓ V_ADL large slab (1288304, 4096 accounts) detected correctly");
+
+  // Verify critical engine field offsets
+  assert(layoutLarge!.engineCurrentSlotOff === 432, `V_ADL currentSlot should be 432`);
+  assert(layoutLarge!.engineMarkPriceOff === 504, `V_ADL markPrice should be 504`);
+  assert(layoutLarge!.engineTotalOiOff === 544, `V_ADL totalOI should be 544`);
+  assert(layoutLarge!.engineLongOiOff === 560, `V_ADL longOI should be 560`);
+  assert(layoutLarge!.engineShortOiOff === 576, `V_ADL shortOI should be 576`);
+  assert(layoutLarge!.engineCTotOff === 592, `V_ADL cTot should be 592`);
+  assert(layoutLarge!.enginePnlPosTotOff === 608, `V_ADL pnlPosTot should be 608`);
+  console.log("  ✓ V_ADL engine field offsets match PERC-8270 specification");
+
+  // Verify accounts_off computation: ENGINE_OFF + accountsOffRel = 624 + 9728 = 10352
+  assert(layoutLarge!.accountsOff === 624 + 9728, `V_ADL accountsOff should be 10352, got ${layoutLarge!.accountsOff}`);
+  console.log("  ✓ V_ADL accounts array offset = 10352 (ENGINE_OFF=624 + bitmapOff-derived 9728)");
+
+  // Insurance isolation fields present
+  assert(layoutLarge!.hasInsuranceIsolation === true, `V_ADL should have insurance isolation`);
+  console.log("  ✓ V_ADL has insurance isolation fields");
+
+  // Medium tier: 1024 accounts
+  const V_ADL_MEDIUM_SIZE = 323_312;
+  const layoutMedium = detectSlabLayout(V_ADL_MEDIUM_SIZE);
+  assert(layoutMedium !== null, `detectSlabLayout(323312) must return non-null`);
+  assert(layoutMedium!.maxAccounts === 1024, `V_ADL medium maxAccounts should be 1024`);
+  assert(layoutMedium!.accountSize === 312, `V_ADL medium accountSize should be 312`);
+  console.log("  ✓ V_ADL medium slab (323312, 1024 accounts) detected correctly");
+
+  // Small tier: 256 accounts
+  const V_ADL_SMALL_SIZE = 82_064;
+  const layoutSmall = detectSlabLayout(V_ADL_SMALL_SIZE);
+  assert(layoutSmall !== null, `detectSlabLayout(82064) must return non-null`);
+  assert(layoutSmall!.maxAccounts === 256, `V_ADL small maxAccounts should be 256`);
+  assert(layoutSmall!.accountSize === 312, `V_ADL small accountSize should be 312`);
+  console.log("  ✓ V_ADL small slab (82064, 256 accounts) detected correctly");
+
+  console.log("✅ V_ADL slab layout tests passed!");
+}

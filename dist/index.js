@@ -1339,6 +1339,49 @@ var V2_ENGINE_NET_LP_POS_OFF = 504;
 var V2_ENGINE_LP_SUM_ABS_OFF = 520;
 var V2_ENGINE_LP_MAX_ABS_OFF = 536;
 var V2_ENGINE_LP_MAX_ABS_SWEEP_OFF = 552;
+var V_ADL_ENGINE_OFF = 624;
+var V_ADL_CONFIG_LEN = 520;
+var V_ADL_ACCOUNT_SIZE = 312;
+var V_ADL_ENGINE_PARAMS_OFF = 96;
+var V_ADL_PARAMS_SIZE = 336;
+var V_ADL_ENGINE_CURRENT_SLOT_OFF = 432;
+var V_ADL_ENGINE_FUNDING_INDEX_OFF = 440;
+var V_ADL_ENGINE_LAST_FUNDING_SLOT_OFF = 456;
+var V_ADL_ENGINE_FUNDING_RATE_BPS_OFF = 464;
+var V_ADL_ENGINE_MARK_PRICE_OFF = 504;
+var V_ADL_ENGINE_LAST_CRANK_SLOT_OFF = 528;
+var V_ADL_ENGINE_MAX_CRANK_STALENESS_OFF = 536;
+var V_ADL_ENGINE_TOTAL_OI_OFF = 544;
+var V_ADL_ENGINE_LONG_OI_OFF = 560;
+var V_ADL_ENGINE_SHORT_OI_OFF = 576;
+var V_ADL_ENGINE_C_TOT_OFF = 592;
+var V_ADL_ENGINE_PNL_POS_TOT_OFF = 608;
+var V_ADL_ENGINE_LIQ_CURSOR_OFF = 640;
+var V_ADL_ENGINE_GC_CURSOR_OFF = 642;
+var V_ADL_ENGINE_LAST_SWEEP_START_OFF = 648;
+var V_ADL_ENGINE_LAST_SWEEP_COMPLETE_OFF = 656;
+var V_ADL_ENGINE_CRANK_CURSOR_OFF = 664;
+var V_ADL_ENGINE_SWEEP_START_IDX_OFF = 666;
+var V_ADL_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 672;
+var V_ADL_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 680;
+var V_ADL_ENGINE_NET_LP_POS_OFF = 904;
+var V_ADL_ENGINE_LP_SUM_ABS_OFF = 920;
+var V_ADL_ENGINE_LP_MAX_ABS_OFF = 936;
+var V_ADL_ENGINE_LP_MAX_ABS_SWEEP_OFF = 952;
+var V_ADL_ENGINE_EMERGENCY_OI_MODE_OFF = 968;
+var V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF = 976;
+var V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF = 984;
+var V_ADL_ENGINE_BITMAP_OFF = 1006;
+var V_ADL_ACCT_WARMUP_STARTED_OFF = 64;
+var V_ADL_ACCT_WARMUP_SLOPE_OFF = 72;
+var V_ADL_ACCT_POSITION_SIZE_OFF = 88;
+var V_ADL_ACCT_ENTRY_PRICE_OFF = 104;
+var V_ADL_ACCT_FUNDING_INDEX_OFF = 112;
+var V_ADL_ACCT_MATCHER_PROGRAM_OFF = 128;
+var V_ADL_ACCT_MATCHER_CONTEXT_OFF = 160;
+var V_ADL_ACCT_OWNER_OFF = 192;
+var V_ADL_ACCT_FEE_CREDITS_OFF = 224;
+var V_ADL_ACCT_LAST_FEE_SLOT_OFF = 240;
 var V1M_ENGINE_OFF = 640;
 var V1M_CONFIG_LEN = 536;
 var V1M_ACCOUNT_SIZE = 248;
@@ -1389,6 +1432,7 @@ var V1_SIZES_LEGACY = /* @__PURE__ */ new Map();
 var V1D_SIZES = /* @__PURE__ */ new Map();
 var V2_SIZES = /* @__PURE__ */ new Map();
 var V1M_SIZES = /* @__PURE__ */ new Map();
+var V_ADL_SIZES = /* @__PURE__ */ new Map();
 var V1D_SIZES_LEGACY = /* @__PURE__ */ new Map();
 for (const n of TIERS) {
   V0_SIZES.set(computeSlabSize(V0_ENGINE_OFF, V0_ENGINE_BITMAP_OFF, V0_ACCOUNT_SIZE, n), n);
@@ -1398,6 +1442,7 @@ for (const n of TIERS) {
   V1D_SIZES_LEGACY.set(computeSlabSize(V1D_ENGINE_OFF, V1D_ENGINE_BITMAP_OFF, V1D_ACCOUNT_SIZE, n, 18), n);
   V2_SIZES.set(computeSlabSize(V2_ENGINE_OFF, V2_ENGINE_BITMAP_OFF, V2_ACCOUNT_SIZE, n, 18), n);
   V1M_SIZES.set(computeSlabSize(V1M_ENGINE_OFF, V1M_ENGINE_BITMAP_OFF, V1M_ACCOUNT_SIZE, n, 18), n);
+  V_ADL_SIZES.set(computeSlabSize(V_ADL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18), n);
 }
 var SLAB_TIERS_V2 = {
   small: { maxAccounts: 256, dataSize: 65088, label: "Small", description: "256 slots (V2 BPF intermediate)" },
@@ -1407,6 +1452,11 @@ var SLAB_TIERS_V1M = {};
 for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]]) {
   const size = computeSlabSize(V1M_ENGINE_OFF, V1M_ENGINE_BITMAP_OFF, V1M_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V1M[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V1M mainnet)` };
+}
+var SLAB_TIERS_V_ADL = {};
+for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]]) {
+  const size = computeSlabSize(V_ADL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18);
+  SLAB_TIERS_V_ADL[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V_ADL PERC-8270)` };
 }
 function buildLayout(version, maxAccounts, engineOffOverride) {
   const isV0 = version === 0;
@@ -1657,7 +1707,101 @@ function buildLayoutV1M(maxAccounts) {
     engineInsuranceIsolationBpsOff: 64
   };
 }
+function buildLayoutVADL(maxAccounts) {
+  const engineOff = V_ADL_ENGINE_OFF;
+  const bitmapOff = V_ADL_ENGINE_BITMAP_OFF;
+  const accountSize = V_ADL_ACCOUNT_SIZE;
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const postBitmap = 18;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
+  return {
+    version: 1,
+    headerLen: V1_HEADER_LEN,
+    // 104 (unchanged)
+    configOffset: V1_HEADER_LEN,
+    configLen: V_ADL_CONFIG_LEN,
+    // 520
+    reservedOff: V1_RESERVED_OFF,
+    // 80
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+    engineInsuranceOff: 16,
+    engineParamsOff: V_ADL_ENGINE_PARAMS_OFF,
+    // 96 (vault=16 + InsuranceFund=80)
+    paramsSize: V_ADL_PARAMS_SIZE,
+    // 336
+    engineCurrentSlotOff: V_ADL_ENGINE_CURRENT_SLOT_OFF,
+    // 432
+    engineFundingIndexOff: V_ADL_ENGINE_FUNDING_INDEX_OFF,
+    // 440
+    engineLastFundingSlotOff: V_ADL_ENGINE_LAST_FUNDING_SLOT_OFF,
+    // 456
+    engineFundingRateBpsOff: V_ADL_ENGINE_FUNDING_RATE_BPS_OFF,
+    // 464
+    engineMarkPriceOff: V_ADL_ENGINE_MARK_PRICE_OFF,
+    // 504
+    engineLastCrankSlotOff: V_ADL_ENGINE_LAST_CRANK_SLOT_OFF,
+    // 528
+    engineMaxCrankStalenessOff: V_ADL_ENGINE_MAX_CRANK_STALENESS_OFF,
+    // 536
+    engineTotalOiOff: V_ADL_ENGINE_TOTAL_OI_OFF,
+    // 544
+    engineLongOiOff: V_ADL_ENGINE_LONG_OI_OFF,
+    // 560
+    engineShortOiOff: V_ADL_ENGINE_SHORT_OI_OFF,
+    // 576
+    engineCTotOff: V_ADL_ENGINE_C_TOT_OFF,
+    // 592
+    enginePnlPosTotOff: V_ADL_ENGINE_PNL_POS_TOT_OFF,
+    // 608
+    engineLiqCursorOff: V_ADL_ENGINE_LIQ_CURSOR_OFF,
+    // 640
+    engineGcCursorOff: V_ADL_ENGINE_GC_CURSOR_OFF,
+    // 642
+    engineLastSweepStartOff: V_ADL_ENGINE_LAST_SWEEP_START_OFF,
+    // 648
+    engineLastSweepCompleteOff: V_ADL_ENGINE_LAST_SWEEP_COMPLETE_OFF,
+    // 656
+    engineCrankCursorOff: V_ADL_ENGINE_CRANK_CURSOR_OFF,
+    // 664
+    engineSweepStartIdxOff: V_ADL_ENGINE_SWEEP_START_IDX_OFF,
+    // 666
+    engineLifetimeLiquidationsOff: V_ADL_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
+    // 672
+    engineLifetimeForceClosesOff: V_ADL_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
+    // 680
+    engineNetLpPosOff: V_ADL_ENGINE_NET_LP_POS_OFF,
+    // 904
+    engineLpSumAbsOff: V_ADL_ENGINE_LP_SUM_ABS_OFF,
+    // 920
+    engineLpMaxAbsOff: V_ADL_ENGINE_LP_MAX_ABS_OFF,
+    // 936
+    engineLpMaxAbsSweepOff: V_ADL_ENGINE_LP_MAX_ABS_SWEEP_OFF,
+    // 952
+    engineEmergencyOiModeOff: V_ADL_ENGINE_EMERGENCY_OI_MODE_OFF,
+    // 968
+    engineEmergencyStartSlotOff: V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF,
+    // 976
+    engineLastBreakerSlotOff: V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF,
+    // 984
+    engineBitmapOff: V_ADL_ENGINE_BITMAP_OFF,
+    // 1006
+    acctOwnerOff: V_ADL_ACCT_OWNER_OFF,
+    // 192
+    hasInsuranceIsolation: true,
+    engineInsuranceIsolatedOff: 48,
+    engineInsuranceIsolationBpsOff: 64
+  };
+}
 function detectSlabLayout(dataLen, data) {
+  const vadln = V_ADL_SIZES.get(dataLen);
+  if (vadln !== void 0) return buildLayoutVADL(vadln);
   const v1mn = V1M_SIZES.get(dataLen);
   if (v1mn !== void 0) return buildLayoutV1M(v1mn);
   const v0n = V0_SIZES.get(dataLen);
@@ -2067,6 +2211,16 @@ function parseAccount(data, idx) {
   if (data.length < base + layout.accountSize) {
     throw new Error("Slab data too short for account");
   }
+  const isAdl = layout.accountSize >= 312;
+  const warmupStartedOff = isAdl ? V_ADL_ACCT_WARMUP_STARTED_OFF : ACCT_WARMUP_STARTED_OFF;
+  const warmupSlopeOff = isAdl ? V_ADL_ACCT_WARMUP_SLOPE_OFF : ACCT_WARMUP_SLOPE_OFF;
+  const positionSizeOff = isAdl ? V_ADL_ACCT_POSITION_SIZE_OFF : ACCT_POSITION_SIZE_OFF;
+  const entryPriceOff = isAdl ? V_ADL_ACCT_ENTRY_PRICE_OFF : ACCT_ENTRY_PRICE_OFF;
+  const fundingIndexOff = isAdl ? V_ADL_ACCT_FUNDING_INDEX_OFF : ACCT_FUNDING_INDEX_OFF;
+  const matcherProgOff = isAdl ? V_ADL_ACCT_MATCHER_PROGRAM_OFF : ACCT_MATCHER_PROGRAM_OFF;
+  const matcherCtxOff = isAdl ? V_ADL_ACCT_MATCHER_CONTEXT_OFF : ACCT_MATCHER_CONTEXT_OFF;
+  const feeCreditsOff = isAdl ? V_ADL_ACCT_FEE_CREDITS_OFF : ACCT_FEE_CREDITS_OFF;
+  const lastFeeSlotOff = isAdl ? V_ADL_ACCT_LAST_FEE_SLOT_OFF : ACCT_LAST_FEE_SLOT_OFF;
   const kindByte = readU8(data, base + ACCT_KIND_OFF);
   const kind = kindByte === 1 ? 1 /* LP */ : 0 /* User */;
   return {
@@ -2075,16 +2229,16 @@ function parseAccount(data, idx) {
     capital: readU128LE(data, base + ACCT_CAPITAL_OFF),
     pnl: readI128LE(data, base + ACCT_PNL_OFF),
     reservedPnl: readU64LE(data, base + ACCT_RESERVED_PNL_OFF),
-    warmupStartedAtSlot: readU64LE(data, base + ACCT_WARMUP_STARTED_OFF),
-    warmupSlopePerStep: readU128LE(data, base + ACCT_WARMUP_SLOPE_OFF),
-    positionSize: readI128LE(data, base + ACCT_POSITION_SIZE_OFF),
-    entryPrice: readU64LE(data, base + ACCT_ENTRY_PRICE_OFF),
-    fundingIndex: readI128LE(data, base + ACCT_FUNDING_INDEX_OFF),
-    matcherProgram: new PublicKey3(data.subarray(base + ACCT_MATCHER_PROGRAM_OFF, base + ACCT_MATCHER_PROGRAM_OFF + 32)),
-    matcherContext: new PublicKey3(data.subarray(base + ACCT_MATCHER_CONTEXT_OFF, base + ACCT_MATCHER_CONTEXT_OFF + 32)),
+    warmupStartedAtSlot: readU64LE(data, base + warmupStartedOff),
+    warmupSlopePerStep: readU128LE(data, base + warmupSlopeOff),
+    positionSize: readI128LE(data, base + positionSizeOff),
+    entryPrice: readU64LE(data, base + entryPriceOff),
+    fundingIndex: readI128LE(data, base + fundingIndexOff),
+    matcherProgram: new PublicKey3(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
+    matcherContext: new PublicKey3(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
     owner: new PublicKey3(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
-    feeCredits: readI128LE(data, base + ACCT_FEE_CREDITS_OFF),
-    lastFeeSlot: readU64LE(data, base + ACCT_LAST_FEE_SLOT_OFF)
+    feeCredits: readI128LE(data, base + feeCreditsOff),
+    lastFeeSlot: readU64LE(data, base + lastFeeSlotOff)
   };
 }
 function parseAllAccounts(data) {
@@ -2193,6 +2347,11 @@ var SLAB_TIERS_V1D_LEGACY = {
   large: { maxAccounts: 4096, dataSize: 1025584, label: "Large", description: "4,096 slots (V1D legacy, postBitmap=18)" }
 };
 var SLAB_TIERS_V1 = SLAB_TIERS;
+var SLAB_TIERS_V_ADL_DISCOVERY = {
+  small: { maxAccounts: 256, dataSize: 82064, label: "Small", description: "256 slots (V_ADL PERC-8270)" },
+  medium: { maxAccounts: 1024, dataSize: 323312, label: "Medium", description: "1,024 slots (V_ADL PERC-8270)" },
+  large: { maxAccounts: 4096, dataSize: 1288304, label: "Large", description: "4,096 slots (V_ADL PERC-8270) \xB7 ~8.95 SOL" }
+};
 function slabDataSize(maxAccounts) {
   const ENGINE_OFF_V0 = 480;
   const ENGINE_BITMAP_OFF_V02 = 320;
@@ -2223,7 +2382,8 @@ var ALL_SLAB_SIZES = [
   ...Object.values(SLAB_TIERS_V0).map((t) => t.dataSize),
   ...Object.values(SLAB_TIERS_V1D).map((t) => t.dataSize),
   ...Object.values(SLAB_TIERS_V1D_LEGACY).map((t) => t.dataSize),
-  ...Object.values(SLAB_TIERS_V1M).map((t) => t.dataSize)
+  ...Object.values(SLAB_TIERS_V1M).map((t) => t.dataSize),
+  ...Object.values(SLAB_TIERS_V_ADL).map((t) => t.dataSize)
 ];
 var SLAB_DATA_SIZE = SLAB_TIERS.large.dataSize;
 var HEADER_SLICE_LENGTH = 1940;
@@ -2412,7 +2572,8 @@ async function discoverMarkets(connection, programId, options = {}) {
     ...Object.values(SLAB_TIERS_V1D),
     ...Object.values(SLAB_TIERS_V1D_LEGACY),
     ...Object.values(SLAB_TIERS_V2),
-    ...Object.values(SLAB_TIERS_V1M)
+    ...Object.values(SLAB_TIERS_V1M),
+    ...Object.values(SLAB_TIERS_V_ADL)
   ];
   let rawAccounts = [];
   async function fetchTierWithRetry(tier) {
@@ -3781,6 +3942,8 @@ export {
   SLAB_TIERS_V1D_LEGACY,
   SLAB_TIERS_V1M,
   SLAB_TIERS_V2,
+  SLAB_TIERS_V_ADL,
+  SLAB_TIERS_V_ADL_DISCOVERY,
   STAKE_IX,
   STAKE_POOL_SIZE,
   STAKE_PROGRAM_ID,
