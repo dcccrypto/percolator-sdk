@@ -30,6 +30,8 @@ export function deriveInsuranceLpMint(
   );
 }
 
+const LP_INDEX_U16_MAX = 0xffff;
+
 /**
  * Derive LP PDA for TradeCpi.
  * Seeds: ["lp", slab_key, lp_idx as u16 LE]
@@ -39,6 +41,16 @@ export function deriveLpPda(
   slab: PublicKey,
   lpIdx: number
 ): [PublicKey, number] {
+  if (
+    typeof lpIdx !== "number" ||
+    !Number.isInteger(lpIdx) ||
+    lpIdx < 0 ||
+    lpIdx > LP_INDEX_U16_MAX
+  ) {
+    throw new Error(
+      `deriveLpPda: lpIdx must be an integer in [0, ${LP_INDEX_U16_MAX}], got ${lpIdx}`,
+    );
+  }
   const idxBuf = new Uint8Array(2);
   new DataView(idxBuf.buffer).setUint16(0, lpIdx, true);
   return PublicKey.findProgramAddressSync(
@@ -127,15 +139,37 @@ export function deriveCreatorLockPda(
   );
 }
 
+/** 32-byte feed id as 64 hex digits (optional `0x` prefix after trim). */
+const PYTH_FEED_ID_HEX_LEN = 64;
+
+function normalizePythFeedIdHex(feedIdHex: string): string {
+  let s = feedIdHex.trim();
+  if (s.startsWith("0x") || s.startsWith("0X")) {
+    s = s.slice(2);
+  }
+  return s;
+}
+
 /**
  * Derive the Pyth Push Oracle PDA for a given feed ID.
  * Seeds: [shard_id(u16 LE, always 0), feed_id(32 bytes)]
  * Program: pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT
  */
 export function derivePythPushOraclePDA(feedIdHex: string): [PublicKey, number] {
+  const normalized = normalizePythFeedIdHex(feedIdHex);
+  if (normalized.length !== PYTH_FEED_ID_HEX_LEN) {
+    throw new Error(
+      `derivePythPushOraclePDA: feedIdHex must be ${PYTH_FEED_ID_HEX_LEN} hex digits (32 bytes); got length ${normalized.length}`,
+    );
+  }
+  if (!/^[0-9a-fA-F]+$/.test(normalized)) {
+    throw new Error(
+      "derivePythPushOraclePDA: feedIdHex must contain only hexadecimal digits",
+    );
+  }
   const feedId = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
-    feedId[i] = parseInt(feedIdHex.substring(i * 2, i * 2 + 2), 16);
+    feedId[i] = parseInt(normalized.substring(i * 2, i * 2 + 2), 16);
   }
   const shardBuf = new Uint8Array(2); // shard_id = 0 (u16 LE)
   return PublicKey.findProgramAddressSync(

@@ -384,6 +384,32 @@ describe("resolvePrice", () => {
     expect(result.mint).toBe("TestMint");
   });
 
+  it("returns empty sources when fetch never settles and timeout fires", async () => {
+    fetchSpy.mockImplementation((_url: string, init?: RequestInit) => {
+      const sig = init?.signal;
+      return {
+        json: () =>
+          new Promise<never>((_, reject) => {
+            if (!sig) {
+              reject(new Error("expected AbortSignal on fetch"));
+              return;
+            }
+            if (sig.aborted) {
+              reject(sig.reason);
+              return;
+            }
+            sig.addEventListener("abort", () => reject(sig.reason), { once: true });
+          }),
+      };
+    });
+    const result = await resolvePrice("TimeoutMint1111111111111111111111111111111", undefined, {
+      timeoutMs: 30,
+    });
+    expect(result.mint).toBe("TimeoutMint1111111111111111111111111111111");
+    expect(result.bestSource).toBeNull();
+    expect(result.allSources).toHaveLength(0);
+  });
+
   it("accepts pumpswap and meteora as valid DEX IDs", async () => {
     const mint = "DexIdTestMint111111111111111111111111111111111";
     mockApis({

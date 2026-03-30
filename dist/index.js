@@ -388,6 +388,9 @@ function encodeDepositInsuranceLP(args) {
 function encodeWithdrawInsuranceLP(args) {
   return concatBytes(encU8(IX_TAG.WithdrawInsuranceLP), encU64(args.lpAmount));
 }
+function encodeLpVaultWithdraw(args) {
+  return concatBytes(encU8(IX_TAG.LpVaultWithdraw), encU64(args.lpAmount));
+}
 function encodePauseMarket() {
   return encU8(IX_TAG.PauseMarket);
 }
@@ -412,12 +415,12 @@ function encodeSetPythOracle(args) {
 }
 var PYTH_RECEIVER_PROGRAM_ID = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
 async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
-  const { PublicKey: PublicKey11 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey12 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey11.findProgramAddressSync(
+  const [pda] = PublicKey12.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey11(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey12(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -791,6 +794,18 @@ var ACCOUNTS_WITHDRAW_INSURANCE_LP = [
   { name: "insLpMint", signer: false, writable: true },
   { name: "withdrawerLpAta", signer: false, writable: true },
   { name: "vaultAuthority", signer: false, writable: false }
+];
+var ACCOUNTS_LP_VAULT_WITHDRAW = [
+  { name: "withdrawer", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "withdrawerAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpVaultMint", signer: false, writable: true },
+  { name: "withdrawerLpAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true },
+  { name: "creatorLockPda", signer: false, writable: true }
 ];
 var ACCOUNTS_FUND_MARKET_INSURANCE = [
   { name: "admin", signer: true, writable: true },
@@ -2228,7 +2243,7 @@ function parseAccount(data, idx) {
     accountId: readU64LE(data, base + ACCT_ACCOUNT_ID_OFF),
     capital: readU128LE(data, base + ACCT_CAPITAL_OFF),
     pnl: readI128LE(data, base + ACCT_PNL_OFF),
-    reservedPnl: readU64LE(data, base + ACCT_RESERVED_PNL_OFF),
+    reservedPnl: isAdl ? readU128LE(data, base + ACCT_RESERVED_PNL_OFF) : readU64LE(data, base + ACCT_RESERVED_PNL_OFF),
     warmupStartedAtSlot: readU64LE(data, base + warmupStartedOff),
     warmupSlopePerStep: readU128LE(data, base + warmupSlopeOff),
     positionSize: readI128LE(data, base + positionSizeOff),
@@ -2266,7 +2281,13 @@ function deriveInsuranceLpMint(programId, slab) {
     programId
   );
 }
+var LP_INDEX_U16_MAX = 65535;
 function deriveLpPda(programId, slab, lpIdx) {
+  if (typeof lpIdx !== "number" || !Number.isInteger(lpIdx) || lpIdx < 0 || lpIdx > LP_INDEX_U16_MAX) {
+    throw new Error(
+      `deriveLpPda: lpIdx must be an integer in [0, ${LP_INDEX_U16_MAX}], got ${lpIdx}`
+    );
+  }
   const idxBuf = new Uint8Array(2);
   new DataView(idxBuf.buffer).setUint16(0, lpIdx, true);
   return PublicKey4.findProgramAddressSync(
@@ -2292,10 +2313,36 @@ var METEORA_DLMM_PROGRAM_ID = new PublicKey4(
 var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey4(
   "pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT"
 );
+var CREATOR_LOCK_SEED = "creator_lock";
+function deriveCreatorLockPda(programId, slab) {
+  return PublicKey4.findProgramAddressSync(
+    [textEncoder.encode(CREATOR_LOCK_SEED), slab.toBytes()],
+    programId
+  );
+}
+var PYTH_FEED_ID_HEX_LEN = 64;
+function normalizePythFeedIdHex(feedIdHex) {
+  let s = feedIdHex.trim();
+  if (s.startsWith("0x") || s.startsWith("0X")) {
+    s = s.slice(2);
+  }
+  return s;
+}
 function derivePythPushOraclePDA(feedIdHex) {
+  const normalized = normalizePythFeedIdHex(feedIdHex);
+  if (normalized.length !== PYTH_FEED_ID_HEX_LEN) {
+    throw new Error(
+      `derivePythPushOraclePDA: feedIdHex must be ${PYTH_FEED_ID_HEX_LEN} hex digits (32 bytes); got length ${normalized.length}`
+    );
+  }
+  if (!/^[0-9a-fA-F]+$/.test(normalized)) {
+    throw new Error(
+      "derivePythPushOraclePDA: feedIdHex must contain only hexadecimal digits"
+    );
+  }
   const feedId = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
-    feedId[i] = parseInt(feedIdHex.substring(i * 2, i * 2 + 2), 16);
+    feedId[i] = parseInt(normalized.substring(i * 2, i * 2 + 2), 16);
   }
   const shardBuf = new Uint8Array(2);
   return PublicKey4.findProgramAddressSync(
@@ -2347,11 +2394,7 @@ var SLAB_TIERS_V1D_LEGACY = {
   large: { maxAccounts: 4096, dataSize: 1025584, label: "Large", description: "4,096 slots (V1D legacy, postBitmap=18)" }
 };
 var SLAB_TIERS_V1 = SLAB_TIERS;
-var SLAB_TIERS_V_ADL_DISCOVERY = {
-  small: { maxAccounts: 256, dataSize: 82064, label: "Small", description: "256 slots (V_ADL PERC-8270)" },
-  medium: { maxAccounts: 1024, dataSize: 323312, label: "Medium", description: "1,024 slots (V_ADL PERC-8270)" },
-  large: { maxAccounts: 4096, dataSize: 1288304, label: "Large", description: "4,096 slots (V_ADL PERC-8270) \xB7 ~8.95 SOL" }
-};
+var SLAB_TIERS_V_ADL_DISCOVERY = SLAB_TIERS_V_ADL;
 function slabDataSize(maxAccounts) {
   const ENGINE_OFF_V0 = 480;
   const ENGINE_BITMAP_OFF_V02 = 320;
@@ -2507,6 +2550,48 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       lastBreakerSlot: 0n,
       markPriceE6: 0n,
       // V2 has no mark_price
+      numUsedAccounts: canReadNumUsed ? readU16LE2(data, base + numUsedOff) : 0,
+      nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
+    };
+  }
+  const isVAdl = layout !== null && layout.engineOff === 624 && layout.accountSize === 312;
+  if (isVAdl) {
+    const l = layout;
+    return {
+      vault: readU128LE2(data, base + 0),
+      insuranceFund: {
+        balance: readU128LE2(data, base + l.engineInsuranceOff),
+        feeRevenue: readU128LE2(data, base + l.engineInsuranceOff + 16),
+        isolatedBalance: readU128LE2(data, base + l.engineInsuranceIsolatedOff),
+        isolationBps: readU16LE2(data, base + l.engineInsuranceIsolationBpsOff)
+      },
+      currentSlot: readU64LE2(data, base + l.engineCurrentSlotOff),
+      fundingIndexQpbE6: readI128LE2(data, base + l.engineFundingIndexOff),
+      lastFundingSlot: readU64LE2(data, base + l.engineLastFundingSlotOff),
+      fundingRateBpsPerSlotLast: readI64LE2(data, base + l.engineFundingRateBpsOff),
+      lastCrankSlot: readU64LE2(data, base + l.engineLastCrankSlotOff),
+      maxCrankStalenessSlots: readU64LE2(data, base + l.engineMaxCrankStalenessOff),
+      totalOpenInterest: readU128LE2(data, base + l.engineTotalOiOff),
+      longOi: l.engineLongOiOff >= 0 ? readU128LE2(data, base + l.engineLongOiOff) : 0n,
+      shortOi: l.engineShortOiOff >= 0 ? readU128LE2(data, base + l.engineShortOiOff) : 0n,
+      cTot: readU128LE2(data, base + l.engineCTotOff),
+      pnlPosTot: readU128LE2(data, base + l.enginePnlPosTotOff),
+      liqCursor: readU16LE2(data, base + l.engineLiqCursorOff),
+      gcCursor: readU16LE2(data, base + l.engineGcCursorOff),
+      lastSweepStartSlot: readU64LE2(data, base + l.engineLastSweepStartOff),
+      lastSweepCompleteSlot: readU64LE2(data, base + l.engineLastSweepCompleteOff),
+      crankCursor: readU16LE2(data, base + l.engineCrankCursorOff),
+      sweepStartIdx: readU16LE2(data, base + l.engineSweepStartIdxOff),
+      lifetimeLiquidations: readU64LE2(data, base + l.engineLifetimeLiquidationsOff),
+      lifetimeForceCloses: readU64LE2(data, base + l.engineLifetimeForceClosesOff),
+      netLpPos: readI128LE2(data, base + l.engineNetLpPosOff),
+      lpSumAbs: readU128LE2(data, base + l.engineLpSumAbsOff),
+      lpMaxAbs: readU128LE2(data, base + l.engineLpMaxAbsOff),
+      lpMaxAbsSweep: readU128LE2(data, base + l.engineLpMaxAbsSweepOff),
+      emergencyOiMode: l.engineEmergencyOiModeOff >= 0 ? data[base + l.engineEmergencyOiModeOff] !== 0 : false,
+      emergencyStartSlot: l.engineEmergencyStartSlotOff >= 0 ? readU64LE2(data, base + l.engineEmergencyStartSlotOff) : 0n,
+      lastBreakerSlot: l.engineLastBreakerSlotOff >= 0 ? readU64LE2(data, base + l.engineLastBreakerSlotOff) : 0n,
+      markPriceE6: l.engineMarkPriceOff >= 0 ? readU64LE2(data, base + l.engineMarkPriceOff) : 0n,
       numUsedAccounts: canReadNumUsed ? readU16LE2(data, base + numUsedOff) : 0,
       nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
     };
@@ -3267,14 +3352,112 @@ function flushToInsuranceAccounts(a) {
   ];
 }
 
-// src/runtime/tx.ts
+// src/solana/adl.ts
 import {
   TransactionInstruction,
+  SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY3
+} from "@solana/web3.js";
+function computePnlPct(pnl, capital) {
+  if (capital === 0n) return 0n;
+  return pnl * 10000n / capital;
+}
+function isAdlTriggered(slabData) {
+  const layout = detectSlabLayout(slabData.length);
+  if (!layout) return false;
+  const engine = parseEngine(slabData);
+  if (engine.pnlPosTot === 0n) return false;
+  try {
+    const config = parseConfig(slabData, layout);
+    if (config.maxPnlCap === 0n) return false;
+    return engine.pnlPosTot > config.maxPnlCap;
+  } catch {
+    return false;
+  }
+}
+async function fetchAdlRankedPositions(connection, slab) {
+  const data = await fetchSlab(connection, slab);
+  return rankAdlPositions(data);
+}
+function rankAdlPositions(slabData) {
+  const layout = detectSlabLayout(slabData.length);
+  const engine = parseEngine(slabData);
+  const pnlPosTot = engine.pnlPosTot;
+  let maxPnlCap = 0n;
+  let isTriggered = false;
+  if (layout) {
+    try {
+      const config = parseConfig(slabData, layout);
+      maxPnlCap = config.maxPnlCap;
+      isTriggered = maxPnlCap > 0n && pnlPosTot > maxPnlCap;
+    } catch {
+    }
+  }
+  const accounts = parseAllAccounts(slabData);
+  const positions = [];
+  for (const { idx, account } of accounts) {
+    if (account.kind !== 0 /* User */) continue;
+    if (account.positionSize === 0n) continue;
+    const side = account.positionSize > 0n ? "long" : "short";
+    const pnlPct = computePnlPct(account.pnl, account.capital);
+    positions.push({
+      idx,
+      owner: account.owner,
+      positionSize: account.positionSize,
+      pnl: account.pnl,
+      capital: account.capital,
+      pnlPct,
+      side,
+      adlRank: -1
+      // assigned below
+    });
+  }
+  const longs = positions.filter((p) => p.side === "long").sort((a, b) => b.pnlPct > a.pnlPct ? 1 : b.pnlPct < a.pnlPct ? -1 : 0);
+  longs.forEach((p, i) => {
+    p.adlRank = i;
+  });
+  const shorts = positions.filter((p) => p.side === "short").sort((a, b) => b.pnlPct > a.pnlPct ? 1 : b.pnlPct < a.pnlPct ? -1 : 0);
+  shorts.forEach((p, i) => {
+    p.adlRank = i;
+  });
+  const ranked = [...longs, ...shorts].sort(
+    (a, b) => b.pnlPct > a.pnlPct ? 1 : b.pnlPct < a.pnlPct ? -1 : 0
+  );
+  return { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap };
+}
+function buildAdlInstruction(caller, slab, oracle, programId, targetIdx, backupOracles = []) {
+  const data = Buffer.from(encodeExecuteAdl({ targetIdx }));
+  const keys = [
+    { pubkey: caller, isSigner: true, isWritable: false },
+    { pubkey: slab, isSigner: false, isWritable: true },
+    { pubkey: SYSVAR_CLOCK_PUBKEY3, isSigner: false, isWritable: false },
+    { pubkey: oracle, isSigner: false, isWritable: false },
+    ...backupOracles.map((k) => ({ pubkey: k, isSigner: false, isWritable: false }))
+  ];
+  return new TransactionInstruction({ keys, programId, data });
+}
+async function buildAdlTransaction(connection, caller, slab, oracle, programId, preferSide, backupOracles = []) {
+  const ranking = await fetchAdlRankedPositions(connection, slab);
+  if (!ranking.isTriggered) return null;
+  let target;
+  if (preferSide === "long") {
+    target = ranking.longs[0];
+  } else if (preferSide === "short") {
+    target = ranking.shorts[0];
+  } else {
+    target = ranking.ranked[0];
+  }
+  if (!target) return null;
+  return buildAdlInstruction(caller, slab, oracle, programId, target.idx, backupOracles);
+}
+
+// src/runtime/tx.ts
+import {
+  TransactionInstruction as TransactionInstruction2,
   Transaction,
   ComputeBudgetProgram
 } from "@solana/web3.js";
 function buildIx(params) {
-  return new TransactionInstruction({
+  return new TransactionInstruction2({
     programId: params.programId,
     keys: params.keys,
     // TransactionInstruction types expect Buffer, but Uint8Array works at runtime.
@@ -3506,7 +3689,7 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey9 } from "@solana/web3.js";
+import { PublicKey as PublicKey10 } from "@solana/web3.js";
 var U16_MAX = 65535;
 var U64_MAX = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
@@ -3523,7 +3706,7 @@ var ValidationError = class extends Error {
 };
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey9(value);
+    return new PublicKey10(value);
   } catch {
     throw new ValidationError(
       field,
@@ -3674,6 +3857,89 @@ function validateU16(value, field) {
 }
 
 // src/oracle/price-router.ts
+var DEFAULT_RESOLVE_TIMEOUT_MS = 15e3;
+function isRecord(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function combineAbortSignals(signals) {
+  const already = signals.find((s) => s.aborted);
+  if (already) {
+    const c = new AbortController();
+    c.abort(already.reason);
+    return c.signal;
+  }
+  const active = signals.filter((s) => !s.aborted);
+  if (active.length === 0) {
+    const c = new AbortController();
+    c.abort();
+    return c.signal;
+  }
+  if (active.length === 1) return active[0];
+  const ctrl = new AbortController();
+  for (const s of active) {
+    s.addEventListener("abort", () => ctrl.abort(s.reason), { once: true });
+  }
+  return ctrl.signal;
+}
+var SUPPORTED_DEX_IDS = /* @__PURE__ */ new Set(["pumpswap", "raydium", "meteora"]);
+function parseDexScreenerPairs(json) {
+  if (!isRecord(json)) return [];
+  const rawPairs = json.pairs;
+  if (!Array.isArray(rawPairs)) return [];
+  const sources = [];
+  for (const pair of rawPairs) {
+    if (!isRecord(pair)) continue;
+    if (pair.chainId !== "solana") continue;
+    const dexId = String(pair.dexId || "").toLowerCase();
+    if (!SUPPORTED_DEX_IDS.has(dexId)) continue;
+    let liquidity = 0;
+    if (isRecord(pair.liquidity) && typeof pair.liquidity.usd === "number") {
+      liquidity = pair.liquidity.usd;
+    }
+    if (liquidity < 100) continue;
+    let confidence = 30;
+    if (liquidity > 1e6) confidence = 90;
+    else if (liquidity > 1e5) confidence = 75;
+    else if (liquidity > 1e4) confidence = 60;
+    else if (liquidity > 1e3) confidence = 45;
+    const priceUsd = pair.priceUsd;
+    const price = typeof priceUsd === "string" || typeof priceUsd === "number" ? parseFloat(String(priceUsd)) || 0 : 0;
+    let baseSym = "?";
+    let quoteSym = "?";
+    if (isRecord(pair.baseToken) && typeof pair.baseToken.symbol === "string") {
+      baseSym = pair.baseToken.symbol;
+    }
+    if (isRecord(pair.quoteToken) && typeof pair.quoteToken.symbol === "string") {
+      quoteSym = pair.quoteToken.symbol;
+    }
+    const addr = pair.pairAddress;
+    sources.push({
+      type: "dex",
+      address: typeof addr === "string" ? addr : "",
+      dexId,
+      pairLabel: `${baseSym} / ${quoteSym}`,
+      liquidity,
+      price,
+      confidence
+    });
+  }
+  sources.sort((a, b) => b.liquidity - a.liquidity);
+  return sources.slice(0, 10);
+}
+function parseJupiterMintEntry(json, mint) {
+  if (!isRecord(json)) return null;
+  const data = json.data;
+  if (!isRecord(data)) return null;
+  const row = data[mint];
+  if (!isRecord(row)) return null;
+  const rawPrice = row.price;
+  if (rawPrice === void 0 || rawPrice === null) return null;
+  const price = parseFloat(String(rawPrice)) || 0;
+  if (price <= 0) return null;
+  let mintSymbol = "?";
+  if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
+  return { price, mintSymbol };
+}
 var PYTH_SOLANA_FEEDS = {
   // SOL
   "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d": { symbol: "SOL", mint: "So11111111111111111111111111111111111111112" },
@@ -3722,7 +3988,6 @@ var MINT_TO_PYTH_FEED = /* @__PURE__ */ new Map();
 for (const [feedId, info] of Object.entries(PYTH_SOLANA_FEEDS)) {
   MINT_TO_PYTH_FEED.set(info.mint, { feedId, symbol: info.symbol });
 }
-var SUPPORTED_DEX_IDS = /* @__PURE__ */ new Set(["pumpswap", "raydium", "meteora"]);
 async function fetchDexSources(mint, signal) {
   try {
     const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
@@ -3730,31 +3995,7 @@ async function fetchDexSources(mint, signal) {
       headers: { "User-Agent": "percolator/1.0" }
     });
     const json = await resp.json();
-    const pairs = json.pairs || [];
-    const sources = [];
-    for (const pair of pairs) {
-      if (pair.chainId !== "solana") continue;
-      const dexId = (pair.dexId || "").toLowerCase();
-      if (!SUPPORTED_DEX_IDS.has(dexId)) continue;
-      const liquidity = pair.liquidity?.usd || 0;
-      if (liquidity < 100) continue;
-      let confidence = 30;
-      if (liquidity > 1e6) confidence = 90;
-      else if (liquidity > 1e5) confidence = 75;
-      else if (liquidity > 1e4) confidence = 60;
-      else if (liquidity > 1e3) confidence = 45;
-      sources.push({
-        type: "dex",
-        address: pair.pairAddress,
-        dexId,
-        pairLabel: `${pair.baseToken?.symbol || "?"} / ${pair.quoteToken?.symbol || "?"}`,
-        liquidity,
-        price: parseFloat(pair.priceUsd) || 0,
-        confidence
-      });
-    }
-    sources.sort((a, b) => b.liquidity - a.liquidity);
-    return sources.slice(0, 10);
+    return parseDexScreenerPairs(json);
   } catch {
     return [];
   }
@@ -3781,15 +4022,15 @@ async function fetchJupiterSource(mint, signal) {
       headers: { "User-Agent": "percolator/1.0" }
     });
     const json = await resp.json();
-    const data = json.data?.[mint];
-    if (!data || !data.price) return null;
+    const row = parseJupiterMintEntry(json, mint);
+    if (!row) return null;
     return {
       type: "jupiter",
       address: mint,
-      pairLabel: `${data.mintSymbol || "?"} / USD (Jupiter)`,
+      pairLabel: `${row.mintSymbol} / USD (Jupiter)`,
       liquidity: 0,
       // Jupiter aggregator — no single pool liquidity
-      price: parseFloat(data.price) || 0,
+      price: row.price,
       confidence: 40
       // Fallback — lower confidence
     };
@@ -3797,10 +4038,13 @@ async function fetchJupiterSource(mint, signal) {
     return null;
   }
 }
-async function resolvePrice(mint, signal) {
+async function resolvePrice(mint, signal, options) {
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_RESOLVE_TIMEOUT_MS;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const effectiveSignal = signal ? combineAbortSignals([signal, timeoutSignal]) : timeoutSignal;
   const [dexSources, jupiterSource] = await Promise.all([
-    fetchDexSources(mint, signal),
-    fetchJupiterSource(mint, signal)
+    fetchDexSources(mint, effectiveSignal),
+    fetchJupiterSource(mint, effectiveSignal)
   ]);
   const pythSource = lookupPythSource(mint);
   const allSources = [];
@@ -3823,7 +4067,7 @@ async function resolvePrice(mint, signal) {
 }
 
 // src/config/program-ids.ts
-import { PublicKey as PublicKey10 } from "@solana/web3.js";
+import { PublicKey as PublicKey11 } from "@solana/web3.js";
 var PROGRAM_IDS = {
   devnet: {
     percolator: "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD",
@@ -3836,16 +4080,16 @@ var PROGRAM_IDS = {
 };
 function getProgramId(network) {
   if (process.env.PROGRAM_ID) {
-    return new PublicKey10(process.env.PROGRAM_ID);
+    return new PublicKey11(process.env.PROGRAM_ID);
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
   const programId = PROGRAM_IDS[targetNetwork].percolator;
-  return new PublicKey10(programId);
+  return new PublicKey11(programId);
 }
 function getMatcherProgramId(network) {
   if (process.env.MATCHER_PROGRAM_ID) {
-    return new PublicKey10(process.env.MATCHER_PROGRAM_ID);
+    return new PublicKey11(process.env.MATCHER_PROGRAM_ID);
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
@@ -3853,7 +4097,7 @@ function getMatcherProgramId(network) {
   if (!programId) {
     throw new Error(`Matcher program not deployed on ${targetNetwork}`);
   }
-  return new PublicKey10(programId);
+  return new PublicKey11(programId);
 }
 function getCurrentNetwork() {
   const network = process.env.NETWORK?.toLowerCase();
@@ -3882,6 +4126,7 @@ export {
   ACCOUNTS_INIT_USER,
   ACCOUNTS_KEEPER_CRANK,
   ACCOUNTS_LIQUIDATE_AT_ORACLE,
+  ACCOUNTS_LP_VAULT_WITHDRAW,
   ACCOUNTS_MINT_POSITION_NFT,
   ACCOUNTS_PAUSE_MARKET,
   ACCOUNTS_PUSH_ORACLE_PRICE,
@@ -3911,6 +4156,7 @@ export {
   CHAINLINK_ANSWER_OFFSET,
   CHAINLINK_DECIMALS_OFFSET,
   CHAINLINK_MIN_SIZE,
+  CREATOR_LOCK_SEED,
   CTX_VAMM_OFFSET,
   DEFAULT_OI_RAMP_SLOTS,
   ENGINE_MARK_PRICE_OFF,
@@ -3953,6 +4199,8 @@ export {
   ValidationError,
   WELL_KNOWN,
   buildAccountMetas,
+  buildAdlInstruction,
+  buildAdlTransaction,
   buildIx,
   checkPhaseTransition,
   computeDexSpotPriceE6,
@@ -3978,6 +4226,7 @@ export {
   decodeError,
   decodeStakePool,
   depositAccounts,
+  deriveCreatorLockPda,
   deriveDepositPda,
   deriveInsuranceLpMint,
   deriveKeeperFund,
@@ -4025,6 +4274,7 @@ export {
   encodeInitUser,
   encodeKeeperCrank,
   encodeLiquidateAtOracle,
+  encodeLpVaultWithdraw,
   encodeMintPositionNft,
   encodePauseMarket,
   encodePushOraclePrice,
@@ -4076,6 +4326,7 @@ export {
   encodeWithdrawCollateral,
   encodeWithdrawInsurance,
   encodeWithdrawInsuranceLP,
+  fetchAdlRankedPositions,
   fetchSlab,
   fetchTokenAccount,
   flushToInsuranceAccounts,
@@ -4090,6 +4341,7 @@ export {
   getStakeProgramId,
   initPoolAccounts,
   isAccountUsed,
+  isAdlTriggered,
   isStandardToken,
   isToken2022,
   isValidChainlinkOracle,
@@ -4104,6 +4356,7 @@ export {
   parseHeader,
   parseParams,
   parseUsedIndices,
+  rankAdlPositions,
   readLastThrUpdateSlot,
   readNonce,
   resolvePrice,

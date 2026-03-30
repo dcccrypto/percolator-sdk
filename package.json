@@ -18,7 +18,7 @@
   ],
   "scripts": {
     "build": "tsup",
-    "test": "tsx test/abi.test.ts && tsx test/pda.test.ts && tsx test/slab.test.ts && tsx test/validation.test.ts && tsx test/dex-oracle.test.ts && tsx test/trading.test.ts && tsx test/warmup-leverage-cap.test.ts && tsx test/dynamic-fees.test.ts && tsx test/oracle.test.ts"
+    "test": "tsx test/abi.test.ts && tsx test/slab.test.ts && tsx test/validation.test.ts && tsx test/dex-oracle.test.ts && tsx test/trading.test.ts && tsx test/warmup-leverage-cap.test.ts && tsx test/dynamic-fees.test.ts && tsx test/oracle.test.ts && vitest run test/pda.test.ts test/adl.test.ts test/price-router.test.ts"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",
