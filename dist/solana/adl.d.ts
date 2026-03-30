@@ -2,16 +2,28 @@
  * @module adl
  * Percolator ADL (Auto-Deleveraging) client utilities.
  *
- * PERC-8278 / PERC-305: ADL is triggered when `pnl_pos_tot > max_pnl_cap` on a
- * market (insurance fund cap exceeded). The most profitable positions on the
- * dominant side are deleveraged first.
+ * PERC-8278 / PERC-8312 / PERC-305: ADL is triggered when `pnl_pos_tot > max_pnl_cap`
+ * on a market (PnL cap exceeded) AND the insurance fund is fully depleted (balance == 0).
+ * The most profitable positions on the dominant side are deleveraged first.
+ *
+ * **Note on caller permissions:** `ExecuteAdl` (tag 50) requires the caller to be the
+ * market admin/keeper key (`header.admin`). It is NOT permissionless despite the
+ * instruction being structurally available to any signer.
  *
  * API surface:
  *  - fetchAdlRankedPositions() — fetch slab + rank all open positions by PnL%
- *  - buildAdlTransaction()     — pick top-ranked target + build ExecuteAdl instruction
- *  - AdlRankedPosition         — position record with adl_rank and computed pnlPct
- *  - AdlSide                   — "long" | "short"
+ *  - rankAdlPositions()        — pure (no-RPC) variant for already-fetched slab bytes
  *  - isAdlTriggered()          — check if slab's pnl_pos_tot exceeds max_pnl_cap
+ *  - buildAdlInstruction()     — build a single ExecuteAdl TransactionInstruction
+ *  - buildAdlTransaction()     — fetch + rank + pick top target + return instruction
+ *  - parseAdlEvent()           — decode AdlEvent from transaction log lines
+ *  - fetchAdlRankings()        — call /api/adl/rankings HTTP endpoint
+ *  - AdlRankedPosition         — position record with adl_rank and computed pnlPct
+ *  - AdlRankingResult          — full ranking with trigger status
+ *  - AdlEvent                  — decoded on-chain AdlEvent log entry (tag 0xAD1E_0001)
+ *  - AdlApiRanking             — single ranked position from /api/adl/rankings
+ *  - AdlApiResult              — full result from /api/adl/rankings
+ *  - AdlSide                   — "long" | "short"
  */
 import { Connection, PublicKey, TransactionInstruction } from "@solana/web3.js";
 /** Position side derived from positionSize sign. */
@@ -122,7 +134,11 @@ export declare function rankAdlPositions(slabData: Uint8Array): AdlRankingResult
  * Does NOT fetch the slab or check trigger status — use `fetchAdlRankedPositions`
  * first to determine the correct `targetIdx`.
  *
- * @param caller     - Signer (permissionless — any keypair).
+ * **Caller requirement:** The on-chain handler requires the caller to be the market
+ * admin/keeper authority (`header.admin`). Passing any other signer will result in
+ * `EngineUnauthorized`.
+ *
+ * @param caller     - Signer — must be the market keeper/admin authority.
  * @param slab       - Slab (market) public key.
  * @param oracle     - Primary oracle public key for this market.
  * @param programId  - Percolator program ID.
@@ -150,7 +166,7 @@ export declare function buildAdlInstruction(caller: PublicKey, slab: PublicKey, 
  * Returns `null` when ADL is not triggered or no eligible positions exist.
  *
  * @param connection    - Solana connection.
- * @param caller        - Signer public key.
+ * @param caller        - Signer — must be the market keeper/admin authority.
  * @param slab          - Slab (market) public key.
  * @param oracle        - Primary oracle public key.
  * @param programId     - Percolator program ID.
@@ -169,3 +185,121 @@ export declare function buildAdlInstruction(caller: PublicKey, slab: PublicKey, 
  * ```
  */
 export declare function buildAdlTransaction(connection: Connection, caller: PublicKey, slab: PublicKey, oracle: PublicKey, programId: PublicKey, preferSide?: AdlSide, backupOracles?: PublicKey[]): Promise<TransactionInstruction | null>;
+/**
+ * Decoded on-chain AdlEvent emitted by the `ExecuteAdl` instruction handler.
+ *
+ * The on-chain handler emits via `sol_log_64(0xAD1E_0001, target_idx, price, closed_lo, closed_hi)`.
+ * `sol_log_64` prints 5 decimal u64 values separated by spaces on a single "Program log:" line.
+ *
+ * Fields:
+ * - `tag`       — always `0xAD1E_0001` (2970353665n)
+ * - `targetIdx` — slab account index that was deleveraged
+ * - `price`     — oracle price used (in market price units, e.g. e6)
+ * - `closedAbs` — absolute size of the position closed (i128, reassembled from lo+hi u64 parts)
+ *
+ * @example
+ * ```ts
+ * const logs = tx.meta?.logMessages ?? [];
+ * const event = parseAdlEvent(logs);
+ * if (event) {
+ *   console.log("ADL closed position", event.targetIdx, "size", event.closedAbs);
+ * }
+ * ```
+ */
+export interface AdlEvent {
+    /** Tag discriminator — always 0xAD1E_0001n (2970353665). */
+    tag: bigint;
+    /** Slab account index that was deleveraged. */
+    targetIdx: number;
+    /** Oracle price used for the deleverage (market-native units, e.g. lamports/e6). */
+    price: bigint;
+    /**
+     * Absolute position size closed (reassembled from lo+hi u64).
+     * This is the i128 absolute value — always non-negative.
+     */
+    closedAbs: bigint;
+}
+/**
+ * Parse the AdlEvent from a transaction's log messages.
+ *
+ * Searches for a "Program log: <a> <b> <c> <d> <e>" line where the first
+ * decimal value equals `0xAD1E_0001` (2970353665). Returns `null` if not found.
+ *
+ * @param logs - Array of log message strings (from `tx.meta.logMessages`).
+ * @returns Decoded `AdlEvent` or `null` if the log is not present.
+ *
+ * @example
+ * ```ts
+ * const event = parseAdlEvent(tx.meta?.logMessages ?? []);
+ * if (event) {
+ *   console.log(`ADL: idx=${event.targetIdx} price=${event.price} closed=${event.closedAbs}`);
+ * }
+ * ```
+ */
+export declare function parseAdlEvent(logs: string[]): AdlEvent | null;
+/**
+ * A single ranked position as returned by the /api/adl/rankings endpoint.
+ */
+export interface AdlApiRanking {
+    /** 1-based rank (1 = highest PnL%, first to be deleveraged). */
+    rank: number;
+    /** Slab account index. Pass as `targetIdx` to `buildAdlInstruction`. */
+    idx: number;
+    /** Absolute PnL (lamports) as a decimal string. */
+    pnlAbs: string;
+    /** Capital at entry (lamports) as a decimal string. */
+    capital: string;
+    /** PnL as millionths of capital (pnl * 1_000_000 / capital). */
+    pnlPctMillionths: string;
+}
+/**
+ * Full result from the /api/adl/rankings endpoint.
+ */
+export interface AdlApiResult {
+    slabAddress: string;
+    /** pnl_pos_tot from slab engine state (decimal string). */
+    pnlPosTot: string;
+    /** max_pnl_cap from market config (decimal string, "0" if unconfigured). */
+    maxPnlCap: string;
+    /** Insurance fund balance (decimal string). */
+    insuranceFundBalance: string;
+    /** Insurance fund lifetime fee revenue (decimal string). */
+    insuranceFundFeeRevenue: string;
+    /** Insurance utilization in basis points (0–10000). */
+    insuranceUtilizationBps: number;
+    /** true if pnlPosTot > maxPnlCap. */
+    capExceeded: boolean;
+    /** true if insurance fund is fully depleted (balance == 0). */
+    insuranceDepleted: boolean;
+    /** true if utilization BPS exceeds the configured ADL threshold. */
+    utilizationTriggered: boolean;
+    /** true if ADL is needed (capExceeded or utilizationTriggered). */
+    adlNeeded: boolean;
+    /** Excess PnL above cap (decimal string). */
+    excess: string;
+    /** Ranked positions (empty if adlNeeded=false). */
+    rankings: AdlApiRanking[];
+}
+/**
+ * Fetch ADL rankings from the Percolator API.
+ *
+ * Calls `GET <apiBase>/api/adl/rankings?slab=<address>` and returns the
+ * parsed result. Use this from the frontend or keeper to determine ADL
+ * trigger status and pick the target index.
+ *
+ * @param apiBase  - Base URL of the Percolator API (e.g. `https://api.percolator.io`).
+ * @param slab     - Slab (market) public key or base58 address string.
+ * @param fetchFn  - Optional custom fetch implementation (defaults to global `fetch`).
+ * @returns Parsed `AdlApiResult`.
+ * @throws On HTTP error or JSON parse failure.
+ *
+ * @example
+ * ```ts
+ * const result = await fetchAdlRankings("https://api.percolator.io", slabKey);
+ * if (result.adlNeeded && result.rankings.length > 0) {
+ *   const target = result.rankings[0]; // rank 1 = highest PnL%
+ *   const ix = buildAdlInstruction(caller, slabKey, oracleKey, PROGRAM_ID, target.idx);
+ * }
+ * ```
+ */
+export declare function fetchAdlRankings(apiBase: string, slab: PublicKey | string, fetchFn?: typeof fetch): Promise<AdlApiResult>;

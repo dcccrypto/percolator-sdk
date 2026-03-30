@@ -253,6 +253,26 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "EngineInvalidEntryPrice",
     hint: "Entry price must be positive when opening a position.",
   },
+  61: {
+    name: "EngineSideBlocked",
+    hint: "New position blocked — this side is in DrainOnly or ResetPending mode. Wait for the market to stabilise.",
+  },
+  62: {
+    name: "EngineCorruptState",
+    hint: "Engine detected a corrupt state invariant violation — this is a critical internal error, please report it.",
+  },
+  63: {
+    name: "InsuranceFundNotDepleted",
+    hint: "ADL rejected — insurance fund is not fully depleted (balance > 0). ADL is only permitted once insurance is exhausted.",
+  },
+  64: {
+    name: "NoAdlCandidates",
+    hint: "ADL rejected — no eligible candidate positions found for deleveraging.",
+  },
+  65: {
+    name: "BankruptPositionAlreadyClosed",
+    hint: "ADL rejected — the target position is already closed (size == 0). Re-rank and pick a different target.",
+  },
 };
 
 /**

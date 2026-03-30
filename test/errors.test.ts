@@ -12,8 +12,8 @@ import {
 // ============================================================================
 
 describe("PERCOLATOR_ERRORS table", () => {
-  it("has contiguous error codes from 0 to 60", () => {
-    for (let i = 0; i <= 60; i++) {
+  it("has contiguous error codes from 0 to 65", () => {
+    for (let i = 0; i <= 65; i++) {
       expect(PERCOLATOR_ERRORS[i]).toBeDefined();
       expect(PERCOLATOR_ERRORS[i].name).toBeTruthy();
       expect(PERCOLATOR_ERRORS[i].hint).toBeTruthy();
@@ -81,7 +81,7 @@ describe("decodeError", () => {
     expect(decodeError(999)).toBeUndefined();
     expect(decodeError(-1)).toBeUndefined();
     expect(decodeError(10_000)).toBeUndefined();
-    expect(decodeError(61)).toBeUndefined();
+    expect(decodeError(66)).toBeUndefined();
   });
 
   it("returns error info for PERC extension codes 45 and 59", () => {
