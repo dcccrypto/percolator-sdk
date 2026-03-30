@@ -3,6 +3,9 @@ node_modules/
 .env
 .env.*
 
+# Local-only prompts and notes (not for upstream)
+.private/
+
 # dist/ is committed so that GitHub git-dep consumers get pre-built files
 # without needing devDependencies (tsup/typescript) installed.
 # Always run `pnpm build` before committing changes to src/.
