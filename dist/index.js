@@ -1185,11 +1185,25 @@ function getErrorName(code) {
 function getErrorHint(code) {
   return PERCOLATOR_ERRORS[code]?.hint;
 }
+var CUSTOM_ERROR_HEX_MAX_LEN = 8;
 function parseErrorFromLogs(logs) {
+  if (!Array.isArray(logs)) {
+    return null;
+  }
+  const re = new RegExp(
+    `custom program error: 0x([0-9a-fA-F]{1,${CUSTOM_ERROR_HEX_MAX_LEN}})(?![0-9a-fA-F])`,
+    "i"
+  );
   for (const log of logs) {
-    const match = log.match(/custom program error: 0x([0-9a-fA-F]+)/);
+    if (typeof log !== "string") {
+      continue;
+    }
+    const match = log.match(re);
     if (match) {
       const code = parseInt(match[1], 16);
+      if (!Number.isFinite(code) || code < 0 || code > 4294967295) {
+        continue;
+      }
       const info = decodeError(code);
       return {
         code,

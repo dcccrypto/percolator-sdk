@@ -12,8 +12,8 @@ import {
 // ============================================================================
 
 describe("PERCOLATOR_ERRORS table", () => {
-  it("has contiguous error codes from 0 to 44", () => {
-    for (let i = 0; i <= 44; i++) {
+  it("has contiguous error codes from 0 to 60", () => {
+    for (let i = 0; i <= 60; i++) {
       expect(PERCOLATOR_ERRORS[i]).toBeDefined();
       expect(PERCOLATOR_ERRORS[i].name).toBeTruthy();
       expect(PERCOLATOR_ERRORS[i].hint).toBeTruthy();
@@ -48,6 +48,9 @@ describe("PERCOLATOR_ERRORS table", () => {
     expect(PERCOLATOR_ERRORS[33].name).toBe("MarketPaused");
     expect(PERCOLATOR_ERRORS[34].name).toBe("AdminRenounceNotAllowed");
     expect(PERCOLATOR_ERRORS[44].name).toBe("LpVaultNoNewFees");
+    expect(PERCOLATOR_ERRORS[45].name).toBe("SafetyValveDominantSideBlocked");
+    expect(PERCOLATOR_ERRORS[59].name).toBe("OiImbalanceHardBlock");
+    expect(PERCOLATOR_ERRORS[60].name).toBe("EngineInvalidEntryPrice");
   });
 });
 
@@ -78,12 +81,12 @@ describe("decodeError", () => {
     expect(decodeError(999)).toBeUndefined();
     expect(decodeError(-1)).toBeUndefined();
     expect(decodeError(10_000)).toBeUndefined();
+    expect(decodeError(61)).toBeUndefined();
   });
 
-  it("returns error info for code 45 (SafetyValveDominantSideBlocked)", () => {
-    const info = decodeError(45);
-    expect(info).toBeDefined();
-    expect(info!.name).toBe("SafetyValveDominantSideBlocked");
+  it("returns error info for PERC extension codes 45 and 59", () => {
+    expect(decodeError(45)!.name).toBe("SafetyValveDominantSideBlocked");
+    expect(decodeError(59)!.name).toBe("OiImbalanceHardBlock");
   });
 });
 
@@ -198,5 +201,34 @@ describe("parseErrorFromLogs", () => {
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
     expect(result!.code).toBe(6); // OracleStale — the first one
+  });
+
+  it("returns null for non-array input (does not throw)", () => {
+    expect(parseErrorFromLogs(null as unknown as string[])).toBeNull();
+    expect(parseErrorFromLogs(undefined as unknown as string[])).toBeNull();
+  });
+
+  it("skips non-string log lines", () => {
+    const logs = [123, "Program x failed: custom program error: 0x5"] as unknown as string[];
+    const result = parseErrorFromLogs(logs);
+    expect(result).not.toBeNull();
+    expect(result!.code).toBe(5);
+  });
+
+  it("does not match unbounded hex (avoids bogus precision-loss codes)", () => {
+    const logs = [
+      "Program x failed: custom program error: 0x100000000",
+    ];
+    expect(parseErrorFromLogs(logs)).toBeNull();
+  });
+
+  it("matches exactly 8 hex digits (u32 max)", () => {
+    const logs = [
+      "Program x failed: custom program error: 0xffffffff",
+    ];
+    const result = parseErrorFromLogs(logs);
+    expect(result).not.toBeNull();
+    expect(result!.code).toBe(0xffff_ffff);
+    expect(result!.name).toBe("Unknown(4294967295)");
   });
 });
