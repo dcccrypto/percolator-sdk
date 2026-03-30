@@ -1,39 +1,40 @@
-import { describe, it, expect } from "vitest";
+import assert from "node:assert/strict";
 import { PublicKey } from "@solana/web3.js";
 import { deriveVaultAuthority, deriveLpPda } from "../src/solana/pda.js";
 
 const PROGRAM_ID = new PublicKey("EXsr2Tfz8ntWYP3vgCStdknFBoafvJQugJKAh4nFdo8f");
 const SLAB = new PublicKey("11111111111111111111111111111111");
 
-describe("deriveVaultAuthority", () => {
-  it("returns deterministic results", () => {
-    const [pda1, bump1] = deriveVaultAuthority(PROGRAM_ID, SLAB);
-    const [pda2, bump2] = deriveVaultAuthority(PROGRAM_ID, SLAB);
-    expect(pda1.equals(pda2)).toBe(true);
-    expect(bump1).toBe(bump2);
-    expect(bump1).toBeGreaterThanOrEqual(0);
-    expect(bump1).toBeLessThanOrEqual(255);
-  });
+{
+  const [pda1, bump1] = deriveVaultAuthority(PROGRAM_ID, SLAB);
+  const [pda2, bump2] = deriveVaultAuthority(PROGRAM_ID, SLAB);
+  assert(pda1.equals(pda2));
+  assert.equal(bump1, bump2);
+  assert(bump1 >= 0 && bump1 <= 255);
+  console.log("✓ deriveVaultAuthority deterministic");
+}
 
-  it("different slabs produce different PDAs", () => {
-    const slab2 = PublicKey.unique();
-    const [pda1] = deriveVaultAuthority(PROGRAM_ID, SLAB);
-    const [pda2] = deriveVaultAuthority(PROGRAM_ID, slab2);
-    expect(pda1.equals(pda2)).toBe(false);
-  });
-});
+{
+  const slab2 = PublicKey.unique();
+  const [pda1] = deriveVaultAuthority(PROGRAM_ID, SLAB);
+  const [pda2] = deriveVaultAuthority(PROGRAM_ID, slab2);
+  assert(!pda1.equals(pda2));
+  console.log("✓ deriveVaultAuthority different slabs");
+}
 
-describe("deriveLpPda", () => {
-  it("returns deterministic results", () => {
-    const [pda1, bump1] = deriveLpPda(PROGRAM_ID, SLAB, 0);
-    const [pda2, bump2] = deriveLpPda(PROGRAM_ID, SLAB, 0);
-    expect(pda1.equals(pda2)).toBe(true);
-    expect(bump1).toBe(bump2);
-  });
+{
+  const [pda1, bump1] = deriveLpPda(PROGRAM_ID, SLAB, 0);
+  const [pda2, bump2] = deriveLpPda(PROGRAM_ID, SLAB, 0);
+  assert(pda1.equals(pda2));
+  assert.equal(bump1, bump2);
+  console.log("✓ deriveLpPda deterministic");
+}
 
-  it("different indices produce different PDAs", () => {
-    const [pda1] = deriveLpPda(PROGRAM_ID, SLAB, 0);
-    const [pda2] = deriveLpPda(PROGRAM_ID, SLAB, 1);
-    expect(pda1.equals(pda2)).toBe(false);
-  });
-});
+{
+  const [pda1] = deriveLpPda(PROGRAM_ID, SLAB, 0);
+  const [pda2] = deriveLpPda(PROGRAM_ID, SLAB, 1);
+  assert(!pda1.equals(pda2));
+  console.log("✓ deriveLpPda different indices");
+}
+
+console.log("\n✅ All pda tests passed!");
