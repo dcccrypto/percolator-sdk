@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { PublicKey, Keypair } from '@solana/web3.js';
+
+function readU64LE(buf: Uint8Array, off: number): bigint {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  return dv.getBigUint64(off, true);
+}
+function readU16LE(buf: Uint8Array, off: number): number {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  return dv.getUint16(off, true);
+}
+
 import {
   STAKE_PROGRAM_ID,
   STAKE_IX,
@@ -94,36 +104,36 @@ describe('Instruction encoders', () => {
     const buf = encodeStakeInitPool(100n, 5000n);
     expect(buf[0]).toBe(0);
     expect(buf.length).toBe(1 + 8 + 8);
-    expect(buf.readBigUInt64LE(1)).toBe(100n);
-    expect(buf.readBigUInt64LE(9)).toBe(5000n);
+    expect(readU64LE(buf, 1)).toBe(100n);
+    expect(readU64LE(buf, 9)).toBe(5000n);
   });
 
   it('encodeStakeDeposit — tag 1 + amount', () => {
     const buf = encodeStakeDeposit(42n);
     expect(buf[0]).toBe(1);
     expect(buf.length).toBe(9);
-    expect(buf.readBigUInt64LE(1)).toBe(42n);
+    expect(readU64LE(buf, 1)).toBe(42n);
   });
 
   it('encodeStakeWithdraw — tag 2 + lp_amount', () => {
     const buf = encodeStakeWithdraw(999n);
     expect(buf[0]).toBe(2);
-    expect(buf.readBigUInt64LE(1)).toBe(999n);
+    expect(readU64LE(buf, 1)).toBe(999n);
   });
 
   it('encodeStakeFlushToInsurance — tag 3 + amount', () => {
     const buf = encodeStakeFlushToInsurance(500n);
     expect(buf[0]).toBe(3);
-    expect(buf.readBigUInt64LE(1)).toBe(500n);
+    expect(readU64LE(buf, 1)).toBe(500n);
   });
 
   it('encodeStakeUpdateConfig — both set', () => {
     const buf = encodeStakeUpdateConfig(200n, 1000n);
     expect(buf[0]).toBe(4);
     expect(buf[1]).toBe(1); // has_cooldown
-    expect(buf.readBigUInt64LE(2)).toBe(200n);
+    expect(readU64LE(buf, 2)).toBe(200n);
     expect(buf[10]).toBe(1); // has_cap
-    expect(buf.readBigUInt64LE(11)).toBe(1000n);
+    expect(readU64LE(buf, 11)).toBe(1000n);
   });
 
   it('encodeStakeUpdateConfig — none set', () => {
@@ -136,17 +146,17 @@ describe('Instruction encoders', () => {
   it('encodeStakeUpdateConfig — only cooldown set', () => {
     const buf = encodeStakeUpdateConfig(300n, undefined);
     expect(buf[1]).toBe(1);            // has_cooldown
-    expect(buf.readBigUInt64LE(2)).toBe(300n);
+    expect(readU64LE(buf, 2)).toBe(300n);
     expect(buf[10]).toBe(0);           // no cap
-    expect(buf.readBigUInt64LE(11)).toBe(0n);
+    expect(readU64LE(buf, 11)).toBe(0n);
   });
 
   it('encodeStakeUpdateConfig — only cap set', () => {
     const buf = encodeStakeUpdateConfig(undefined, 500n);
     expect(buf[1]).toBe(0);            // no cooldown
-    expect(buf.readBigUInt64LE(2)).toBe(0n);
+    expect(readU64LE(buf, 2)).toBe(0n);
     expect(buf[10]).toBe(1);           // has_cap
-    expect(buf.readBigUInt64LE(11)).toBe(500n);
+    expect(readU64LE(buf, 11)).toBe(500n);
   });
 
   it('encodeStakeTransferAdmin — tag 5, 1 byte', () => {
@@ -167,16 +177,16 @@ describe('Instruction encoders', () => {
     const buf = encodeStakeAdminSetRiskThreshold(12345n);
     expect(buf[0]).toBe(7);
     expect(buf.length).toBe(1 + 16);
-    const lo = buf.readBigUInt64LE(1);
-    const hi = buf.readBigUInt64LE(9);
+    const lo = readU64LE(buf, 1);
+    const hi = readU64LE(buf, 9);
     expect(lo + (hi << 64n)).toBe(12345n);
   });
 
   it('encodeStakeAdminSetRiskThreshold — exercises u128 high word', () => {
     const largeValue = (1n << 64n) + 1n; // requires non-zero high word
     const buf = encodeStakeAdminSetRiskThreshold(largeValue);
-    const lo = buf.readBigUInt64LE(1);
-    const hi = buf.readBigUInt64LE(9);
+    const lo = readU64LE(buf, 1);
+    const hi = readU64LE(buf, 9);
     expect(lo).toBe(1n);
     expect(hi).toBe(1n);
     expect(lo + (hi << 64n)).toBe(largeValue);
@@ -186,8 +196,8 @@ describe('Instruction encoders', () => {
     const buf = encodeStakeAdminSetMaintenanceFee(77n);
     expect(buf[0]).toBe(8);
     expect(buf.length).toBe(1 + 16);
-    const lo = buf.readBigUInt64LE(1);
-    const hi = buf.readBigUInt64LE(9);
+    const lo = readU64LE(buf, 1);
+    const hi = readU64LE(buf, 9);
     expect(lo + (hi << 64n)).toBe(77n);
   });
 
@@ -200,7 +210,7 @@ describe('Instruction encoders', () => {
   it('encodeStakeAdminWithdrawInsurance — tag 10 + amount', () => {
     const buf = encodeStakeAdminWithdrawInsurance(1234n);
     expect(buf[0]).toBe(10);
-    expect(buf.readBigUInt64LE(1)).toBe(1234n);
+    expect(readU64LE(buf, 1)).toBe(1234n);
   });
 
   it('encodeStakeAdminSetInsurancePolicy — tag 11 + pubkey + u64 + u16 + u64', () => {
@@ -209,21 +219,21 @@ describe('Instruction encoders', () => {
     expect(buf[0]).toBe(11);
     expect(buf.length).toBe(1 + 32 + 8 + 2 + 8);
     expect(new PublicKey(buf.subarray(1, 33)).equals(auth)).toBe(true);
-    expect(buf.readBigUInt64LE(33)).toBe(100n);
-    expect(buf.readUInt16LE(41)).toBe(500);
-    expect(buf.readBigUInt64LE(43)).toBe(200n);
+    expect(readU64LE(buf, 33)).toBe(100n);
+    expect(readU16LE(buf, 41)).toBe(500);
+    expect(readU64LE(buf, 43)).toBe(200n);
   });
 
   it('encodeStakeDeposit accepts number', () => {
     const buf = encodeStakeDeposit(42);
-    expect(buf.readBigUInt64LE(1)).toBe(42n);
+    expect(readU64LE(buf, 1)).toBe(42n);
   });
 
   it('encodeStakeInitPool with max u64', () => {
     const max = BigInt('18446744073709551615');
     const buf = encodeStakeInitPool(max, max);
-    expect(buf.readBigUInt64LE(1)).toBe(max);
-    expect(buf.readBigUInt64LE(9)).toBe(max);
+    expect(readU64LE(buf, 1)).toBe(max);
+    expect(readU64LE(buf, 9)).toBe(max);
   });
 });
 

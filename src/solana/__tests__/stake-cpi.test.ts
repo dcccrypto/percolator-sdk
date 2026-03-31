@@ -18,6 +18,15 @@ import { describe, it, expect } from 'vitest';
 import { PublicKey, Keypair, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
+function readU64LE(buf: Uint8Array, off: number): bigint {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  return dv.getBigUint64(off, true);
+}
+function readU16LE(buf: Uint8Array, off: number): number {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  return dv.getUint16(off, true);
+}
+
 import {
   STAKE_PROGRAM_ID,
   STAKE_IX,
@@ -128,8 +137,8 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
     it('initPool data encodes tag 0 + cooldown + cap', () => {
       const data = encodeStakeInitPool(300n, 10_000_000n);
       expect(data[0]).toBe(STAKE_IX.InitPool);
-      expect(data.readBigUInt64LE(1)).toBe(300n);
-      expect(data.readBigUInt64LE(9)).toBe(10_000_000n);
+      expect(readU64LE(data, 1)).toBe(300n);
+      expect(readU64LE(data, 9)).toBe(10_000_000n);
       expect(data.length).toBe(17); // 1 tag + 8 cooldown + 8 cap
     });
   });
@@ -183,7 +192,7 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       const amount = 5_000_000n;
       const data = encodeStakeDeposit(amount);
       expect(data[0]).toBe(STAKE_IX.Deposit);
-      expect(data.readBigUInt64LE(1)).toBe(amount);
+      expect(readU64LE(data, 1)).toBe(amount);
       expect(data.length).toBe(9); // 1 tag + 8 amount
     });
   });
@@ -231,7 +240,7 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       const lpAmount = 2_500_000n;
       const data = encodeStakeWithdraw(lpAmount);
       expect(data[0]).toBe(STAKE_IX.Withdraw);
-      expect(data.readBigUInt64LE(1)).toBe(lpAmount);
+      expect(readU64LE(data, 1)).toBe(lpAmount);
       expect(data.length).toBe(9);
     });
   });
@@ -286,7 +295,7 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
     it('flushToInsurance data encodes tag 3 + u64 amount', () => {
       const data = encodeStakeFlushToInsurance(1_000_000n);
       expect(data[0]).toBe(STAKE_IX.FlushToInsurance);
-      expect(data.readBigUInt64LE(1)).toBe(1_000_000n);
+      expect(readU64LE(data, 1)).toBe(1_000_000n);
       expect(data.length).toBe(9);
     });
 
@@ -314,7 +323,7 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       const newAuth = Keypair.generate().publicKey;
       const data = encodeStakeAdminSetOracleAuthority(newAuth);
       expect(data[0]).toBe(STAKE_IX.AdminSetOracleAuthority);
-      expect(Buffer.from(data.subarray(1, 33))).toEqual(newAuth.toBuffer());
+      expect(new PublicKey(data.subarray(1, 33)).equals(newAuth)).toBe(true);
       expect(data.length).toBe(33); // 1 tag + 32 pubkey
     });
 
@@ -322,8 +331,8 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       const bigThreshold = (1n << 96n) + 42n; // exercises high word
       const data = encodeStakeAdminSetRiskThreshold(bigThreshold);
       expect(data[0]).toBe(STAKE_IX.AdminSetRiskThreshold);
-      const lo = data.readBigUInt64LE(1);
-      const hi = data.readBigUInt64LE(9);
+      const lo = readU64LE(data, 1);
+      const hi = readU64LE(data, 9);
       expect(lo + (hi << 64n)).toBe(bigThreshold);
       expect(data.length).toBe(17); // 1 tag + 16 u128
     });
@@ -331,8 +340,8 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
     it('AdminSetMaintenanceFee encodes u128 for CPI', () => {
       const data = encodeStakeAdminSetMaintenanceFee(500n);
       expect(data[0]).toBe(STAKE_IX.AdminSetMaintenanceFee);
-      const lo = data.readBigUInt64LE(1);
-      const hi = data.readBigUInt64LE(9);
+      const lo = readU64LE(data, 1);
+      const hi = readU64LE(data, 9);
       expect(lo + (hi << 64n)).toBe(500n);
     });
 
@@ -345,7 +354,7 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
     it('AdminWithdrawInsurance encodes u64 amount', () => {
       const data = encodeStakeAdminWithdrawInsurance(777_000n);
       expect(data[0]).toBe(STAKE_IX.AdminWithdrawInsurance);
-      expect(data.readBigUInt64LE(1)).toBe(777_000n);
+      expect(readU64LE(data, 1)).toBe(777_000n);
       expect(data.length).toBe(9);
     });
 
@@ -355,10 +364,10 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       expect(data[0]).toBe(STAKE_IX.AdminSetInsurancePolicy);
       // 1 tag + 32 pubkey + 8 minWithdrawBase + 2 maxWithdrawBps + 8 cooldownSlots = 51
       expect(data.length).toBe(51);
-      expect(Buffer.from(data.subarray(1, 33))).toEqual(authority.toBuffer());
-      expect(data.readBigUInt64LE(33)).toBe(100_000n);
-      expect(data.readUInt16LE(41)).toBe(500);
-      expect(data.readBigUInt64LE(43)).toBe(100n);
+      expect(new PublicKey(data.subarray(1, 33)).equals(authority)).toBe(true);
+      expect(readU64LE(data, 33)).toBe(100_000n);
+      expect(readU16LE(data, 41)).toBe(500);
+      expect(readU64LE(data, 43)).toBe(100n);
     });
 
     it('TransferAdmin is tag-only', () => {
@@ -372,23 +381,23 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       const both = encodeStakeUpdateConfig(300n, 10_000_000n);
       expect(both[0]).toBe(STAKE_IX.UpdateConfig);
       expect(both[1]).toBe(1); // has_cooldown
-      expect(both.readBigUInt64LE(2)).toBe(300n);
+      expect(readU64LE(both, 2)).toBe(300n);
       expect(both[10]).toBe(1); // has_cap
-      expect(both.readBigUInt64LE(11)).toBe(10_000_000n);
+      expect(readU64LE(both, 11)).toBe(10_000_000n);
 
       // Only cooldown
       const cooldownOnly = encodeStakeUpdateConfig(200n, undefined);
       expect(cooldownOnly[1]).toBe(1);
-      expect(cooldownOnly.readBigUInt64LE(2)).toBe(200n);
+      expect(readU64LE(cooldownOnly, 2)).toBe(200n);
       expect(cooldownOnly[10]).toBe(0);
-      expect(cooldownOnly.readBigUInt64LE(11)).toBe(0n);
+      expect(readU64LE(cooldownOnly, 11)).toBe(0n);
 
       // Only cap
       const capOnly = encodeStakeUpdateConfig(undefined, 500n);
       expect(capOnly[1]).toBe(0);
-      expect(capOnly.readBigUInt64LE(2)).toBe(0n);
+      expect(readU64LE(capOnly, 2)).toBe(0n);
       expect(capOnly[10]).toBe(1);
-      expect(capOnly.readBigUInt64LE(11)).toBe(500n);
+      expect(readU64LE(capOnly, 11)).toBe(500n);
 
       // Neither
       const neither = encodeStakeUpdateConfig(undefined, undefined);
@@ -453,7 +462,7 @@ describe('Stake Instruction Tags — No Gaps or Conflicts', () => {
   });
 
   it('each encoder produces the correct tag byte', () => {
-    const tagMap: [number, Buffer][] = [
+    const tagMap: [number, Uint8Array][] = [
       [STAKE_IX.InitPool, encodeStakeInitPool(0n, 0n)],
       [STAKE_IX.Deposit, encodeStakeDeposit(0n)],
       [STAKE_IX.Withdraw, encodeStakeWithdraw(0n)],

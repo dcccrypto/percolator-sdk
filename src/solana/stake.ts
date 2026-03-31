@@ -9,6 +9,9 @@
 
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { concatBytes } from '../abi/encode.js';
+
+const textEncoder = new TextEncoder();
 
 // ═══════════════════════════════════════════════════════════════
 // Program ID — network-conditional (mirrors program-ids.ts pattern)
@@ -99,7 +102,7 @@ export const STAKE_IX = {
 /** Derive the stake pool PDA for a given slab (market). */
 export function deriveStakePool(slab: PublicKey, programId?: PublicKey) {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from('stake_pool'), slab.toBuffer()],
+    [textEncoder.encode('stake_pool'), slab.toBytes()],
     programId ?? getStakeProgramId(),
   );
 }
@@ -107,7 +110,7 @@ export function deriveStakePool(slab: PublicKey, programId?: PublicKey) {
 /** Derive the vault authority PDA (signs CPI, owns LP mint + vault). */
 export function deriveStakeVaultAuth(pool: PublicKey, programId?: PublicKey) {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from('vault_auth'), pool.toBuffer()],
+    [textEncoder.encode('vault_auth'), pool.toBytes()],
     programId ?? getStakeProgramId(),
   );
 }
@@ -115,16 +118,13 @@ export function deriveStakeVaultAuth(pool: PublicKey, programId?: PublicKey) {
 /** Derive the per-user deposit PDA (tracks cooldown, deposit time). */
 export function deriveDepositPda(pool: PublicKey, user: PublicKey, programId?: PublicKey) {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from('deposit'), pool.toBuffer(), user.toBuffer()],
+    [textEncoder.encode('deposit'), pool.toBytes(), user.toBytes()],
     programId ?? getStakeProgramId(),
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Browser-safe binary helpers (DataView — no Buffer BigInt methods)
-// Buffer.writeBigUInt64LE / readBigUInt64LE are Node.js-only; the
-// browser polyfill may not implement them. DataView.getBigUint64 /
-// setBigUint64 are part of the ECMAScript spec and work everywhere.
+// Binary helpers (DataView — browser-safe, no Buffer dependency)
 // ═══════════════════════════════════════════════════════════════
 
 /** Read a u64 little-endian from a Uint8Array at the given offset. */
@@ -143,144 +143,144 @@ function readU16LE(data: Uint8Array, off: number): number {
 // Instruction Encoders
 // ═══════════════════════════════════════════════════════════════
 
-function u64Le(v: bigint | number): Buffer {
+function u64Le(v: bigint | number): Uint8Array {
   const arr = new Uint8Array(8);
-  new DataView(arr.buffer).setBigUint64(0, BigInt(v), /* littleEndian= */ true);
-  return Buffer.from(arr);
+  new DataView(arr.buffer).setBigUint64(0, BigInt(v), true);
+  return arr;
 }
 
-function u128Le(v: bigint | number): Buffer {
+function u128Le(v: bigint | number): Uint8Array {
   const arr = new Uint8Array(16);
   const view = new DataView(arr.buffer);
   const big = BigInt(v);
-  view.setBigUint64(0, big & 0xFFFFFFFFFFFFFFFFn, /* littleEndian= */ true);
-  view.setBigUint64(8, big >> 64n, /* littleEndian= */ true);
-  return Buffer.from(arr);
+  view.setBigUint64(0, big & 0xFFFFFFFFFFFFFFFFn, true);
+  view.setBigUint64(8, big >> 64n, true);
+  return arr;
 }
 
-function u16Le(v: number): Buffer {
+function u16Le(v: number): Uint8Array {
   const arr = new Uint8Array(2);
-  new DataView(arr.buffer).setUint16(0, v, /* littleEndian= */ true);
-  return Buffer.from(arr);
+  new DataView(arr.buffer).setUint16(0, v, true);
+  return arr;
 }
 
 /** Tag 0: InitPool — create stake pool for a slab. */
-export function encodeStakeInitPool(cooldownSlots: bigint | number, depositCap: bigint | number): Buffer {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.InitPool]),
+export function encodeStakeInitPool(cooldownSlots: bigint | number, depositCap: bigint | number): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.InitPool]),
     u64Le(cooldownSlots),
     u64Le(depositCap),
-  ]);
+  );
 }
 
 /** Tag 1: Deposit — deposit collateral, receive LP tokens. */
-export function encodeStakeDeposit(amount: bigint | number): Buffer {
-  return Buffer.concat([Buffer.from([STAKE_IX.Deposit]), u64Le(amount)]);
+export function encodeStakeDeposit(amount: bigint | number): Uint8Array {
+  return concatBytes(new Uint8Array([STAKE_IX.Deposit]), u64Le(amount));
 }
 
 /** Tag 2: Withdraw — burn LP tokens, receive collateral (subject to cooldown). */
-export function encodeStakeWithdraw(lpAmount: bigint | number): Buffer {
-  return Buffer.concat([Buffer.from([STAKE_IX.Withdraw]), u64Le(lpAmount)]);
+export function encodeStakeWithdraw(lpAmount: bigint | number): Uint8Array {
+  return concatBytes(new Uint8Array([STAKE_IX.Withdraw]), u64Le(lpAmount));
 }
 
 /** Tag 3: FlushToInsurance — move collateral from stake vault to wrapper insurance. */
-export function encodeStakeFlushToInsurance(amount: bigint | number): Buffer {
-  return Buffer.concat([Buffer.from([STAKE_IX.FlushToInsurance]), u64Le(amount)]);
+export function encodeStakeFlushToInsurance(amount: bigint | number): Uint8Array {
+  return concatBytes(new Uint8Array([STAKE_IX.FlushToInsurance]), u64Le(amount));
 }
 
 /** Tag 4: UpdateConfig — update cooldown and/or deposit cap. */
 export function encodeStakeUpdateConfig(
   newCooldownSlots?: bigint | number,
   newDepositCap?: bigint | number,
-): Buffer {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.UpdateConfig]),
-    Buffer.from([newCooldownSlots != null ? 1 : 0]),
+): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.UpdateConfig]),
+    new Uint8Array([newCooldownSlots != null ? 1 : 0]),
     u64Le(newCooldownSlots ?? 0n),
-    Buffer.from([newDepositCap != null ? 1 : 0]),
+    new Uint8Array([newDepositCap != null ? 1 : 0]),
     u64Le(newDepositCap ?? 0n),
-  ]);
+  );
 }
 
 /** Tag 5: TransferAdmin — transfer wrapper admin to pool PDA. */
-export function encodeStakeTransferAdmin(): Buffer {
-  return Buffer.from([STAKE_IX.TransferAdmin]);
+export function encodeStakeTransferAdmin(): Uint8Array {
+  return new Uint8Array([STAKE_IX.TransferAdmin]);
 }
 
 /** Tag 6: AdminSetOracleAuthority — forward to wrapper via CPI. */
-export function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Buffer {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetOracleAuthority]),
-    newAuthority.toBuffer(),
-  ]);
+export function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetOracleAuthority]),
+    newAuthority.toBytes(),
+  );
 }
 
 /** Tag 7: AdminSetRiskThreshold — forward to wrapper via CPI. */
-export function encodeStakeAdminSetRiskThreshold(newThreshold: bigint | number): Buffer {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetRiskThreshold]),
+export function encodeStakeAdminSetRiskThreshold(newThreshold: bigint | number): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetRiskThreshold]),
     u128Le(newThreshold),
-  ]);
+  );
 }
 
 /** Tag 8: AdminSetMaintenanceFee — forward to wrapper via CPI. */
-export function encodeStakeAdminSetMaintenanceFee(newFee: bigint | number): Buffer {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetMaintenanceFee]),
+export function encodeStakeAdminSetMaintenanceFee(newFee: bigint | number): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetMaintenanceFee]),
     u128Le(newFee),
-  ]);
+  );
 }
 
 /** Tag 9: AdminResolveMarket — forward to wrapper via CPI. */
-export function encodeStakeAdminResolveMarket(): Buffer {
-  return Buffer.from([STAKE_IX.AdminResolveMarket]);
+export function encodeStakeAdminResolveMarket(): Uint8Array {
+  return new Uint8Array([STAKE_IX.AdminResolveMarket]);
 }
 
 /** Tag 10: AdminWithdrawInsurance — withdraw insurance after market resolution. */
-export function encodeStakeAdminWithdrawInsurance(amount: bigint | number): Buffer {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminWithdrawInsurance]),
+export function encodeStakeAdminWithdrawInsurance(amount: bigint | number): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminWithdrawInsurance]),
     u64Le(amount),
-  ]);
+  );
 }
 
 /** Tag 12: AccrueFees — permissionless: accrue trading fees to LP vault. */
-export function encodeStakeAccrueFees(): Buffer {
-  return Buffer.from([STAKE_IX.AccrueFees]);
+export function encodeStakeAccrueFees(): Uint8Array {
+  return new Uint8Array([STAKE_IX.AccrueFees]);
 }
 
 /** Tag 13: InitTradingPool — create pool in trading LP mode (pool_mode = 1). */
-export function encodeStakeInitTradingPool(cooldownSlots: bigint | number, depositCap: bigint | number): Buffer {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.InitTradingPool]),
+export function encodeStakeInitTradingPool(cooldownSlots: bigint | number, depositCap: bigint | number): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.InitTradingPool]),
     u64Le(cooldownSlots),
     u64Le(depositCap),
-  ]);
+  );
 }
 
 /** Tag 14 (PERC-313): AdminSetHwmConfig — enable HWM protection and set floor BPS. */
 export function encodeStakeAdminSetHwmConfig(
   enabled: boolean,
   hwmFloorBps: number,
-): Buffer {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetHwmConfig]),
-    Buffer.from([enabled ? 1 : 0]),
+): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetHwmConfig]),
+    new Uint8Array([enabled ? 1 : 0]),
     u16Le(hwmFloorBps),
-  ]);
+  );
 }
 
 /** Tag 15 (PERC-303): AdminSetTrancheConfig — enable senior/junior LP tranches. */
-export function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps: number): Buffer {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetTrancheConfig]),
+export function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps: number): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetTrancheConfig]),
     u16Le(juniorFeeMultBps),
-  ]);
+  );
 }
 
 /** Tag 16 (PERC-303): DepositJunior — deposit into first-loss junior tranche. */
-export function encodeStakeDepositJunior(amount: bigint | number): Buffer {
-  return Buffer.concat([Buffer.from([STAKE_IX.DepositJunior]), u64Le(amount)]);
+export function encodeStakeDepositJunior(amount: bigint | number): Uint8Array {
+  return concatBytes(new Uint8Array([STAKE_IX.DepositJunior]), u64Le(amount));
 }
 
 /** Tag 11: AdminSetInsurancePolicy — set withdrawal policy on wrapper. */
@@ -289,14 +289,14 @@ export function encodeStakeAdminSetInsurancePolicy(
   minWithdrawBase: bigint | number,
   maxWithdrawBps: number,
   cooldownSlots: bigint | number,
-): Buffer {
-  return Buffer.concat([
-    Buffer.from([STAKE_IX.AdminSetInsurancePolicy]),
-    authority.toBuffer(),
+): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetInsurancePolicy]),
+    authority.toBytes(),
     u64Le(minWithdrawBase),
     u16Le(maxWithdrawBps),
     u64Le(cooldownSlots),
-  ]);
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -361,12 +361,10 @@ export const STAKE_POOL_SIZE = 352;
  * Decode a StakePool account from raw data buffer.
  * Uses DataView for all u64/u16 reads — browser-safe (no Buffer.readBigUInt64LE).
  */
-export function decodeStakePool(data: Buffer | Uint8Array): StakePoolState {
+export function decodeStakePool(data: Uint8Array): StakePoolState {
   if (data.length < STAKE_POOL_SIZE) {
     throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE}`);
   }
-  // Wrap in a Uint8Array view so readU64LE / readU16LE helpers work in any environment.
-  // Buffer extends Uint8Array, so new Uint8Array(data.buffer, ...) works for both types.
   const bytes: Uint8Array = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
   let off = 0;
 
