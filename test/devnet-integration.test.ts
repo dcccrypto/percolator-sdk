@@ -25,7 +25,7 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import {
   discoverMarkets,
   parseEngine,
@@ -70,6 +70,8 @@ const SKIP = process.env.SKIP_DEVNET_TESTS === "1";
 
 let devnetConnection: Connection;
 let discoveredSlabs: PublicKey[] = [];
+/** Full market objects — reuse across suites instead of re-scanning. */
+let discoveredMarkets: Awaited<ReturnType<typeof discoverMarkets>> = [];
 let rpcReachable = false;
 
 // ---------------------------------------------------------------------------
@@ -110,20 +112,20 @@ beforeAll(async () => {
     return;
   }
 
-  // Discover markets once; subsequent tests reuse the list.
+  // Discover markets once; all subsequent tests reuse the cached results.
   try {
-    const markets = await discoverMarkets(devnetConnection, DEVNET_PROGRAM_ID, {
+    discoveredMarkets = await discoverMarkets(devnetConnection, DEVNET_PROGRAM_ID, {
       sequential: true,        // be polite to public RPC — no parallel bursts
       interTierDelayMs: 500,   // 500 ms between tier queries
       rateLimitBackoffMs: [2_000, 5_000],
     });
-    discoveredSlabs = markets.map(m => m.slabAddress);
+    discoveredSlabs = discoveredMarkets.map(m => m.slabAddress);
     console.log(
       `[PERC-8365] beforeAll: discovered ${discoveredSlabs.length} devnet market(s)`
     );
   } catch (err) {
     console.warn("[PERC-8365] discoverMarkets failed in beforeAll:", err);
-    // Tests will handle empty discoveredSlabs gracefully.
+    // Tests will handle empty discoveredSlabs/discoveredMarkets gracefully.
   }
 }, 60_000); // allow up to 60 s for market discovery
 
@@ -132,14 +134,12 @@ beforeAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("devnet — discoverMarkets() [PERC-8365]", () => {
-  it("skips cleanly when SKIP_DEVNET_TESTS=1", () => {
-    if (!SKIP) return;
+  it.skipIf(!SKIP)("skips cleanly when SKIP_DEVNET_TESTS=1", () => {
     console.log("[PERC-8365] SKIP_DEVNET_TESTS=1 — skipping devnet suite");
     expect(true).toBe(true);
   });
 
-  it("devnet RPC is reachable and returns a valid slot", async () => {
-    if (SKIP || !rpcReachable) return;
+  it.skipIf(SKIP || !rpcReachable)("devnet RPC is reachable and returns a valid slot", async () => {
     const slot = await devnetConnection.getSlot("confirmed");
     expect(typeof slot).toBe("number");
     expect(slot).toBeGreaterThan(0);
@@ -168,17 +168,13 @@ describe("devnet — discoverMarkets() [PERC-8365]", () => {
   it("discoverMarkets() response includes valid header fields", async () => {
     if (SKIP || !rpcReachable) return;
 
-    const markets = await discoverMarkets(devnetConnection, DEVNET_PROGRAM_ID, {
-      sequential: true,
-      interTierDelayMs: 500,
-    });
-
-    if (markets.length === 0) {
-      console.warn("[PERC-8365] 0 markets returned — skipping header field assertions");
+    // Reuse cached markets from beforeAll — no extra RPC scan
+    if (discoveredMarkets.length === 0) {
+      console.warn("[PERC-8365] 0 markets in cache — skipping header field assertions");
       return;
     }
 
-    const first = markets[0];
+    const first = discoveredMarkets[0];
     // header.version must be 0, 1, or 2 (known deployed versions on devnet)
     expect([0, 1, 2]).toContain(first.header.version);
     // header.admin must be a valid PublicKey
@@ -189,17 +185,13 @@ describe("devnet — discoverMarkets() [PERC-8365]", () => {
   it("discoverMarkets() response includes valid config fields", async () => {
     if (SKIP || !rpcReachable) return;
 
-    const markets = await discoverMarkets(devnetConnection, DEVNET_PROGRAM_ID, {
-      sequential: true,
-      interTierDelayMs: 500,
-    });
-
-    if (markets.length === 0) {
-      console.warn("[PERC-8365] 0 markets returned — skipping config field assertions");
+    // Reuse cached markets from beforeAll — no extra RPC scan
+    if (discoveredMarkets.length === 0) {
+      console.warn("[PERC-8365] 0 markets in cache — skipping config field assertions");
       return;
     }
 
-    for (const market of markets.slice(0, 3)) {
+    for (const market of discoveredMarkets.slice(0, 3)) {
       // collateralMint must be a valid-looking public key
       expect(market.config.collateralMint).toBeInstanceOf(PublicKey);
       const mint = market.config.collateralMint.toBase58();
@@ -330,8 +322,12 @@ describe("devnet — getMarketStats() via parseEngine/parseConfig [PERC-8365]", 
   it("fetchSlab throws a descriptive error for a non-existent account", async () => {
     if (SKIP || !rpcReachable) return;
 
-    const nonExistentKey = new PublicKey("11111111111111111111111111111111");
-    await expect(fetchSlab(devnetConnection, nonExistentKey)).rejects.toThrow(/not found/i);
+    // Use a random keypair so getAccountInfo returns null (System Program has data).
+    const randomKey = Keypair.generate().publicKey;
+    // Verify the account genuinely does not exist before calling fetchSlab.
+    const info = await devnetConnection.getAccountInfo(randomKey, "confirmed");
+    expect(info).toBeNull();
+    await expect(fetchSlab(devnetConnection, randomKey)).rejects.toThrow(/not found/i);
   }, 15_000);
 });
 
