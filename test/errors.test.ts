@@ -13,8 +13,7 @@ import {
 
 describe("PERCOLATOR_ERRORS table", () => {
   it("has contiguous error codes from 0 to 65", () => {
-    for (let i = 0; i <= 65; i++) {      expect(PERCOLATOR_ERRORS[i]).toBeDefined();
-      expect(PERCOLATOR_ERRORS[i].name).toBeTruthy();
+    for (let i = 0; i <= 65; i++) {      expect(PERCOLATOR_ERRORS[i]).toBeDefined();      expect(PERCOLATOR_ERRORS[i].name).toBeTruthy();
       expect(PERCOLATOR_ERRORS[i].hint).toBeTruthy();
     }
   });
@@ -86,8 +85,7 @@ describe("decodeError", () => {
     expect(decodeError(66)).toBeUndefined();  });
   it("returns error info for PERC extension codes 45 and 59", () => {
     expect(decodeError(45)!.name).toBe("SafetyValveDominantSideBlocked");
-    expect(decodeError(59)!.name).toBe("OiImbalanceHardBlock");  });});
-// ============================================================================
+    expect(decodeError(59)!.name).toBe("OiImbalanceHardBlock");  });});// ============================================================================
 // getErrorName
 // ============================================================================
 
