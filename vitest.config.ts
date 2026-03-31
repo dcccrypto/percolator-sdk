@@ -10,6 +10,7 @@ export default defineConfig({
       "test/slab-parser.test.ts",
       "test/program-ids.test.ts",
       "test/adl.test.ts",
+      "src/solana/__tests__/stake.test.ts",
     ],
   },
 });
