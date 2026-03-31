@@ -89,8 +89,7 @@ describe("decodeError", () => {
   });
   it("returns error info for PERC extension codes 45 and 59", () => {
     expect(decodeError(45)!.name).toBe("SafetyValveDominantSideBlocked");
-    expect(decodeError(59)!.name).toBe("OiImbalanceHardBlock");
-  });
+    expect(decodeError(59)!.name).toBe("OiImbalanceHardBlock");  });
 });
 
 // ============================================================================

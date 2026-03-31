@@ -129,6 +129,7 @@ export interface SlabLayout {
   engineEmergencyStartSlotOff: number;  // -1 if not present (V0)
   engineLastBreakerSlotOff: number;     // -1 if not present (V0)
   engineBitmapOff: number;              // relative to engineOff
+  postBitmap: number;                   // 2 = free_head only (V1D), 18 = num_used + pad + next_account_id + free_head
   acctOwnerOff: number;                 // byte offset of owner pubkey within an account slot
 
   // Insurance fund layout
@@ -607,7 +608,7 @@ function buildLayout(version: 0 | 1, maxAccounts: number, engineOffOverride?: nu
     engineEmergencyStartSlotOff: isV0 ? -1 : V1_ENGINE_EMERGENCY_START_SLOT_OFF,
     engineLastBreakerSlotOff: isV0 ? -1 : V1_ENGINE_LAST_BREAKER_SLOT_OFF,
     engineBitmapOff: actualBitmapOff,
-    // V1_LEGACY: accountsOff is now correctly 1880 (fixed above), so standard +184 applies.
+    postBitmap: 18,
     acctOwnerOff: ACCT_OWNER_OFF,
 
     hasInsuranceIsolation: !isV0,
@@ -683,6 +684,7 @@ function buildLayoutV1D(maxAccounts: number, postBitmap = 2): SlabLayout {
     engineEmergencyStartSlotOff: -1,    // not present in deployed V1
     engineLastBreakerSlotOff: -1,       // not present in deployed V1
     engineBitmapOff: V1D_ENGINE_BITMAP_OFF,
+    postBitmap,
     acctOwnerOff: ACCT_OWNER_OFF,
 
     hasInsuranceIsolation: true,
@@ -750,6 +752,7 @@ function buildLayoutV2(maxAccounts: number): SlabLayout {
     engineEmergencyStartSlotOff: -1,
     engineLastBreakerSlotOff: -1,
     engineBitmapOff: V2_ENGINE_BITMAP_OFF,
+    postBitmap: 18,
     acctOwnerOff: ACCT_OWNER_OFF,
 
     hasInsuranceIsolation: true,
@@ -818,6 +821,7 @@ function buildLayoutV1M(maxAccounts: number): SlabLayout {
     engineEmergencyStartSlotOff: V1M_ENGINE_EMERGENCY_START_SLOT_OFF,
     engineLastBreakerSlotOff: V1M_ENGINE_LAST_BREAKER_SLOT_OFF,
     engineBitmapOff: V1M_ENGINE_BITMAP_OFF,
+    postBitmap: 18,
     acctOwnerOff: ACCT_OWNER_OFF,
 
     hasInsuranceIsolation: true,
@@ -889,6 +893,7 @@ function buildLayoutVADL(maxAccounts: number): SlabLayout {
     engineEmergencyStartSlotOff: V_ADL_ENGINE_EMERGENCY_START_SLOT_OFF, // 976
     engineLastBreakerSlotOff: V_ADL_ENGINE_LAST_BREAKER_SLOT_OFF,    // 984
     engineBitmapOff: V_ADL_ENGINE_BITMAP_OFF,                  // 1006
+    postBitmap: 18,
     acctOwnerOff: V_ADL_ACCT_OWNER_OFF,                        // 192
 
     hasInsuranceIsolation: true,
@@ -1586,10 +1591,12 @@ export function parseEngine(data: Uint8Array): EngineState {
       ? readU64LE(data, base + layout.engineMarkPriceOff)
       : 0n,
     numUsedAccounts: (() => {
+      if (layout.postBitmap < 18) return 0;
       const bw = layout.bitmapWords;
       return readU16LE(data, base + layout.engineBitmapOff + bw * 8);
     })(),
     nextAccountId: (() => {
+      if (layout.postBitmap < 18) return 0n;
       const bw = layout.bitmapWords;
       const numUsedOff = layout.engineBitmapOff + bw * 8;
       return readU64LE(data, base + Math.ceil((numUsedOff + 2) / 8) * 8);
