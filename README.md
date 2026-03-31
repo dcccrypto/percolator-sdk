@@ -235,6 +235,106 @@ const mainnetId = getProgramId("mainnet");
 // Environment variable override: PROGRAM_ID=<your-id>
 ```
 
+### Auto-Deleveraging (ADL)
+
+ADL (Auto-Deleveraging) reduces the most-profitable opposing positions when the insurance fund is depleted. The SDK provides both on-chain and API-based ADL utilities.
+
+#### Checking if ADL is triggered
+
+```typescript
+import { isAdlTriggered } from "@percolator/sdk";
+
+const accountInfo = await connection.getAccountInfo(slabKey);
+if (isAdlTriggered(accountInfo!.data)) {
+  console.log("Insurance fund depleted — ADL is active");
+}
+```
+
+#### Ranking positions for ADL
+
+```typescript
+import { fetchAdlRankedPositions } from "@percolator/sdk";
+
+const { ranked, longs, shorts, isTriggered } = await fetchAdlRankedPositions(
+  connection,
+  slabKey,
+);
+// ranked  — all positions sorted by PnL% descending (ADL priority order)
+// longs   — top-ranked long position (ADL target if insurance negative on short side)
+// shorts  — top-ranked short position
+// isTriggered — whether pnl_pos_tot exceeds max_pnl_cap on-chain
+```
+
+#### Building an ADL instruction
+
+```typescript
+import { buildAdlInstruction, buildAdlTransaction, getProgramId } from "@percolator/sdk";
+
+const programId = getProgramId("devnet");
+
+// Build instruction directly (caller already has target index)
+const ix = buildAdlInstruction(
+  callerPublicKey,   // keeper / crank wallet
+  slabPublicKey,
+  oracleFeedPublicKey,
+  programId,
+  targetAccountIndex, // number — index of account to deleverage
+);
+
+// OR: fetch + rank + pick top target automatically
+const ix2 = await buildAdlTransaction(
+  connection,
+  callerPublicKey,
+  slabPublicKey,
+  oracleFeedPublicKey,
+  programId,
+  "long", // side to deleverage ("long" | "short")
+);
+```
+
+#### Decoding on-chain ADL events
+
+```typescript
+import { parseAdlEvent } from "@percolator/sdk";
+
+// After sending / confirming an ExecuteAdl transaction:
+const tx = await connection.getTransaction(sig, { commitment: "confirmed" });
+const event = parseAdlEvent(tx?.meta?.logMessages ?? []);
+// event.tag          — 0xAD1E_0001 (2904424449)
+// event.targetIdx    — account index that was deleveraged
+// event.price        — oracle price at execution (e6)
+// event.closedAbs    — absolute position size closed (i128)
+```
+
+#### Fetching ADL rankings via HTTP API
+
+```typescript
+import { fetchAdlRankings } from "@percolator/sdk";
+
+const result = await fetchAdlRankings(
+  "https://api.percolatorlaunch.com",
+  slabAddress,
+);
+// result.slab       — slab public key
+// result.rankings   — AdlApiRanking[] sorted by adl_rank
+//   .account_index  — position index
+//   .side           — "long" | "short"
+//   .unrealized_pnl — PnL in native units
+//   .adl_rank       — rank (1 = first to be deleveraged)
+```
+
+#### ADL error codes (61–65)
+
+| Code | Name | Description |
+|------|------|-------------|
+| 61 | `EngineSideBlocked` | ADL blocked — dominant side already at cap |
+| 62 | `EngineCorruptState` | Slab state corrupt — contact support |
+| 63 | `InsuranceFundNotDepleted` | ADL not triggered yet (insurance fund healthy) |
+| 64 | `NoAdlCandidates` | No eligible positions to deleverage |
+| 65 | `BankruptPositionAlreadyClosed` | Target position already closed |
+
+---
+
 ### Transaction Helpers
 
 Build, simulate, and send transactions with error parsing:
