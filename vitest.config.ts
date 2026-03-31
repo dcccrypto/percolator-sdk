@@ -16,6 +16,7 @@ export default defineConfig({
       "test/tx.test.ts",
       "src/solana/__tests__/stake.test.ts",
       "src/solana/__tests__/stake-cpi.test.ts",
+      "test/integration-mocked.test.ts",
     ],
   },
 });
