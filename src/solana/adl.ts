@@ -281,6 +281,11 @@ export function buildAdlInstruction(
   targetIdx: number,
   backupOracles: PublicKey[] = []
 ): TransactionInstruction {
+  if (!Number.isInteger(targetIdx) || targetIdx < 0) {
+    throw new Error(
+      `buildAdlInstruction: targetIdx must be a non-negative integer, got ${targetIdx}`,
+    );
+  }
   const data = Buffer.from(encodeExecuteAdl({ targetIdx }));
 
   const keys: AccountMeta[] = [

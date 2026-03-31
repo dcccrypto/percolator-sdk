@@ -57,6 +57,10 @@ export async function simulateOrSend(
 ): Promise<TxResult> {
   const { connection, ix, signers, simulate, commitment = "confirmed", computeUnitLimit } = params;
 
+  if (!signers.length) {
+    throw new Error("simulateOrSend: at least one signer is required");
+  }
+
   const tx = new Transaction();
 
   // Add compute budget instruction if custom limit is specified
