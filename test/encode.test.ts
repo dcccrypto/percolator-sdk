@@ -77,6 +77,50 @@ describe("encI128", () => {
   it("encodes -1000000n", () => {
     expect(encI128(-1000000n)).toEqual(new Uint8Array([192, 189, 240, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]));
   });
+
+  const I128_MIN = -(1n << 127n);
+  const I128_MAX = (1n << 127n) - 1n;
+
+  it("encodes i128 MIN boundary correctly", () => {
+    const encoded = encI128(I128_MIN);
+    expect(encoded.length).toBe(16);
+    // MIN = -2^127 → two's complement = 0x80000000000000000000000000000000
+    expect(encoded[15]).toBe(0x80);
+    for (let i = 0; i < 15; i++) expect(encoded[i]).toBe(0);
+  });
+
+  it("encodes i128 MAX boundary correctly", () => {
+    const encoded = encI128(I128_MAX);
+    expect(encoded.length).toBe(16);
+    // MAX = 2^127 - 1 → 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+    expect(encoded[15]).toBe(0x7f);
+    for (let i = 0; i < 15; i++) expect(encoded[i]).toBe(0xff);
+  });
+
+  it("rejects values outside i128 range", () => {
+    expect(() => encI128(I128_MIN - 1n)).toThrow("out of range");
+    expect(() => encI128(I128_MAX + 1n)).toThrow("out of range");
+  });
+
+  it("encI128 roundtrips correctly at boundaries via readI128LE", () => {
+    function readI128LE(buf: Uint8Array): bigint {
+      const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+      const lo = dv.getBigUint64(0, true);
+      const hi = dv.getBigUint64(8, true);
+      const unsigned = (hi << 64n) | lo;
+      const SIGN_BIT = 1n << 127n;
+      if (unsigned >= SIGN_BIT) return unsigned - (1n << 128n);
+      return unsigned;
+    }
+
+    expect(readI128LE(encI128(0n))).toBe(0n);
+    expect(readI128LE(encI128(-1n))).toBe(-1n);
+    expect(readI128LE(encI128(1n))).toBe(1n);
+    expect(readI128LE(encI128(I128_MIN))).toBe(I128_MIN);
+    expect(readI128LE(encI128(I128_MAX))).toBe(I128_MAX);
+    expect(readI128LE(encI128(-1000000n))).toBe(-1000000n);
+    expect(readI128LE(encI128(1000000n))).toBe(1000000n);
+  });
 });
 
 describe("encPubkey", () => {
