@@ -139,8 +139,7 @@ function parseJupiterMintEntry(
   if (price <= 0) return null;
   let mintSymbol = "?";
   if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
-  return { price, mintSymbol };
-}
+  return { price, mintSymbol };}
 
 // ---------------------------------------------------------------------------
 // Top Solana tokens with known Pyth feeds (feed ID → symbol)
@@ -208,8 +207,7 @@ async function fetchDexSources(mint: string, signal?: AbortSignal): Promise<Pric
       headers: { "User-Agent": "percolator/1.0" },
     });
     const json: unknown = await resp.json();
-    return parseDexScreenerPairs(json);
-  } catch {
+    return parseDexScreenerPairs(json);  } catch {
     return [];
   }
 }
@@ -244,7 +242,6 @@ async function fetchJupiterSource(mint: string, signal?: AbortSignal): Promise<P
     const json: unknown = await resp.json();
     const row = parseJupiterMintEntry(json, mint);
     if (!row) return null;
-
     return {
       type: "jupiter",
       address: mint,
