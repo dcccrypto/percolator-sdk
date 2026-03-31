@@ -144,10 +144,9 @@ function computePnlPct(pnl: bigint, capital: bigint): bigint {
 export function isAdlTriggered(slabData: Uint8Array): boolean {
   const layout = detectSlabLayout(slabData.length);
   if (!layout) return false;
-  const engine = parseEngine(slabData);
-  if (engine.pnlPosTot === 0n) return false;
-  // max_pnl_cap = 0 means ADL is disabled on this market.
   try {
+    const engine = parseEngine(slabData);
+    if (engine.pnlPosTot === 0n) return false;
     const config = parseConfig(slabData, layout);
     if (config.maxPnlCap === 0n) return false;
     return engine.pnlPosTot > config.maxPnlCap;
@@ -192,12 +191,19 @@ export async function fetchAdlRankedPositions(
  * Useful when you already have the slab data (e.g., from a subscription).
  */
 export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
-  // Parse engine state for trigger check.
   const layout = detectSlabLayout(slabData.length);
-  const engine = parseEngine(slabData);
-  const pnlPosTot = engine.pnlPosTot;
 
-  // Parse market config for maxPnlCap.
+  let pnlPosTot = 0n;
+  try {
+    const engine = parseEngine(slabData);
+    pnlPosTot = engine.pnlPosTot;
+  } catch (err) {
+    console.warn(
+      `[rankAdlPositions] parseEngine failed:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   let maxPnlCap = 0n;
   let isTriggered = false;
   if (layout) {
