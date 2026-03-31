@@ -10,8 +10,7 @@
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { safeEnv } from '../config/program-ids.js';
-import { concatBytes } from '../abi/encode.js';
-// ═══════════════════════════════════════════════════════════════
+import { concatBytes } from '../abi/encode.js';// ═══════════════════════════════════════════════════════════════
 // Program ID — network-conditional (mirrors program-ids.ts pattern)
 // ═══════════════════════════════════════════════════════════════
 
@@ -106,22 +105,19 @@ const TEXT = new TextEncoder();
 /** Derive the stake pool PDA for a given slab (market). */
 export function deriveStakePool(slab: PublicKey, programId?: PublicKey) {
   return PublicKey.findProgramAddressSync(
-    [TEXT.encode('stake_pool'), slab.toBytes()],    programId ?? getStakeProgramId(),
-  );
+    [TEXT.encode('stake_pool'), slab.toBytes()],    programId ?? getStakeProgramId(),  );
 }
 
 /** Derive the vault authority PDA (signs CPI, owns LP mint + vault). */
 export function deriveStakeVaultAuth(pool: PublicKey, programId?: PublicKey) {
   return PublicKey.findProgramAddressSync(
-    [TEXT.encode('vault_auth'), pool.toBytes()],    programId ?? getStakeProgramId(),
-  );
+    [TEXT.encode('vault_auth'), pool.toBytes()],    programId ?? getStakeProgramId(),  );
 }
 
 /** Derive the per-user deposit PDA (tracks cooldown, deposit time). */
 export function deriveDepositPda(pool: PublicKey, user: PublicKey, programId?: PublicKey) {
   return PublicKey.findProgramAddressSync(
-    [TEXT.encode('deposit'), pool.toBytes(), user.toBytes()],    programId ?? getStakeProgramId(),
-  );
+    [TEXT.encode('deposit'), pool.toBytes(), user.toBytes()],    programId ?? getStakeProgramId(),  );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -162,8 +158,7 @@ function u128Le(v: bigint | number): Uint8Array {
 }
 
 function u16Le(v: number): Uint8Array {
-  if (v < 0 || v > 0xFFFF) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);  const arr = new Uint8Array(2);
-  new DataView(arr.buffer).setUint16(0, v, true);
+  if (v < 0 || v > 0xFFFF) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);  const arr = new Uint8Array(2);  new DataView(arr.buffer).setUint16(0, v, true);
   return arr;
 }
 
@@ -361,15 +356,13 @@ export interface StakePoolState {
 export const STAKE_POOL_SIZE = 352;
 
 /**
- * Decode a StakePool account from raw data buffer.
- * Uses DataView for all u64/u16 reads — browser-safe.
+ * Decode a StakePool account from raw data buffer. * Uses DataView for all u64/u16 reads — browser-safe.
  */
 export function decodeStakePool(data: Uint8Array): StakePoolState {
   if (data.length < STAKE_POOL_SIZE) {
     throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE}`);
   }
   const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);  let off = 0;
-
   const isInitialized = bytes[off] === 1; off += 1;
   const bump = bytes[off]; off += 1;
   const vaultAuthorityBump = bytes[off]; off += 1;

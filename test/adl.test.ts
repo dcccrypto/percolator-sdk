@@ -32,7 +32,7 @@ describe("buildAdlInstruction", () => {
 
     // tag=50, targetIdx=7 → [50, 7, 0]
     const expected = encodeExecuteAdl({ targetIdx });
-    expect(ix.data).toEqual(Buffer.from(expected));
+    expect(new Uint8Array(ix.data)).toEqual(expected);
   });
 
   it("uses the correct programId", () => {

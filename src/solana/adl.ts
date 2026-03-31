@@ -308,7 +308,7 @@ export function buildAdlInstruction(
       `buildAdlInstruction: targetIdx must be a non-negative integer, got ${targetIdx}`,
     );
   }
-  const data = Buffer.from(encodeExecuteAdl({ targetIdx }));
+  const data = encodeExecuteAdl({ targetIdx });
 
   const keys: AccountMeta[] = [
     { pubkey: caller, isSigner: true, isWritable: false },
