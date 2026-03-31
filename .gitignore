@@ -13,7 +13,6 @@ id_ed25519*
 credentials.json
 keypair.json
 *-keypair.json
-
 # Local-only prompts and notes (not for upstream)
 .private/
 
