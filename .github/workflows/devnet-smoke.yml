@@ -1,0 +1,82 @@
+name: Devnet Smoke Test
+
+# PERC-8365: Optional devnet CI integration tests using public devnet RPC.
+#
+# This workflow is NOT a merge gate — it runs as a non-blocking informational
+# check. Failures here indicate devnet program compatibility issues, not SDK
+# correctness regressions (use the main CI for that).
+#
+# Triggers:
+#   - Manual dispatch (workflow_dispatch)
+#   - Scheduled: daily at 06:00 UTC (early-morning devnet check)
+#   - On push to main (informational, not blocking merge gate)
+#
+# No secrets required: uses api.devnet.solana.com (public RPC).
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_rpc_tests:
+        description: "Skip live RPC tests (run error-code parsing only)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+  schedule:
+    - cron: "0 6 * * *"   # 06:00 UTC daily
+  push:
+    branches: [main]
+
+jobs:
+  devnet-smoke:
+    name: Devnet Integration Smoke Test
+    runs-on: ubuntu-latest
+    # Mark as informational — failures do not block PRs or deploys
+    continue-on-error: true
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SDK
+        run: pnpm build
+
+      - name: Run devnet integration tests (error-code parsing, always)
+        run: |
+          npx vitest run --config vitest.devnet.config.ts
+        env:
+          # SKIP_DEVNET_TESTS=1 runs only the offline error-code parsing tests (no live RPC)
+          SKIP_DEVNET_TESTS: "1"
+
+      - name: Run devnet integration tests (live RPC)
+        if: github.event.inputs.skip_rpc_tests != 'true'
+        run: |
+          npx vitest run --config vitest.devnet.config.ts
+        env:
+          SKIP_DEVNET_TESTS: "0"
+          # No Helius key needed — api.devnet.solana.com is public
+        # Allow RPC failures gracefully — devnet can have outages
+        continue-on-error: true
+
+      - name: Report devnet test status
+        if: always()
+        run: |
+          echo "=== PERC-8365 Devnet Smoke Test Complete ==="
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "RPC: api.devnet.solana.com (public, no API key)"
+          echo "Program: FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD"
+          echo ""
+          echo "This is an informational check — failures here indicate devnet"
+          echo "compatibility issues, not SDK regressions."
