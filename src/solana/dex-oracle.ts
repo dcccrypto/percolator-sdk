@@ -170,6 +170,8 @@ function parseRaydiumClmmPool(poolAddress: PublicKey, data: Uint8Array): DexPool
  *
  * @internal
  */
+const MAX_TOKEN_DECIMALS = 24;
+
 function computeRaydiumClmmPriceE6(data: Uint8Array): bigint {
   if (data.length < RAYDIUM_CLMM_MIN_LEN) {
     throw new Error(`Raydium CLMM data too short: ${data.length} < ${RAYDIUM_CLMM_MIN_LEN}`);
@@ -179,10 +181,9 @@ function computeRaydiumClmmPriceE6(data: Uint8Array): bigint {
   const decimals0 = data[233];
   const decimals1 = data[234];
 
-  const MAX_SPL_DECIMALS = 24;
-  if (decimals0 > MAX_SPL_DECIMALS || decimals1 > MAX_SPL_DECIMALS) {
+  if (decimals0 > MAX_TOKEN_DECIMALS || decimals1 > MAX_TOKEN_DECIMALS) {
     throw new Error(
-      `Raydium CLMM: unreasonable token decimals (${decimals0}, ${decimals1}); max ${MAX_SPL_DECIMALS}`,
+      `Raydium CLMM: decimals out of range (${decimals0}, ${decimals1}); max ${MAX_TOKEN_DECIMALS}`,
     );
   }
 
@@ -190,12 +191,6 @@ function computeRaydiumClmmPriceE6(data: Uint8Array): bigint {
 
   if (sqrtPriceX64 === 0n) return 0n;
 
-  // PRECISION FIX: Scale up by 1e6 BEFORE right-shifting to preserve bits
-  // for micro-priced tokens where sqrtPriceX64 < 2^64.
-  // scaled_sqrt = sqrt * 1_000_000
-  // term = scaled_sqrt >> 64  (preserves 6 more decimal digits)
-  // price_e6_raw = term * sqrt >> 64
-  // Then adjust decimal_diff by -6 (since we already embedded 1e6).
   const scaledSqrt = sqrtPriceX64 * 1_000_000n;
   const term = scaledSqrt >> 64n;
   const priceE6Raw = (term * sqrtPriceX64) >> 64n;
@@ -244,6 +239,9 @@ function parseMeteoraPool(poolAddress: PublicKey, data: Uint8Array): DexPoolInfo
  *
  * @internal
  */
+const MAX_BIN_STEP = 10_000;
+const MAX_ACTIVE_ID_ABS = 500_000;
+
 function computeMeteoraDlmmPriceE6(data: Uint8Array): bigint {
   if (data.length < METEORA_DLMM_MIN_LEN) {
     throw new Error(`Meteora DLMM data too short: ${data.length} < ${METEORA_DLMM_MIN_LEN}`);
@@ -254,6 +252,14 @@ function computeMeteoraDlmmPriceE6(data: Uint8Array): bigint {
   const activeId = dv.getInt32(76, true);
 
   if (binStep === 0) return 0n;
+  if (binStep > MAX_BIN_STEP) {
+    throw new Error(`Meteora DLMM: binStep ${binStep} exceeds max ${MAX_BIN_STEP}`);
+  }
+  if (Math.abs(activeId) > MAX_ACTIVE_ID_ABS) {
+    throw new Error(
+      `Meteora DLMM: |activeId| ${Math.abs(activeId)} exceeds max ${MAX_ACTIVE_ID_ABS}`,
+    );
+  }
 
   const MAX_ABS_BIN_ID = 500_000;
   if (activeId > MAX_ABS_BIN_ID || activeId < -MAX_ABS_BIN_ID) {
