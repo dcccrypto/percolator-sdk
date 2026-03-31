@@ -15,6 +15,7 @@ export default defineConfig({
       "test/program-ids.test.ts",
       "test/stake.test.ts",
       "test/tx.test.ts",
+      "src/solana/__tests__/stake.test.ts",
     ],
   },
 });

@@ -146,21 +146,27 @@ function readU16LE(data: Uint8Array, off: number): number {
 // ═══════════════════════════════════════════════════════════════
 
 function u64Le(v: bigint | number): Uint8Array {
+  const big = BigInt(v);
+  if (big < 0n) throw new Error(`u64Le: value must be non-negative, got ${big}`);
+  if (big > 0xFFFF_FFFF_FFFF_FFFFn) throw new Error(`u64Le: value exceeds u64 max`);
   const arr = new Uint8Array(8);
-  new DataView(arr.buffer).setBigUint64(0, BigInt(v), true);
+  new DataView(arr.buffer).setBigUint64(0, big, true);
   return arr;
 }
 
 function u128Le(v: bigint | number): Uint8Array {
+  const big = BigInt(v);
+  if (big < 0n) throw new Error(`u128Le: value must be non-negative, got ${big}`);
+  if (big > (1n << 128n) - 1n) throw new Error(`u128Le: value exceeds u128 max`);
   const arr = new Uint8Array(16);
   const view = new DataView(arr.buffer);
-  const big = BigInt(v);
   view.setBigUint64(0, big & 0xFFFFFFFFFFFFFFFFn, true);
   view.setBigUint64(8, big >> 64n, true);
   return arr;
 }
 
 function u16Le(v: number): Uint8Array {
+  if (v < 0 || v > 0xFFFF) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);
   const arr = new Uint8Array(2);
   new DataView(arr.buffer).setUint16(0, v, true);
   return arr;
