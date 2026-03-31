@@ -138,7 +138,6 @@ export function deriveCreatorLockPda(
     programId
   );
 }
-
 /** 32-byte feed id as 64 hex digits (optional `0x` prefix after trim). */
 const PYTH_FEED_ID_HEX_LEN = 64;
 
@@ -161,8 +160,7 @@ export function derivePythPushOraclePDA(feedIdHex: string): [PublicKey, number] 
   const normalized = normalizePythFeedIdHex(feedIdHex);
   if (!FEED_HEX_RE.test(normalized)) {
     throw new Error(
-      `derivePythPushOraclePDA: feedIdHex must be 64 hex digits (32 bytes); got ${normalized.length === 64 ? "non-hexadecimal characters" : normalized.length + " chars"}`,
-    );
+      `derivePythPushOraclePDA: feedIdHex must be 64 hex digits (32 bytes); got ${normalized.length === 64 ? "non-hexadecimal characters" : normalized.length + " chars"}`,    );
   }
   const feedId = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
