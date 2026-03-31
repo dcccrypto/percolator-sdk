@@ -315,12 +315,18 @@ const result = await fetchAdlRankings(
   "https://api.percolatorlaunch.com",
   slabAddress,
 );
-// result.slab       — slab public key
-// result.rankings   — AdlApiRanking[] sorted by adl_rank
-//   .account_index  — position index
+// result.slabAddress         — slab public key (base58)
+// result.adlNeeded           — true if ADL is triggered
+// result.capExceeded         — true if pnlPosTot > maxPnlCap
+// result.insuranceDepleted   — true if insurance fund balance == 0
+// result.pnlPosTot           — aggregate profitable PnL (decimal string)
+// result.rankings            — AdlApiRanking[] sorted by rank (1 = first to deleverage)
+//   .rank           — rank (1 = highest PnL%, deleveraged first)
+//   .idx            — slab account index (pass as targetIdx to buildAdlInstruction)
 //   .side           — "long" | "short"
-//   .unrealized_pnl — PnL in native units
-//   .adl_rank       — rank (1 = first to be deleveraged)
+//   .pnlAbs         — absolute PnL in lamports (decimal string)
+//   .capital        — capital at entry in lamports (decimal string)
+//   .pnlPctMillionths — pnl * 1_000_000 / capital (decimal string)
 ```
 
 #### ADL error codes (61–65)
