@@ -113,8 +113,13 @@ export function encI128(val: bigint | string): Uint8Array {
  * Input: PublicKey or base58 string
  */
 export function encPubkey(val: PublicKey | string): Uint8Array {
-  const pk = typeof val === "string" ? new PublicKey(val) : val;
-  return pk.toBytes();
+  try {
+    const pk = typeof val === "string" ? new PublicKey(val) : val;
+    return pk.toBytes();
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`encPubkey: invalid public key "${String(val)}" — ${msg}`);
+  }
 }
 
 /**

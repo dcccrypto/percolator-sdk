@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  encU8, encU16, encU32, encU64, encI64, encU128, encI128, concatBytes,
+  encU8, encU16, encU32, encU64, encI64, encU128, encI128, encPubkey, concatBytes,
 } from "../src/abi/encode.js";
 
 describe("encU8", () => {
@@ -76,6 +76,19 @@ describe("encI128", () => {
   });
   it("encodes -1000000n", () => {
     expect(encI128(-1000000n)).toEqual(new Uint8Array([192, 189, 240, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]));
+  });
+});
+
+describe("encPubkey", () => {
+  it("rejects invalid base58 with descriptive error", () => {
+    expect(() => encPubkey("not-a-valid-base58!!!")).toThrow(/encPubkey.*invalid public key/i);
+  });
+  it("includes the bad value in the error message", () => {
+    expect(() => encPubkey("$$$bad$$$")).toThrow("$$$bad$$$");
+  });
+  it("accepts a valid base58 public key string", () => {
+    const bytes = encPubkey("11111111111111111111111111111111");
+    expect(bytes.length).toBe(32);
   });
 });
 
