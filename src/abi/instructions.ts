@@ -172,20 +172,19 @@ function encodeFeedId(feedId: string): Uint8Array {
   return bytes;
 }
 
+const INIT_MARKET_DATA_LEN = 264;
+
 export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
-  // Layout: tag(1) + admin(32) + mint(32) + index_feed_id(32) + max_staleness_secs(8) +
-  //         conf_filter_bps(2) + invert(1) + unit_scale(4) + initial_mark_price_e6(8) + RiskParams(...)
-  // Note: _reserved field is only in MarketConfig on-chain, not in instruction data
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.InitMarket),
     encPubkey(args.admin),
     encPubkey(args.collateralMint),
-    encodeFeedId(args.indexFeedId),   // index_feed_id (32 bytes) - all zeros for Hyperp mode
-    encU64(args.maxStalenessSecs),    // max_staleness_secs (Pyth Pull uses unix timestamps)
+    encodeFeedId(args.indexFeedId),
+    encU64(args.maxStalenessSecs),
     encU16(args.confFilterBps),
     encU8(args.invert),
     encU32(args.unitScale),
-    encU64(args.initialMarkPriceE6),  // initial_mark_price_e6 (required non-zero for Hyperp)
+    encU64(args.initialMarkPriceE6),
     encU64(args.warmupPeriodSlots),
     encU64(args.maintenanceMarginBps),
     encU64(args.initialMarginBps),
@@ -200,6 +199,12 @@ export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
     encU64(args.liquidationBufferBps),
     encU128(args.minLiquidationAbs),
   );
+  if (data.length !== INIT_MARKET_DATA_LEN) {
+    throw new Error(
+      `encodeInitMarket: expected ${INIT_MARKET_DATA_LEN} bytes, got ${data.length}`,
+    );
+  }
+  return data;
 }
 
 /**
