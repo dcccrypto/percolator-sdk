@@ -654,6 +654,13 @@ export async function discoverMarkets(
     // Pass the data buffer so V2 slabs (same size as V1D) can be disambiguated via version field.
     const layout = detectSlabLayout(dataSize, data);
 
+    if (!layout) {
+      console.warn(
+        `[discoverMarkets] Skipping account ${pkStr}: unrecognized layout for dataSize=${dataSize}`,
+      );
+      continue;
+    }
+
     try {
       const header = parseHeader(data);
       const config = parseConfig(data, layout);
