@@ -1186,6 +1186,26 @@ var PERCOLATOR_ERRORS = {
   60: {
     name: "EngineInvalidEntryPrice",
     hint: "Entry price must be positive when opening a position."
+  },
+  61: {
+    name: "EngineSideBlocked",
+    hint: "New position blocked \u2014 this side is in DrainOnly or ResetPending mode. Wait for the market to stabilise."
+  },
+  62: {
+    name: "EngineCorruptState",
+    hint: "Engine detected a corrupt state invariant violation \u2014 this is a critical internal error, please report it."
+  },
+  63: {
+    name: "InsuranceFundNotDepleted",
+    hint: "ADL rejected \u2014 insurance fund is not fully depleted (balance > 0). ADL is only permitted once insurance is exhausted."
+  },
+  64: {
+    name: "NoAdlCandidates",
+    hint: "ADL rejected \u2014 no eligible candidate positions found for deleveraging."
+  },
+  65: {
+    name: "BankruptPositionAlreadyClosed",
+    hint: "ADL rejected \u2014 the target position is already closed (size == 0). Re-rank and pick a different target."
   }
 };
 function decodeError(code) {
@@ -2677,7 +2697,8 @@ async function discoverMarkets(connection, programId, options = {}) {
   const {
     sequential = false,
     interTierDelayMs = 200,
-    rateLimitBackoffMs = [1e3, 3e3, 9e3, 27e3]
+    rateLimitBackoffMs = [1e3, 3e3, 9e3, 27e3],
+    maxParallelTiers = 6
   } = options;
   const ALL_TIERS = [
     ...Object.values(SLAB_TIERS),
@@ -2715,39 +2736,48 @@ async function discoverMarkets(connection, programId, options = {}) {
     }
     return [];
   }
+  const maxTierQueries = options.maxTierQueries ?? ALL_TIERS.length;
+  const tiersToQuery = ALL_TIERS.slice(0, maxTierQueries);
+  const effectiveMaxParallelTiers = Math.max(1, Number.isFinite(maxParallelTiers) ? maxParallelTiers : 6);
   try {
     if (sequential) {
-      for (let i = 0; i < ALL_TIERS.length; i++) {
-        const tier = ALL_TIERS[i];
+      for (let i = 0; i < tiersToQuery.length; i++) {
+        const tier = tiersToQuery[i];
         const entries = await fetchTierWithRetry(tier);
         rawAccounts.push(...entries);
-        if (i < ALL_TIERS.length - 1) {
+        if (i < tiersToQuery.length - 1) {
           await new Promise((r) => setTimeout(r, interTierDelayMs));
         }
       }
     } else {
-      const queries = ALL_TIERS.map(
-        (tier) => connection.getProgramAccounts(programId, {
-          filters: [{ dataSize: tier.dataSize }],
-          dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH }
-        }).then((results2) => results2.map((entry) => ({ ...entry, maxAccounts: tier.maxAccounts, dataSize: tier.dataSize })))
-      );
-      const results = await Promise.allSettled(queries);
-      let hadRejection = false;
-      for (const result of results) {
-        if (result.status === "fulfilled") {
-          for (const entry of result.value) {
-            rawAccounts.push(entry);
+      for (let offset = 0; offset < tiersToQuery.length; offset += effectiveMaxParallelTiers) {
+        const chunk = tiersToQuery.slice(offset, offset + effectiveMaxParallelTiers);
+        const queries = chunk.map(
+          (tier) => connection.getProgramAccounts(programId, {
+            filters: [{ dataSize: tier.dataSize }],
+            dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH }
+          }).then(
+            (results2) => results2.map((entry) => ({
+              ...entry,
+              maxAccounts: tier.maxAccounts,
+              dataSize: tier.dataSize
+            }))
+          )
+        );
+        const results = await Promise.allSettled(queries);
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            for (const entry of result.value) {
+              rawAccounts.push(entry);
+            }
+          } else {
+            console.warn(
+              "[discoverMarkets] Tier query rejected:",
+              result.reason instanceof Error ? result.reason.message : result.reason
+            );
           }
-        } else {
-          hadRejection = true;
-          console.warn(
-            "[discoverMarkets] Tier query rejected:",
-            result.reason instanceof Error ? result.reason.message : result.reason
-          );
         }
       }
-      void hadRejection;
     }
     if (rawAccounts.length === 0) {
       console.warn("[discoverMarkets] dataSize filters returned 0 markets, falling back to memcmp");
@@ -3476,6 +3506,52 @@ async function buildAdlTransaction(connection, caller, slab, oracle, programId, 
   }
   if (!target) return null;
   return buildAdlInstruction(caller, slab, oracle, programId, target.idx, backupOracles);
+}
+var ADL_EVENT_TAG = 0xAD1E0001n;
+function parseAdlEvent(logs) {
+  for (const line of logs) {
+    if (typeof line !== "string") continue;
+    const match = line.match(
+      /^Program log: (\d+) (\d+) (\d+) (\d+) (\d+)$/
+    );
+    if (!match) continue;
+    let tag;
+    try {
+      tag = BigInt(match[1]);
+    } catch {
+      continue;
+    }
+    if (tag !== ADL_EVENT_TAG) continue;
+    try {
+      const targetIdx = Number(BigInt(match[2]));
+      const price = BigInt(match[3]);
+      const closedLo = BigInt(match[4]);
+      const closedHi = BigInt(match[5]);
+      const closedAbs = closedHi << 64n | closedLo;
+      return { tag, targetIdx, price, closedAbs };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+async function fetchAdlRankings(apiBase, slab, fetchFn = fetch) {
+  const slabStr = typeof slab === "string" ? slab : slab.toBase58();
+  const base = apiBase.replace(/\/$/, "");
+  const url = `${base}/api/adl/rankings?slab=${encodeURIComponent(slabStr)}`;
+  const res = await fetchFn(url);
+  if (!res.ok) {
+    let body = "";
+    try {
+      body = await res.text();
+    } catch {
+    }
+    throw new Error(
+      `fetchAdlRankings: HTTP ${res.status} from ${url}${body ? ` \u2014 ${body}` : ""}`
+    );
+  }
+  const json = await res.json();
+  return json;
 }
 
 // src/runtime/tx.ts
@@ -4363,6 +4439,7 @@ export {
   encodeWithdrawInsurance,
   encodeWithdrawInsuranceLP,
   fetchAdlRankedPositions,
+  fetchAdlRankings,
   fetchSlab,
   fetchTokenAccount,
   flushToInsuranceAccounts,
@@ -4383,6 +4460,7 @@ export {
   isValidChainlinkOracle,
   maxAccountIndex,
   parseAccount,
+  parseAdlEvent,
   parseAllAccounts,
   parseChainlinkPrice,
   parseConfig,
