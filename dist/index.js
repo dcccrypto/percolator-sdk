@@ -2924,6 +2924,12 @@ function computeRaydiumClmmPriceE6(data) {
   const dv3 = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const decimals0 = data[233];
   const decimals1 = data[234];
+  const MAX_SPL_DECIMALS = 24;
+  if (decimals0 > MAX_SPL_DECIMALS || decimals1 > MAX_SPL_DECIMALS) {
+    throw new Error(
+      `Raydium CLMM: unreasonable token decimals (${decimals0}, ${decimals1}); max ${MAX_SPL_DECIMALS}`
+    );
+  }
   const sqrtPriceX64 = readU128LE3(dv3, 253);
   if (sqrtPriceX64 === 0n) return 0n;
   const scaledSqrt = sqrtPriceX64 * 1000000n;
@@ -2959,6 +2965,12 @@ function computeMeteoraDlmmPriceE6(data) {
   const binStep = dv3.getUint16(73, true);
   const activeId = dv3.getInt32(76, true);
   if (binStep === 0) return 0n;
+  const MAX_ABS_BIN_ID = 5e5;
+  if (activeId > MAX_ABS_BIN_ID || activeId < -MAX_ABS_BIN_ID) {
+    throw new Error(
+      `Meteora DLMM: activeId ${activeId} exceeds safe range (\xB1${MAX_ABS_BIN_ID})`
+    );
+  }
   const SCALE = 1000000000000000000n;
   const base = SCALE + BigInt(binStep) * SCALE / 10000n;
   const isNeg = activeId < 0;

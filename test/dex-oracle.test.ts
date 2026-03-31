@@ -253,6 +253,32 @@ assertThrows(
   "raydium data too short"
 );
 
+// Unreasonable decimals — would cause 10n ** 200n+ CPU/memory exhaustion
+assertThrows(
+  () => {
+    const data = makeRaydiumClmmData(200, 6, 1n << 64n);
+    computeDexSpotPriceE6("raydium-clmm", data);
+  },
+  "unreasonable token decimals",
+  "raydium decimals0 too large"
+);
+
+assertThrows(
+  () => {
+    const data = makeRaydiumClmmData(6, 200, 1n << 64n);
+    computeDexSpotPriceE6("raydium-clmm", data);
+  },
+  "unreasonable token decimals",
+  "raydium decimals1 too large"
+);
+
+// Boundary: decimals at the cap should work
+{
+  const data = makeRaydiumClmmData(24, 24, 1n << 64n);
+  const price = computeDexSpotPriceE6("raydium-clmm", data);
+  assert(price === 1_000_000n, `raydium decimals at cap (24,24): expected 1000000, got ${price}`);
+}
+
 console.log("  ✓ Raydium CLMM");
 
 // ===========================================================================
@@ -327,6 +353,32 @@ assertThrows(
   "too short",
   "meteora data too short"
 );
+
+// Extreme activeId — would cause CPU/memory exhaustion via BigInt exponentiation
+assertThrows(
+  () => {
+    const data = makeMeteoraData(10, 2_000_000_000);
+    computeDexSpotPriceE6("meteora-dlmm", data);
+  },
+  "exceeds safe range",
+  "meteora extreme positive activeId"
+);
+
+assertThrows(
+  () => {
+    const data = makeMeteoraData(10, -1_000_000);
+    computeDexSpotPriceE6("meteora-dlmm", data);
+  },
+  "exceeds safe range",
+  "meteora extreme negative activeId"
+);
+
+// Boundary: activeId at the cap should still work
+{
+  const data = makeMeteoraData(1, 500_000);
+  const price = computeDexSpotPriceE6("meteora-dlmm", data);
+  assert(price > 0n, `meteora activeId at cap boundary should compute, got ${price}`);
+}
 
 console.log("  ✓ Meteora DLMM");
 
