@@ -1193,14 +1193,20 @@ export function computeEffectiveOiCapBps(config: MarketConfig, currentSlot: bigi
 
 export function readNonce(data: Uint8Array): bigint {
   const layout = detectSlabLayout(data.length);
-  const roff = layout ? layout.reservedOff : V0_RESERVED_OFF;
+  if (!layout) {
+    throw new Error(`readNonce: unrecognized slab data length ${data.length}`);
+  }
+  const roff = layout.reservedOff;
   if (data.length < roff + 8) throw new Error("Slab data too short for nonce");
   return readU64LE(data, roff);
 }
 
 export function readLastThrUpdateSlot(data: Uint8Array): bigint {
   const layout = detectSlabLayout(data.length);
-  const roff = layout ? layout.reservedOff : V0_RESERVED_OFF;
+  if (!layout) {
+    throw new Error(`readLastThrUpdateSlot: unrecognized slab data length ${data.length}`);
+  }
+  const roff = layout.reservedOff;
   if (data.length < roff + 16) throw new Error("Slab data too short for lastThrUpdateSlot");
   return readU64LE(data, roff + 8);
 }

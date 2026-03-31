@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
 import {
   parseHeader, parseConfig, parseEngine, parseAllAccounts, parseParams,
-  detectSlabLayout, detectLayout,
+  detectSlabLayout, detectLayout, readNonce, readLastThrUpdateSlot,
 } from "../src/solana/slab.js";
 
 /**
@@ -201,5 +201,22 @@ describe("parseAllAccounts", () => {
     const buf = buildMockSlab();
     const accounts = parseAllAccounts(buf);
     expect(accounts).toEqual([]);
+  });
+});
+
+describe("readNonce / readLastThrUpdateSlot null-layout guard", () => {
+  it("readNonce throws for unrecognized slab size", () => {
+    const garbage = new Uint8Array(100);
+    expect(() => readNonce(garbage)).toThrow("unrecognized");
+  });
+
+  it("readLastThrUpdateSlot throws for unrecognized slab size", () => {
+    const garbage = new Uint8Array(100);
+    expect(() => readLastThrUpdateSlot(garbage)).toThrow("unrecognized");
+  });
+
+  it("readNonce succeeds for valid V0 slab", () => {
+    const buf = buildMockSlab();
+    expect(() => readNonce(buf)).not.toThrow();
   });
 });
