@@ -120,6 +120,15 @@ assert(computePnlPercent(10000n, 10000n) === 100, "100% profit");
   const result = computePnlPercent(500_000_000_000_000n, 10_000_000_000_000_000n);
   assert(result === 5, "large values → 5% (no truncation)");
 }
+{
+  // Extreme PnL that would exceed MAX_SAFE_INTEGER after scaling
+  try {
+    computePnlPercent(1n << 100n, 1n);
+    assert(false, "should have thrown for extreme PnL");
+  } catch (e: any) {
+    assert(e.message.includes("MAX_SAFE_INTEGER"), "throws precision-loss error for extreme PnL");
+  }
+}
 
 // --- computeEstimatedEntryPrice ---
 console.log("--- computeEstimatedEntryPrice ---");

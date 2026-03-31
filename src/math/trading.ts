@@ -181,8 +181,12 @@ export function computePnlPercent(
   capital: bigint,
 ): number {
   if (capital === 0n) return 0;
-  // Scale by 10000 in BigInt-land (2 extra decimal places), then convert once
   const scaledPct = (pnlTokens * 10_000n) / capital;
+  if (scaledPct > BigInt(Number.MAX_SAFE_INTEGER) || scaledPct < BigInt(-Number.MAX_SAFE_INTEGER)) {
+    throw new Error(
+      `computePnlPercent: scaled result ${scaledPct} exceeds Number.MAX_SAFE_INTEGER — precision loss`,
+    );
+  }
   return Number(scaledPct) / 100;
 }
 
