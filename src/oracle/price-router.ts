@@ -35,6 +35,29 @@ export interface PriceRouterResult {
   resolvedAt: string;
 }
 
+interface DexScreenerPair {
+  chainId?: string;
+  dexId?: string;
+  pairAddress?: string;
+  baseToken?: { symbol?: string };
+  quoteToken?: { symbol?: string };
+  liquidity?: { usd?: number };
+  priceUsd?: string;
+}
+
+interface DexScreenerResponse {
+  pairs?: DexScreenerPair[];
+}
+
+interface JupiterPriceEntry {
+  price?: string;
+  mintSymbol?: string;
+}
+
+interface JupiterPriceResponse {
+  data?: Record<string, JupiterPriceEntry>;
+}
+
 // ---------------------------------------------------------------------------
 // Top Solana tokens with known Pyth feeds (feed ID → symbol)
 // ---------------------------------------------------------------------------
@@ -102,8 +125,8 @@ async function fetchDexSources(mint: string, signal?: AbortSignal): Promise<Pric
       signal,
       headers: { "User-Agent": "percolator/1.0" },
     });
-    const json = (await resp.json()) as any;
-    const pairs = json.pairs || [];
+    const json: DexScreenerResponse = await resp.json();
+    const pairs: DexScreenerPair[] = Array.isArray(json?.pairs) ? json.pairs : [];
     const sources: PriceSource[] = [];
 
     for (const pair of pairs) {
@@ -122,11 +145,11 @@ async function fetchDexSources(mint: string, signal?: AbortSignal): Promise<Pric
 
       sources.push({
         type: "dex",
-        address: pair.pairAddress,
+        address: pair.pairAddress ?? "",
         dexId,
         pairLabel: `${pair.baseToken?.symbol || "?"} / ${pair.quoteToken?.symbol || "?"}`,
         liquidity,
-        price: parseFloat(pair.priceUsd) || 0,
+        price: parseFloat(pair.priceUsd ?? "") || 0,
         confidence,
       });
     }
@@ -165,8 +188,8 @@ async function fetchJupiterSource(mint: string, signal?: AbortSignal): Promise<P
       signal,
       headers: { "User-Agent": "percolator/1.0" },
     });
-    const json = (await resp.json()) as any;
-    const data = json.data?.[mint];
+    const json: JupiterPriceResponse = await resp.json();
+    const data = json?.data?.[mint];
     if (!data || !data.price) return null;
 
     return {
