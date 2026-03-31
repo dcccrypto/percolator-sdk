@@ -152,7 +152,12 @@ assert(computeRequiredMargin(1_000_000n, 10000n) === 1_000_000n, "100% margin");
 // --- computeMaxLeverage ---
 console.log("--- computeMaxLeverage ---");
 
-assert(computeMaxLeverage(0n) === 1, "zero bps → 1x");
+try {
+  computeMaxLeverage(0n);
+  assert(false, "zero bps should throw");
+} catch (e: any) {
+  assert(e.message.includes("positive"), "zero bps throws with 'positive' message");
+}
 assert(computeMaxLeverage(1000n) === 10, "1000 bps → 10x");
 assert(computeMaxLeverage(500n) === 20, "500 bps → 20x");
 assert(computeMaxLeverage(10000n) === 1, "10000 bps → 1x");
