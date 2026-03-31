@@ -95,13 +95,22 @@ for (const [feedId, info] of Object.entries(PYTH_SOLANA_FEEDS)) {
 // ---------------------------------------------------------------------------
 
 const SUPPORTED_DEX_IDS = new Set(["pumpswap", "raydium", "meteora"]);
+const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+
+function effectiveSignal(signal?: AbortSignal): AbortSignal {
+  return signal ?? AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS);
+}
 
 async function fetchDexSources(mint: string, signal?: AbortSignal): Promise<PriceSource[]> {
   try {
-    const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
-      signal,
-      headers: { "User-Agent": "percolator/1.0" },
-    });
+    const resp = await fetch(
+      `https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(mint)}`,
+      {
+        signal: effectiveSignal(signal),
+        headers: { "User-Agent": "percolator/1.0" },
+      },
+    );
+    if (!resp.ok) return [];
     const json = (await resp.json()) as any;
     const pairs = json.pairs || [];
     const sources: PriceSource[] = [];
@@ -161,10 +170,14 @@ function lookupPythSource(mint: string): PriceSource | null {
 
 async function fetchJupiterSource(mint: string, signal?: AbortSignal): Promise<PriceSource | null> {
   try {
-    const resp = await fetch(`https://api.jup.ag/price/v2?ids=${mint}`, {
-      signal,
-      headers: { "User-Agent": "percolator/1.0" },
-    });
+    const resp = await fetch(
+      `https://api.jup.ag/price/v2?ids=${encodeURIComponent(mint)}`,
+      {
+        signal: effectiveSignal(signal),
+        headers: { "User-Agent": "percolator/1.0" },
+      },
+    );
+    if (!resp.ok) return null;
     const json = (await resp.json()) as any;
     const data = json.data?.[mint];
     if (!data || !data.price) return null;
