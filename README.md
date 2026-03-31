@@ -384,19 +384,20 @@ if (errors.length > 0) {
 
 ## Mainnet vs Devnet
 
-By default the SDK targets **mainnet**. The `NETWORK` environment variable and the `network`
-parameter to `getProgramId()` / `discoverMarkets()` control which program IDs and RPC
-endpoints are used.
+By default the SDK targets **devnet** (safety default — PERC-697). The `NETWORK` environment
+variable and the `network` parameter to `getProgramId()` / `discoverMarkets()` control which
+program IDs and RPC endpoints are used. Production deployments always set `NETWORK=mainnet`
+explicitly via Railway env vars.
 
 ```typescript
 import { getProgramId, discoverMarkets } from "@percolator/sdk";
 
-// Mainnet (default)
-const programId = getProgramId("mainnet");
+// Devnet (default — safe fallback)
+const programId = getProgramId("devnet");
 
-// Devnet — set env or pass explicitly
-// NETWORK=devnet
-const devProgramId = getProgramId("devnet");
+// Mainnet — set env or pass explicitly
+// NETWORK=mainnet
+const mainnetProgramId = getProgramId("mainnet");
 
 // Market discovery — uses network from NETWORK env by default
 const markets = await discoverMarkets(connection);

@@ -36,9 +36,10 @@ since the `0.2.0` baseline.
   Passing an empty signers array now throws before hitting the RPC, rather than causing an
   opaque "missing signature" RPC error.
 
-- **`getProgramId` / `getMatcherProgramId` / `getCurrentNetwork` default to `"mainnet"`.**
-  Previously they defaulted to `"devnet"`. Pass `"devnet"` explicitly if needed, or set
-  `NETWORK=devnet` in the environment.
+- **`getProgramId` / `getMatcherProgramId` / `getCurrentNetwork` default to `"devnet"`.**
+  The default is intentionally devnet for safety (PERC-697). Pass `"mainnet"` explicitly or set
+  `NETWORK=mainnet` in the environment for mainnet operations. Production deployments (Railway)
+  always set `NETWORK` explicitly.
 
 - **`encodeSetOiImbalanceHardBlock` / `encodeSetOracleAuthority` tag slots changed.**
   These were emitted with incorrect tags in `0.1.x`. Tags are now correct:
