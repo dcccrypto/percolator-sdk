@@ -60,6 +60,10 @@ export async function simulateOrSend(
 ): Promise<TxResult> {
   const { connection, ix, signers, simulate, commitment = "confirmed", computeUnitLimit } = params;
 
+  if (!signers.length) {
+    throw new Error("simulateOrSend: at least one signer is required");
+  }
+
   if (computeUnitLimit !== undefined) {
     if (
       typeof computeUnitLimit !== "number" ||

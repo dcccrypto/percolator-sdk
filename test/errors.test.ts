@@ -81,7 +81,6 @@ describe("decodeError", () => {
     const info = decodeError(45);
     expect(info).toBeDefined();
     expect(info!.name).toBe("SafetyValveDominantSideBlocked");  });
-
   it("returns undefined for unknown code", () => {
     expect(decodeError(10_000)).toBeUndefined();
     expect(decodeError(-1)).toBeUndefined();

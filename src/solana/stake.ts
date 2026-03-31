@@ -413,7 +413,7 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   // Read u128 as two u64 parts
   const hwmTvlLow = readU64LE(bytes, reservedStart + 10);
   const hwmTvlHigh = readU64LE(bytes, reservedStart + 18);
-  const epochHighWaterTvl = hwmTvlLow + (hwmTvlHigh << 64n);
+  const epochHighWaterTvl = hwmTvlLow | (hwmTvlHigh << 64n);
   const hwmFloorBps = readU16LE(bytes, reservedStart + 26);
 
   // PERC-303: _reserved[32] = tranche_enabled, [33..41] = junior_balance, [41..49] = junior_total_lp, [49..51] = junior_fee_mult_bps

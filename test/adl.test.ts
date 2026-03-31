@@ -255,3 +255,29 @@ describe("parseAdlEvent", () => {
     expect(event!.targetIdx).toBe(5);
   });
 });
+
+// Tests for buildAdlInstruction targetIdx validation
+// ---------------------------------------------------------------------------
+
+describe("buildAdlInstruction validation", () => {
+  it("rejects negative targetIdx", () => {
+    const key = PublicKey.default;
+    expect(() => buildAdlInstruction(key, key, key, key, -1)).toThrow("non-negative integer");
+  });
+
+  it("rejects NaN targetIdx", () => {
+    const key = PublicKey.default;
+    expect(() => buildAdlInstruction(key, key, key, key, NaN)).toThrow("non-negative integer");
+  });
+
+  it("rejects fractional targetIdx", () => {
+    const key = PublicKey.default;
+    expect(() => buildAdlInstruction(key, key, key, key, 1.5)).toThrow("non-negative integer");
+  });
+
+  it("accepts valid targetIdx", () => {
+    const key = PublicKey.default;
+    expect(() => buildAdlInstruction(key, key, key, key, 0)).not.toThrow();
+    expect(() => buildAdlInstruction(key, key, key, key, 255)).not.toThrow();
+  });
+});
