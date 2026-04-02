@@ -20,7 +20,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc --emitDeclarationOnly --declaration --outDir dist",
     "test": "tsx test/abi.test.ts && tsx test/slab.test.ts && tsx test/validation.test.ts && tsx test/dex-oracle.test.ts && tsx test/trading.test.ts && tsx test/warmup-leverage-cap.test.ts && tsx test/dynamic-fees.test.ts && tsx test/oracle.test.ts && vitest run",
     "lint": "tsc --noEmit"
   },
