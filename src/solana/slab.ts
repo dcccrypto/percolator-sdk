@@ -437,6 +437,29 @@ const V1M_ENGINE_LAST_BREAKER_SLOT_OFF = 696;
 // which is invalid for a [u64; N] array under #[repr(C)].
 const V1M_ENGINE_BITMAP_OFF = 720;
 
+// V1M2: mainnet program upgraded with 312-byte accounts but V1M engine layout (ENGINE_OFF=640).
+// Slab sizes match V_ADL exactly — disambiguation required via data inspection.
+// Confirmed by on-chain probing of slab 7T1Efij9 (SOL-PERP, 323312 bytes, medium tier).
+// Engine struct is larger than V1M (990 vs 720 bitmap offset = +270 runtime bytes).
+// New runtime fields inserted between fundingRateBps and markPrice:
+//   +408: currentSlot, +416: fundingIndex(i128), +432: lastFundingSlot, +440: fundingRateBps
+//   +448: NEW lastOracleUpdateSlot(?), +456: authorityPriceE6(?), +464-471: reserved
+//   +472: lastEffectivePriceE6(?), +480: markPriceE6, +488-503: reserved
+//   +504: lastCrankSlot, +512: maxCrankStaleness
+const V1M2_ACCOUNT_SIZE = 312;        // 248 + 64 bytes of new fields per account
+const V1M2_ENGINE_BITMAP_OFF = 990;   // expanded engine struct shifts bitmap forward
+// V1M2 runtime offsets (confirmed by on-chain probing of 7T1Efij9):
+const V1M2_ENGINE_CURRENT_SLOT_OFF = 408;    // same as V1M
+const V1M2_ENGINE_FUNDING_INDEX_OFF = 416;   // same as V1M
+const V1M2_ENGINE_LAST_FUNDING_SLOT_OFF = 432; // same as V1M
+const V1M2_ENGINE_FUNDING_RATE_BPS_OFF = 440;  // same as V1M
+const V1M2_ENGINE_MARK_PRICE_OFF = 480;       // shifted +32 from V1M's 448
+const V1M2_ENGINE_LAST_CRANK_SLOT_OFF = 504;  // shifted +32 from V1M's 472
+const V1M2_ENGINE_MAX_CRANK_STALENESS_OFF = 512; // shifted +32 from V1M's 480
+// OI and remaining fields: shifted proportionally. Use conservative offsets based on
+// V1M base + 32 byte shift for fields after fundingRateBps.
+const V1M2_RUNTIME_SHIFT = 32; // bytes inserted between fundingRateBps and markPrice
+
 // For backward compatibility, export ENGINE_OFF and ENGINE_MARK_PRICE_OFF
 // (used by reinit-slab and other scripts). These refer to V1 layout.
 export const ENGINE_OFF = V1_ENGINE_OFF;
@@ -527,6 +550,16 @@ export const SLAB_TIERS_V1M: Record<string, { maxAccounts: number; dataSize: num
 for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]] as const) {
   const size = computeSlabSize(V1M_ENGINE_OFF, V1M_ENGINE_BITMAP_OFF, V1M_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V1M[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V1M mainnet)` };
+}
+
+/**
+ * V1M2 slab tier sizes — mainnet program with 312-byte accounts.
+ * Same engine layout as V1M but larger accounts. Sizes match V_ADL exactly.
+ */
+export const SLAB_TIERS_V1M2: Record<string, { maxAccounts: number; dataSize: number; label: string; description: string }> = {};
+for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]] as const) {
+  const size = computeSlabSize(V1M_ENGINE_OFF, V1M2_ENGINE_BITMAP_OFF, V1M2_ACCOUNT_SIZE, n, 18);
+  SLAB_TIERS_V1M2[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V1M2 mainnet upgraded)` };
 }
 
 /**
@@ -831,6 +864,77 @@ function buildLayoutV1M(maxAccounts: number): SlabLayout {
 }
 
 /**
+ * Build a SlabLayout for V1M2 — mainnet program with 312-byte accounts.
+ * Same engine layout as V1M (ENGINE_OFF=640, same field offsets) but larger
+ * accounts (312 bytes) and shifted bitmap (990).
+ * Confirmed by on-chain probing of slab 7T1Efij9 (SOL-PERP, 323312 bytes).
+ */
+function buildLayoutV1M2(maxAccounts: number): SlabLayout {
+  const engineOff = V1M_ENGINE_OFF;
+  const bitmapOff = V1M2_ENGINE_BITMAP_OFF;
+  const accountSize = V1M2_ACCOUNT_SIZE;
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const postBitmap = 18;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
+
+  return {
+    version: 1,
+    headerLen: V1_HEADER_LEN,
+    configOffset: V1_HEADER_LEN,
+    configLen: V1M_CONFIG_LEN,
+    reservedOff: V1_RESERVED_OFF,
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+
+    engineInsuranceOff: 16,
+    engineParamsOff: V1M_ENGINE_PARAMS_OFF, // 72 — same as V1M
+    paramsSize: V1M_PARAMS_SIZE,            // 336 — same as V1M
+    // Runtime fields: same as V1M up to fundingRateBps, then +32 shift
+    engineCurrentSlotOff: V1M2_ENGINE_CURRENT_SLOT_OFF,
+    engineFundingIndexOff: V1M2_ENGINE_FUNDING_INDEX_OFF,
+    engineLastFundingSlotOff: V1M2_ENGINE_LAST_FUNDING_SLOT_OFF,
+    engineFundingRateBpsOff: V1M2_ENGINE_FUNDING_RATE_BPS_OFF,
+    engineMarkPriceOff: V1M2_ENGINE_MARK_PRICE_OFF,
+    engineLastCrankSlotOff: V1M2_ENGINE_LAST_CRANK_SLOT_OFF,
+    engineMaxCrankStalenessOff: V1M2_ENGINE_MAX_CRANK_STALENESS_OFF,
+    // Fields after maxCrankStaleness: apply same +32 shift from V1M
+    engineTotalOiOff: V1M_ENGINE_TOTAL_OI_OFF + V1M2_RUNTIME_SHIFT,
+    engineLongOiOff: V1M_ENGINE_LONG_OI_OFF + V1M2_RUNTIME_SHIFT,
+    engineShortOiOff: V1M_ENGINE_SHORT_OI_OFF + V1M2_RUNTIME_SHIFT,
+    engineCTotOff: V1M_ENGINE_C_TOT_OFF + V1M2_RUNTIME_SHIFT,
+    enginePnlPosTotOff: V1M_ENGINE_PNL_POS_TOT_OFF + V1M2_RUNTIME_SHIFT,
+    engineLiqCursorOff: V1M_ENGINE_LIQ_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
+    engineGcCursorOff: V1M_ENGINE_GC_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
+    engineLastSweepStartOff: V1M_ENGINE_LAST_SWEEP_START_OFF + V1M2_RUNTIME_SHIFT,
+    engineLastSweepCompleteOff: V1M_ENGINE_LAST_SWEEP_COMPLETE_OFF + V1M2_RUNTIME_SHIFT,
+    engineCrankCursorOff: V1M_ENGINE_CRANK_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
+    engineSweepStartIdxOff: V1M_ENGINE_SWEEP_START_IDX_OFF + V1M2_RUNTIME_SHIFT,
+    engineLifetimeLiquidationsOff: V1M_ENGINE_LIFETIME_LIQUIDATIONS_OFF + V1M2_RUNTIME_SHIFT,
+    engineLifetimeForceClosesOff: V1M_ENGINE_LIFETIME_FORCE_CLOSES_OFF + V1M2_RUNTIME_SHIFT,
+    engineNetLpPosOff: V1M_ENGINE_NET_LP_POS_OFF + V1M2_RUNTIME_SHIFT,
+    engineLpSumAbsOff: V1M_ENGINE_LP_SUM_ABS_OFF + V1M2_RUNTIME_SHIFT,
+    engineLpMaxAbsOff: V1M_ENGINE_LP_MAX_ABS_OFF + V1M2_RUNTIME_SHIFT,
+    engineLpMaxAbsSweepOff: V1M_ENGINE_LP_MAX_ABS_SWEEP_OFF + V1M2_RUNTIME_SHIFT,
+    engineEmergencyOiModeOff: V1M_ENGINE_EMERGENCY_OI_MODE_OFF + V1M2_RUNTIME_SHIFT,
+    engineEmergencyStartSlotOff: V1M_ENGINE_EMERGENCY_START_SLOT_OFF + V1M2_RUNTIME_SHIFT,
+    engineLastBreakerSlotOff: V1M_ENGINE_LAST_BREAKER_SLOT_OFF + V1M2_RUNTIME_SHIFT,
+    engineBitmapOff: V1M2_ENGINE_BITMAP_OFF,
+    postBitmap: 18,
+    acctOwnerOff: ACCT_OWNER_OFF,
+
+    hasInsuranceIsolation: true,
+    engineInsuranceIsolatedOff: 48,
+    engineInsuranceIsolationBpsOff: 64,
+  };
+}
+
+/**
  * Build a SlabLayout for the ADL-upgraded program (PERC-8270/8271).
  * ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312.
  *
@@ -915,10 +1019,23 @@ function buildLayoutVADL(maxAccounts: number): SlabLayout {
  * @param data    - Optional raw slab data for version-field disambiguation
  */
 export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout | null {
-  // Check V_ADL sizes first — PERC-8270 ADL-upgraded program with new account layout (312 bytes).
-  // Must be checked before V1M because V_ADL sizes are unique (larger accounts).
+  // Check V_ADL / V1M2 sizes — these two layouts produce IDENTICAL slab sizes because
+  // V_ADL (ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312) and V1M2 (ENGINE_OFF=640,
+  // BITMAP_OFF=990, ACCOUNT_SIZE=312) compute to the same totals for all tiers.
+  // Disambiguate by reading max_accounts at each layout's params offset:
+  //   V1M2: engine(640) + params(72) + max_accounts_field(32) = offset 744
+  //   V_ADL: engine(624) + params(96) + max_accounts_field(32) = offset 752
   const vadln = V_ADL_SIZES.get(dataLen);
-  if (vadln !== undefined) return buildLayoutVADL(vadln);
+  if (vadln !== undefined) {
+    if (data && data.length >= 752) {
+      const maxAcctsV1M2 = readU64LE(data, V1M_ENGINE_OFF + V1M_ENGINE_PARAMS_OFF + 32);
+      if (maxAcctsV1M2 === BigInt(vadln)) {
+        // V1M engine layout with 312-byte accounts (mainnet program upgrade)
+        return buildLayoutV1M2(vadln);
+      }
+    }
+    return buildLayoutVADL(vadln);
+  }
 
   // Check V1M sizes (mainnet-deployed V1 program, ESa89R5).
   // Must be checked before V1_LEGACY because V1M sizes are unique and don't overlap.
@@ -1200,7 +1317,7 @@ export function computeEffectiveOiCapBps(config: MarketConfig, currentSlot: bigi
 // =============================================================================
 
 export function readNonce(data: Uint8Array): bigint {
-  const layout = detectSlabLayout(data.length);
+  const layout = detectSlabLayout(data.length, data);
   if (!layout) {
     throw new Error(`readNonce: unrecognized slab data length ${data.length}`);
   }
@@ -1210,7 +1327,7 @@ export function readNonce(data: Uint8Array): bigint {
 }
 
 export function readLastThrUpdateSlot(data: Uint8Array): bigint {
-  const layout = detectSlabLayout(data.length);
+  const layout = detectSlabLayout(data.length, data);
   if (!layout) {
     throw new Error(`readLastThrUpdateSlot: unrecognized slab data length ${data.length}`);
   }
@@ -1242,7 +1359,7 @@ export function parseHeader(data: Uint8Array): SlabHeader {
   const admin = new PublicKey(data.subarray(16, 48));
 
   // Reserved field location depends on layout
-  const layout = detectSlabLayout(data.length);
+  const layout = detectSlabLayout(data.length, data);
   const roff = layout ? layout.reservedOff : V0_RESERVED_OFF;
   const nonce = readU64LE(data, roff);
   const lastThrUpdateSlot = readU64LE(data, roff + 8);
@@ -1269,7 +1386,7 @@ export function parseHeader(data: Uint8Array): SlabHeader {
  * @param layoutHint - Pre-detected layout to use; if omitted, detected from data.length.
  */
 export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): MarketConfig {
-  const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length);
+  const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length, data);
   const configOff = layout ? layout.configOffset : V0_HEADER_LEN;
   const configLen = layout ? layout.configLen : V0_CONFIG_LEN;
 
@@ -1487,7 +1604,7 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
  * @param layoutHint - Pre-detected layout to use; if omitted, detected from data.length.
  */
 export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): RiskParams {
-  const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length);
+  const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length, data);
   const engineOff = layout ? layout.engineOff : V0_ENGINE_OFF;
   const paramsOff = layout ? layout.engineParamsOff : V0_ENGINE_PARAMS_OFF;
   const paramsSize = layout ? layout.paramsSize : V0_PARAMS_SIZE;
@@ -1532,7 +1649,7 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
  * Parse RiskEngine state (excluding accounts array). Layout-version aware.
  */
 export function parseEngine(data: Uint8Array): EngineState {
-  const layout = detectSlabLayout(data.length);
+  const layout = detectSlabLayout(data.length, data);
   if (!layout) {
     throw new Error(`Unrecognized slab data length: ${data.length}. Cannot determine layout version.`);
   }
@@ -1612,7 +1729,7 @@ export function parseEngine(data: Uint8Array): EngineState {
  * Uses the layout-aware bitmap offset so V1_LEGACY slabs (bitmap at rel+672) are handled correctly.
  */
 export function parseUsedIndices(data: Uint8Array): number[] {
-  const layout = detectSlabLayout(data.length);
+  const layout = detectSlabLayout(data.length, data);
   if (!layout) throw new Error(`Unrecognized slab data length: ${data.length}`);
 
   const base = layout.engineOff + layout.engineBitmapOff;
@@ -1637,7 +1754,7 @@ export function parseUsedIndices(data: Uint8Array): number[] {
  * Check if a specific account index is used.
  */
 export function isAccountUsed(data: Uint8Array, idx: number): boolean {
-  const layout = detectSlabLayout(data.length);
+  const layout = detectSlabLayout(data.length, data);
   if (!layout) return false;
   if (!Number.isInteger(idx) || idx < 0 || idx >= layout.maxAccounts) return false;
   const base = layout.engineOff + layout.engineBitmapOff;
@@ -1662,7 +1779,7 @@ export function maxAccountIndex(dataLen: number): number {
  * Parse a single account by index.
  */
 export function parseAccount(data: Uint8Array, idx: number): Account {
-  const layout = detectSlabLayout(data.length);
+  const layout = detectSlabLayout(data.length, data);
   if (!layout) throw new Error(`Unrecognized slab data length: ${data.length}`);
 
   const maxIdx = maxAccountIndex(data.length);
