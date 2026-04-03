@@ -69,6 +69,10 @@ export function validateIndex(value: string, field: string): number {
       `must be <= ${U16_MAX} (u16 max), got ${t}`
     );
   }
+  // U16 range (0–65535) is always safe to convert to Number
+  if (bi > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ValidationError(field, `internal error: u16 value exceeds MAX_SAFE_INTEGER`);
+  }
   return Number(bi);
 }
 
@@ -190,6 +194,10 @@ export function validateBps(value: string, field: string): number {
       `must be <= 10000 (100%), got ${t}`
     );
   }
+  // BPS range (0–10000) is always safe to convert to Number
+  if (bi > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ValidationError(field, `internal error: bps value exceeds MAX_SAFE_INTEGER`);
+  }
   return Number(bi);
 }
 
@@ -211,6 +219,10 @@ export function validateU16(value: string, field: string): number {
       field,
       `must be <= ${U16_MAX} (u16 max), got ${t}`
     );
+  }
+  // U16 range (0–65535) is always safe to convert to Number
+  if (bi > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ValidationError(field, `internal error: u16 value exceeds MAX_SAFE_INTEGER`);
   }
   return Number(bi);
 }
