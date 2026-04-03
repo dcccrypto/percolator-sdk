@@ -71,6 +71,9 @@ export function computeWarmupLeverageCap(
   warmupStartSlot: bigint,
   warmupPeriodSlots: bigint,
 ): number {
+  if (initialMarginBps <= 0n) {
+    throw new Error("computeWarmupLeverageCap: initialMarginBps must be positive");
+  }
   const maxLev = computeMaxLeverage(initialMarginBps);
 
   // No warmup or warmup not started → full leverage
