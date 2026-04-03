@@ -235,11 +235,26 @@ export function computeRequiredMargin(
 /**
  * Compute maximum leverage from initial margin bps.
  *
+ * Formula: leverage = 10000 / initialMarginBps
+ * Uses scaled arithmetic to preserve precision for fractional leverage values.
+ *
  * @throws Error if initialMarginBps is zero (infinite leverage is undefined)
+ *
+ * @example
+ * ```ts
+ * // 1000 bps (10%) initial margin → max leverage = 10x
+ * computeMaxLeverage(1000n) → 10
+ *
+ * // 3333 bps initial margin → max leverage ≈ 3.003x (not truncated to 3x)
+ * computeMaxLeverage(3333n) → 3.0030030030...
+ * ```
  */
 export function computeMaxLeverage(initialMarginBps: bigint): number {
   if (initialMarginBps <= 0n) {
     throw new Error("computeMaxLeverage: initialMarginBps must be positive");
   }
-  return Number(10000n / initialMarginBps);
+  // Use scaled arithmetic: (10000 * 1e6) / initialMarginBps / 1e6
+  // This preserves fractional leverage instead of truncating
+  const scaledResult = (10000n * 1_000_000n) / initialMarginBps;
+  return Number(scaledResult) / 1_000_000;
 }

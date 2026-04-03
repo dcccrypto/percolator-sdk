@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(git remote:*)",
-      "Bash(git commit -m \"security\\(critical\\): fix off-by-one error in maxAccountIndex - prevent buffer overrun:*)"
+      "Bash(git commit -m \"security\\(critical\\): fix off-by-one error in maxAccountIndex - prevent buffer overrun:*)",
+      "Bash(gh repo:*)",
+      "Bash(git pull:*)",
+      "Bash(git commit -m \"fix\\(high\\): preserve precision in computeMaxLeverage - avoid integer truncation:*)"
     ]
   }
 }

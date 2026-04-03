@@ -3994,7 +3994,8 @@ function computeMaxLeverage(initialMarginBps) {
   if (initialMarginBps <= 0n) {
     throw new Error("computeMaxLeverage: initialMarginBps must be positive");
   }
-  return Number(10000n / initialMarginBps);
+  const scaledResult = 10000n * 1000000n / initialMarginBps;
+  return Number(scaledResult) / 1e6;
 }
 
 // src/math/warmup.ts
