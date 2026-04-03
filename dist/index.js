@@ -3995,6 +3995,10 @@ function computeMaxLeverage(initialMarginBps) {
   }
   return Number(10000n / initialMarginBps);
 }
+function computeMaxWithdrawable(capital, pnl, reservedPnl) {
+  const maturedPnl = pnl - reservedPnl;
+  return capital + (maturedPnl > 0n ? maturedPnl : 0n);
+}
 
 // src/math/warmup.ts
 function computeWarmupUnlockedCapital(totalCapital, currentSlot, warmupStartSlot, warmupPeriodSlots) {
@@ -4527,6 +4531,7 @@ export {
   computeLiqPrice,
   computeMarkPnl,
   computeMaxLeverage,
+  computeMaxWithdrawable,
   computePnlPercent,
   computePreTradeLiqPrice,
   computeRequiredMargin,

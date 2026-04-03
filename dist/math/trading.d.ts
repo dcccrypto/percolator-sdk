@@ -105,3 +105,28 @@ export declare function computeRequiredMargin(notional: bigint, initialMarginBps
  * @throws Error if initialMarginBps is zero (infinite leverage is undefined)
  */
 export declare function computeMaxLeverage(initialMarginBps: bigint): number;
+/**
+ * Compute the maximum amount that can be withdrawn from a position.
+ *
+ * The withdrawable amount is the capital plus any matured (unreserved) PnL.
+ * Reserved PnL is still locked and cannot be withdrawn until the warmup period elapses.
+ *
+ * Formula: max_withdrawable = capital + max(0, pnl - reserved_pnl)
+ *
+ * @param capital - Capital allocated to the position (in native token units)
+ * @param pnl - Mark-to-market PnL (in native token units, can be negative)
+ * @param reservedPnl - PnL that is still locked during warmup (always non-negative)
+ * @returns The maximum amount in native units that can be withdrawn without closing the position
+ *
+ * @example
+ * ```ts
+ * // Position: 10 SOL capital, +2 SOL mark PnL, 0.5 SOL reserved
+ * const max = computeMaxWithdrawable(
+ *   10_000_000_000n,  // 10 SOL in lamports
+ *   2_000_000_000n,   // +2 SOL in lamports
+ *   500_000_000n      // 0.5 SOL reserved in lamports
+ * );
+ * // Returns: 11_500_000_000n (10 + (2 - 0.5) = 11.5 SOL in lamports)
+ * ```
+ */
+export declare function computeMaxWithdrawable(capital: bigint, pnl: bigint, reservedPnl: bigint): bigint;

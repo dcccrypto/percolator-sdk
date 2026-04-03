@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx skills:*)",
+      "Bash(tee /tmp/selection.txt)",
+      "Read(//root/**)",
+      "Bash(gh pr:*)",
+      "Bash(git checkout:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm build:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"feat: add computeMaxWithdrawable utility function:*)"
+    ]
+  }
+}
