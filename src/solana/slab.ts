@@ -1817,6 +1817,13 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
   const kindByte = readU8(data, base + ACCT_KIND_OFF);
   const kind = kindByte === 1 ? AccountKind.LP : AccountKind.User;
 
+  // Validate owner field offset before accessing
+  if (base + layout.acctOwnerOff + 32 > data.length) {
+    throw new Error(
+      `Account owner field out of bounds: base=${base}, acctOwnerOff=${layout.acctOwnerOff}, dataLen=${data.length}`,
+    );
+  }
+
   return {
     kind,
     accountId: readU64LE(data, base + ACCT_ACCOUNT_ID_OFF),
