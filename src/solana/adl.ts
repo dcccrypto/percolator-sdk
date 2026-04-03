@@ -454,7 +454,12 @@ export function parseAdlEvent(logs: string[]): AdlEvent | null {
     if (tag !== ADL_EVENT_TAG) continue;
 
     try {
-      const targetIdx = Number(BigInt(match[2]));
+      const targetIdxBig = BigInt(match[2]);
+      // Validate that targetIdx fits in u16 range before converting to Number
+      if (targetIdxBig < 0n || targetIdxBig > 65535n) {
+        continue;
+      }
+      const targetIdx = Number(targetIdxBig);
       const price = BigInt(match[3]);
       const closedLo = BigInt(match[4]);
       const closedHi = BigInt(match[5]);
