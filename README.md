@@ -27,10 +27,13 @@ npm install @percolator/sdk
 import {
   getProgramId,
   deriveVaultAuthority,
-  buildInitUserIxData,
-  buildDepositCollateralIxData,
-  buildTradeNoCpiIxData,
-  parseSlab,
+  encodeInitUser,
+  encodeDepositCollateral,
+  encodeTradeNoCpi,
+  parseHeader,
+  parseConfig,
+  parseAllAccounts,
+  detectSlabLayout,
   computeMarkPnl,
   computeLiqPrice,
   simulateOrSend,
@@ -43,8 +46,12 @@ const programId = getProgramId("devnet");
 const [vaultAuth, bump] = deriveVaultAuthority(programId, slabPubkey);
 
 // Read and parse on-chain slab account
-const slabData = await connection.getAccountInfo(slabPubkey);
-const { header, config, accounts } = parseSlab(slabData.data);
+const slabInfo = await connection.getAccountInfo(slabPubkey);
+const slabData = new Uint8Array(slabInfo!.data);
+const header = parseHeader(slabData);
+const layout = detectSlabLayout(slabData.length);
+const config = parseConfig(slabData, layout!);
+const accounts = parseAllAccounts(slabData);
 
 // Compute PnL for a position
 const pnl = computeMarkPnl(positionSize, entryPrice, oraclePrice);
@@ -153,9 +160,18 @@ See [`examples/admin-instructions.ts`](examples/admin-instructions.ts) for full 
 Parse the on-chain slab account into typed TypeScript objects:
 
 ```typescript
-import { parseSlab, parseSlabHeader, parseMarketConfig } from "@percolator/sdk";
+import {
+  parseHeader,
+  parseConfig,
+  parseAllAccounts,
+  detectSlabLayout,
+} from "@percolator/sdk";
 
-const { header, config, accounts } = parseSlab(accountData);
+const slabData = new Uint8Array(accountInfo.data);
+const header = parseHeader(slabData);
+const layout = detectSlabLayout(slabData.length)!;
+const config = parseConfig(slabData, layout);
+const accounts = parseAllAccounts(slabData);
 
 // header.magic, header.version, header.admin, header.nonce
 // header.resolved, header.paused
@@ -165,7 +181,8 @@ const { header, config, accounts } = parseSlab(accountData);
 // config.fundingHorizonSlots, config.fundingKBps
 // config.threshFloor, config.threshRiskBps
 
-// accounts[i].owner, accounts[i].capital, accounts[i].pnl, accounts[i].positionSize
+// accounts[i].account.owner, accounts[i].account.capital,
+// accounts[i].account.pnl, accounts[i].account.positionSize
 ```
 
 ### PDA Derivation
@@ -338,8 +355,8 @@ const result = await fetchAdlRankings(
 
 | Code | Name | Description |
 |------|------|-------------|
-| 61 | `EngineSideBlocked` | ADL blocked — dominant side already at cap |
-| 62 | `EngineCorruptState` | Slab state corrupt — contact support |
+| 61 | `EngineSideBlocked` | Trade blocked — this side is in DrainOnly or ResetPending mode |
+| 62 | `EngineCorruptState` | Slab state corrupt — critical internal error, please report |
 | 63 | `InsuranceFundNotDepleted` | ADL not triggered yet (insurance fund healthy) |
 | 64 | `NoAdlCandidates` | No eligible positions to deleverage |
 | 65 | `BankruptPositionAlreadyClosed` | Target position already closed |
@@ -372,12 +389,22 @@ const result = await simulateOrSend({
 Validate parameters before submitting transactions:
 
 ```typescript
-import { validateRiskParams, validateTradeParams } from "@percolator/sdk";
+import {
+  validatePublicKey,
+  validateAmount,
+  validateBps,
+  validateI128,
+  validateIndex,
+} from "@percolator/sdk";
 
-const errors = validateRiskParams(params);
-if (errors.length > 0) {
-  console.error("Invalid risk params:", errors);
-}
+// Validates a public key string (throws ValidationError on invalid input)
+const slabKey = validatePublicKey(slabAddress, "slab");
+
+// Validates a u64 amount (throws ValidationError if negative or > u64 max)
+const amount = validateAmount("1000000000", "depositAmount");
+
+// Validates basis points (0-10000)
+const feeBps = validateBps("50", "tradingFee");
 ```
 
 ---
@@ -407,9 +434,10 @@ const markets = await discoverMarkets(connection);
 
 | Program | Network | Address |
 |---------|---------|---------|
-| Percolator | Mainnet | `FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD` |
-| Matcher | Mainnet | see `getMatcherProgramId("mainnet")` |
+| Percolator | Mainnet | `GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24` |
+| Matcher | Mainnet | `DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX` |
 | Percolator | Devnet | `FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD` |
+| Matcher | Devnet | `GTRgyTDfrMvBubALAqtHuQwT8tbGyXid7svXZKtWfC9k` |
 
 > Use `PROGRAM_ID` / `MATCHER_PROGRAM_ID` env vars to override for local test validators.
 
@@ -448,7 +476,7 @@ const marketsCustom = await discoverMarkets(connection, { maxParallelTiers: 3 })
 ```
 @percolator/sdk
 ├── abi/                 # Binary encoding/decoding matching on-chain layout
-│   ├── instructions.ts  # Instruction data builders (all 28+ instructions)
+│   ├── instructions.ts  # Instruction data builders (all 72 instructions)
 │   ├── accounts.ts      # Account struct deserialization
 │   ├── encode.ts        # Low-level binary encoding (u8/u16/u32/u64/i128/pubkey)
 │   ├── errors.ts        # On-chain error code → human-readable parsing
