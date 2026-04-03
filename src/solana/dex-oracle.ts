@@ -277,7 +277,16 @@ function computeMeteoraDlmmPriceE6(data: Uint8Array): bigint {
   let result = SCALE;
   let b = base;
 
+  // Limit iterations to ~21 for safety (log2(500_000) + buffer)
+  let iterations = 0;
+  const MAX_ITERATIONS = 25;
+
   while (exp > 0n) {
+    if (iterations++ >= MAX_ITERATIONS) {
+      throw new Error(
+        `Meteora DLMM: exponentiation loop exceeded ${MAX_ITERATIONS} iterations (activeId=${activeId})`,
+      );
+    }
     if (exp & 1n) {
       result = (result * b) / SCALE;
     }
