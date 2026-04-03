@@ -830,7 +830,8 @@ export function computeEmaMarkPrice(
 
   let oracleClamped = oracleE6;
   if (capE2bps > 0n) {
-    const maxDelta = (markPrevE6 * capE2bps * dtSlots) / 1_000_000n;
+    // Avoid overflow: divide early to reduce intermediate product
+    const maxDelta = (markPrevE6 * capE2bps / 1_000_000n) * dtSlots;
     const lo = markPrevE6 > maxDelta ? markPrevE6 - maxDelta : 0n;
     const hi = markPrevE6 + maxDelta;
     if (oracleClamped < lo) oracleClamped = lo;
