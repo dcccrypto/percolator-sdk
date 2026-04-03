@@ -324,3 +324,39 @@ export declare function parseAllAccounts(data: Uint8Array): {
     idx: number;
     account: Account;
 }[];
+/**
+ * Check if an account has a flat (zero) position size.
+ *
+ * A flat position has no open leverage and cannot be liquidated.
+ * This is useful for filtering out unused or closed accounts from
+ * the list of all slab accounts.
+ *
+ * @param account - The account to check
+ * @returns true if the account's position size is exactly 0n
+ *
+ * @example
+ * ```ts
+ * const allAccounts = parseAllAccounts(slabData);
+ * const openAccounts = allAccounts.filter(({ account }) => !isAccountFlat(account));
+ * ```
+ */
+export declare function isAccountFlat(account: Account): boolean;
+/**
+ * Filter out flat (zero-size) positions from an account list.
+ *
+ * The "ghost position bug" in percolator-launch occurred because zero-sized
+ * accounts were included in position lists, showing users non-existent positions.
+ * This utility provides a canonical way to filter them out consistently across
+ * all consumers of the SDK.
+ *
+ * @param accounts - Array of accounts (typically from parseAllAccounts or similar)
+ * @returns Filtered array containing only accounts with non-zero position sizes
+ *
+ * @example
+ * ```ts
+ * const all = parseAllAccounts(slabData);
+ * const openOnly = filterOpenPositions(all.map(a => a.account));
+ * console.log(`${openOnly.length} open positions out of ${all.length} accounts`);
+ * ```
+ */
+export declare function filterOpenPositions(accounts: Account[]): Account[];

@@ -2429,6 +2429,12 @@ function parseAllAccounts(data) {
     account: parseAccount(data, idx)
   }));
 }
+function isAccountFlat(account) {
+  return account.positionSize === 0n;
+}
+function filterOpenPositions(accounts) {
+  return accounts.filter((account) => !isAccountFlat(account));
+}
 
 // src/solana/pda.ts
 import { PublicKey as PublicKey4 } from "@solana/web3.js";
@@ -4648,6 +4654,7 @@ export {
   fetchAdlRankings,
   fetchSlab,
   fetchTokenAccount,
+  filterOpenPositions,
   flushToInsuranceAccounts,
   formatResult,
   getAta,
@@ -4659,6 +4666,7 @@ export {
   getProgramId,
   getStakeProgramId,
   initPoolAccounts,
+  isAccountFlat,
   isAccountUsed,
   isAdlTriggered,
   isStandardToken,
