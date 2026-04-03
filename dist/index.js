@@ -2371,7 +2371,8 @@ function maxAccountIndex(dataLen) {
   if (!layout) return 0;
   const accountsEnd = dataLen - layout.accountsOff;
   if (accountsEnd <= 0) return 0;
-  return Math.floor(accountsEnd / layout.accountSize);
+  const count = Math.floor(accountsEnd / layout.accountSize);
+  return Math.max(0, count - 1);
 }
 function parseAccount(data, idx) {
   const layout = detectSlabLayout(data.length, data);

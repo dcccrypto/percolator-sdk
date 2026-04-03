@@ -1779,7 +1779,9 @@ export function maxAccountIndex(dataLen: number): number {
   if (!layout) return 0;
   const accountsEnd = dataLen - layout.accountsOff;
   if (accountsEnd <= 0) return 0;
-  return Math.floor(accountsEnd / layout.accountSize);
+  // Return max valid index (0-based), not count. If 256 accounts fit, max index is 255.
+  const count = Math.floor(accountsEnd / layout.accountSize);
+  return Math.max(0, count - 1);
 }
 
 /**

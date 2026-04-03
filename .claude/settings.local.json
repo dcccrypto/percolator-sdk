@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git remote:*)",
+      "Bash(git commit -m \"security\\(critical\\): fix off-by-one error in maxAccountIndex - prevent buffer overrun:*)"
+    ]
+  }
+}
