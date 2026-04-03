@@ -143,7 +143,9 @@ function computePnlPct(pnl: bigint, capital: bigint): bigint {
  */
 export function isAdlTriggered(slabData: Uint8Array): boolean {
   const layout = detectSlabLayout(slabData.length);
-  if (!layout) return false;
+  if (!layout) {
+    throw new Error(`isAdlTriggered: unrecognized slab layout (size: ${slabData.length})`);
+  }
   try {
     const engine = parseEngine(slabData);
     if (engine.pnlPosTot === 0n) return false;
