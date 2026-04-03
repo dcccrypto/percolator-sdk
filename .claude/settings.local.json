@@ -13,7 +13,8 @@
       "Bash(git commit -m \"feat: add computeMaxWithdrawable utility function:*)",
       "Bash(git push:*)",
       "Bash(git commit -m \"feat: add isAccountFlat and filterOpenPositions helpers:*)",
-      "Bash(git commit -m \"feat: add validation to encodePushOraclePrice instruction:*)"
+      "Bash(git commit -m \"feat: add validation to encodePushOraclePrice instruction:*)",
+      "Bash(git commit -m \"feat: add getSlabHealth market status assessment:*)"
     ]
   }
 }

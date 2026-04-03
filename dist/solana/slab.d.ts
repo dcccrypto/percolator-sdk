@@ -360,3 +360,47 @@ export declare function isAccountFlat(account: Account): boolean;
  * ```
  */
 export declare function filterOpenPositions(accounts: Account[]): Account[];
+/**
+ * Market health status.
+ * Helps applications decide whether to allow trading or show warnings.
+ */
+export type SlabHealth = "healthy" | "paused" | "resolved" | "adl-triggered" | "crank-stale" | "oracle-unavailable";
+/**
+ * Assess the health status of a market (slab).
+ *
+ * Different health states indicate different issues:
+ * - **healthy**: Trading is normal, no issues detected.
+ * - **paused**: Admin has paused the market; trading is disabled.
+ * - **resolved**: Market was fully resolved (period ended); no more trading possible.
+ * - **adl-triggered**: Auto-deleverage is active; insurance is depleted or PnL cap exceeded.
+ *   This is a critical state where profitable positions may be force-closed.
+ * - **crank-stale**: The keeper crank hasn't run recently. Risk parameters may be stale;
+ *   liquidation engine state may not reflect current prices.
+ * - **oracle-unavailable**: No recent oracle price is available. Cannot trust mark prices.
+ *
+ * Applications can use this to:
+ * - Show warnings to traders ("Market is ADL-triggered")
+ * - Disable trading UI buttons ("Market paused")
+ * - Disable liquidations ("Oracle unavailable")
+ * - Show "risk parameters may be stale" warning
+ *
+ * @param slabData - Raw slab account bytes
+ * @param currentSlot - Current on-chain slot (from engine state, or from RPC)
+ * @param maxCranknessSlots - Maximum acceptable staleness (default 200 slots ≈ 1 min 20 sec)
+ * @returns The health status
+ *
+ * @example
+ * ```ts
+ * const slabData = await fetchSlab(connection, slabKey);
+ * const health = getSlabHealth(slabData, currentSlot);
+ *
+ * if (health === "paused") {
+ *   showWarning("Market is paused by admin");
+ * } else if (health === "adl-triggered") {
+ *   showError("Market ADL is active — positions may be force-closed");
+ * } else if (health === "healthy") {
+ *   enableTradingButtons();
+ * }
+ * ```
+ */
+export declare function getSlabHealth(slabData: Uint8Array, currentSlot: bigint, maxCranknessSlots?: bigint): SlabHealth;

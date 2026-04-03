@@ -2443,6 +2443,39 @@ function isAccountFlat(account) {
 function filterOpenPositions(accounts) {
   return accounts.filter((account) => !isAccountFlat(account));
 }
+function getSlabHealth(slabData, currentSlot, maxCranknessSlots = 200n) {
+  let layout = null;
+  try {
+    layout = detectSlabLayout(slabData.length, slabData);
+    if (!layout) return "healthy";
+  } catch {
+    return "healthy";
+  }
+  try {
+    const flagsByte = readU8(slabData, 13);
+    const FLAG_RESOLVED2 = 1 << 0;
+    if ((flagsByte & FLAG_RESOLVED2) !== 0) {
+      return "resolved";
+    }
+  } catch {
+  }
+  try {
+    const config = parseConfig(slabData, layout);
+    const engine = parseEngine(slabData);
+    if (config.maxPnlCap > 0n && engine.pnlPosTot > config.maxPnlCap) {
+      return "adl-triggered";
+    }
+    const lastCrankSlot = engine.lastCrankSlot ?? 0n;
+    if (lastCrankSlot > 0n && currentSlot > lastCrankSlot) {
+      const crankAge = currentSlot - lastCrankSlot;
+      if (crankAge > maxCranknessSlots) {
+        return "crank-stale";
+      }
+    }
+  } catch {
+  }
+  return "healthy";
+}
 
 // src/solana/pda.ts
 import { PublicKey as PublicKey4 } from "@solana/web3.js";
@@ -4705,6 +4738,7 @@ export {
   getErrorName,
   getMatcherProgramId,
   getProgramId,
+  getSlabHealth,
   getStakeProgramId,
   initPoolAccounts,
   isAccountFlat,
