@@ -93,6 +93,7 @@ function concatBytes(...arrays) {
 }
 
 // src/abi/instructions.ts
+var MAX_ORACLE_PRICE = 1000000000000n;
 var IX_TAG = {
   InitMarket: 0,
   InitUser: 1,
@@ -362,9 +363,16 @@ function encodeSetOracleAuthority(args) {
   );
 }
 function encodePushOraclePrice(args) {
+  const price = typeof args.priceE6 === "string" ? BigInt(args.priceE6) : args.priceE6;
+  if (price === 0n) {
+    throw new Error("encodePushOraclePrice: price cannot be zero (division by zero in engine)");
+  }
+  if (price > MAX_ORACLE_PRICE) {
+    throw new Error(`encodePushOraclePrice: price exceeds maximum (${MAX_ORACLE_PRICE}), got ${price}`);
+  }
   return concatBytes(
     encU8(IX_TAG.PushOraclePrice),
-    encU64(args.priceE6),
+    encU64(price),
     encI64(args.timestamp)
   );
 }
@@ -4516,6 +4524,7 @@ export {
   MARK_PRICE_EMA_ALPHA_E6,
   MARK_PRICE_EMA_WINDOW_SLOTS,
   MAX_DECIMALS,
+  MAX_ORACLE_PRICE,
   METEORA_DLMM_PROGRAM_ID,
   ORACLE_PHASE_GROWING,
   ORACLE_PHASE_MATURE,

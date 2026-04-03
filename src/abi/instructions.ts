@@ -12,6 +12,12 @@ import {
 } from "./encode.js";
 
 /**
+ * Oracle price constraints.
+ * Maximum oracle price that can be pushed to the on-chain oracle authority.
+ */
+export const MAX_ORACLE_PRICE = 1_000_000_000_000n; // 1 trillion e6 = 1M USD/unit
+
+/**
  * Instruction tags - exact match to Rust ix::Instruction::decode
  */
 export const IX_TAG = {
@@ -497,10 +503,31 @@ export interface PushOraclePriceArgs {
   timestamp: bigint | string;
 }
 
+/**
+ * Encode PushOraclePrice instruction data with validation.
+ *
+ * Validates oracle price constraints:
+ * - Price cannot be zero (division by zero in on-chain engine)
+ * - Price cannot exceed MAX_ORACLE_PRICE (prevents overflow in price math)
+ *
+ * @param args - PushOraclePrice arguments
+ * @returns Encoded instruction data (17 bytes)
+ * @throws Error if price is 0 or exceeds MAX_ORACLE_PRICE
+ */
 export function encodePushOraclePrice(args: PushOraclePriceArgs): Uint8Array {
+  const price = typeof args.priceE6 === "string" ? BigInt(args.priceE6) : args.priceE6;
+
+  if (price === 0n) {
+    throw new Error("encodePushOraclePrice: price cannot be zero (division by zero in engine)");
+  }
+
+  if (price > MAX_ORACLE_PRICE) {
+    throw new Error(`encodePushOraclePrice: price exceeds maximum (${MAX_ORACLE_PRICE}), got ${price}`);
+  }
+
   return concatBytes(
     encU8(IX_TAG.PushOraclePrice),
-    encU64(args.priceE6),
+    encU64(price),
     encI64(args.timestamp),
   );
 }

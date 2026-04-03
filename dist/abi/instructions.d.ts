@@ -1,5 +1,10 @@
 import { PublicKey } from "@solana/web3.js";
 /**
+ * Oracle price constraints.
+ * Maximum oracle price that can be pushed to the on-chain oracle authority.
+ */
+export declare const MAX_ORACLE_PRICE = 1000000000000n;
+/**
  * Instruction tags - exact match to Rust ix::Instruction::decode
  */
 export declare const IX_TAG: {
@@ -297,6 +302,17 @@ export interface PushOraclePriceArgs {
     priceE6: bigint | string;
     timestamp: bigint | string;
 }
+/**
+ * Encode PushOraclePrice instruction data with validation.
+ *
+ * Validates oracle price constraints:
+ * - Price cannot be zero (division by zero in on-chain engine)
+ * - Price cannot exceed MAX_ORACLE_PRICE (prevents overflow in price math)
+ *
+ * @param args - PushOraclePrice arguments
+ * @returns Encoded instruction data (17 bytes)
+ * @throws Error if price is 0 or exceeds MAX_ORACLE_PRICE
+ */
 export declare function encodePushOraclePrice(args: PushOraclePriceArgs): Uint8Array;
 /**
  * SetOraclePriceCap instruction data (9 bytes)
