@@ -4038,6 +4038,37 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
   );
   return unlocked * BigInt(maxLev);
 }
+function computeWarmupProgress(currentSlot, warmupStartedAtSlot, warmupPeriodSlots, pnl, reservedPnl) {
+  if (warmupPeriodSlots === 0n || warmupStartedAtSlot === 0n) {
+    return {
+      maturedPnl: pnl > 0n ? pnl : 0n,
+      reservedPnl: 0n,
+      progressBps: 10000n,
+      // 100%
+      slotsRemaining: 0n
+    };
+  }
+  const elapsed = currentSlot >= warmupStartedAtSlot ? currentSlot - warmupStartedAtSlot : 0n;
+  if (elapsed >= warmupPeriodSlots) {
+    return {
+      maturedPnl: pnl > 0n ? pnl : 0n,
+      reservedPnl: 0n,
+      progressBps: 10000n,
+      // 100%
+      slotsRemaining: 0n
+    };
+  }
+  const progressBps = elapsed * 10000n / warmupPeriodSlots;
+  const slotsRemaining = warmupPeriodSlots - elapsed;
+  const maturedPnl = pnl > 0n ? pnl * progressBps / 10000n : 0n;
+  const locked = reservedPnl > 0n ? reservedPnl : 0n;
+  return {
+    maturedPnl,
+    reservedPnl: locked,
+    progressBps,
+    slotsRemaining
+  };
+}
 
 // src/validation.ts
 import { PublicKey as PublicKey11 } from "@solana/web3.js";
@@ -4545,6 +4576,7 @@ export {
   computeVammQuote,
   computeWarmupLeverageCap,
   computeWarmupMaxPositionSize,
+  computeWarmupProgress,
   computeWarmupUnlockedCapital,
   concatBytes,
   decodeError,
