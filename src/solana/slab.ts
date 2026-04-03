@@ -1909,3 +1909,105 @@ export function filterOpenPositions(accounts: Account[]): Account[] {
   return accounts.filter(account => !isAccountFlat(account));
 }
 
+// ---------------------------------------------------------------------------
+// Market Health Assessment
+// ---------------------------------------------------------------------------
+
+/**
+ * Market health status.
+ * Helps applications decide whether to allow trading or show warnings.
+ */
+export type SlabHealth =
+  | "healthy"           // Normal operations, trading enabled
+  | "paused"            // Admin paused the market
+  | "resolved"          // Market was resolved/closed
+  | "adl-triggered"     // ADL is active (insurance depleted or PnL cap exceeded)
+  | "crank-stale"       // Last keeper crank is too old (risk parameters may be stale)
+  | "oracle-unavailable"; // No recent oracle price available
+
+/**
+ * Assess the health status of a market (slab).
+ *
+ * Different health states indicate different issues:
+ * - **healthy**: Trading is normal, no issues detected.
+ * - **paused**: Admin has paused the market; trading is disabled.
+ * - **resolved**: Market was fully resolved (period ended); no more trading possible.
+ * - **adl-triggered**: Auto-deleverage is active; insurance is depleted or PnL cap exceeded.
+ *   This is a critical state where profitable positions may be force-closed.
+ * - **crank-stale**: The keeper crank hasn't run recently. Risk parameters may be stale;
+ *   liquidation engine state may not reflect current prices.
+ * - **oracle-unavailable**: No recent oracle price is available. Cannot trust mark prices.
+ *
+ * Applications can use this to:
+ * - Show warnings to traders ("Market is ADL-triggered")
+ * - Disable trading UI buttons ("Market paused")
+ * - Disable liquidations ("Oracle unavailable")
+ * - Show "risk parameters may be stale" warning
+ *
+ * @param slabData - Raw slab account bytes
+ * @param currentSlot - Current on-chain slot (from engine state, or from RPC)
+ * @param maxCranknessSlots - Maximum acceptable staleness (default 200 slots ≈ 1 min 20 sec)
+ * @returns The health status
+ *
+ * @example
+ * ```ts
+ * const slabData = await fetchSlab(connection, slabKey);
+ * const health = getSlabHealth(slabData, currentSlot);
+ *
+ * if (health === "paused") {
+ *   showWarning("Market is paused by admin");
+ * } else if (health === "adl-triggered") {
+ *   showError("Market ADL is active — positions may be force-closed");
+ * } else if (health === "healthy") {
+ *   enableTradingButtons();
+ * }
+ * ```
+ */
+export function getSlabHealth(
+  slabData: Uint8Array,
+  currentSlot: bigint,
+  maxCranknessSlots: bigint = 200n,
+): SlabHealth {
+  let layout: SlabLayout | null = null;
+  try {
+    layout = detectSlabLayout(slabData.length, slabData);
+    if (!layout) return "healthy"; // Unrecognized size — treat as healthy
+  } catch {
+    return "healthy";
+  }
+
+  // Check resolved flag in header (offset 13, bit 0)
+  try {
+    const flagsByte = readU8(slabData, 13);
+    const FLAG_RESOLVED = 1 << 0;
+    if ((flagsByte & FLAG_RESOLVED) !== 0) {
+      return "resolved";
+    }
+  } catch {
+    // Ignore read errors
+  }
+
+  try {
+    const config = parseConfig(slabData, layout);
+
+    // Check ADL trigger: pnl_pos_tot > max_pnl_cap
+    const engine = parseEngine(slabData);
+    if (config.maxPnlCap > 0n && engine.pnlPosTot > config.maxPnlCap) {
+      return "adl-triggered";
+    }
+
+    // Check crank staleness: last_crank_slot too far in the past
+    const lastCrankSlot = engine.lastCrankSlot ?? 0n;
+    if (lastCrankSlot > 0n && currentSlot > lastCrankSlot) {
+      const crankAge = currentSlot - lastCrankSlot;
+      if (crankAge > maxCranknessSlots) {
+        return "crank-stale";
+      }
+    }
+  } catch {
+    // Ignore errors in config/engine parsing — treat as healthy
+  }
+
+  return "healthy";
+}
+
