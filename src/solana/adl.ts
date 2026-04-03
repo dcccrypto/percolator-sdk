@@ -227,7 +227,20 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
     if (account.kind !== AccountKind.User) continue;
     if (account.positionSize === 0n) continue;
 
+    // Determine side from sign convention: long (> 0), short (< 0).
+    // If positionSize is 0, it was already skipped above.
     const side: AdlSide = account.positionSize > 0n ? "long" : "short";
+
+    // Validate sign convention: longs must be positive, shorts must be negative.
+    if (side === "long" && account.positionSize <= 0n) {
+      console.warn(`[fetchAdlRankedPositions] account idx=${idx}: side=long but positionSize=${account.positionSize}`);
+      continue;
+    }
+    if (side === "short" && account.positionSize >= 0n) {
+      console.warn(`[fetchAdlRankedPositions] account idx=${idx}: side=short but positionSize=${account.positionSize}`);
+      continue;
+    }
+
     // For shorts, positionSize is negative — PnL computation is symmetric:
     // a short profits when price falls, so pnl stored in the slab already
     // reflects mark-to-market gain/loss for both sides.
