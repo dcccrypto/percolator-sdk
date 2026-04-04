@@ -1982,9 +1982,9 @@ export function getSlabHealth(
   let layout: SlabLayout | null = null;
   try {
     layout = detectSlabLayout(slabData.length, slabData);
-    if (!layout) return "healthy"; // Unrecognized size — treat as healthy
+    if (!layout) return "oracle-unavailable"; // Unrecognized layout — cannot assess health
   } catch {
-    return "healthy";
+    return "oracle-unavailable"; // Parse error — cannot assess health
   }
 
   // Check resolved flag in header (offset 13, bit 0)
@@ -2016,7 +2016,8 @@ export function getSlabHealth(
       }
     }
   } catch {
-    // Ignore errors in config/engine parsing — treat as healthy
+    // Config/engine parse failed — cannot reliably assess market state
+    return "oracle-unavailable";
   }
 
   return "healthy";
