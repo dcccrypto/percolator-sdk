@@ -220,10 +220,18 @@ async function fetchDexSources(mint: string, signal?: AbortSignal): Promise<Pric
         headers: { "User-Agent": "percolator/1.0" },
       },
     );
-    if (!resp.ok) return [];
+    if (!resp.ok) {
+      console.debug(`[fetchDexSources] HTTP ${resp.status} for mint ${mint}`);
+      return [];
+    }
     const json: unknown = await resp.json();
     return parseDexScreenerPairs(json);
-  } catch {
+  } catch (err) {
+    // Log the error for observability but return gracefully
+    console.warn(
+      `[fetchDexSources] Error fetching DexScreener data for mint ${mint}:`,
+      err instanceof Error ? err.message : String(err),
+    );
     return [];
   }
 }
@@ -258,10 +266,16 @@ async function fetchJupiterSource(mint: string, signal?: AbortSignal): Promise<P
         headers: { "User-Agent": "percolator/1.0" },
       },
     );
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      console.debug(`[fetchJupiterSource] HTTP ${resp.status} for mint ${mint}`);
+      return null;
+    }
     const json: unknown = await resp.json();
     const row = parseJupiterMintEntry(json, mint);
-    if (!row) return null;
+    if (!row) {
+      console.debug(`[fetchJupiterSource] No price data from Jupiter for mint ${mint}`);
+      return null;
+    }
     return {
       type: "jupiter",
       address: mint,
@@ -270,7 +284,12 @@ async function fetchJupiterSource(mint: string, signal?: AbortSignal): Promise<P
       price: row.price,
       confidence: 40, // Fallback — lower confidence
     };
-  } catch {
+  } catch (err) {
+    // Log the error for observability but return gracefully
+    console.warn(
+      `[fetchJupiterSource] Error fetching Jupiter data for mint ${mint}:`,
+      err instanceof Error ? err.message : String(err),
+    );
     return null;
   }
 }

@@ -154,6 +154,8 @@ export interface FeeSplitConfig {
  * Returns [lpShare, protocolShare, creatorShare].
  * If all split params are 0, 100% goes to LP (legacy behavior).
  * Creator gets the rounding remainder to ensure total is preserved.
+ *
+ * @throws Error if lpBps + protocolBps + creatorBps > 10000 (split > 100%)
  */
 export function computeFeeSplit(
   totalFee: bigint,
@@ -162,9 +164,28 @@ export function computeFeeSplit(
   if (config.lpBps === 0n && config.protocolBps === 0n && config.creatorBps === 0n) {
     return [totalFee, 0n, 0n];
   }
+
+  // Validate that splits don't exceed 100%
+  const totalBps = config.lpBps + config.protocolBps + config.creatorBps;
+  if (totalBps > 10000n) {
+    throw new Error(
+      `Fee split exceeds 100%: lpBps=${config.lpBps} + protocolBps=${config.protocolBps} + ` +
+      `creatorBps=${config.creatorBps} = ${totalBps} > 10000`,
+    );
+  }
+
   const lp = (totalFee * config.lpBps) / 10000n;
   const protocol = (totalFee * config.protocolBps) / 10000n;
   const creator = totalFee - lp - protocol;
+
+  // Sanity check: creator should never be negative if validation above passes
+  if (creator < 0n) {
+    throw new Error(
+      `Internal error: creator fee is negative (${creator}). ` +
+      `This should not happen if lpBps + protocolBps + creatorBps <= 10000.`,
+    );
+  }
+
   return [lp, protocol, creator];
 }
 

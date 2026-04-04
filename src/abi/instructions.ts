@@ -170,7 +170,14 @@ function encodeFeedId(feedId: string): Uint8Array {
   }
   const bytes = new Uint8Array(32);
   for (let i = 0; i < 64; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+    const byte = parseInt(hex.substring(i, i + 2), 16);
+    // Defensive check: parseInt should never fail if regex passed, but verify
+    if (Number.isNaN(byte)) {
+      throw new Error(
+        `Failed to parse hex byte at position ${i}: "${hex.substring(i, i + 2)}"`,
+      );
+    }
+    bytes[i / 2] = byte;
   }
   return bytes;
 }
