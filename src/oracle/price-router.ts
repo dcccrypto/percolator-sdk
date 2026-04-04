@@ -94,10 +94,15 @@ function parseDexScreenerPairs(json: unknown): PriceSource[] {
     else if (liquidity > 1_000) confidence = 45;
 
     const priceUsd = pair.priceUsd;
-    const price =
-      typeof priceUsd === "string" || typeof priceUsd === "number"
-        ? parseFloat(String(priceUsd)) || 0
-        : 0;
+    let price = 0;
+    if (typeof priceUsd === "string" || typeof priceUsd === "number") {
+      const parsed = parseFloat(String(priceUsd));
+      if (Number.isNaN(parsed)) {
+        // Invalid price - skip this pair rather than silently using 0
+        continue;
+      }
+      price = parsed;
+    }
 
     let baseSym = "?";
     let quoteSym = "?";
@@ -135,8 +140,8 @@ function parseJupiterMintEntry(
   if (!isRecord(row)) return null;
   const rawPrice = row.price;
   if (rawPrice === undefined || rawPrice === null) return null;
-  const price = parseFloat(String(rawPrice)) || 0;
-  if (price <= 0) return null;
+  const price = parseFloat(String(rawPrice));
+  if (Number.isNaN(price) || price <= 0) return null;
   let mintSymbol = "?";
   if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
   return { price, mintSymbol };}
