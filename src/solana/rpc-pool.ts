@@ -216,10 +216,11 @@ export async function checkRpcHealth(
   const conn = new Connection(endpoint, { commitment: "processed" });
   const start = performance.now();
 
+  const timeout = rejectAfter<number>(timeoutMs, `Health probe timed out after ${timeoutMs}ms`);
   try {
     const slot = await Promise.race([
       conn.getSlot("processed"),
-      rejectAfter<number>(timeoutMs, `Health probe timed out after ${timeoutMs}ms`),
+      timeout.promise,
     ]);
 
     const latencyMs = Math.round(performance.now() - start);
@@ -233,6 +234,8 @@ export async function checkRpcHealth(
       slot: 0,
       error: err instanceof Error ? err.message : String(err),
     };
+  } finally {
+    timeout.cancel();
   }
 }
 
@@ -306,10 +309,12 @@ function computeDelay(attempt: number, config: ResolvedRetryConfig): number {
   return raw + jitter;
 }
 
-function rejectAfter<T>(ms: number, message: string): Promise<T> {
-  return new Promise<T>((_, reject) =>
-    setTimeout(() => reject(new Error(message)), ms),
-  );
+function rejectAfter<T>(ms: number, message: string): { promise: Promise<T>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout>;
+  const promise = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return { promise, cancel: () => clearTimeout(timer!) };
 }
 
 /** Sleep utility. */
@@ -465,17 +470,20 @@ export class RpcPool {
       }
       const ep = this.endpoints[epIdx];
 
+      const timeout = rejectAfter<T>(this.requestTimeoutMs, `RPC request timed out after ${this.requestTimeoutMs}ms (${ep.label})`);
       try {
         const result = await Promise.race([
           fn(ep.connection),
-          rejectAfter<T>(this.requestTimeoutMs, `RPC request timed out after ${this.requestTimeoutMs}ms (${ep.label})`),
+          timeout.promise,
         ]);
 
         // Success — reset failure count
+        timeout.cancel();
         ep.failures = 0;
         ep.healthy = true;
         return result;
       } catch (err) {
+        timeout.cancel();
         lastError = err;
         ep.failures++;
 
