@@ -933,7 +933,7 @@ function buildLayoutV1M2(maxAccounts: number): SlabLayout {
     engineLastBreakerSlotOff: V1M_ENGINE_LAST_BREAKER_SLOT_OFF + V1M2_RUNTIME_SHIFT,
     engineBitmapOff: V1M2_ENGINE_BITMAP_OFF,
     postBitmap: 18,
-    acctOwnerOff: ACCT_OWNER_OFF,
+    acctOwnerOff: V_ADL_ACCT_OWNER_OFF,                       // 192 — V1M2 uses 312-byte accounts (same struct as V_ADL)
 
     hasInsuranceIsolation: true,
     engineInsuranceIsolatedOff: 48,
