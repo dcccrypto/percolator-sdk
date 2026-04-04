@@ -11,6 +11,9 @@ function dv(data: Uint8Array): DataView {
 }
 /** Read a single unsigned byte at `off`. */
 function readU8(data: Uint8Array, off: number): number {
+  if (off >= data.byteLength) {
+    throw new RangeError(`readU8: offset ${off} out of bounds (length=${data.byteLength})`);
+  }
   return data[off];
 }
 /** Read a little-endian u16 at `off`. */
