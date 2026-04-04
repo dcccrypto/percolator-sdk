@@ -329,7 +329,7 @@ const event = parseAdlEvent(tx?.meta?.logMessages ?? []);
 import { fetchAdlRankings } from "@percolator/sdk";
 
 const result = await fetchAdlRankings(
-  "https://api.percolatorlaunch.com",
+  "https://percolatorlaunch.com/api",
   slabAddress,
 );
 // result.slabAddress              — slab public key (base58)
@@ -466,8 +466,64 @@ const marketsCustom = await discoverMarkets(connection, { maxParallelTiers: 3 })
 ```
 
 > **Note:** Public mainnet-beta RPC (`api.mainnet-beta.solana.com`) rejects
-> `getProgramAccounts` calls entirely. A Helius or QuickNode endpoint is required for
-> `discoverMarkets()` in production.
+> `getProgramAccounts` calls entirely. Use the **API fallback** (below) or a
+> Helius/QuickNode endpoint.
+
+## API Fallback for Public RPCs
+
+Public mainnet RPCs reject `getProgramAccounts`, which blocks `discoverMarkets()`.
+The SDK provides two ways to discover markets without a premium RPC key:
+
+### Option 1: Automatic fallback via `apiBaseUrl`
+
+Pass `apiBaseUrl` to `discoverMarkets()`. If `getProgramAccounts` fails or
+returns 0 results, the SDK automatically fetches slab addresses from the REST
+API, then verifies them on-chain via `getMultipleAccounts` (works on all RPCs):
+
+```typescript
+import { discoverMarkets, getProgramId } from "@percolator/sdk";
+import { Connection } from "@solana/web3.js";
+
+const connection = new Connection("https://api.mainnet-beta.solana.com");
+const markets = await discoverMarkets(connection, getProgramId("mainnet"), {
+  apiBaseUrl: "https://percolatorlaunch.com/api",
+});
+```
+
+### Option 2: API-first discovery via `discoverMarketsViaApi()`
+
+Skip `getProgramAccounts` entirely — query the REST API for slab addresses,
+then fetch full on-chain data:
+
+```typescript
+import { discoverMarketsViaApi, getProgramId } from "@percolator/sdk";
+import { Connection } from "@solana/web3.js";
+
+const connection = new Connection("https://api.mainnet-beta.solana.com");
+const programId = getProgramId("mainnet");
+const markets = await discoverMarketsViaApi(
+  connection,
+  programId,
+  "https://percolatorlaunch.com/api",
+);
+```
+
+### Option 3: Known addresses via `getMarketsByAddress()`
+
+If you already know your market slab addresses (e.g. from an indexer or
+hardcoded list), fetch them directly:
+
+```typescript
+import { getMarketsByAddress, getProgramId } from "@percolator/sdk";
+import { Connection, PublicKey } from "@solana/web3.js";
+
+const connection = new Connection("https://api.mainnet-beta.solana.com");
+const markets = await getMarketsByAddress(
+  connection,
+  getProgramId("mainnet"),
+  [new PublicKey("..."), new PublicKey("...")],
+);
+```
 
 ---
 
