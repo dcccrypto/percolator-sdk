@@ -128,6 +128,7 @@ export const IX_TAG = {
   /** PERC-8110: Set OI imbalance hard-block threshold (admin only). */
   SetOiImbalanceHardBlock: 71,
 } as const;
+Object.freeze(IX_TAG);
 
 /**
  * InitMarket instruction data (256 bytes total)
@@ -815,14 +816,12 @@ export async function derivePythPriceUpdateAccount(
   return pda.toBase58();
 }
 
-// Add SetPythOracle to the tag registry
-(IX_TAG as Record<string, number>)['SetPythOracle'] = 32;
+// SetPythOracle tag (32) is already defined in IX_TAG above.
 
 // PERC-118: Mark Price EMA Instructions
 // ============================================================================
 
-// Tag 33 — permissionless mark price EMA crank
-(IX_TAG as Record<string, number>)['UpdateMarkPrice'] = 33;
+// Tag 33 — permissionless mark price EMA crank (defined in IX_TAG above).
 
 /**
  * UpdateMarkPrice (Tag 33) — permissionless EMA mark price crank.
@@ -880,8 +879,7 @@ export function computeEmaMarkPrice(
 // PERC-119: Hyperp EMA Oracle for Permissionless Tokens
 // ============================================================================
 
-// Tag 34 — permissionless Hyperp mark price oracle (reads DEX AMM pool)
-(IX_TAG as Record<string, number>)['UpdateHyperpMark'] = 34;
+// Tag 34 — permissionless Hyperp mark price oracle (defined in IX_TAG above).
 
 /**
  * UpdateHyperpMark (Tag 34) — permissionless Hyperp EMA oracle crank.
