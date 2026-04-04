@@ -912,6 +912,13 @@ export async function getMarketsByAddress(
     for (let i = 0; i < batch.length; i++) {
       const info = response[i];
       if (info && info.data) {
+        if (!info.owner.equals(programId)) {
+          console.warn(
+            `[getMarketsByAddress] Skipping ${batch[i].toBase58()}: owner mismatch ` +
+            `(expected ${programId.toBase58()}, got ${info.owner.toBase58()})`,
+          );
+          continue;
+        }
         fetched.push({ pubkey: batch[i], data: info.data });
       }
     }
