@@ -87,7 +87,18 @@ export function computeWarmupLeverageCap(
   if (unlocked <= 0n) return 1; // At least 1x if nothing unlocked yet (slot 0 edge)
 
   // Effective leverage = maxLev * (unlocked / total), floored, min 1
-  const effectiveLev = Number((BigInt(maxLev) * unlocked) / totalCapital);
+  const scaledResult = (BigInt(maxLev) * unlocked) / totalCapital;
+
+  // Ensure conversion to Number doesn't silently truncate for very large values
+  if (scaledResult > BigInt(Number.MAX_SAFE_INTEGER)) {
+    console.warn(
+      `[computeWarmupLeverageCap] Warning: effective leverage ${scaledResult} exceeds MAX_SAFE_INTEGER, ` +
+      `returning MAX_SAFE_INTEGER as a safety bound`,
+    );
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const effectiveLev = Number(scaledResult);
   return Math.max(1, effectiveLev);
 }
 
