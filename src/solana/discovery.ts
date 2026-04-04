@@ -13,6 +13,8 @@ import {
   type RiskParams,
   type SlabLayout,
 } from "./slab.js";
+import { getStaticMarkets, type StaticMarketEntry } from "./static-markets.js";
+import { type Network } from "../config/program-ids.js";
 
 /** V1 bitmap offset within engine struct (updated for PERC-120/121/122 struct changes) */
 const ENGINE_BITMAP_OFF = 656; // Updated for PERC-299 (608 + 24 emergency OI fields)
@@ -507,6 +509,31 @@ export interface DiscoverMarketsOptions {
    * Default: 10_000 (10 seconds).
    */
   apiTimeoutMs?: number;
+
+  /**
+   * Network hint for tier-3 static bundle fallback (`"mainnet"` or `"devnet"`).
+   *
+   * When both `getProgramAccounts` (tier 1) and the REST API (tier 2) fail,
+   * `discoverMarkets` will fall back to a bundled static list of known slab
+   * addresses for the specified network.  The addresses are fetched on-chain
+   * via `getMarketsByAddress` (`getMultipleAccounts` — works on all RPCs).
+   *
+   * If not set, tier-3 fallback is disabled.
+   *
+   * The static list can be extended at runtime via `registerStaticMarkets()`.
+   *
+   * @see {@link registerStaticMarkets} to add addresses at runtime
+   * @see {@link getStaticMarkets} to inspect the current static list
+   *
+   * @example
+   * ```ts
+   * const markets = await discoverMarkets(connection, programId, {
+   *   apiBaseUrl: "https://percolatorlaunch.com/api",
+   *   network: "mainnet",  // enables tier-3 static fallback
+   * });
+   * ```
+   */
+  network?: Network;
 }
 
 /** Return true if the error looks like an HTTP 429 / rate-limit response. */
@@ -701,18 +728,54 @@ export async function discoverMarkets(
       "[discoverMarkets] RPC discovery returned 0 markets, falling back to REST API",
     );
     try {
-      return await discoverMarketsViaApi(
+      const apiResult = await discoverMarketsViaApi(
         connection,
         programId,
         options.apiBaseUrl,
         { timeoutMs: options.apiTimeoutMs },
+      );
+      if (apiResult.length > 0) {
+        return apiResult;
+      }
+      // API returned 0 markets — fall through to tier 3
+      console.warn(
+        "[discoverMarkets] REST API returned 0 markets, checking tier-3 static bundle",
       );
     } catch (apiErr) {
       console.warn(
         "[discoverMarkets] API fallback also failed:",
         apiErr instanceof Error ? apiErr.message : apiErr,
       );
-      // Fall through to return empty array
+      // Fall through to tier 3
+    }
+  }
+
+  // PERC-8435: Tier 3 — static bundle fallback.  If both getProgramAccounts and
+  // the REST API failed (or returned 0 results) and a network hint is provided,
+  // use the bundled static market list as a last-resort address directory.
+  if (rawAccounts.length === 0 && options.network) {
+    const staticEntries = getStaticMarkets(options.network);
+    if (staticEntries.length > 0) {
+      console.warn(
+        `[discoverMarkets] Tier 1+2 failed, falling back to static bundle (${staticEntries.length} addresses for ${options.network})`,
+      );
+      try {
+        return await discoverMarketsViaStaticBundle(
+          connection,
+          programId,
+          staticEntries,
+        );
+      } catch (staticErr) {
+        console.warn(
+          "[discoverMarkets] Static bundle fallback also failed:",
+          staticErr instanceof Error ? staticErr.message : staticErr,
+        );
+        // Fall through to return empty array
+      }
+    } else {
+      console.warn(
+        `[discoverMarkets] Static bundle has 0 entries for ${options.network} — skipping tier 3`,
+      );
     }
   }
 
@@ -1041,4 +1104,88 @@ export async function discoverMarketsViaApi(
 
   // Fetch full on-chain data via getMultipleAccounts (works on all RPCs)
   return getMarketsByAddress(connection, programId, addresses, onChainOptions);
+}
+
+// ---------------------------------------------------------------------------
+// Static bundle fallback (PERC-8435 — tier 3)
+// ---------------------------------------------------------------------------
+
+/** Options for {@link discoverMarketsViaStaticBundle}. */
+export interface DiscoverMarketsViaStaticBundleOptions {
+  /**
+   * Options forwarded to {@link getMarketsByAddress} for the on-chain fetch
+   * step (batch size, inter-batch delay).
+   */
+  onChainOptions?: GetMarketsByAddressOptions;
+}
+
+/**
+ * Discover Percolator markets from a static list of known slab addresses.
+ *
+ * This is the tier-3 (last-resort) fallback for `discoverMarkets()`.  It uses
+ * a bundled list of known slab addresses and fetches their full account data
+ * on-chain via `getMarketsByAddress` (`getMultipleAccounts` — works on all RPCs).
+ *
+ * The static list acts as an address directory only — all market data is verified
+ * on-chain, so stale entries are silently skipped (the account won't have valid
+ * magic bytes or will have been closed).
+ *
+ * @param connection - Solana RPC connection (any endpoint)
+ * @param programId - The Percolator program that owns the slabs
+ * @param entries   - Static market entries (typically from {@link getStaticMarkets})
+ * @param options   - Optional on-chain fetch configuration
+ * @returns Parsed markets for all valid slab accounts; stale/missing entries are skipped.
+ *
+ * @example
+ * ```ts
+ * import {
+ *   discoverMarketsViaStaticBundle,
+ *   getStaticMarkets,
+ *   getProgramId,
+ * } from "@percolator/sdk";
+ * import { Connection } from "@solana/web3.js";
+ *
+ * const connection = new Connection("https://api.mainnet-beta.solana.com");
+ * const programId = getProgramId("mainnet");
+ * const entries = getStaticMarkets("mainnet");
+ *
+ * const markets = await discoverMarketsViaStaticBundle(
+ *   connection,
+ *   programId,
+ *   entries,
+ * );
+ * console.log(`Recovered ${markets.length} markets from static bundle`);
+ * ```
+ */
+export async function discoverMarketsViaStaticBundle(
+  connection: Connection,
+  programId: PublicKey,
+  entries: StaticMarketEntry[],
+  options: DiscoverMarketsViaStaticBundleOptions = {},
+): Promise<DiscoveredMarket[]> {
+  if (entries.length === 0) return [];
+
+  // Extract valid slab addresses from static entries
+  const addresses: PublicKey[] = [];
+  for (const entry of entries) {
+    if (!entry.slabAddress || typeof entry.slabAddress !== "string") continue;
+    try {
+      addresses.push(new PublicKey(entry.slabAddress));
+    } catch {
+      console.warn(
+        `[discoverMarketsViaStaticBundle] Skipping invalid slab address: ${entry.slabAddress}`,
+      );
+    }
+  }
+
+  if (addresses.length === 0) {
+    console.warn("[discoverMarketsViaStaticBundle] No valid slab addresses in static bundle");
+    return [];
+  }
+
+  console.log(
+    `[discoverMarketsViaStaticBundle] Fetching ${addresses.length} slab addresses on-chain`,
+  );
+
+  return getMarketsByAddress(connection, programId, addresses, options.onChainOptions);
 }
