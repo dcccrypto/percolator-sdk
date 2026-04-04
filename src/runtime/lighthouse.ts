@@ -214,7 +214,19 @@ export function isLighthouseFailureInLogs(logs: string[]): boolean {
  */
 export function stripLighthouseInstructions(
   instructions: TransactionInstruction[],
+  percolatorProgramId?: PublicKey,
 ): TransactionInstruction[] {
+  // When a programId is provided, refuse to strip guards from transactions
+  // that don't contain any Percolator instructions — prevents misuse on
+  // arbitrary transactions where Lighthouse guards are legitimate protection.
+  if (percolatorProgramId) {
+    const hasPercolatorIx = instructions.some(
+      (ix) => ix.programId.equals(percolatorProgramId),
+    );
+    if (!hasPercolatorIx) {
+      return instructions; // no Percolator instructions — leave guards intact
+    }
+  }
   return instructions.filter((ix) => !isLighthouseInstruction(ix));
 }
 
@@ -239,7 +251,19 @@ export function stripLighthouseInstructions(
  * }
  * ```
  */
-export function stripLighthouseFromTransaction(transaction: Transaction): Transaction {
+export function stripLighthouseFromTransaction(
+  transaction: Transaction,
+  percolatorProgramId?: PublicKey,
+): Transaction {
+  // When a programId is provided, refuse to strip guards from transactions
+  // that don't contain any Percolator instructions.
+  if (percolatorProgramId) {
+    const hasPercolatorIx = transaction.instructions.some(
+      (ix) => ix.programId.equals(percolatorProgramId),
+    );
+    if (!hasPercolatorIx) return transaction;
+  }
+
   const hasLighthouse = transaction.instructions.some(isLighthouseInstruction);
   if (!hasLighthouse) return transaction;
 
