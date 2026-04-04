@@ -277,8 +277,17 @@ export function computeEstimatedEntryPrice(
   direction: "long" | "short",
 ): bigint {
   if (oracleE6 === 0n) return 0n;
+  if (tradingFeeBps < 0n) {
+    throw new Error(`computeEstimatedEntryPrice: tradingFeeBps must be non-negative, got ${tradingFeeBps}`);
+  }
   const feeImpact = (oracleE6 * tradingFeeBps) / 10000n;
-  return direction === "long" ? oracleE6 + feeImpact : oracleE6 - feeImpact;
+  const result = direction === "long" ? oracleE6 + feeImpact : oracleE6 - feeImpact;
+  if (result <= 0n) {
+    throw new Error(
+      `computeEstimatedEntryPrice: result ${result} is non-positive (tradingFeeBps=${tradingFeeBps} too high for oracle=${oracleE6})`,
+    );
+  }
+  return result;
 }
 
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
