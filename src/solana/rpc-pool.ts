@@ -317,6 +317,26 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Redact sensitive query-string parameters (api-key, api_key, token, secret,
+ * key, password) from a URL so it is safe for logging / status output.
+ */
+function redactUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    const sensitive = /^(api[-_]?key|token|secret|key|password)$/i;
+    for (const k of [...u.searchParams.keys()]) {
+      if (sensitive.test(k)) {
+        u.searchParams.set(k, "***");
+      }
+    }
+    return u.toString();
+  } catch {
+    // Not a valid URL — return as-is (unlikely for RPC endpoints).
+    return raw;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // RpcPool
 // ---------------------------------------------------------------------------
@@ -590,7 +610,7 @@ export class RpcPool {
   }> {
     return this.endpoints.map(ep => ({
       label: ep.label,
-      url: ep.config.url,
+      url: redactUrl(ep.config.url),
       healthy: ep.healthy,
       failures: ep.failures,
       lastLatencyMs: ep.lastLatencyMs,
