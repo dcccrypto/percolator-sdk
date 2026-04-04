@@ -93,6 +93,7 @@ function concatBytes(...arrays) {
 }
 
 // src/abi/instructions.ts
+var MAX_ORACLE_PRICE = 1000000000000n;
 var IX_TAG = {
   InitMarket: 0,
   InitUser: 1,
@@ -362,9 +363,16 @@ function encodeSetOracleAuthority(args) {
   );
 }
 function encodePushOraclePrice(args) {
+  const price = typeof args.priceE6 === "string" ? BigInt(args.priceE6) : args.priceE6;
+  if (price === 0n) {
+    throw new Error("encodePushOraclePrice: price cannot be zero (division by zero in engine)");
+  }
+  if (price > MAX_ORACLE_PRICE) {
+    throw new Error(`encodePushOraclePrice: price exceeds maximum (${MAX_ORACLE_PRICE}), got ${price}`);
+  }
   return concatBytes(
     encU8(IX_TAG.PushOraclePrice),
-    encU64(args.priceE6),
+    encU64(price),
     encI64(args.timestamp)
   );
 }
@@ -2430,6 +2438,45 @@ function parseAllAccounts(data) {
     account: parseAccount(data, idx)
   }));
 }
+function isAccountFlat(account) {
+  return account.positionSize === 0n;
+}
+function filterOpenPositions(accounts) {
+  return accounts.filter((account) => !isAccountFlat(account));
+}
+function getSlabHealth(slabData, currentSlot, maxCranknessSlots = 200n) {
+  let layout = null;
+  try {
+    layout = detectSlabLayout(slabData.length, slabData);
+    if (!layout) return "healthy";
+  } catch {
+    return "healthy";
+  }
+  try {
+    const flagsByte = readU8(slabData, 13);
+    const FLAG_RESOLVED2 = 1 << 0;
+    if ((flagsByte & FLAG_RESOLVED2) !== 0) {
+      return "resolved";
+    }
+  } catch {
+  }
+  try {
+    const config = parseConfig(slabData, layout);
+    const engine = parseEngine(slabData);
+    if (config.maxPnlCap > 0n && engine.pnlPosTot > config.maxPnlCap) {
+      return "adl-triggered";
+    }
+    const lastCrankSlot = engine.lastCrankSlot ?? 0n;
+    if (lastCrankSlot > 0n && currentSlot > lastCrankSlot) {
+      const crankAge = currentSlot - lastCrankSlot;
+      if (crankAge > maxCranknessSlots) {
+        return "crank-stale";
+      }
+    }
+  } catch {
+  }
+  return "healthy";
+}
 
 // src/solana/pda.ts
 import { PublicKey as PublicKey4 } from "@solana/web3.js";
@@ -3999,6 +4046,10 @@ function computeMaxLeverage(initialMarginBps) {
   const scaledResult = 10000n * 1000000n / initialMarginBps;
   return Number(scaledResult) / 1e6;
 }
+function computeMaxWithdrawable(capital, pnl, reservedPnl) {
+  const maturedPnl = pnl - reservedPnl;
+  return capital + (maturedPnl > 0n ? maturedPnl : 0n);
+}
 
 // src/math/warmup.ts
 function computeWarmupUnlockedCapital(totalCapital, currentSlot, warmupStartSlot, warmupPeriodSlots) {
@@ -4031,6 +4082,37 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
     warmupPeriodSlots
   );
   return unlocked * BigInt(maxLev);
+}
+function computeWarmupProgress(currentSlot, warmupStartedAtSlot, warmupPeriodSlots, pnl, reservedPnl) {
+  if (warmupPeriodSlots === 0n || warmupStartedAtSlot === 0n) {
+    return {
+      maturedPnl: pnl > 0n ? pnl : 0n,
+      reservedPnl: 0n,
+      progressBps: 10000n,
+      // 100%
+      slotsRemaining: 0n
+    };
+  }
+  const elapsed = currentSlot >= warmupStartedAtSlot ? currentSlot - warmupStartedAtSlot : 0n;
+  if (elapsed >= warmupPeriodSlots) {
+    return {
+      maturedPnl: pnl > 0n ? pnl : 0n,
+      reservedPnl: 0n,
+      progressBps: 10000n,
+      // 100%
+      slotsRemaining: 0n
+    };
+  }
+  const progressBps = elapsed * 10000n / warmupPeriodSlots;
+  const slotsRemaining = warmupPeriodSlots - elapsed;
+  const maturedPnl = pnl > 0n ? pnl * progressBps / 10000n : 0n;
+  const locked = reservedPnl > 0n ? reservedPnl : 0n;
+  return {
+    maturedPnl,
+    reservedPnl: locked,
+    progressBps,
+    slotsRemaining
+  };
 }
 
 // src/validation.ts
@@ -4479,6 +4561,7 @@ export {
   MARK_PRICE_EMA_ALPHA_E6,
   MARK_PRICE_EMA_WINDOW_SLOTS,
   MAX_DECIMALS,
+  MAX_ORACLE_PRICE,
   METEORA_DLMM_PROGRAM_ID,
   ORACLE_PHASE_GROWING,
   ORACLE_PHASE_MATURE,
@@ -4531,6 +4614,7 @@ export {
   computeLiqPrice,
   computeMarkPnl,
   computeMaxLeverage,
+  computeMaxWithdrawable,
   computePnlPercent,
   computePreTradeLiqPrice,
   computeRequiredMargin,
@@ -4538,6 +4622,7 @@ export {
   computeVammQuote,
   computeWarmupLeverageCap,
   computeWarmupMaxPositionSize,
+  computeWarmupProgress,
   computeWarmupUnlockedCapital,
   concatBytes,
   decodeError,
@@ -4647,6 +4732,7 @@ export {
   fetchAdlRankings,
   fetchSlab,
   fetchTokenAccount,
+  filterOpenPositions,
   flushToInsuranceAccounts,
   formatResult,
   getAta,
@@ -4656,8 +4742,10 @@ export {
   getErrorName,
   getMatcherProgramId,
   getProgramId,
+  getSlabHealth,
   getStakeProgramId,
   initPoolAccounts,
+  isAccountFlat,
   isAccountUsed,
   isAdlTriggered,
   isStandardToken,

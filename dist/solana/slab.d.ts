@@ -324,3 +324,83 @@ export declare function parseAllAccounts(data: Uint8Array): {
     idx: number;
     account: Account;
 }[];
+/**
+ * Check if an account has a flat (zero) position size.
+ *
+ * A flat position has no open leverage and cannot be liquidated.
+ * This is useful for filtering out unused or closed accounts from
+ * the list of all slab accounts.
+ *
+ * @param account - The account to check
+ * @returns true if the account's position size is exactly 0n
+ *
+ * @example
+ * ```ts
+ * const allAccounts = parseAllAccounts(slabData);
+ * const openAccounts = allAccounts.filter(({ account }) => !isAccountFlat(account));
+ * ```
+ */
+export declare function isAccountFlat(account: Account): boolean;
+/**
+ * Filter out flat (zero-size) positions from an account list.
+ *
+ * The "ghost position bug" in percolator-launch occurred because zero-sized
+ * accounts were included in position lists, showing users non-existent positions.
+ * This utility provides a canonical way to filter them out consistently across
+ * all consumers of the SDK.
+ *
+ * @param accounts - Array of accounts (typically from parseAllAccounts or similar)
+ * @returns Filtered array containing only accounts with non-zero position sizes
+ *
+ * @example
+ * ```ts
+ * const all = parseAllAccounts(slabData);
+ * const openOnly = filterOpenPositions(all.map(a => a.account));
+ * console.log(`${openOnly.length} open positions out of ${all.length} accounts`);
+ * ```
+ */
+export declare function filterOpenPositions(accounts: Account[]): Account[];
+/**
+ * Market health status.
+ * Helps applications decide whether to allow trading or show warnings.
+ */
+export type SlabHealth = "healthy" | "paused" | "resolved" | "adl-triggered" | "crank-stale" | "oracle-unavailable";
+/**
+ * Assess the health status of a market (slab).
+ *
+ * Different health states indicate different issues:
+ * - **healthy**: Trading is normal, no issues detected.
+ * - **paused**: Admin has paused the market; trading is disabled.
+ * - **resolved**: Market was fully resolved (period ended); no more trading possible.
+ * - **adl-triggered**: Auto-deleverage is active; insurance is depleted or PnL cap exceeded.
+ *   This is a critical state where profitable positions may be force-closed.
+ * - **crank-stale**: The keeper crank hasn't run recently. Risk parameters may be stale;
+ *   liquidation engine state may not reflect current prices.
+ * - **oracle-unavailable**: No recent oracle price is available. Cannot trust mark prices.
+ *
+ * Applications can use this to:
+ * - Show warnings to traders ("Market is ADL-triggered")
+ * - Disable trading UI buttons ("Market paused")
+ * - Disable liquidations ("Oracle unavailable")
+ * - Show "risk parameters may be stale" warning
+ *
+ * @param slabData - Raw slab account bytes
+ * @param currentSlot - Current on-chain slot (from engine state, or from RPC)
+ * @param maxCranknessSlots - Maximum acceptable staleness (default 200 slots ≈ 1 min 20 sec)
+ * @returns The health status
+ *
+ * @example
+ * ```ts
+ * const slabData = await fetchSlab(connection, slabKey);
+ * const health = getSlabHealth(slabData, currentSlot);
+ *
+ * if (health === "paused") {
+ *   showWarning("Market is paused by admin");
+ * } else if (health === "adl-triggered") {
+ *   showError("Market ADL is active — positions may be force-closed");
+ * } else if (health === "healthy") {
+ *   enableTradingButtons();
+ * }
+ * ```
+ */
+export declare function getSlabHealth(slabData: Uint8Array, currentSlot: bigint, maxCranknessSlots?: bigint): SlabHealth;

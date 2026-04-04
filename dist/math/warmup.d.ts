@@ -53,3 +53,53 @@ export declare function computeWarmupLeverageCap(initialMarginBps: bigint, total
  * @returns Maximum position size in native units.
  */
 export declare function computeWarmupMaxPositionSize(initialMarginBps: bigint, totalCapital: bigint, currentSlot: bigint, warmupStartSlot: bigint, warmupPeriodSlots: bigint): bigint;
+/**
+ * Warmup progress information for a position.
+ */
+export interface WarmupProgress {
+    /** PnL available for withdrawal right now (not locked by warmup). */
+    maturedPnl: bigint;
+    /** PnL still locked until warmup completes. */
+    reservedPnl: bigint;
+    /** Progress toward full warmup as a basis point (0–10,000). */
+    progressBps: bigint;
+    /** Slots remaining until full warmup (0 if fully matured). */
+    slotsRemaining: bigint;
+}
+/**
+ * Compute PnL warmup progress for a position.
+ *
+ * During the warmup period, a position's unrealized PnL is linearly released.
+ * The portion available for withdrawal grows over time. This utility shows:
+ * - How much PnL is currently available (matured)
+ * - How much is still locked (reserved)
+ * - Progress toward full maturation (as %)
+ * - Slots remaining
+ *
+ * Users can display a progress bar or "unlocks in X slots" message to give
+ * transparency into when their PnL becomes withdrawable.
+ *
+ * @param currentSlot        - Current on-chain slot (from engine state).
+ * @param warmupStartedAtSlot - Slot when this position's warmup started.
+ * @param warmupPeriodSlots  - Total warmup duration in slots (from market config).
+ * @param pnl                - Total realized + unrealized PnL (from account).
+ * @param reservedPnl        - PnL locked during warmup (from account).
+ * @returns WarmupProgress with matured/reserved PnL, progress %, and slots remaining.
+ *
+ * @example
+ * ```ts
+ * const progress = computeWarmupProgress(
+ *   10000n,      // current slot
+ *   9000n,       // warmup started at slot 9000
+ *   2000n,       // warmup period = 2000 slots
+ *   1000000000n, // pnl = 1 SOL
+ *   600000000n   // reserved = 0.6 SOL (60% still locked)
+ * );
+ * // Returns:
+ * // maturedPnl: 400000000n    (0.4 SOL available)
+ * // reservedPnl: 600000000n   (0.6 SOL locked)
+ * // progressBps: 5000n        (50% complete)
+ * // slotsRemaining: 1000n     (1000 slots until fully mature)
+ * ```
+ */
+export declare function computeWarmupProgress(currentSlot: bigint, warmupStartedAtSlot: bigint, warmupPeriodSlots: bigint, pnl: bigint, reservedPnl: bigint): WarmupProgress;

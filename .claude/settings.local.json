@@ -1,12 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git remote:*)",
-      "Bash(git commit -m \"security\\(critical\\): fix off-by-one error in maxAccountIndex - prevent buffer overrun:*)",
-      "Bash(gh repo:*)",
-      "Bash(git pull:*)",
-      "Bash(git commit -m \"fix\\(high\\): preserve precision in computeMaxLeverage - avoid integer truncation:*)",
-      "Bash(git commit -m \"fix\\(medium\\): add null check in isAdlTriggered for invalid slab layouts:*)"
+      "Bash(npx skills:*)",
+      "Bash(tee /tmp/selection.txt)",
+      "Read(//root/**)",
+      "Bash(gh pr:*)",
+      "Bash(git checkout:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm build:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"feat: add computeMaxWithdrawable utility function:*)",
+      "Bash(git push:*)",
+      "Bash(git commit -m \"feat: add isAccountFlat and filterOpenPositions helpers:*)",
+      "Bash(git commit -m \"feat: add validation to encodePushOraclePrice instruction:*)",
+      "Bash(git commit -m \"feat: add getSlabHealth market status assessment:*)"
     ]
   }
 }
