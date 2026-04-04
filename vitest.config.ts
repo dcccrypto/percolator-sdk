@@ -18,6 +18,8 @@ export default defineConfig({
       "src/solana/__tests__/stake-cpi.test.ts",
       "test/integration-mocked.test.ts",
       "test/discovery-api-fallback.test.ts",
+      "test/static-markets.test.ts",
+      "test/discovery-static-fallback.test.ts",
     ],
   },
 });

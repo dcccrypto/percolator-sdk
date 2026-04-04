@@ -469,16 +469,22 @@ const marketsCustom = await discoverMarkets(connection, { maxParallelTiers: 3 })
 > `getProgramAccounts` calls entirely. Use the **API fallback** (below) or a
 > Helius/QuickNode endpoint.
 
-## API Fallback for Public RPCs
+## Market Discovery — 3-Tier Fallback Chain
 
 Public mainnet RPCs reject `getProgramAccounts`, which blocks `discoverMarkets()`.
-The SDK provides two ways to discover markets without a premium RPC key:
+The SDK provides a resilient 3-tier fallback chain that works on any RPC endpoint:
 
-### Option 1: Automatic fallback via `apiBaseUrl`
+| Tier | Method | Requires |
+|------|--------|----------|
+| 1 | `getProgramAccounts` (RPC) | Helius/premium RPC key |
+| 2 | REST API (`GET /markets`) | Percolator API online |
+| 3 | Static bundle (bundled addresses) | Nothing — works offline |
 
-Pass `apiBaseUrl` to `discoverMarkets()`. If `getProgramAccounts` fails or
-returns 0 results, the SDK automatically fetches slab addresses from the REST
-API, then verifies them on-chain via `getMultipleAccounts` (works on all RPCs):
+All tiers verify data on-chain via `getMultipleAccounts` (works on all RPCs).
+
+### Recommended: Full 3-tier fallback
+
+Pass both `apiBaseUrl` and `network` to enable all three tiers:
 
 ```typescript
 import { discoverMarkets, getProgramId } from "@percolator/sdk";
@@ -487,10 +493,11 @@ import { Connection } from "@solana/web3.js";
 const connection = new Connection("https://api.mainnet-beta.solana.com");
 const markets = await discoverMarkets(connection, getProgramId("mainnet"), {
   apiBaseUrl: "https://percolatorlaunch.com/api",
+  network: "mainnet",  // enables tier-3 static fallback
 });
 ```
 
-### Option 2: API-first discovery via `discoverMarketsViaApi()`
+### API-only discovery via `discoverMarketsViaApi()`
 
 Skip `getProgramAccounts` entirely — query the REST API for slab addresses,
 then fetch full on-chain data:
@@ -508,7 +515,49 @@ const markets = await discoverMarketsViaApi(
 );
 ```
 
-### Option 3: Known addresses via `getMarketsByAddress()`
+### Static-only discovery via `discoverMarketsViaStaticBundle()`
+
+Use the bundled address list directly (no network calls except `getMultipleAccounts`):
+
+```typescript
+import {
+  discoverMarketsViaStaticBundle,
+  getStaticMarkets,
+  getProgramId,
+} from "@percolator/sdk";
+import { Connection } from "@solana/web3.js";
+
+const connection = new Connection("https://api.mainnet-beta.solana.com");
+const entries = getStaticMarkets("mainnet");
+const markets = await discoverMarketsViaStaticBundle(
+  connection,
+  getProgramId("mainnet"),
+  entries,
+);
+```
+
+### Extending the static registry at runtime
+
+The static bundle can be augmented before calling `discoverMarkets()`:
+
+```typescript
+import { registerStaticMarkets, discoverMarkets, getProgramId } from "@percolator/sdk";
+import { Connection } from "@solana/web3.js";
+
+// Register known slab addresses before discovery
+registerStaticMarkets("mainnet", [
+  { slabAddress: "ABC123...", symbol: "SOL-PERP" },
+  { slabAddress: "DEF456...", symbol: "ETH-PERP" },
+]);
+
+const connection = new Connection("https://api.mainnet-beta.solana.com");
+const markets = await discoverMarkets(connection, getProgramId("mainnet"), {
+  apiBaseUrl: "https://percolatorlaunch.com/api",
+  network: "mainnet",
+});
+```
+
+### Known addresses via `getMarketsByAddress()`
 
 If you already know your market slab addresses (e.g. from an indexer or
 hardcoded list), fetch them directly:

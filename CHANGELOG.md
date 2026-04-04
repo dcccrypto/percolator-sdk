@@ -7,6 +7,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.0-rc.5] — 2026-04-04
+
+### Added
+
+- **Tier-3 static bundle fallback for `discoverMarkets()`** (PR#119, PERC-8435):
+  When both `getProgramAccounts` (tier 1) and the REST API (tier 2) are unavailable,
+  `discoverMarkets()` now falls back to a bundled static list of known slab addresses.
+  Addresses are fetched on-chain via `getMarketsByAddress` (`getMultipleAccounts`),
+  ensuring all data is still verified on-chain. Enabled by passing `network: "mainnet"`
+  (or `"devnet"`) in `DiscoverMarketsOptions`.
+
+- **`discoverMarketsViaStaticBundle()`** (PERC-8435): Standalone function to discover
+  markets from a static address list. Used internally by tier-3 fallback and also
+  available as a public API for callers who want direct control.
+
+- **Static market registry** (PERC-8435): `getStaticMarkets()`, `registerStaticMarkets()`,
+  and `clearStaticMarkets()` — runtime-extensible registry of known slab addresses per
+  network. Bundled lists can be augmented at runtime before calling `discoverMarkets()`.
+
+---
+
 ## [1.0.0-rc.4] — 2026-04-04
 
 ### Added
