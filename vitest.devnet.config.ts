@@ -15,7 +15,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["test/devnet-integration.test.ts", "test/devnet-getmarkets.test.ts", "test/mainnet-harness.test.ts"],
+    include: ["test/devnet-integration.test.ts", "test/devnet-getmarkets.test.ts", "test/mainnet-harness.test.ts", "test/devnet-full-api.test.ts"],
     testTimeout: 60_000,   // allow up to 60 s for RPC calls
     hookTimeout: 90_000,   // beforeAll does market discovery (can be slow)
     reporters: ["verbose"],
