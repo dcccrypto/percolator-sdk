@@ -1764,8 +1764,19 @@ export function isAccountUsed(data: Uint8Array, idx: number): boolean {
   const layout = detectSlabLayout(data.length, data);
   if (!layout) return false;
   if (!Number.isInteger(idx) || idx < 0 || idx >= layout.maxAccounts) return false;
+
   const base = layout.engineOff + layout.engineBitmapOff;
   const word = Math.floor(idx / 64);
+
+  // Ensure bitmap word is within bounds before reading
+  if (data.length < base + word * 8 + 8) {
+    console.warn(
+      `[isAccountUsed] Bitmap read would exceed buffer bounds: ` +
+      `base=${base}, word=${word}, dataLen=${data.length}`,
+    );
+    return false;
+  }
+
   const bit = idx % 64;
   const bits = readU64LE(data, base + word * 8);
   return ((bits >> BigInt(bit)) & 1n) !== 0n;
@@ -1777,9 +1788,6 @@ export function isAccountUsed(data: Uint8Array, idx: number): boolean {
 export function maxAccountIndex(dataLen: number): number {
   const layout = detectSlabLayout(dataLen);
   if (!layout) return 0;
-  if (layout.accountSize <= 0) {
-    throw new Error(`Invalid slab layout: accountSize must be positive, got ${layout.accountSize}`);
-  }
   const accountsEnd = dataLen - layout.accountsOff;
   if (accountsEnd <= 0) return 0;
   // Return max valid index (0-based), not count. If 256 accounts fit, max index is 255.
