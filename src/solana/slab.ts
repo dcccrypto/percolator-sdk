@@ -447,25 +447,62 @@ const V1M_ENGINE_BITMAP_OFF = 720;
 // align_up(HEADER=104 + CONFIG=512, 8) = 616.
 // Slab sizes match V_ADL exactly — disambiguation required via data inspection.
 // Confirmed by on-chain probing of slab 7T1Efij9 (SOL-PERP, 323312 bytes, medium tier).
-// Engine struct is larger than V1M (990 vs 720 bitmap offset = +270 runtime bytes).
-// New runtime fields inserted between fundingRateBps and markPrice:
-//   +408: currentSlot, +416: fundingIndex(i128), +432: lastFundingSlot, +440: fundingRateBps
-//   +448: NEW lastOracleUpdateSlot(?), +456: authorityPriceE6(?), +464-471: reserved
-//   +472: lastEffectivePriceE6(?), +480: markPriceE6, +488-503: reserved
-//   +504: lastCrankSlot, +512: maxCrankStaleness
+// PERC-8469: Full BPF V1M2 engine offset table, provided by anchor agent from
+// offset_of!(RiskEngine, field) on the deployed BPF binary.
+// Previous offsets were WRONG: used V1M base + 32-byte shift, which didn't account for
+// (1) params offset change 72→96 (+24), (2) new pnl_matured_pos_tot field (+16),
+// (3) full ADL side state block (+224 bytes at offsets 688–903).
 const V1M2_ACCOUNT_SIZE = 312;        // 248 + 64 bytes of new fields per account
-const V1M2_ENGINE_BITMAP_OFF = 990;   // expanded engine struct shifts bitmap forward
-// V1M2 runtime offsets (confirmed by on-chain probing of 7T1Efij9):
-const V1M2_ENGINE_CURRENT_SLOT_OFF = 408;    // same as V1M
-const V1M2_ENGINE_FUNDING_INDEX_OFF = 416;   // same as V1M
-const V1M2_ENGINE_LAST_FUNDING_SLOT_OFF = 432; // same as V1M
-const V1M2_ENGINE_FUNDING_RATE_BPS_OFF = 440;  // same as V1M
-const V1M2_ENGINE_MARK_PRICE_OFF = 480;       // shifted +32 from V1M's 448
-const V1M2_ENGINE_LAST_CRANK_SLOT_OFF = 504;  // shifted +32 from V1M's 472
-const V1M2_ENGINE_MAX_CRANK_STALENESS_OFF = 512; // shifted +32 from V1M's 480
-// OI and remaining fields: shifted proportionally. Use conservative offsets based on
-// V1M base + 32 byte shift for fields after fundingRateBps.
-const V1M2_RUNTIME_SHIFT = 32; // bytes inserted between fundingRateBps and markPrice
+
+// V1M2 engine field offsets (relative to engineOff=616).
+// Source: anchor agent BPF offset_of! table (PERC-8469).
+// vault(16)@0, insurance_fund(80)@16, params(336)@96 → runtime starts at 432.
+const V1M2_ENGINE_CURRENT_SLOT_OFF = 432;        // 96 + 336 = 432
+const V1M2_ENGINE_FUNDING_INDEX_OFF = 440;       // i128, 16 bytes
+const V1M2_ENGINE_LAST_FUNDING_SLOT_OFF = 456;
+const V1M2_ENGINE_FUNDING_RATE_BPS_OFF = 464;
+// New fields at 472–496: last_market_slot(8), funding_price_sample(8),
+// materialized_count(8), last_oracle_price(8)
+const V1M2_ENGINE_MARK_PRICE_OFF = 504;
+// funding_frozen(1+7pad)@512, frozen_rate_snap(8)@520
+const V1M2_ENGINE_LAST_CRANK_SLOT_OFF = 528;
+const V1M2_ENGINE_MAX_CRANK_STALENESS_OFF = 536;
+const V1M2_ENGINE_TOTAL_OI_OFF = 544;            // u128, 16 bytes
+const V1M2_ENGINE_LONG_OI_OFF = 560;             // u128
+const V1M2_ENGINE_SHORT_OI_OFF = 576;            // u128
+const V1M2_ENGINE_C_TOT_OFF = 592;               // u128
+const V1M2_ENGINE_PNL_POS_TOT_OFF = 608;         // u128
+// pnl_matured_pos_tot(u128)@624 — NEW in V1M2/PERC-8267
+const V1M2_ENGINE_LIQ_CURSOR_OFF = 640;          // u16
+const V1M2_ENGINE_GC_CURSOR_OFF = 642;           // u16
+// pad(4)@644
+const V1M2_ENGINE_LAST_SWEEP_START_OFF = 648;    // u64
+const V1M2_ENGINE_LAST_SWEEP_COMPLETE_OFF = 656; // u64
+const V1M2_ENGINE_CRANK_CURSOR_OFF = 664;        // u16
+const V1M2_ENGINE_SWEEP_START_IDX_OFF = 666;     // u16
+// pad(4)@668
+const V1M2_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 672;   // u64
+const V1M2_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 680;   // u64
+// ADL side state (224 bytes) at offsets 688–903:
+//   adl_mult_long(16)@688, adl_mult_short(16)@704, adl_coeff_long(16)@720,
+//   adl_coeff_short(16)@736, adl_epoch_long(8)@752, adl_epoch_short(8)@760,
+//   adl_epoch_start_k_long(16)@768, adl_epoch_start_k_short(16)@784,
+//   oi_eff_long_q(16)@800, oi_eff_short_q(16)@816,
+//   side_mode_long(1)@832, side_mode_short(1)@833, pad(6)@834,
+//   stored_pos_count_long(8)@840, stored_pos_count_short(8)@848,
+//   stale_count_long(8)@856, stale_count_short(8)@864,
+//   phantom_dust_long(16)@872, phantom_dust_short(16)@888
+const V1M2_ENGINE_NET_LP_POS_OFF = 904;          // i128
+const V1M2_ENGINE_LP_SUM_ABS_OFF = 920;          // u128
+const V1M2_ENGINE_LP_MAX_ABS_OFF = 936;          // u128
+const V1M2_ENGINE_LP_MAX_ABS_SWEEP_OFF = 952;    // u128
+const V1M2_ENGINE_EMERGENCY_OI_MODE_OFF = 968;   // u8 + 7 pad
+const V1M2_ENGINE_EMERGENCY_START_SLOT_OFF = 976; // u64
+const V1M2_ENGINE_LAST_BREAKER_SLOT_OFF = 984;   // u64
+// trade_twap(8)@992, twap_last_slot(8)@1000
+// CRITICAL: Bitmap at 1008 on BPF (not 1016 as native tests show — u128 align=16
+// on native vs 8 on BPF). The deployed program is BPF, so use 1008.
+const V1M2_ENGINE_BITMAP_OFF = 1008;
 
 // For backward compatibility, export ENGINE_OFF and ENGINE_MARK_PRICE_OFF
 // (used by reinit-slab and other scripts). These refer to V1 layout.
@@ -872,8 +909,8 @@ function buildLayoutV1M(maxAccounts: number): SlabLayout {
 
 /**
  * Build a SlabLayout for V1M2 — mainnet program with 312-byte accounts.
- * Same engine layout as V1M (ENGINE_OFF=640, same field offsets) but larger
- * accounts (312 bytes) and shifted bitmap (990).
+ * PERC-8469: All offsets derived from BPF offset_of! table (anchor agent).
+ * V1M2 and V_ADL have identical engine layout — same struct, same field offsets.
  * Confirmed by on-chain probing of slab 7T1Efij9 (SOL-PERP, 323312 bytes).
  */
 function buildLayoutV1M2(maxAccounts: number): SlabLayout {
@@ -902,36 +939,35 @@ function buildLayoutV1M2(maxAccounts: number): SlabLayout {
     engineInsuranceOff: 16,
     engineParamsOff: V1M2_ENGINE_PARAMS_OFF, // 96 — expanded InsuranceFund
     paramsSize: V1M_PARAMS_SIZE,            // 336 — same as V1M
-    // Runtime fields: same as V1M up to fundingRateBps, then +32 shift
-    engineCurrentSlotOff: V1M2_ENGINE_CURRENT_SLOT_OFF,
-    engineFundingIndexOff: V1M2_ENGINE_FUNDING_INDEX_OFF,
-    engineLastFundingSlotOff: V1M2_ENGINE_LAST_FUNDING_SLOT_OFF,
-    engineFundingRateBpsOff: V1M2_ENGINE_FUNDING_RATE_BPS_OFF,
-    engineMarkPriceOff: V1M2_ENGINE_MARK_PRICE_OFF,
-    engineLastCrankSlotOff: V1M2_ENGINE_LAST_CRANK_SLOT_OFF,
-    engineMaxCrankStalenessOff: V1M2_ENGINE_MAX_CRANK_STALENESS_OFF,
-    // Fields after maxCrankStaleness: apply same +32 shift from V1M
-    engineTotalOiOff: V1M_ENGINE_TOTAL_OI_OFF + V1M2_RUNTIME_SHIFT,
-    engineLongOiOff: V1M_ENGINE_LONG_OI_OFF + V1M2_RUNTIME_SHIFT,
-    engineShortOiOff: V1M_ENGINE_SHORT_OI_OFF + V1M2_RUNTIME_SHIFT,
-    engineCTotOff: V1M_ENGINE_C_TOT_OFF + V1M2_RUNTIME_SHIFT,
-    enginePnlPosTotOff: V1M_ENGINE_PNL_POS_TOT_OFF + V1M2_RUNTIME_SHIFT,
-    engineLiqCursorOff: V1M_ENGINE_LIQ_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
-    engineGcCursorOff: V1M_ENGINE_GC_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
-    engineLastSweepStartOff: V1M_ENGINE_LAST_SWEEP_START_OFF + V1M2_RUNTIME_SHIFT,
-    engineLastSweepCompleteOff: V1M_ENGINE_LAST_SWEEP_COMPLETE_OFF + V1M2_RUNTIME_SHIFT,
-    engineCrankCursorOff: V1M_ENGINE_CRANK_CURSOR_OFF + V1M2_RUNTIME_SHIFT,
-    engineSweepStartIdxOff: V1M_ENGINE_SWEEP_START_IDX_OFF + V1M2_RUNTIME_SHIFT,
-    engineLifetimeLiquidationsOff: V1M_ENGINE_LIFETIME_LIQUIDATIONS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLifetimeForceClosesOff: V1M_ENGINE_LIFETIME_FORCE_CLOSES_OFF + V1M2_RUNTIME_SHIFT,
-    engineNetLpPosOff: V1M_ENGINE_NET_LP_POS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLpSumAbsOff: V1M_ENGINE_LP_SUM_ABS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLpMaxAbsOff: V1M_ENGINE_LP_MAX_ABS_OFF + V1M2_RUNTIME_SHIFT,
-    engineLpMaxAbsSweepOff: V1M_ENGINE_LP_MAX_ABS_SWEEP_OFF + V1M2_RUNTIME_SHIFT,
-    engineEmergencyOiModeOff: V1M_ENGINE_EMERGENCY_OI_MODE_OFF + V1M2_RUNTIME_SHIFT,
-    engineEmergencyStartSlotOff: V1M_ENGINE_EMERGENCY_START_SLOT_OFF + V1M2_RUNTIME_SHIFT,
-    engineLastBreakerSlotOff: V1M_ENGINE_LAST_BREAKER_SLOT_OFF + V1M2_RUNTIME_SHIFT,
-    engineBitmapOff: V1M2_ENGINE_BITMAP_OFF,
+    // All runtime offsets from BPF offset_of! (PERC-8469)
+    engineCurrentSlotOff: V1M2_ENGINE_CURRENT_SLOT_OFF,       // 432
+    engineFundingIndexOff: V1M2_ENGINE_FUNDING_INDEX_OFF,     // 440
+    engineLastFundingSlotOff: V1M2_ENGINE_LAST_FUNDING_SLOT_OFF, // 456
+    engineFundingRateBpsOff: V1M2_ENGINE_FUNDING_RATE_BPS_OFF,   // 464
+    engineMarkPriceOff: V1M2_ENGINE_MARK_PRICE_OFF,           // 504
+    engineLastCrankSlotOff: V1M2_ENGINE_LAST_CRANK_SLOT_OFF,  // 528
+    engineMaxCrankStalenessOff: V1M2_ENGINE_MAX_CRANK_STALENESS_OFF, // 536
+    engineTotalOiOff: V1M2_ENGINE_TOTAL_OI_OFF,               // 544
+    engineLongOiOff: V1M2_ENGINE_LONG_OI_OFF,                 // 560
+    engineShortOiOff: V1M2_ENGINE_SHORT_OI_OFF,               // 576
+    engineCTotOff: V1M2_ENGINE_C_TOT_OFF,                     // 592
+    enginePnlPosTotOff: V1M2_ENGINE_PNL_POS_TOT_OFF,          // 608
+    engineLiqCursorOff: V1M2_ENGINE_LIQ_CURSOR_OFF,           // 640
+    engineGcCursorOff: V1M2_ENGINE_GC_CURSOR_OFF,             // 642
+    engineLastSweepStartOff: V1M2_ENGINE_LAST_SWEEP_START_OFF,       // 648
+    engineLastSweepCompleteOff: V1M2_ENGINE_LAST_SWEEP_COMPLETE_OFF, // 656
+    engineCrankCursorOff: V1M2_ENGINE_CRANK_CURSOR_OFF,       // 664
+    engineSweepStartIdxOff: V1M2_ENGINE_SWEEP_START_IDX_OFF,  // 666
+    engineLifetimeLiquidationsOff: V1M2_ENGINE_LIFETIME_LIQUIDATIONS_OFF, // 672
+    engineLifetimeForceClosesOff: V1M2_ENGINE_LIFETIME_FORCE_CLOSES_OFF,  // 680
+    engineNetLpPosOff: V1M2_ENGINE_NET_LP_POS_OFF,            // 904
+    engineLpSumAbsOff: V1M2_ENGINE_LP_SUM_ABS_OFF,            // 920
+    engineLpMaxAbsOff: V1M2_ENGINE_LP_MAX_ABS_OFF,            // 936
+    engineLpMaxAbsSweepOff: V1M2_ENGINE_LP_MAX_ABS_SWEEP_OFF, // 952
+    engineEmergencyOiModeOff: V1M2_ENGINE_EMERGENCY_OI_MODE_OFF,     // 968
+    engineEmergencyStartSlotOff: V1M2_ENGINE_EMERGENCY_START_SLOT_OFF, // 976
+    engineLastBreakerSlotOff: V1M2_ENGINE_LAST_BREAKER_SLOT_OFF,     // 984
+    engineBitmapOff: V1M2_ENGINE_BITMAP_OFF,                  // 1008
     postBitmap: 18,
     acctOwnerOff: V_ADL_ACCT_OWNER_OFF,                       // 192 — V1M2 uses 312-byte accounts (same struct as V_ADL)
 
@@ -1027,10 +1063,11 @@ function buildLayoutVADL(maxAccounts: number): SlabLayout {
  */
 export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout | null {
   // Check V_ADL / V1M2 sizes — these two layouts produce IDENTICAL slab sizes because
-  // V_ADL (ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312) and V1M2 (ENGINE_OFF=640,
-  // BITMAP_OFF=990, ACCOUNT_SIZE=312) compute to the same totals for all tiers.
+  // V_ADL (ENGINE_OFF=624, BITMAP_OFF=1006, ACCOUNT_SIZE=312) and V1M2 (ENGINE_OFF=616,
+  // BITMAP_OFF=1008, ACCOUNT_SIZE=312) compute to the same totals for all tiers.
+  // PERC-8469: V1M2 bitmap corrected from 990→1008, slab sizes now genuinely match V_ADL.
   // Disambiguate by reading max_accounts at each layout's params offset:
-  //   V1M2: engine(640) + params(72) + max_accounts_field(32) = offset 744
+  //   V1M2: engine(616) + params(96) + max_accounts_field(32) = offset 744
   //   V_ADL: engine(624) + params(96) + max_accounts_field(32) = offset 752
   const vadln = V_ADL_SIZES.get(dataLen);
   if (vadln !== undefined) {
