@@ -1,6 +1,6 @@
 {
   "name": "@percolatorct/sdk",
-  "version": "0.5.1",
+  "version": "1.0.0-beta.1",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
@@ -10,10 +10,10 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.js",
-      "default": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "default": "./dist/index.js"
     }
   },
   "files": [

@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.0-beta.1] — 2026-04-04
+
+### Changed
+
+- **Version bump to 1.0.0-beta.1** (PERC-8474): SDK is functionally complete and mainnet-ready.
+  All 709 tests passing. Bumped from `0.5.1` to `1.0.0-beta.1` for public release preparation.
+
+- **`package.json` exports condition order fixed**: `types` condition moved before `import`/`require`
+  to resolve tsup build warnings and follow TypeScript `moduleResolution: "bundler"` best practice.
+
+### Notes
+
+- Not yet published to npm. Awaiting Helius API key provisioning + mainnet market deployment.
+- See `RELEASE.md` for full release notes, install instructions, and migration guide.
+
+---
+
 ## [1.0.0-rc.6] — 2026-04-04
 
 ### Added

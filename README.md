@@ -2,7 +2,7 @@
 
 TypeScript SDK for building clients, bots, and UIs on top of the [Percolator](https://github.com/dcccrypto/percolator) perpetual futures protocol on Solana.
 
-> **⚠️ RELEASE CANDIDATE** — `1.0.0-rc.1`. Security audit (0x-SquidSol) complete. Pending final mainnet program verification before `1.0.0` stable. Use at your own risk.
+> **⚠️ BETA** — `1.0.0-beta.1`. Security audit (0x-SquidSol) complete. All 709 tests passing. Pending Helius API key + mainnet market deployment before `1.0.0` stable.
 
 [![npm](https://img.shields.io/npm/v/@percolator/sdk?color=14F195)](https://www.npmjs.com/package/@percolator/sdk)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
