@@ -479,6 +479,34 @@ export interface DiscoverMarketsOptions {
    * Default: all known tiers.
    */
   maxTierQueries?: number;
+
+  /**
+   * Base URL of the Percolator REST API (e.g. `"https://api.percolatorlaunch.com"`).
+   *
+   * When set, `discoverMarkets` will fall back to the REST API's `GET /markets`
+   * endpoint if `getProgramAccounts` fails or returns 0 results (common on public
+   * mainnet RPCs that reject `getProgramAccounts`).
+   *
+   * The API returns slab addresses which are then fetched on-chain via
+   * `getMarketsByAddress` (uses `getMultipleAccounts`, works on all RPCs).
+   *
+   * GH#59 / PERC-8424: Unblocks mainnet users without a Helius API key.
+   *
+   * @example
+   * ```ts
+   * const markets = await discoverMarkets(connection, programId, {
+   *   apiBaseUrl: "https://api.percolatorlaunch.com",
+   * });
+   * ```
+   */
+  apiBaseUrl?: string;
+
+  /**
+   * Timeout in ms for the API fallback HTTP request.
+   * Only used when `apiBaseUrl` is set.
+   * Default: 10_000 (10 seconds).
+   */
+  apiTimeoutMs?: number;
 }
 
 /** Return true if the error looks like an HTTP 429 / rate-limit response. */
@@ -643,19 +671,51 @@ export async function discoverMarkets(
       "[discoverMarkets] dataSize filters failed, falling back to memcmp:",
       err instanceof Error ? err.message : err,
     );
-    const fallback = await connection.getProgramAccounts(programId, {
-      filters: [
-        {
-          memcmp: {
-            offset: 0,
-            bytes: "F6P2QNqpQV5", // base58 of TALOCREP (u64 LE magic)
+    try {
+      const fallback = await connection.getProgramAccounts(programId, {
+        filters: [
+          {
+            memcmp: {
+              offset: 0,
+              bytes: "F6P2QNqpQV5", // base58 of TALOCREP (u64 LE magic)
+            },
           },
-        },
-      ],
-      dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
-    });
-    rawAccounts = [...fallback].map(e => ({ ...e, maxAccounts: 4096, dataSize: SLAB_TIERS.large.dataSize })) as RawEntry[];
+        ],
+        dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
+      });
+      rawAccounts = [...fallback].map(e => ({ ...e, maxAccounts: 4096, dataSize: SLAB_TIERS.large.dataSize })) as RawEntry[];
+    } catch (memcmpErr) {
+      // GH#59: memcmp also rejected (public mainnet RPCs reject all getProgramAccounts)
+      console.warn(
+        "[discoverMarkets] memcmp fallback also failed:",
+        memcmpErr instanceof Error ? memcmpErr.message : memcmpErr,
+      );
+    }
   }
+
+  // GH#59 / PERC-8424: If getProgramAccounts returned nothing (public mainnet RPC
+  // rejects it) and an API base URL is configured, fall back to the REST API to
+  // discover slab addresses, then use getMarketsByAddress (getMultipleAccounts).
+  if (rawAccounts.length === 0 && options.apiBaseUrl) {
+    console.warn(
+      "[discoverMarkets] RPC discovery returned 0 markets, falling back to REST API",
+    );
+    try {
+      return await discoverMarketsViaApi(
+        connection,
+        programId,
+        options.apiBaseUrl,
+        { timeoutMs: options.apiTimeoutMs },
+      );
+    } catch (apiErr) {
+      console.warn(
+        "[discoverMarkets] API fallback also failed:",
+        apiErr instanceof Error ? apiErr.message : apiErr,
+      );
+      // Fall through to return empty array
+    }
+  }
+
   const accounts = rawAccounts;
 
   const markets: DiscoveredMarket[] = [];
@@ -847,4 +907,138 @@ export async function getMarketsByAddress(
   }
 
   return markets;
+}
+
+// ---------------------------------------------------------------------------
+// REST API-based market discovery (GH#59 / PERC-8424)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of a single market entry returned by the Percolator REST API
+ * (`GET /markets`).  Only the fields needed for discovery are typed here;
+ * the full API response may contain additional statistics fields.
+ */
+export interface ApiMarketEntry {
+  slabAddress: string;
+  symbol?: string;
+  name?: string;
+  decimals?: number;
+  status?: string;
+  [key: string]: unknown;
+}
+
+/** Options for {@link discoverMarketsViaApi}. */
+export interface DiscoverMarketsViaApiOptions {
+  /**
+   * Timeout in ms for the HTTP request to the REST API.
+   * Default: 10_000 (10 seconds).
+   */
+  timeoutMs?: number;
+
+  /**
+   * Options forwarded to {@link getMarketsByAddress} for the on-chain fetch
+   * step (batch size, inter-batch delay).
+   */
+  onChainOptions?: GetMarketsByAddressOptions;
+}
+
+/**
+ * Discover Percolator markets by first querying the REST API for slab addresses,
+ * then fetching full on-chain data via `getMarketsByAddress` (which uses
+ * `getMultipleAccounts` — works on all RPCs including public mainnet nodes).
+ *
+ * This is the recommended discovery path for mainnet users who do not have a
+ * Helius API key, since `getProgramAccounts` is rejected by public RPCs.
+ *
+ * The REST API acts as an address directory only — all market data is verified
+ * on-chain via `getMarketsByAddress`, so the caller gets the same
+ * `DiscoveredMarket[]` result as `discoverMarkets()`.
+ *
+ * @param connection - Solana RPC connection (any endpoint, including public)
+ * @param programId - The Percolator program that owns the slabs
+ * @param apiBaseUrl - Base URL of the Percolator REST API
+ *                     (e.g. `"https://api.percolatorlaunch.com"`)
+ * @param options - Optional timeout and on-chain fetch configuration
+ * @returns Parsed markets for all valid slab accounts discovered via the API
+ *
+ * @example
+ * ```ts
+ * import { discoverMarketsViaApi, getProgramId } from "@percolator/sdk";
+ * import { Connection } from "@solana/web3.js";
+ *
+ * const connection = new Connection("https://api.mainnet-beta.solana.com");
+ * const programId = getProgramId("mainnet");
+ * const markets = await discoverMarketsViaApi(
+ *   connection,
+ *   programId,
+ *   "https://api.percolatorlaunch.com",
+ * );
+ * console.log(`Discovered ${markets.length} markets via API fallback`);
+ * ```
+ */
+export async function discoverMarketsViaApi(
+  connection: Connection,
+  programId: PublicKey,
+  apiBaseUrl: string,
+  options: DiscoverMarketsViaApiOptions = {},
+): Promise<DiscoveredMarket[]> {
+  const { timeoutMs = 10_000, onChainOptions } = options;
+
+  // Normalise base URL — strip trailing slash to avoid double-slash in path
+  const base = apiBaseUrl.replace(/\/+$/, "");
+  const url = `${base}/markets`;
+
+  // Fetch market list from REST API
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `[discoverMarketsViaApi] API returned ${response.status} ${response.statusText} from ${url}`,
+    );
+  }
+
+  const body = (await response.json()) as { markets?: ApiMarketEntry[] };
+  const apiMarkets = body.markets;
+
+  if (!Array.isArray(apiMarkets) || apiMarkets.length === 0) {
+    console.warn("[discoverMarketsViaApi] API returned 0 markets");
+    return [];
+  }
+
+  // Extract valid slab addresses
+  const addresses: PublicKey[] = [];
+  for (const entry of apiMarkets) {
+    if (!entry.slabAddress || typeof entry.slabAddress !== "string") continue;
+    try {
+      addresses.push(new PublicKey(entry.slabAddress));
+    } catch {
+      console.warn(
+        `[discoverMarketsViaApi] Skipping invalid slab address: ${entry.slabAddress}`,
+      );
+    }
+  }
+
+  if (addresses.length === 0) {
+    console.warn("[discoverMarketsViaApi] No valid slab addresses from API");
+    return [];
+  }
+
+  console.log(
+    `[discoverMarketsViaApi] API returned ${addresses.length} slab addresses, fetching on-chain data`,
+  );
+
+  // Fetch full on-chain data via getMultipleAccounts (works on all RPCs)
+  return getMarketsByAddress(connection, programId, addresses, onChainOptions);
 }

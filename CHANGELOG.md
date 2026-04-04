@@ -7,6 +7,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.0-rc.4] — 2026-04-04
+
+### Added
+
+- **`discoverMarketsViaApi()`** (PR#108, PERC-8424, GH#59): API-first market discovery —
+  queries the Percolator REST API (`GET /markets`) for slab addresses, then fetches full
+  on-chain data via `getMarketsByAddress` (`getMultipleAccounts`). Works on any RPC
+  endpoint including public mainnet nodes. Recommended for mainnet users without a
+  Helius API key.
+
+- **`apiBaseUrl` option for `discoverMarkets()`** (PERC-8424, GH#59): When set,
+  `discoverMarkets()` automatically falls back to the REST API if `getProgramAccounts`
+  returns 0 results or is rejected by the RPC node. Combined with `apiTimeoutMs` for
+  timeout control. Enables graceful degradation on public RPCs.
+
+### Changed
+
+- **`discoverMarkets()` memcmp fallback resilience** (PERC-8424): The memcmp fallback
+  path (used when all dataSize tier queries fail) now catches its own errors instead of
+  propagating, allowing the API fallback to execute when available.
+
+---
+
 ## [1.0.0-rc.3] — 2026-04-04
 
 ### Added
