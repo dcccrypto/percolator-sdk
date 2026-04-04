@@ -20,6 +20,7 @@ export default defineConfig({
       "test/discovery-api-fallback.test.ts",
       "test/static-markets.test.ts",
       "test/discovery-static-fallback.test.ts",
+      "test/discovery-fallback-integration.test.ts",
     ],
   },
 });
