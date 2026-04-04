@@ -21,6 +21,7 @@ export default defineConfig({
       "test/static-markets.test.ts",
       "test/discovery-static-fallback.test.ts",
       "test/discovery-fallback-integration.test.ts",
+      "test/lighthouse.test.ts",
     ],
   },
 });
