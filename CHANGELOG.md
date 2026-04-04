@@ -7,6 +7,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.0-rc.3] — 2026-04-04
+
+### Added
+
+- **`getMarketsByAddress()`** (PR#105, PERC-8407, GH#59): Fetch and parse Percolator
+  markets by known slab addresses using `getMultipleAccounts`. Unlike `discoverMarkets()`
+  (which uses `getProgramAccounts` — blocked on public mainnet RPCs), this works on any
+  RPC endpoint including `api.mainnet-beta.solana.com`. Supports batching (max 100 per
+  call), inter-batch delay, and graceful skipping of invalid/missing accounts.
+
+---
+
 ## [1.0.0-rc.2] — 2026-04-04
 
 Post-merge hardening release. 14 PRs merged since rc.1: 5 new utility functions,

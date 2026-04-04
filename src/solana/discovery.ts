@@ -707,3 +707,144 @@ export async function discoverMarkets(
 
   return markets;
 }
+
+/**
+ * Options for `getMarketsByAddress`.
+ */
+export interface GetMarketsByAddressOptions {
+  /**
+   * Maximum number of addresses per `getMultipleAccounts` RPC call.
+   * Solana limits a single call to 100 accounts; callers may lower this
+   * to reduce per-request payload size or avoid 429s.
+   *
+   * Default: 100 (Solana maximum).
+   */
+  batchSize?: number;
+
+  /**
+   * Delay in ms between batches when the address list exceeds `batchSize`.
+   * Helps avoid rate-limiting on public RPCs.
+   *
+   * Default: 0 (no delay).
+   */
+  interBatchDelayMs?: number;
+}
+
+/**
+ * Fetch and parse Percolator markets by their known slab addresses.
+ *
+ * Unlike `discoverMarkets()` — which uses `getProgramAccounts` and is blocked
+ * on public mainnet RPCs — this function uses `getMultipleAccounts`, which works
+ * on any RPC endpoint (including `api.mainnet-beta.solana.com`).
+ *
+ * Callers must already know the market slab addresses (e.g. from an indexer,
+ * a hardcoded registry, or a previous `discoverMarkets` call on a permissive RPC).
+ *
+ * @param connection - Solana RPC connection
+ * @param programId - The Percolator program that owns these slabs
+ * @param addresses - Array of slab account public keys to fetch
+ * @param options   - Optional batching/delay configuration
+ * @returns Parsed markets for all valid slab accounts; invalid/missing accounts are silently skipped.
+ *
+ * @example
+ * ```ts
+ * import { getMarketsByAddress, getProgramId } from "@percolator/sdk";
+ * import { Connection, PublicKey } from "@solana/web3.js";
+ *
+ * const connection = new Connection("https://api.mainnet-beta.solana.com");
+ * const programId = getProgramId("mainnet");
+ * const slabs = [
+ *   new PublicKey("So11111111111111111111111111111111111111112"),
+ *   // ... more known slab addresses
+ * ];
+ *
+ * const markets = await getMarketsByAddress(connection, programId, slabs);
+ * console.log(`Found ${markets.length} markets`);
+ * ```
+ */
+export async function getMarketsByAddress(
+  connection: Connection,
+  programId: PublicKey,
+  addresses: PublicKey[],
+  options: GetMarketsByAddressOptions = {},
+): Promise<DiscoveredMarket[]> {
+  if (addresses.length === 0) return [];
+
+  const {
+    batchSize = 100,
+    interBatchDelayMs = 0,
+  } = options;
+
+  const effectiveBatchSize = Math.max(1, Math.min(batchSize, 100));
+
+  // Fetch account data in batches (Solana caps getMultipleAccounts at 100)
+  type AccountResult = { pubkey: PublicKey; data: Buffer | Uint8Array } | null;
+  const fetched: AccountResult[] = [];
+
+  for (let offset = 0; offset < addresses.length; offset += effectiveBatchSize) {
+    const batch = addresses.slice(offset, offset + effectiveBatchSize);
+
+    const response = await connection.getMultipleAccountsInfo(batch);
+
+    for (let i = 0; i < batch.length; i++) {
+      const info = response[i];
+      if (info && info.data) {
+        fetched.push({ pubkey: batch[i], data: info.data });
+      }
+    }
+
+    // Inter-batch delay to avoid rate-limiting
+    if (interBatchDelayMs > 0 && offset + effectiveBatchSize < addresses.length) {
+      await new Promise(r => setTimeout(r, interBatchDelayMs));
+    }
+  }
+
+  // Parse each account into a DiscoveredMarket
+  const markets: DiscoveredMarket[] = [];
+
+  for (const entry of fetched) {
+    if (!entry) continue;
+    const { pubkey, data: rawData } = entry;
+    const data = new Uint8Array(rawData);
+
+    // Validate magic bytes
+    let valid = true;
+    for (let i = 0; i < MAGIC_BYTES.length; i++) {
+      if (data[i] !== MAGIC_BYTES[i]) {
+        valid = false;
+        break;
+      }
+    }
+    if (!valid) {
+      console.warn(
+        `[getMarketsByAddress] Skipping ${pubkey.toBase58()}: invalid magic bytes`,
+      );
+      continue;
+    }
+
+    // Detect layout from full account data length
+    const layout = detectSlabLayout(data.length, data);
+    if (!layout) {
+      console.warn(
+        `[getMarketsByAddress] Skipping ${pubkey.toBase58()}: unrecognized layout for dataSize=${data.length}`,
+      );
+      continue;
+    }
+
+    try {
+      const header = parseHeader(data);
+      const config = parseConfig(data, layout);
+      const engine = parseEngineLight(data, layout, layout.maxAccounts);
+      const params = parseParams(data, layout);
+
+      markets.push({ slabAddress: pubkey, programId, header, config, engine, params });
+    } catch (err) {
+      console.warn(
+        `[getMarketsByAddress] Failed to parse account ${pubkey.toBase58()}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  return markets;
+}

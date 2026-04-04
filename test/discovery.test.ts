@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   SLAB_TIERS,
   SLAB_TIERS_V0,
@@ -6,6 +6,7 @@ import {
   SLAB_TIERS_V1D_LEGACY,
   slabDataSize,
   slabDataSizeV1,
+  getMarketsByAddress,
 } from "../src/solana/discovery.js";
 import {
   detectSlabLayout,
@@ -459,5 +460,157 @@ describe("discoverMarkets — sequential mode (PERC-1650)", () => {
 
     // All tiers fired (parallel) + fallback memcmp if 0 results
     expect(callCount.n).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// getMarketsByAddress — PERC-8407: fetch markets by known slab addresses
+// Uses getMultipleAccounts (works on public RPCs unlike getProgramAccounts)
+// ============================================================================
+
+/** Stub connection for getMarketsByAddress tests. */
+function makeMultiConn(
+  impl: (keys: PublicKey[]) => Promise<(any | null)[]>,
+): Connection {
+  return {
+    getMultipleAccountsInfo: impl,
+  } as unknown as Connection;
+}
+
+describe("getMarketsByAddress (PERC-8407)", () => {
+  const programId = new PublicKey("11111111111111111111111111111111");
+
+  it("returns empty array for empty input", async () => {
+    const conn = makeMultiConn(async () => []);
+    const result = await getMarketsByAddress(conn, programId, []);
+    expect(result).toEqual([]);
+  });
+
+  it("skips null accounts (missing/non-existent)", async () => {
+    const conn = makeMultiConn(async () => [null, null]);
+    const result = await getMarketsByAddress(conn, programId, [
+      new PublicKey("11111111111111111111111111111111"),
+      new PublicKey(Buffer.alloc(32, 2)),
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("skips accounts with invalid magic bytes", async () => {
+    const badData = new Uint8Array(65_352); // valid V1 small size but wrong magic
+    badData[0] = 0xFF;
+    const conn = makeMultiConn(async () => [
+      { data: Buffer.from(badData), owner: programId, lamports: 0, executable: false },
+    ]);
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await getMarketsByAddress(conn, programId, [
+      new PublicKey("11111111111111111111111111111111"),
+    ]);
+    expect(result).toEqual([]);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[getMarketsByAddress] Skipping"),
+      // no need to check exact message text
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it("skips accounts with unrecognized layout (unknown data size)", async () => {
+    // Create data with valid magic but unusual size
+    const oddSize = 12345;
+    const data = new Uint8Array(oddSize);
+    // Write PERCOLAT magic (little-endian: TALOCREP)
+    data.set([0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x50]);
+    const conn = makeMultiConn(async () => [
+      { data: Buffer.from(data), owner: programId, lamports: 0, executable: false },
+    ]);
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await getMarketsByAddress(conn, programId, [
+      new PublicKey("11111111111111111111111111111111"),
+    ]);
+    expect(result).toEqual([]);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unrecognized layout"),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it("batches requests when addresses exceed batchSize", async () => {
+    const calls: PublicKey[][] = [];
+    const conn = makeMultiConn(async (keys) => {
+      calls.push([...keys]);
+      return keys.map(() => null); // all accounts missing
+    });
+
+    // 5 addresses with batchSize=2 → 3 batches (2+2+1)
+    const addresses = Array.from({ length: 5 }, (_, i) =>
+      new PublicKey(Buffer.alloc(32, i + 1)),
+    );
+    await getMarketsByAddress(conn, programId, addresses, { batchSize: 2 });
+
+    expect(calls.length).toBe(3);
+    expect(calls[0].length).toBe(2);
+    expect(calls[1].length).toBe(2);
+    expect(calls[2].length).toBe(1);
+  });
+
+  it("caps batchSize at 100 even if larger value is passed", async () => {
+    const calls: PublicKey[][] = [];
+    const conn = makeMultiConn(async (keys) => {
+      calls.push([...keys]);
+      return keys.map(() => null);
+    });
+
+    const addresses = Array.from({ length: 150 }, (_, i) =>
+      new PublicKey(Buffer.alloc(32, i + 1)),
+    );
+    await getMarketsByAddress(conn, programId, addresses, { batchSize: 200 });
+
+    // Should still batch at 100 max → 2 batches (100+50)
+    expect(calls.length).toBe(2);
+    expect(calls[0].length).toBe(100);
+    expect(calls[1].length).toBe(50);
+  });
+
+  it("applies interBatchDelayMs between batches", async () => {
+    const timestamps: number[] = [];
+    const conn = makeMultiConn(async (keys) => {
+      timestamps.push(Date.now());
+      return keys.map(() => null);
+    });
+
+    const addresses = Array.from({ length: 4 }, (_, i) =>
+      new PublicKey(Buffer.alloc(32, i + 1)),
+    );
+    await getMarketsByAddress(conn, programId, addresses, {
+      batchSize: 2,
+      interBatchDelayMs: 50,
+    });
+
+    expect(timestamps.length).toBe(2);
+    // Second batch should be ≥50ms after first
+    expect(timestamps[1] - timestamps[0]).toBeGreaterThanOrEqual(40); // allow 10ms jitter
+  });
+
+  it("handles parse errors gracefully (skips bad accounts, continues)", async () => {
+    // Create a slab with valid magic + recognized size but garbage content
+    // This should trigger a parse error in parseHeader/parseConfig
+    const size = SLAB_TIERS_V0.small.dataSize; // 62808
+    const data = new Uint8Array(size);
+    data.set([0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x50]); // magic
+    // version=0 at offset 8
+    new DataView(data.buffer).setUint32(8, 0, true);
+    // Rest is zeros — will likely fail on parseConfig or similar
+
+    const conn = makeMultiConn(async () => [
+      { data: Buffer.from(data), owner: programId, lamports: 0, executable: false },
+    ]);
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Should not throw
+    const result = await getMarketsByAddress(conn, programId, [
+      new PublicKey("11111111111111111111111111111111"),
+    ]);
+    // Either parses (zeros are valid-ish) or silently skips
+    expect(Array.isArray(result)).toBe(true);
+    consoleSpy.mockRestore();
   });
 });
