@@ -575,6 +575,25 @@ export async function fetchAdlRankings(
     );
   }
 
-  const json = await res.json() as AdlApiResult;
-  return json;
+  const json: unknown = await res.json();
+
+  // Runtime validation — the API response shape is not guaranteed
+  if (typeof json !== "object" || json === null) {
+    throw new Error("fetchAdlRankings: API returned non-object response");
+  }
+  const obj = json as Record<string, unknown>;
+  if (!Array.isArray(obj.rankings)) {
+    throw new Error("fetchAdlRankings: API response missing rankings array");
+  }
+  for (const entry of obj.rankings) {
+    if (typeof entry !== "object" || entry === null) {
+      throw new Error("fetchAdlRankings: invalid ranking entry (not an object)");
+    }
+    const r = entry as Record<string, unknown>;
+    if (typeof r.idx !== "number" || !Number.isInteger(r.idx) || r.idx < 0) {
+      throw new Error(`fetchAdlRankings: invalid ranking idx: ${r.idx}`);
+    }
+  }
+
+  return json as AdlApiResult;
 }
