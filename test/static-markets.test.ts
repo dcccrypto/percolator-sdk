@@ -24,7 +24,7 @@ describe("static-markets", () => {
 
     it("returns a copy (not a reference to internal state)", () => {
       registerStaticMarkets("mainnet", [
-        { slabAddress: "ABC111111111111111111111111111111111111111111" },
+        { slabAddress: "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd" },
       ]);
       const a = getStaticMarkets("mainnet");
       const b = getStaticMarkets("mainnet");
@@ -36,40 +36,40 @@ describe("static-markets", () => {
   describe("registerStaticMarkets", () => {
     it("registers entries and retrieves them", () => {
       const entries: StaticMarketEntry[] = [
-        { slabAddress: "ABC111111111111111111111111111111111111111111", symbol: "SOL-PERP" },
-        { slabAddress: "DEF222222222222222222222222222222222222222222", symbol: "ETH-PERP" },
+        { slabAddress: "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd", symbol: "SOL-PERP" },
+        { slabAddress: "J5GZs2NiS5Ne4eABr78EvjG8heQbkUyUykFxKu6arwSD", symbol: "ETH-PERP" },
       ];
       registerStaticMarkets("mainnet", entries);
 
       const result = getStaticMarkets("mainnet");
       expect(result).toHaveLength(2);
-      expect(result[0].slabAddress).toBe("ABC111111111111111111111111111111111111111111");
+      expect(result[0].slabAddress).toBe("5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd");
       expect(result[0].symbol).toBe("SOL-PERP");
-      expect(result[1].slabAddress).toBe("DEF222222222222222222222222222222222222222222");
+      expect(result[1].slabAddress).toBe("J5GZs2NiS5Ne4eABr78EvjG8heQbkUyUykFxKu6arwSD");
     });
 
     it("does not cross-contaminate networks", () => {
       registerStaticMarkets("mainnet", [
-        { slabAddress: "ABC111111111111111111111111111111111111111111" },
+        { slabAddress: "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd" },
       ]);
       registerStaticMarkets("devnet", [
-        { slabAddress: "DEF222222222222222222222222222222222222222222" },
+        { slabAddress: "J5GZs2NiS5Ne4eABr78EvjG8heQbkUyUykFxKu6arwSD" },
       ]);
 
       expect(getStaticMarkets("mainnet")).toHaveLength(1);
       expect(getStaticMarkets("mainnet")[0].slabAddress).toBe(
-        "ABC111111111111111111111111111111111111111111",
+        "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd",
       );
       expect(getStaticMarkets("devnet")).toHaveLength(1);
       expect(getStaticMarkets("devnet")[0].slabAddress).toBe(
-        "DEF222222222222222222222222222222222222222222",
+        "J5GZs2NiS5Ne4eABr78EvjG8heQbkUyUykFxKu6arwSD",
       );
     });
 
     it("deduplicates by slabAddress", () => {
       registerStaticMarkets("mainnet", [
-        { slabAddress: "ABC111111111111111111111111111111111111111111", symbol: "SOL-PERP" },
-        { slabAddress: "ABC111111111111111111111111111111111111111111", symbol: "SOL-PERP-DUP" },
+        { slabAddress: "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd", symbol: "SOL-PERP" },
+        { slabAddress: "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd", symbol: "SOL-PERP-DUP" },
       ]);
 
       const result = getStaticMarkets("mainnet");
@@ -79,10 +79,10 @@ describe("static-markets", () => {
 
     it("deduplicates across multiple register calls", () => {
       registerStaticMarkets("mainnet", [
-        { slabAddress: "ABC111111111111111111111111111111111111111111", symbol: "v1" },
+        { slabAddress: "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd", symbol: "v1" },
       ]);
       registerStaticMarkets("mainnet", [
-        { slabAddress: "ABC111111111111111111111111111111111111111111", symbol: "v2" },
+        { slabAddress: "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd", symbol: "v2" },
       ]);
 
       const result = getStaticMarkets("mainnet");
@@ -93,7 +93,7 @@ describe("static-markets", () => {
     it("skips entries with empty slabAddress", () => {
       registerStaticMarkets("mainnet", [
         { slabAddress: "", symbol: "EMPTY" },
-        { slabAddress: "ABC111111111111111111111111111111111111111111", symbol: "VALID" },
+        { slabAddress: "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd", symbol: "VALID" },
       ]);
 
       const result = getStaticMarkets("mainnet");
@@ -105,10 +105,10 @@ describe("static-markets", () => {
   describe("clearStaticMarkets", () => {
     it("clears entries for a specific network", () => {
       registerStaticMarkets("mainnet", [
-        { slabAddress: "ABC111111111111111111111111111111111111111111" },
+        { slabAddress: "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd" },
       ]);
       registerStaticMarkets("devnet", [
-        { slabAddress: "DEF222222222222222222222222222222222222222222" },
+        { slabAddress: "J5GZs2NiS5Ne4eABr78EvjG8heQbkUyUykFxKu6arwSD" },
       ]);
 
       clearStaticMarkets("mainnet");
@@ -119,10 +119,10 @@ describe("static-markets", () => {
 
     it("clears all networks when no argument", () => {
       registerStaticMarkets("mainnet", [
-        { slabAddress: "ABC111111111111111111111111111111111111111111" },
+        { slabAddress: "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd" },
       ]);
       registerStaticMarkets("devnet", [
-        { slabAddress: "DEF222222222222222222222222222222222222222222" },
+        { slabAddress: "J5GZs2NiS5Ne4eABr78EvjG8heQbkUyUykFxKu6arwSD" },
       ]);
 
       clearStaticMarkets();

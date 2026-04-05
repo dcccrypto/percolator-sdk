@@ -18,6 +18,7 @@
  * @module
  */
 
+import { PublicKey } from "@solana/web3.js";
 import type { Network } from "../config/program-ids.js";
 
 /**
@@ -150,6 +151,15 @@ export function registerStaticMarkets(
   for (const entry of entries) {
     if (!entry.slabAddress) continue;
     if (seen.has(entry.slabAddress)) continue;
+    // Validate that slabAddress is a valid base58 public key
+    try {
+      new PublicKey(entry.slabAddress);
+    } catch {
+      console.warn(
+        `[registerStaticMarkets] Skipping invalid slabAddress: ${entry.slabAddress}`,
+      );
+      continue;
+    }
     seen.add(entry.slabAddress);
     existing.push(entry);
   }
