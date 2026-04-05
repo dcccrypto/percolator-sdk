@@ -1129,9 +1129,12 @@ export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout
  * GH#1238: previously recomputed accountsOff with hardcoded postBitmap=18, which gave a value
  * 16 bytes too large for V1D slabs (which use postBitmap=2). Now delegates directly to the
  * SlabLayout descriptor so each variant uses its own correct accountsOff.
+ *
+ * @param data - Optional slab data for accurate V1D/V2 disambiguation. Without it, ambiguous
+ *   sizes default to V1D which may misparse V2 slabs. Pass data when available.
  */
-export function detectLayout(dataLen: number) {
-  const layout = detectSlabLayout(dataLen);
+export function detectLayout(dataLen: number, data?: Uint8Array) {
+  const layout = detectSlabLayout(dataLen, data);
   if (!layout) return null;
   return { bitmapWords: layout.bitmapWords, accountsOff: layout.accountsOff, maxAccounts: layout.maxAccounts };
 }
