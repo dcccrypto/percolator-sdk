@@ -94,10 +94,12 @@ function parseDexScreenerPairs(json: unknown): PriceSource[] {
     else if (liquidity > 1_000) confidence = 45;
 
     const priceUsd = pair.priceUsd;
-    const price =
+    const rawPrice =
       typeof priceUsd === "string" || typeof priceUsd === "number"
-        ? parseFloat(String(priceUsd)) || 0
-        : 0;
+        ? parseFloat(String(priceUsd))
+        : NaN;
+    if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
+    const price = rawPrice;
 
     let baseSym = "?";
     let quoteSym = "?";
@@ -135,8 +137,8 @@ function parseJupiterMintEntry(
   if (!isRecord(row)) return null;
   const rawPrice = row.price;
   if (rawPrice === undefined || rawPrice === null) return null;
-  const price = parseFloat(String(rawPrice)) || 0;
-  if (price <= 0) return null;
+  const price = parseFloat(String(rawPrice));
+  if (!Number.isFinite(price) || price <= 0) return null;
   let mintSymbol = "?";
   if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
   return { price, mintSymbol };}
@@ -241,7 +243,7 @@ function lookupPythSource(mint: string): PriceSource | null {
     type: "pyth",
     address: entry.feedId,
     pairLabel: `${entry.symbol} / USD (Pyth)`,
-    liquidity: Infinity, // Pyth is considered deep liquidity
+    liquidity: Number.MAX_SAFE_INTEGER, // Pyth is considered deep liquidity
     price: 0, // We don't fetch live price here; caller can enrich
     confidence: 95, // Pyth is highest reliability for supported tokens
   };
@@ -313,9 +315,25 @@ export async function resolvePrice(
 
   // Add Pyth if available (highest priority for supported tokens)
   if (pythSource) {
-    // Enrich Pyth price from Jupiter or DEX if available
-    const refPrice = dexSources[0]?.price || jupiterSource?.price || 0;
-    pythSource.price = refPrice;
+    // Enrich Pyth price from DEX and/or Jupiter — cross-validate when both exist
+    const dexPrice = dexSources[0]?.price ?? 0;
+    const jupPrice = jupiterSource?.price ?? 0;
+
+    if (dexPrice > 0 && jupPrice > 0) {
+      // Cross-validate: reject if sources diverge by more than 50%
+      const mid = (dexPrice + jupPrice) / 2;
+      const deviation = Math.abs(dexPrice - jupPrice) / mid;
+      if (deviation > 0.5) {
+        // Sources disagree significantly — don't enrich Pyth, lower confidence
+        pythSource.price = 0;
+        pythSource.confidence = 20;
+      } else {
+        pythSource.price = mid;
+      }
+    } else {
+      // Only one source available — use it but note reduced validation
+      pythSource.price = dexPrice || jupPrice || 0;
+    }
     allSources.push(pythSource);
   }
 
