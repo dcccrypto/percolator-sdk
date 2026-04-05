@@ -211,18 +211,18 @@ export function computeFeeSplit(
     return [totalFee, 0n, 0n];
   }
 
-  // Validate that splits don't exceed 100%
+  // Validate that splits equal exactly 100%
   const totalBps = config.lpBps + config.protocolBps + config.creatorBps;
-  if (totalBps > 10000n) {
+  if (totalBps !== 10000n) {
     throw new Error(
-      `Fee split exceeds 100%: lpBps=${config.lpBps} + protocolBps=${config.protocolBps} + ` +
-      `creatorBps=${config.creatorBps} = ${totalBps} > 10000`,
+      `Fee split must equal exactly 10000 bps (100%): lpBps=${config.lpBps} + protocolBps=${config.protocolBps} + ` +
+      `creatorBps=${config.creatorBps} = ${totalBps}`,
     );
   }
 
   const lp = (totalFee * config.lpBps) / 10000n;
   const protocol = (totalFee * config.protocolBps) / 10000n;
-  const creator = totalFee - lp - protocol;
+  const creator = totalFee - lp - protocol; // only rounding dust (max 2 tokens)
 
   // Sanity check: creator should never be negative if validation above passes
   if (creator < 0n) {
