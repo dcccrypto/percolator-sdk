@@ -461,8 +461,12 @@ export class RpcPool {
 
     // Track which endpoints we have tried in this call to avoid infinite loops.
     const triedEndpoints = new Set<number>();
+    // Hard cap on total iterations to prevent amplification from attempt-- failovers
+    const maxTotalIterations = maxAttempts + this.endpoints.length;
+    let totalIterations = 0;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (++totalIterations > maxTotalIterations) break;
       const epIdx = this.selectEndpoint(triedEndpoints);
       if (epIdx === -1) {
         // All endpoints exhausted
