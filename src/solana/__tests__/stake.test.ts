@@ -348,8 +348,8 @@ describe('negative value guards', () => {
   });
 
   it('encodeStakeAdminSetHwmConfig rejects out-of-range bps', () => {
-    expect(() => encodeStakeAdminSetHwmConfig(true, 70000)).toThrow('u16 range');
-    expect(() => encodeStakeAdminSetHwmConfig(true, -1)).toThrow('u16 range');
+    expect(() => encodeStakeAdminSetHwmConfig(true, 70000)).toThrow('u16Le');
+    expect(() => encodeStakeAdminSetHwmConfig(true, -1)).toThrow('u16Le');
   });
 
   it('encodeStakeDeposit accepts valid amounts', () => {
