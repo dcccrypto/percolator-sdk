@@ -228,7 +228,7 @@ export function computeFeeSplit(
   if (creator < 0n) {
     throw new Error(
       `Internal error: creator fee is negative (${creator}). ` +
-      `This should not happen if lpBps + protocolBps + creatorBps <= 10000.`,
+      `This should not happen if lpBps + protocolBps + creatorBps === 10000.`,
     );
   }
 
