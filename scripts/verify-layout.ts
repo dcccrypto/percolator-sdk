@@ -38,6 +38,8 @@ const layout = JSON.parse(fs.readFileSync(layoutPath, "utf8"));
 const sbf = layout.sbf as {
   config_len: number;
   engine_off: number;
+  engine_align: number;
+  engine_len: number;
   account_size: number;
   engine_bitmap_off: number;
 };
@@ -57,10 +59,15 @@ console.log(
 // These are the values slab.ts uses for the CURRENT deployed program layout.
 // Add a new entry whenever a new layout version is introduced.
 const SDK_CONSTANTS = {
-  // Current mainnet program (V_SETDEXPOOL)
+  // V12_1 layout (current program after v12.1 merge)
+  V12_1_ENGINE_OFF: 648,
+  V12_1_ACCOUNT_SIZE: 320,
+  V12_1_ENGINE_BITMAP_OFF: 1016,
+
+  // Legacy layouts (pre-v12.1, still used for existing on-chain slabs)
   V_SETDEXPOOL_CONFIG_LEN: 544,
   V_SETDEXPOOL_ENGINE_OFF: 648,
-  V_ADL_ACCOUNT_SIZE: 312, // account size for V_ADL and V_SETDEXPOOL layouts
+  V_ADL_ACCOUNT_SIZE: 312,
   V_ADL_ENGINE_BITMAP_OFF: 1008,
   V1M2_ENGINE_BITMAP_OFF: 1008,
 
@@ -73,11 +80,14 @@ const SDK_CONSTANTS = {
 
 // ── expected values derived from layout.json ──────────────────────────────────
 const EXPECTED = {
+  V12_1_ENGINE_OFF: sbf.engine_off,
+  V12_1_ACCOUNT_SIZE: sbf.account_size,
+  V12_1_ENGINE_BITMAP_OFF: sbf.engine_bitmap_off,
   V_SETDEXPOOL_CONFIG_LEN: sbf.config_len,
   V_SETDEXPOOL_ENGINE_OFF: sbf.engine_off,
-  V_ADL_ACCOUNT_SIZE: sbf.account_size,
-  V_ADL_ENGINE_BITMAP_OFF: sbf.engine_bitmap_off,
-  V1M2_ENGINE_BITMAP_OFF: sbf.engine_bitmap_off,
+  V_ADL_ACCOUNT_SIZE: 312,            // legacy — fixed, doesn't come from layout.json
+  V_ADL_ENGINE_BITMAP_OFF: 1008,      // legacy — fixed
+  V1M2_ENGINE_BITMAP_OFF: 1008,       // legacy — fixed
   HEADER_LEN: native.header_len,
   MAX_ACCOUNTS: native.max_accounts,
 } as const;
@@ -107,14 +117,19 @@ const KNOWN_SLAB_SIZES: Array<{ label: string; engineOff: number; bitmapOff: num
     expected: 323312,
   },
   {
-    label: "V_SETDEXPOOL medium 1024-account (next deployment)",
-    engineOff: sbf.engine_off, bitmapOff: sbf.engine_bitmap_off, accountSize: sbf.account_size, n: 1024,
+    label: "V_SETDEXPOOL medium 1024-account (pre-v12.1)",
+    engineOff: 648, bitmapOff: 1008, accountSize: 312, n: 1024,
     expected: 323344,
   },
   {
-    label: "V_SETDEXPOOL large 4096-account",
+    label: "V12_1 large 4096-account (v12.1 program)",
     engineOff: sbf.engine_off, bitmapOff: sbf.engine_bitmap_off, accountSize: sbf.account_size, n: 4096,
-    expected: 1288336,
+    expected: 1321112,
+  },
+  {
+    label: "V12_1 medium 1024-account (v12.1 program)",
+    engineOff: sbf.engine_off, bitmapOff: sbf.engine_bitmap_off, accountSize: sbf.account_size, n: 1024,
+    expected: 331544,
   },
 ];
 

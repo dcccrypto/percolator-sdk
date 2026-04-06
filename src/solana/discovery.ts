@@ -7,6 +7,7 @@ import {
   SLAB_TIERS_V1M,
   SLAB_TIERS_V2,
   SLAB_TIERS_V_ADL,
+  SLAB_TIERS_V12_1,
   type SlabHeader,
   type MarketConfig,
   type EngineState,
@@ -58,10 +59,15 @@ const MAGIC_BYTES = new Uint8Array([0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x
  * History: Small was V0 (62_808) until 2026-03-13 program upgrade. V0 values preserved
  *          in SLAB_TIERS_V0 for discovery of legacy on-chain accounts.
  */
+/**
+ * Default slab tiers for the current mainnet program (v12.1).
+ * These are used by useCreateMarket to allocate slab accounts of the correct size.
+ */
 export const SLAB_TIERS = {
-  small:  { maxAccounts: 256,  dataSize: 65_352,    label: "Small",  description: "256 slots · ~0.45 SOL" },
-  medium: { maxAccounts: 1024, dataSize: 257_448,   label: "Medium", description: "1,024 slots · ~1.79 SOL" },
-  large:  { maxAccounts: 4096, dataSize: 1_025_832, label: "Large",  description: "4,096 slots · ~7.14 SOL" },
+  micro:  SLAB_TIERS_V12_1["micro"],
+  small:  SLAB_TIERS_V12_1["small"],
+  medium: SLAB_TIERS_V12_1["medium"],
+  large:  SLAB_TIERS_V12_1["large"],
 } as const;
 
 /** @deprecated V0 slab sizes — kept for backward compatibility with old on-chain slabs */

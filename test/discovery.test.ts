@@ -20,9 +20,9 @@ import {
 // ============================================================================
 
 describe("SLAB_TIERS", () => {
-  it("has exactly 3 tiers: small, medium, large", () => {
+  it("has exactly 4 tiers: micro, small, medium, large", () => {
     const tierNames = Object.keys(SLAB_TIERS);
-    expect(tierNames).toEqual(["small", "medium", "large"]);
+    expect(tierNames).toEqual(["micro", "small", "medium", "large"]);
   });
 
   it("small tier has 256 max accounts", () => {
@@ -113,21 +113,17 @@ describe("slabDataSize", () => {
 // ============================================================================
 
 describe("slabDataSizeV1", () => {
-  it("matches V1 SLAB_TIERS.small for 256 accounts", () => {
-    expect(slabDataSizeV1(256)).toBe(SLAB_TIERS.small.dataSize); // 65_352
+  it("matches V1 small for 256 accounts", () => {
+    expect(slabDataSizeV1(256)).toBe(65_352);
   });
 
-  it("matches V1 SLAB_TIERS.medium for 1024 accounts", () => {
-    expect(slabDataSizeV1(1024)).toBe(SLAB_TIERS.medium.dataSize); // 257_448
+  it("matches V1 medium for 1024 accounts", () => {
+    expect(slabDataSizeV1(1024)).toBe(257_448);
   });
 
-  it("matches SLAB_TIERS.large for 4096 accounts (GH #1112: deployed FxfD37s1 uses formula value)", () => {
-    // FxfD37s1 (large, pre-PERC-118) has SLAB_LEN=1,025,832 — matches the formula exactly.
-    // Previous value of 1,025,848 was sourced from wrong binary (FwfBKZXb compiled as 4096-acct).
+  it("matches V1 large for 4096 accounts (GH #1112: deployed FxfD37s1 uses formula value)", () => {
     const formula = slabDataSizeV1(4096);
     expect(formula).toBe(1_025_832);
-    expect(SLAB_TIERS.large.dataSize).toBe(1_025_832);
-    expect(SLAB_TIERS.large.dataSize).toBe(formula);
   });
 
   it("is monotonically increasing with account count", () => {

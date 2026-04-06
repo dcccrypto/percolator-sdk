@@ -602,3 +602,55 @@ console.log("\n✅ All slab tests passed!");
 
   console.log("✅ V_SETDEXPOOL slab layout tests passed!");
 }
+
+// ─── V12_1 slab layout tests (percolator-core v12.1 merge) ──────────────────
+// V12_1 is the post-v12.1 merge layout. Account grew 312→320 bytes, bitmap shifted 1008→1016.
+// All offsets verified by cargo build-sbf compile-time assertions.
+{
+  console.log("\nTesting V12_1 slab layout (v12.1 program)...");
+
+  // Large tier: 4096 accounts
+  const V12_1_LARGE_SIZE = 1_321_112;
+  const layoutLarge = detectSlabLayout(V12_1_LARGE_SIZE);
+  assert(layoutLarge !== null, `detectSlabLayout(${V12_1_LARGE_SIZE}) must return non-null`);
+  assert(layoutLarge!.engineOff === 648, `V12_1 large engineOff should be 648, got ${layoutLarge!.engineOff}`);
+  assert(layoutLarge!.accountSize === 320, `V12_1 large accountSize should be 320, got ${layoutLarge!.accountSize}`);
+  assert(layoutLarge!.maxAccounts === 4096, `V12_1 large maxAccounts should be 4096`);
+  assert(layoutLarge!.engineBitmapOff === 1016, `V12_1 bitmapOff should be 1016, got ${layoutLarge!.engineBitmapOff}`);
+  assert(layoutLarge!.acctOwnerOff === 208, `V12_1 acctOwnerOff should be 208, got ${layoutLarge!.acctOwnerOff}`);
+  // accountsOff = engineOff + ceil((1016+512+18+8192)/8)*8 = 648 + 9744 = 10392
+  assert(layoutLarge!.accountsOff === 10392, `V12_1 large accountsOff should be 10392, got ${layoutLarge!.accountsOff}`);
+  console.log(`  ✓ V12_1 large slab (${V12_1_LARGE_SIZE}, 4096 accounts) detected correctly`);
+
+  // Medium tier: 1024 accounts
+  const V12_1_MEDIUM_SIZE = 331_544;
+  const layoutMedium = detectSlabLayout(V12_1_MEDIUM_SIZE);
+  assert(layoutMedium !== null, `detectSlabLayout(${V12_1_MEDIUM_SIZE}) must return non-null`);
+  assert(layoutMedium!.engineOff === 648, `V12_1 medium engineOff should be 648, got ${layoutMedium!.engineOff}`);
+  assert(layoutMedium!.maxAccounts === 1024, `V12_1 medium maxAccounts should be 1024`);
+  assert(layoutMedium!.accountSize === 320, `V12_1 medium accountSize should be 320`);
+  console.log(`  ✓ V12_1 medium slab (${V12_1_MEDIUM_SIZE}, 1024 accounts) detected correctly`);
+
+  // Small tier: 256 accounts
+  // computeSlabSize(648, 1016, 320, 256, 18) = 648 + ceil((1016+32+18+512)/8)*8 + 256*320
+  //   = 648 + 1584 + 81920 = 84152
+  const V12_1_SMALL_SIZE = 84_152;
+  const layoutSmall = detectSlabLayout(V12_1_SMALL_SIZE);
+  assert(layoutSmall !== null, `detectSlabLayout(${V12_1_SMALL_SIZE}) must return non-null`);
+  assert(layoutSmall!.engineOff === 648, `V12_1 small engineOff should be 648, got ${layoutSmall!.engineOff}`);
+  assert(layoutSmall!.maxAccounts === 256, `V12_1 small maxAccounts should be 256`);
+  assert(layoutSmall!.accountSize === 320, `V12_1 small accountSize should be 320`);
+  console.log(`  ✓ V12_1 small slab (${V12_1_SMALL_SIZE}, 256 accounts) detected correctly`);
+
+  // Verify v12.1 engine field offsets changed from V_ADL/V_SETDEXPOOL
+  assert(layoutLarge!.engineCurrentSlotOff === 448, `V12_1 currentSlot should be 448, got ${layoutLarge!.engineCurrentSlotOff}`);
+  assert(layoutLarge!.engineCTotOff === 480, `V12_1 cTot should be 480, got ${layoutLarge!.engineCTotOff}`);
+  assert(layoutLarge!.engineTotalOiOff === 816, `V12_1 totalOI should be 816, got ${layoutLarge!.engineTotalOiOff}`);
+  assert(layoutLarge!.engineMarkPriceOff === 928, `V12_1 markPrice should be 928, got ${layoutLarge!.engineMarkPriceOff}`);
+  assert(layoutLarge!.engineEmergencyOiModeOff === 968, `V12_1 emergencyOiMode should be 968`);
+  assert(layoutLarge!.paramsSize === 352, `V12_1 paramsSize should be 352, got ${layoutLarge!.paramsSize}`);
+  assert(layoutLarge!.hasInsuranceIsolation === true, `V12_1 should have insurance isolation`);
+  console.log("  ✓ V12_1 engine field offsets verified (reorganized from V_ADL/V_SETDEXPOOL)");
+
+  console.log("✅ V12_1 slab layout tests passed!");
+}

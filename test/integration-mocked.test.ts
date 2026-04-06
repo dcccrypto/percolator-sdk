@@ -16,7 +16,7 @@ import { describe, it, expect } from "vitest";
 import { PublicKey, Connection, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
 
 // SDK under test
-import { discoverMarkets, SLAB_TIERS } from "../src/solana/discovery.js";
+import { discoverMarkets } from "../src/solana/discovery.js";
 import {
   fetchAdlRankedPositions,
   buildAdlTransaction,
@@ -40,7 +40,7 @@ import { detectSlabLayout } from "../src/solana/slab.js";
 /**
  * Build a minimal but structurally valid V1M small slab (65_352 bytes).
  *
- * SLAB_TIERS.small.dataSize=65_352 maps to the V1M layout (mainnet program ESa89R5):
+ * SLAB_TIERS_V1M.small!.dataSize=65_352 maps to the V1M layout (mainnet program ESa89R5):
  *   ENGINE_OFF=640, CONFIG_LEN=536, BITMAP_OFF_REL=720, pnlPosTotOff=552
  *   accountsOff_abs=1928, bitmapAbs=1360, acctOwnerOff=184, acctPositionSizeOff=80
  *
@@ -54,7 +54,9 @@ function buildV1SmallSlab(opts: {
   /** List of user accounts to embed: idx, pnl, capital, positionSize */
   accounts?: Array<{ idx: number; pnl: bigint; capital: bigint; positionSize: bigint }>;
 } = {}): Uint8Array {
-  const size = SLAB_TIERS.small.dataSize; // 65_352 → V1M small
+  // V1_LEGACY small slab: 65,352 bytes (ENGINE_OFF=640, ACCOUNT_SIZE=248, BITMAP_OFF=672)
+  // The mock writes at V1_LEGACY offsets, so the size must match V1_LEGACY detection.
+  const size = 65_352;
   const buf = Buffer.alloc(size, 0);
   const dv = new DataView(buf.buffer);
 
@@ -88,7 +90,7 @@ function buildV1SmallSlab(opts: {
   dv.setBigUint64(464, opts.maxPnlCap ?? 0n, true);
 
   // ---- ENGINE (V1_LEGACY: ENGINE_OFF=640, bitmapOff_actual=672) ----
-  // SLAB_TIERS.small.dataSize=65_352 → detectSlabLayout returns V1_LEGACY layout:
+  // SLAB_TIERS_V1M.small!.dataSize=65_352 → detectSlabLayout returns V1_LEGACY layout:
   //   engineOff=640, pnlPosTotOff=504, bitmapOff_actual=672, accountsOff=1880, acctOwnerOff=200
   // pnlPosTot u128 at absolute = 640 + 504 = 1144
   if (opts.pnlPosTot !== undefined) {
@@ -207,7 +209,7 @@ describe("discoverMarkets — mocked RPC (PERC-8339)", () => {
 
   it("detects layout correctly for the V1 small slab fixture (65_352 bytes)", () => {
     const slabData = buildV1SmallSlab();
-    expect(slabData.length).toBe(SLAB_TIERS.small.dataSize);
+    expect(slabData.length).toBe(65_352); // V1_LEGACY small
     const layout = detectSlabLayout(slabData.length);
     expect(layout).not.toBeNull();
     expect(layout!.maxAccounts).toBe(256);
