@@ -127,6 +127,14 @@ export const IX_TAG = {
   SetWalletCap: 70,
   /** PERC-8110: Set OI imbalance hard-block threshold (admin only). */
   SetOiImbalanceHardBlock: 71,
+  /** PERC-8270: Rescue orphan vault — recover tokens from a closed market's vault (admin). */
+  RescueOrphanVault: 72,
+  /** PERC-8270: Close orphan slab — reclaim rent from a slab whose market closed unexpectedly (admin). */
+  CloseOrphanSlab: 73,
+  /** PERC-SetDexPool: Pin admin-approved DEX pool address for a HYPERP market (admin). */
+  SetDexPool: 74,
+  /** CPI to the matcher program to initialize a matcher context account for an LP slot. Admin-only. */
+  InitMatcherCtx: 75,
 } as const;
 Object.freeze(IX_TAG);
 
@@ -1592,4 +1600,69 @@ export interface SetWalletCapArgs {
 
 export function encodeSetWalletCap(args: SetWalletCapArgs): Uint8Array {
   return concatBytes(encU8(IX_TAG.SetWalletCap), encU64(args.capE6));
+}
+
+// ============================================================================
+// InitMatcherCtx — CPI to matcher program to initialize a matcher context (tag 75)
+// ============================================================================
+
+/**
+ * InitMatcherCtx (Tag 75) — admin initializes the matcher context account for an LP slot.
+ *
+ * The matcher program (DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX) requires its context
+ * account to be initialized before TradeCpi can work. Only the percolator program can sign
+ * as the LP PDA via invoke_signed, so this instruction acts as the trusted initializer.
+ *
+ * Instruction data layout: tag(1) + lp_idx(2) + kind(1) + trading_fee_bps(4) +
+ *   base_spread_bps(4) + max_total_bps(4) + impact_k_bps(4) +
+ *   liquidity_notional_e6(16) + max_fill_abs(16) + max_inventory_abs(16) +
+ *   fee_to_insurance_bps(2) + skew_spread_mult_bps(2) = 72 bytes
+ *
+ * Accounts:
+ *   0. [signer]   admin
+ *   1. []         slab (program-owned; used to verify admin + LP slot)
+ *   2. [writable] matcherCtx (must match LP's stored matcher_context)
+ *   3. []         matcherProg (executable; must match LP's stored matcher_program)
+ *   4. []         lpPda (PDA ["lp", slab, lp_idx]; required by CPI as signer)
+ */
+export interface InitMatcherCtxArgs {
+  /** LP account index in the engine (0-based). */
+  lpIdx: number;
+  /** Matcher kind: 0=Passive, 1=vAMM. */
+  kind: number;
+  /** Base trading fee in bps (e.g. 30 = 0.30%). */
+  tradingFeeBps: number;
+  /** Base spread in bps. */
+  baseSpreadBps: number;
+  /** Max total spread in bps. */
+  maxTotalBps: number;
+  /** vAMM impact constant in bps (0 for passive matchers). */
+  impactKBps: number;
+  /** Liquidity notional in e6 units (0 for passive matchers). */
+  liquidityNotionalE6: bigint | string;
+  /** Max single fill size in absolute units (u128::MAX = no limit). */
+  maxFillAbs: bigint | string;
+  /** Max inventory size in absolute units (u128::MAX = no limit). */
+  maxInventoryAbs: bigint | string;
+  /** Fraction of fees routed to insurance fund in bps. */
+  feeToInsuranceBps: number;
+  /** Skew spread multiplier in bps (0 = disabled). */
+  skewSpreadMultBps: number;
+}
+
+export function encodeInitMatcherCtx(args: InitMatcherCtxArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.InitMatcherCtx),
+    encU16(args.lpIdx),
+    encU8(args.kind),
+    encU32(args.tradingFeeBps),
+    encU32(args.baseSpreadBps),
+    encU32(args.maxTotalBps),
+    encU32(args.impactKBps),
+    encU128(args.liquidityNotionalE6),
+    encU128(args.maxFillAbs),
+    encU128(args.maxInventoryAbs),
+    encU16(args.feeToInsuranceBps),
+    encU16(args.skewSpreadMultBps),
+  );
 }
