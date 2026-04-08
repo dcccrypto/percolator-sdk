@@ -13,6 +13,8 @@ import {
   SLAB_TIERS_V2,
   SLAB_TIERS_V1M,
   SLAB_TIERS_V_ADL,
+  SLAB_TIERS_V_SETDEXPOOL,
+  SLAB_TIERS_V1M2,
 } from "../src/solana/slab.js";
 
 // ============================================================================
@@ -439,7 +441,9 @@ describe("discoverMarkets — sequential mode (PERC-1650)", () => {
       Object.keys(SLAB_TIERS_V1D_LEGACY).length +
       Object.keys(SLAB_TIERS_V2).length +
       Object.keys(SLAB_TIERS_V1M).length +
-      Object.keys(SLAB_TIERS_V_ADL).length;
+      Object.keys(SLAB_TIERS_V_ADL).length +
+      Object.keys(SLAB_TIERS_V_SETDEXPOOL).length +
+      Object.keys(SLAB_TIERS_V1M2).length;
     expect(callCount).toBeLessThanOrEqual(allTierCount + 2); // +2 for rounding
     // Memcmp fallback was called (0 raw accounts → fallback triggered)
     expect(memcmpCallCount).toBe(1);
