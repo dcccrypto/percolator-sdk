@@ -142,7 +142,7 @@ function computePnlPct(pnl: bigint, capital: bigint): bigint {
  * ```
  */
 export function isAdlTriggered(slabData: Uint8Array): boolean {
-  const layout = detectSlabLayout(slabData.length);
+  const layout = detectSlabLayout(slabData.length, slabData);
   if (!layout) {
     return false;
   }
@@ -193,7 +193,7 @@ export async function fetchAdlRankedPositions(
  * Useful when you already have the slab data (e.g., from a subscription).
  */
 export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
-  const layout = detectSlabLayout(slabData.length);
+  const layout = detectSlabLayout(slabData.length, slabData);
 
   let pnlPosTot = 0n;
   try {
