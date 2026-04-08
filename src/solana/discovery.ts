@@ -356,12 +356,12 @@ function parseEngineLight(
     };
   }
 
-  // V_ADL engine struct (PERC-8270/8271): ENGINE_OFF=624, layout-driven offsets.
-  // Must branch here because V_ADL has version===1 same as V1/V1M — differentiate by engineOff.
-  // All offsets from SlabLayout descriptor, which is computed by buildLayoutVADL().
-  const isVAdl = layout !== null && layout.engineOff === 624 && layout.accountSize === 312;
-  if (isVAdl) {
-    const l = layout!;
+  // Layout-descriptor-driven engine parser: handles V_ADL, V_SETDEXPOOL, V12.1, V1M, V1M2,
+  // V1, V1-legacy, and any future layout that populates SlabLayout engine offset fields.
+  // V0 and V2 are already handled above (they return early), so any layout !== null reaching
+  // here has correct descriptor offsets from its buildLayout*() helper.
+  if (layout !== null) {
+    const l = layout;
     return {
       vault: readU128LE(data, base + 0),
       insuranceFund: {
