@@ -639,12 +639,8 @@ export function encodeAdminForceClose(args: AdminForceCloseArgs): Uint8Array {
 }
 
 /**
- * UpdateRiskParams instruction data (17 or 25 bytes)
- * Update initial and maintenance margin BPS (admin only).
- *
- * R2-S13: The Rust program uses `data.len() >= 25` to detect the optional
- * tradingFeeBps field, so variable-length encoding is safe. When tradingFeeBps
- * is omitted, the data is 17 bytes (tag + 2×u64). When included, 25 bytes.
+ * @deprecated Tag 22 is now SetInsuranceWithdrawPolicy on-chain, not UpdateRiskParams.
+ * Use {@link encodeSetInsuranceWithdrawPolicy} instead.
  */
 export interface UpdateRiskParamsArgs {
   initialMarginBps: bigint | string;
@@ -652,16 +648,12 @@ export interface UpdateRiskParamsArgs {
   tradingFeeBps?: bigint | string;
 }
 
-export function encodeUpdateRiskParams(args: UpdateRiskParamsArgs): Uint8Array {
-  const parts = [
-    encU8(IX_TAG.UpdateRiskParams),
-    encU64(args.initialMarginBps),
-    encU64(args.maintenanceMarginBps),
-  ];
-  if (args.tradingFeeBps !== undefined) {
-    parts.push(encU64(args.tradingFeeBps));
-  }
-  return concatBytes(...parts);
+/** @deprecated Tag 22 is now SetInsuranceWithdrawPolicy. Use encodeSetInsuranceWithdrawPolicy(). */
+export function encodeUpdateRiskParams(_args: UpdateRiskParamsArgs): Uint8Array {
+  throw new Error(
+    "encodeUpdateRiskParams is removed: IX tag 22 is now SetInsuranceWithdrawPolicy on-chain. " +
+    "Use encodeSetInsuranceWithdrawPolicy() instead.",
+  );
 }
 
 /**
@@ -676,16 +668,16 @@ export const RENOUNCE_ADMIN_CONFIRMATION = 0x52454E4F554E4345n;
 export const UNRESOLVE_CONFIRMATION = 0xDEAD_BEEF_CAFE_1234n;
 
 /**
- * RenounceAdmin instruction data (9 bytes)
- * Irreversibly set admin to all zeros. After this, all admin-only instructions fail.
- *
- * Requires the confirmation code 0x52454E4F554E4345 ("RENOUNCE" as u64 LE)
- * to prevent accidental invocation.
+ * @deprecated Tag 23 is now WithdrawInsuranceLimited on-chain, not RenounceAdmin.
+ * Use {@link encodeWithdrawInsuranceLimited} instead.
+ * CRITICAL: The old implementation sent the RENOUNCE confirmation code (0x52454E4F554E4345)
+ * as a u64 on tag 23, which would be interpreted as a ~5.93e18 token withdrawal amount.
  */
 export function encodeRenounceAdmin(): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.RenounceAdmin),
-    encU64(RENOUNCE_ADMIN_CONFIRMATION),
+  throw new Error(
+    "encodeRenounceAdmin is removed: IX tag 23 is now WithdrawInsuranceLimited on-chain. " +
+    "The old implementation would attempt to withdraw ~5.93e18 tokens from insurance. " +
+    "Use encodeWithdrawInsuranceLimited() instead.",
   );
 }
 
@@ -743,19 +735,23 @@ export function encodeLpVaultWithdraw(args: LpVaultWithdrawArgs): Uint8Array {
 }
 
 /**
- * PauseMarket instruction data (1 byte)
- * Pauses the market — disables trading, deposits, and withdrawals.
+ * @deprecated Tag 27 is now DepositFeeCredits on-chain. There is no PauseMarket instruction.
  */
 export function encodePauseMarket(): Uint8Array {
-  return encU8(IX_TAG.PauseMarket);
+  throw new Error(
+    "encodePauseMarket is removed: IX tag 27 is now DepositFeeCredits on-chain. " +
+    "There is no PauseMarket instruction.",
+  );
 }
 
 /**
- * UnpauseMarket instruction data (1 byte)
- * Unpauses the market — re-enables trading, deposits, and withdrawals.
+ * @deprecated Tag 28 is now ConvertReleasedPnl on-chain. There is no UnpauseMarket instruction.
  */
 export function encodeUnpauseMarket(): Uint8Array {
-  return encU8(IX_TAG.UnpauseMarket);
+  throw new Error(
+    "encodeUnpauseMarket is removed: IX tag 28 is now ConvertReleasedPnl on-chain. " +
+    "There is no UnpauseMarket instruction.",
+  );
 }
 
 // ============================================================================
