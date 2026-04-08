@@ -7,10 +7,10 @@
  * Deployed mainnet: (pending deployment — DevOps must set STAKE_PROGRAM_ID env var or deploy and update STAKE_PROGRAM_IDS.mainnet)
  */
 import { PublicKey } from '@solana/web3.js';
-/** Known stake program addresses per network. Mainnet is empty until deployed. */
+/** Known stake program addresses per network. */
 export declare const STAKE_PROGRAM_IDS: {
     readonly devnet: "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k";
-    readonly mainnet: "";
+    readonly mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F";
 };
 /**
  * Resolve the stake program ID for the given network.

@@ -127,7 +127,7 @@ describe("instruction encoders", () => {
     expect(data[0]).toBe(IX_TAG.InitLP);
   });
 
-  it("encodeInitMarket produces 264 bytes", () => {
+  it("encodeInitMarket produces 312 bytes", () => {
     const data = encodeInitMarket({
       admin: PublicKey.unique(), collateralMint: PublicKey.unique(),
       indexFeedId: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
@@ -137,8 +137,9 @@ describe("instruction encoders", () => {
       riskReductionThreshold: "1000000000", maintenanceFeePerSlot: "100",
       maxCrankStalenessSlots: "50", liquidationFeeBps: "100", liquidationFeeCap: "10000000",
       liquidationBufferBps: "50", minLiquidationAbs: "1000000",
+      minInitialDeposit: "500000", minNonzeroMmReq: "1000", minNonzeroImReq: "2000",
     });
-    expect(data.length).toBe(264);
+    expect(data.length).toBe(312);
     expect(data[0]).toBe(IX_TAG.InitMarket);
   });
 
@@ -180,8 +181,9 @@ describe("instruction encoders", () => {
       riskReductionThreshold: "1000000000", maintenanceFeePerSlot: "100",
       maxCrankStalenessSlots: "50", liquidationFeeBps: "100", liquidationFeeCap: "10000000",
       liquidationBufferBps: "50", minLiquidationAbs: "1000000",
+      minInitialDeposit: "500000", minNonzeroMmReq: "1000", minNonzeroImReq: "2000",
     });
-    expect(data.length).toBe(264);
+    expect(data.length).toBe(312);
   });
 
   it("encodeCloseSlab produces 1 byte", () => {
@@ -227,6 +229,9 @@ describe("truncated instruction payloads", () => {
     liquidationFeeCap: "10000000",
     liquidationBufferBps: "50",
     minLiquidationAbs: "1000000",
+    minInitialDeposit: "500000",
+    minNonzeroMmReq: "1000",
+    minNonzeroImReq: "2000",
   } as const;
 
   const updateConfigArgs = {

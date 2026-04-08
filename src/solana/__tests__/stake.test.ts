@@ -40,8 +40,9 @@ const slab = Keypair.generate().publicKey;
 const user = Keypair.generate().publicKey;
 
 describe('STAKE_PROGRAM_ID', () => {
-  it('is a valid public key', () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe('6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k');
+  it('is a valid public key (mainnet address)', () => {
+    // STAKE_PROGRAM_ID exports the mainnet address (updated in SDK v1.0.0-beta.4+)
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe('DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F');
   });
 });
 

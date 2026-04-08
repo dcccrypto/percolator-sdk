@@ -23,6 +23,7 @@ export default defineConfig({
       "test/discovery-fallback-integration.test.ts",
       "test/lighthouse.test.ts",
       "test/rpc-pool.test.ts",
+      "test/drift-check.test.ts",
     ],
   },
 });

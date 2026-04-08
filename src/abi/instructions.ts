@@ -168,6 +168,9 @@ export interface InitMarketArgs {
   liquidationFeeCap: bigint | string;
   liquidationBufferBps: bigint | string;
   minLiquidationAbs: bigint | string;
+  minInitialDeposit: bigint | string;     // min deposit to open a new account (u128)
+  minNonzeroMmReq: bigint | string;       // min nonzero maintenance margin requirement (u128)
+  minNonzeroImReq: bigint | string;       // min nonzero initial margin requirement (u128)
 }
 
 /**
@@ -195,7 +198,7 @@ function encodeFeedId(feedId: string): Uint8Array {
   return bytes;
 }
 
-const INIT_MARKET_DATA_LEN = 264;
+const INIT_MARKET_DATA_LEN = 312; // 264 + 3×u128(16) = 312
 
 export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
   const data = concatBytes(
@@ -221,6 +224,9 @@ export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
     encU128(args.liquidationFeeCap),
     encU64(args.liquidationBufferBps),
     encU128(args.minLiquidationAbs),
+    encU128(args.minInitialDeposit),
+    encU128(args.minNonzeroMmReq),
+    encU128(args.minNonzeroImReq),
   );
   if (data.length !== INIT_MARKET_DATA_LEN) {
     throw new Error(

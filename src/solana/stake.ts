@@ -65,7 +65,7 @@ export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
  *   getStakeProgramId() so mainnet callers get a clear error rather than silently
  *   resolving to the devnet address.
  */
-export const STAKE_PROGRAM_ID = new PublicKey(STAKE_PROGRAM_IDS.devnet);
+export const STAKE_PROGRAM_ID = new PublicKey(STAKE_PROGRAM_IDS.mainnet);
 
 // ═══════════════════════════════════════════════════════════════
 // Instruction Tags (match src/instruction.rs)
