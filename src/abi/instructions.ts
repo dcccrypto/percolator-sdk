@@ -996,9 +996,9 @@ export function encodeCancelQueuedWithdrawal(): Uint8Array {
 /**
  * ExecuteAdl (Tag 50, PERC-305) — auto-deleverage the most profitable position.
  *
- * Permissionless. Surgically closes or reduces `targetIdx` position when
- * `pnl_pos_tot > max_pnl_cap` on the market. The caller receives no reward —
- * the incentive is unblocking the market for normal trading.
+ * Requires the caller to be the market admin/keeper authority (`header.admin`).
+ * Surgically closes or reduces `targetIdx` position when
+ * `pnl_pos_tot > max_pnl_cap` on the market.
  *
  * Requires `UpdateRiskParams.max_pnl_cap > 0` on the market.
  *
