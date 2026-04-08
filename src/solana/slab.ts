@@ -1941,7 +1941,9 @@ export function parseEngine(data: Uint8Array): EngineState {
         : 0,
     },
     currentSlot: readU64LE(data, base + layout.engineCurrentSlotOff),
-    fundingIndexQpbE6: readI128LE(data, base + layout.engineFundingIndexOff),
+    fundingIndexQpbE6: (layout.engineLastFundingSlotOff - layout.engineFundingIndexOff) === 8
+      ? BigInt(readI64LE(data, base + layout.engineFundingIndexOff))
+      : readI128LE(data, base + layout.engineFundingIndexOff),
     lastFundingSlot: readU64LE(data, base + layout.engineLastFundingSlotOff),
     fundingRateBpsPerSlotLast: readI64LE(data, base + layout.engineFundingRateBpsOff),
     lastCrankSlot: readU64LE(data, base + layout.engineLastCrankSlotOff),
