@@ -734,7 +734,7 @@ function buildLayout(version: 0 | 1, maxAccounts: number, engineOffOverride?: nu
     engineLastBreakerSlotOff: isV0 ? -1 : V1_ENGINE_LAST_BREAKER_SLOT_OFF,
     engineBitmapOff: actualBitmapOff,
     postBitmap: 18,
-    acctOwnerOff: ACCT_OWNER_OFF,
+    acctOwnerOff: isV1Legacy ? V1_LEGACY_ACCT_OWNER_OFF : ACCT_OWNER_OFF,
 
     hasInsuranceIsolation: !isV0,
     engineInsuranceIsolatedOff: isV0 ? -1 : 48,
