@@ -7,6 +7,8 @@ import {
   SLAB_TIERS_V1M,
   SLAB_TIERS_V2,
   SLAB_TIERS_V_ADL,
+  SLAB_TIERS_V_SETDEXPOOL,
+  SLAB_TIERS_V1M2,
   SLAB_TIERS_V12_1,
   type SlabHeader,
   type MarketConfig,
@@ -592,6 +594,8 @@ export async function discoverMarkets(
     ...Object.values(SLAB_TIERS_V2),
     ...Object.values(SLAB_TIERS_V1M),
     ...Object.values(SLAB_TIERS_V_ADL),
+    ...Object.values(SLAB_TIERS_V_SETDEXPOOL),
+    ...Object.values(SLAB_TIERS_V1M2),
   ];
   type RawEntry = { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number; dataSize: number };
   let rawAccounts: RawEntry[] = [];
