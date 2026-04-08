@@ -144,17 +144,16 @@ function computePnlPct(pnl: bigint, capital: bigint): bigint {
 export function isAdlTriggered(slabData: Uint8Array): boolean {
   const layout = detectSlabLayout(slabData.length);
   if (!layout) {
-    return false;
+    throw new Error(
+      `isAdlTriggered: unrecognized slab layout (${slabData.length} bytes). ` +
+      `Cannot determine ADL status — update the SDK or check the data source.`,
+    );
   }
-  try {
-    const engine = parseEngine(slabData);
-    if (engine.pnlPosTot === 0n) return false;
-    const config = parseConfig(slabData, layout);
-    if (config.maxPnlCap === 0n) return false;
-    return engine.pnlPosTot > config.maxPnlCap;
-  } catch {
-    return false;
-  }
+  const engine = parseEngine(slabData);
+  if (engine.pnlPosTot === 0n) return false;
+  const config = parseConfig(slabData, layout);
+  if (config.maxPnlCap === 0n) return false;
+  return engine.pnlPosTot > config.maxPnlCap;
 }
 
 /**
