@@ -281,19 +281,25 @@ function endpointLabel(ep: RpcEndpointConfig): string {
 function isRetryable(err: unknown, codes: number[]): boolean {
   if (!err) return false;
   const msg = err instanceof Error ? err.message : String(err);
+  // Match HTTP status codes only when NOT embedded inside a larger number.
+  // Prevents false positives like "Account has 50429 lamports" matching "429".
   for (const code of codes) {
-    if (msg.includes(String(code))) return true;
+    const pattern = new RegExp(`(?<![0-9])${code}(?![0-9])`);
+    if (pattern.test(msg)) return true;
   }
-  // Generic network errors
+  // Generic network / transient error keywords
+  const lower = msg.toLowerCase();
   if (
-    msg.toLowerCase().includes("rate limit") ||
-    msg.toLowerCase().includes("too many requests") ||
-    msg.toLowerCase().includes("econnreset") ||
-    msg.toLowerCase().includes("econnrefused") ||
-    msg.toLowerCase().includes("socket hang up") ||
-    msg.toLowerCase().includes("network") ||
-    msg.toLowerCase().includes("timeout") ||
-    msg.toLowerCase().includes("abort")
+    lower.includes("rate limit") ||
+    lower.includes("too many requests") ||
+    lower.includes("bad gateway") ||
+    lower.includes("service unavailable") ||
+    lower.includes("econnreset") ||
+    lower.includes("econnrefused") ||
+    lower.includes("socket hang up") ||
+    lower.includes("network") ||
+    lower.includes("timeout") ||
+    lower.includes("abort")
   ) {
     return true;
   }
