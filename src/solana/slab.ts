@@ -1435,6 +1435,11 @@ export interface MarketConfig {
   adaptiveMaxFundingBps: bigint;
   marketCreatedSlot: bigint;
   oiRampSlots: bigint;
+  /**
+   * Slot at which the market was resolved. Currently always `0n` — the on-chain
+   * resolved state is tracked via the header's FLAG_RESOLVED bit, not the config.
+   * This field is reserved for future use; do not rely on it for resolution checks.
+   */
   resolvedSlot: bigint;
   insuranceIsolationBps: number;
   /** PERC-622: Oracle phase (0=Nascent, 1=Growing, 2=Mature) */
