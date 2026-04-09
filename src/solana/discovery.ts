@@ -685,6 +685,9 @@ export async function discoverMarkets(
     // account size changed; RPC returns no error, so we must fallback on empty results too.
     if (rawAccounts.length === 0) {
       console.warn("[discoverMarkets] dataSize filters returned 0 markets, falling back to memcmp");
+      // Fetch full account data (no dataSlice) so we know the real slab size
+      // for correct layout detection. Heavier than sliced queries, but this is
+      // a last-resort fallback that only fires when all dataSize queries returned 0.
       const fallback = await connection.getProgramAccounts(programId, {
         filters: [
           {
@@ -694,10 +697,12 @@ export async function discoverMarkets(
             },
           },
         ],
-        dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
       });
-      // Unknown actual size — use large V0 as safe default (maxAccounts=4096)
-      rawAccounts = [...fallback].map(e => ({ ...e, maxAccounts: 4096, dataSize: SLAB_TIERS.large.dataSize })) as RawEntry[];
+      rawAccounts = [...fallback].map(e => {
+        const len = e.account.data.length;
+        const layout = detectSlabLayout(len, new Uint8Array(e.account.data));
+        return { ...e, maxAccounts: layout?.maxAccounts ?? 4096, dataSize: len };
+      }) as RawEntry[];
     }
   } catch (err) {
     console.warn(
@@ -714,9 +719,12 @@ export async function discoverMarkets(
             },
           },
         ],
-        dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
       });
-      rawAccounts = [...fallback].map(e => ({ ...e, maxAccounts: 4096, dataSize: SLAB_TIERS.large.dataSize })) as RawEntry[];
+      rawAccounts = [...fallback].map(e => {
+        const len = e.account.data.length;
+        const layout = detectSlabLayout(len, new Uint8Array(e.account.data));
+        return { ...e, maxAccounts: layout?.maxAccounts ?? 4096, dataSize: len };
+      }) as RawEntry[];
     } catch (memcmpErr) {
       // GH#59: memcmp also rejected (public mainnet RPCs reject all getProgramAccounts)
       console.warn(
