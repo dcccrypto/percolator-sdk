@@ -90,7 +90,8 @@ export function computeWarmupLeverageCap(
   if (unlocked <= 0n) return 1; // At least 1x if nothing unlocked yet (slot 0 edge)
 
   // Effective leverage = maxLev * (unlocked / total), floored, min 1
-  const scaledResult = (BigInt(maxLev) * unlocked) / totalCapital;
+  // Pure BigInt arithmetic avoids BigInt(float) crash when maxLev is fractional
+  const scaledResult = (10000n * unlocked) / (initialMarginBps * totalCapital);
 
   // Ensure conversion to Number doesn't silently truncate for very large values
   if (scaledResult > BigInt(Number.MAX_SAFE_INTEGER)) {
@@ -126,14 +127,15 @@ export function computeWarmupMaxPositionSize(
   warmupStartSlot: bigint,
   warmupPeriodSlots: bigint,
 ): bigint {
-  const maxLev = computeMaxLeverage(initialMarginBps);
   const unlocked = computeWarmupUnlockedCapital(
     totalCapital,
     currentSlot,
     warmupStartSlot,
     warmupPeriodSlots,
   );
-  return unlocked * BigInt(maxLev);
+  // Pure BigInt arithmetic: (unlocked * 10000) / initialMarginBps
+  // Avoids BigInt(float) crash when computeMaxLeverage returns non-integer
+  return (unlocked * 10000n) / initialMarginBps;
 }
 
 /**
