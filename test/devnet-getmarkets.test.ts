@@ -379,8 +379,8 @@ describe("devnet — fetchAdlRankedPositions() [PERC-8410]", () => {
         expect(typeof pos.idx).toBe("number");
         expect(pos.idx).toBeGreaterThanOrEqual(0);
         expect(pos.owner).toBeInstanceOf(PublicKey);
-        expect(typeof pos.positionSize).toBe("bigint");
-        expect(pos.positionSize).not.toBe(0n); // only non-zero positions are ranked
+        expect(typeof pos.positionSigned).toBe("bigint");
+        expect(pos.positionSigned).not.toBe(0n); // only non-zero positions are ranked
         expect(typeof pos.pnl).toBe("bigint");
         expect(typeof pos.capital).toBe("bigint");
         expect(typeof pos.pnlPct).toBe("bigint");
