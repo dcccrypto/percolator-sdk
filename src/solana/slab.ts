@@ -1206,12 +1206,16 @@ function buildLayoutVSetDexPool(maxAccounts: number): SlabLayout {
 }
 
 function buildLayoutV12_1(maxAccounts: number, dataLen?: number): SlabLayout {
-  const engineOff = V12_1_ENGINE_OFF;
-  const bitmapOff = V12_1_ENGINE_BITMAP_OFF;
-  // Detect SBF vs host alignment from actual slab size.
-  // SBF Account=280 (u128 align=8), host Account=320 (u128 align=16).
-  const hostSize = computeSlabSize(engineOff, bitmapOff, V12_1_ACCOUNT_SIZE, maxAccounts, 18);
+  // SBF vs host detection: SBF has different struct alignment (u128 align=8 vs 16).
+  // This affects ENGINE_OFF, CONFIG_LEN, ACCOUNT_SIZE, and BITMAP_OFF.
+  // Empirically verified from mainnet slab BVjPc6rd (290120 bytes):
+  //   SBF: headerLen=72, configLen=544, engineOff=616, accountSize=280
+  //   Host: headerLen=72, configLen=576, engineOff=648, accountSize=320
+  const hostSize = computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, maxAccounts, 18);
   const isSbf = dataLen !== undefined && dataLen !== hostSize;
+  const engineOff = isSbf ? 616 : V12_1_ENGINE_OFF;
+  // SBF bitmap: engine+590 (abs 1206). Host: engine+368 (abs 1016).
+  const bitmapOff = isSbf ? 590 : (V12_1_ENGINE_BITMAP_OFF - V12_1_ENGINE_OFF);
   const accountSize = isSbf ? V12_1_ACCOUNT_SIZE_SBF : V12_1_ACCOUNT_SIZE;
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
@@ -1226,7 +1230,7 @@ function buildLayoutV12_1(maxAccounts: number, dataLen?: number): SlabLayout {
     // Empirically verified: USDC mint found at offset 72 on mainnet slab BVjPc6rd.
     headerLen: V0_HEADER_LEN,     // 72 (not 104 — V12_1 removed the 32-byte header extension)
     configOffset: V0_HEADER_LEN,  // 72
-    configLen: 576,   // 544 + 32 (dex_pool: [u8;32] added in V12_1)
+    configLen: isSbf ? 544 : 576,  // SBF=544, host=576 (alignment diff)
     reservedOff: V1_RESERVED_OFF,
     engineOff,
     accountSize,

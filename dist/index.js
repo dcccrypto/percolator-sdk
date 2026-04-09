@@ -2215,10 +2215,10 @@ function buildLayoutVSetDexPool(maxAccounts) {
   };
 }
 function buildLayoutV12_1(maxAccounts, dataLen) {
-  const engineOff = V12_1_ENGINE_OFF;
-  const bitmapOff = V12_1_ENGINE_BITMAP_OFF;
-  const hostSize = computeSlabSize(engineOff, bitmapOff, V12_1_ACCOUNT_SIZE, maxAccounts, 18);
+  const hostSize = computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, maxAccounts, 18);
   const isSbf = dataLen !== void 0 && dataLen !== hostSize;
+  const engineOff = isSbf ? 616 : V12_1_ENGINE_OFF;
+  const bitmapOff = isSbf ? 590 : V12_1_ENGINE_BITMAP_OFF - V12_1_ENGINE_OFF;
   const accountSize = isSbf ? V12_1_ACCOUNT_SIZE_SBF : V12_1_ACCOUNT_SIZE;
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
@@ -2234,8 +2234,8 @@ function buildLayoutV12_1(maxAccounts, dataLen) {
     // 72 (not 104 — V12_1 removed the 32-byte header extension)
     configOffset: V0_HEADER_LEN,
     // 72
-    configLen: 576,
-    // 544 + 32 (dex_pool: [u8;32] added in V12_1)
+    configLen: isSbf ? 544 : 576,
+    // SBF=544, host=576 (alignment diff)
     reservedOff: V1_RESERVED_OFF,
     engineOff,
     accountSize,
