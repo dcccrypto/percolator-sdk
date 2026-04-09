@@ -482,12 +482,10 @@ export class RpcPool {
         ]);
 
         // Success — reset failure count
-        timeout.cancel();
         ep.failures = 0;
         ep.healthy = true;
         return result;
       } catch (err) {
-        timeout.cancel();
         lastError = err;
         ep.failures++;
 
@@ -534,6 +532,13 @@ export class RpcPool {
           const delay = computeDelay(attempt, this.retryConfig);
           await sleep(delay);
         }
+      } finally {
+        // Guarantee the timeout timer is cleaned up regardless of how the
+        // try/catch exits (success return, caught error, or re-thrown error).
+        // Previously timeout.cancel() was called in both the try and catch
+        // blocks, but an exception thrown inside the catch (before reaching
+        // cancel) would leak the timer.
+        timeout.cancel();
       }
     }
 
