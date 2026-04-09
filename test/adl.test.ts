@@ -156,16 +156,16 @@ describe("rankAdlPositions — unit tests on pure ranking logic", () => {
 // ---------------------------------------------------------------------------
 
 describe("isAdlTriggered", () => {
-  it("returns false for invalid/empty slab data", () => {
-    // Empty data — detectSlabLayout returns null → false
+  it("throws for invalid/empty slab data", () => {
+    // Empty data — detectSlabLayout returns null → must throw, not silently return false
     const emptyData = new Uint8Array(0);
-    expect(isAdlTriggered(emptyData)).toBe(false);
+    expect(() => isAdlTriggered(emptyData)).toThrow("unrecognized slab layout");
   });
 
-  it("returns false for unrecognized data length", () => {
-    // Random size not matching any known slab layout
+  it("throws for unrecognized data length", () => {
+    // Random size not matching any known slab layout — must surface the error
     const garbage = new Uint8Array(100).fill(0xff);
-    expect(isAdlTriggered(garbage)).toBe(false);
+    expect(() => isAdlTriggered(garbage)).toThrow("unrecognized slab layout");
   });
 });
 
