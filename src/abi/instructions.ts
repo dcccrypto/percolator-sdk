@@ -564,7 +564,19 @@ export interface PushOraclePriceArgs {
  * @throws Error if price is 0 or exceeds MAX_ORACLE_PRICE
  */
 export function encodePushOraclePrice(args: PushOraclePriceArgs): Uint8Array {
-  const price = typeof args.priceE6 === "string" ? BigInt(args.priceE6) : args.priceE6;
+  // Validate string format before BigInt conversion — rejects whitespace,
+  // scientific notation, decimal points, and hex prefixes that would cause
+  // an unhelpful SyntaxError from BigInt().
+  const price = typeof args.priceE6 === "string"
+    ? (() => {
+        if (!/^-?(0|[1-9]\d*)$/.test(args.priceE6)) {
+          throw new Error(
+            `encodePushOraclePrice: priceE6 must be a decimal integer string (got ${JSON.stringify(args.priceE6)})`,
+          );
+        }
+        return BigInt(args.priceE6);
+      })()
+    : args.priceE6;
 
   if (price === 0n) {
     throw new Error("encodePushOraclePrice: price cannot be zero (division by zero in engine)");
