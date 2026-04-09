@@ -362,7 +362,7 @@ export const ACCOUNTS_FUND_MARKET_INSURANCE: readonly AccountSpec[] = [
  * Set max % of global fund this market can access.
  */
 export const ACCOUNTS_SET_INSURANCE_ISOLATION: readonly AccountSpec[] = [
-  { name: "admin", signer: true, writable: false },
+  { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
 ] as const;
 
@@ -498,7 +498,7 @@ export const ACCOUNTS_TOPUP_KEEPER_FUND: readonly AccountSpec[] = [
  * Sets the OI imbalance hard-block threshold (admin only)
  */
 export const ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK: readonly AccountSpec[] = [
-  { name: "admin", signer: true, writable: false },
+  { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
 ] as const;
 
@@ -583,7 +583,7 @@ export const ACCOUNTS_CLEAR_PENDING_SETTLEMENT: readonly AccountSpec[] = [
  * Sets the per-wallet position cap (admin only). capE6=0 disables.
  */
 export const ACCOUNTS_SET_WALLET_CAP: readonly AccountSpec[] = [
-  { name: "admin", signer: true, writable: false },
+  { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
 ] as const;
 
