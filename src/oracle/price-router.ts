@@ -315,26 +315,37 @@ export async function resolvePrice(
 
   // Add Pyth if available (highest priority for supported tokens)
   if (pythSource) {
-    // Enrich Pyth price from DEX and/or Jupiter — cross-validate when both exist
+    // Enrich Pyth price from DEX and/or Jupiter — cross-validate when both exist.
+    // If enrichment fails (sources disagree or no secondary source available),
+    // the unenriched Pyth source is NOT added to allSources. A price=0 source
+    // must never appear in the result: encodePushOraclePrice rejects price=0
+    // (division by zero in on-chain engine) and downstream math (computeMarkPnl,
+    // computeLiqPrice) produces undefined results.
     const dexPrice = dexSources[0]?.price ?? 0;
     const jupPrice = jupiterSource?.price ?? 0;
 
+    let enriched = false;
     if (dexPrice > 0 && jupPrice > 0) {
       // Cross-validate: reject if sources diverge by more than 50%
       const mid = (dexPrice + jupPrice) / 2;
       const deviation = Math.abs(dexPrice - jupPrice) / mid;
-      if (deviation > 0.5) {
-        // Sources disagree significantly — don't enrich Pyth, lower confidence
-        pythSource.price = 0;
-        pythSource.confidence = 20;
-      } else {
+      if (deviation <= 0.5) {
         pythSource.price = mid;
+        enriched = true;
       }
-    } else {
-      // Only one source available — use it but note reduced validation
-      pythSource.price = dexPrice || jupPrice || 0;
+      // If deviation > 0.5: sources disagree — skip enrichment. The DEX and
+      // Jupiter sources are still available in allSources at their own
+      // confidence levels for callers that want them.
+    } else if (dexPrice > 0 || jupPrice > 0) {
+      // Only one secondary source — use it with reduced confidence
+      pythSource.price = dexPrice || jupPrice;
+      pythSource.confidence = Math.min(pythSource.confidence, 50);
+      enriched = true;
     }
-    allSources.push(pythSource);
+
+    if (enriched) {
+      allSources.push(pythSource);
+    }
   }
 
   // Add DEX sources
