@@ -31,12 +31,17 @@ export const STAKE_PROGRAM_IDS = {
  * surface the gap instead of silently hitting the devnet program.
  */
 export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
-  const override = safeEnv('STAKE_PROGRAM_ID');
-  if (override) {
-    console.warn(
-      `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
-    );
-    return new PublicKey(override);
+  // Only allow env override when no explicit network is provided —
+  // an explicit parameter should always take precedence to prevent
+  // silent program substitution via environment variable injection.
+  if (!network) {
+    const override = safeEnv('STAKE_PROGRAM_ID');
+    if (override) {
+      console.warn(
+        `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
+      );
+      return new PublicKey(override);
+    }
   }
 
   const detectedNetwork =
