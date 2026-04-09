@@ -108,7 +108,12 @@ export function computePreTradeLiqPrice(
 ): bigint {
   if (oracleE6 === 0n || margin === 0n || posSize === 0n) return 0n;
   const absPos = posSize < 0n ? -posSize : posSize;
-  const fee = (absPos * feeBps) / 10000n;
+  // Fee is on notional value (position × price), not raw position size.
+  // Notional in native units = absPos * oracleE6 / 1_000_000 (because oracleE6
+  // is price-per-unit scaled by 1e6). This matches the on-chain fee calculation
+  // and is consistent with computeTradingFee which expects notional as input.
+  const notional = (absPos * oracleE6) / 1_000_000n;
+  const fee = (notional * feeBps) / 10000n;
   const effectiveCapital = margin > fee ? margin - fee : 0n;
   const signedPos = direction === "long" ? absPos : -absPos;
   return computeLiqPrice(oracleE6, effectiveCapital, signedPos, maintBps);
