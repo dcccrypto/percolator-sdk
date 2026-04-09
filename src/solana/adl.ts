@@ -324,7 +324,7 @@ export function buildAdlInstruction(
     );
   }
   const dataBytes = encodeExecuteAdl({ targetIdx });
-  const data = Buffer.from(dataBytes);
+  const data = dataBytes as Buffer; // Uint8Array is accepted by TransactionInstruction
 
   const keys: AccountMeta[] = [
     { pubkey: caller, isSigner: true, isWritable: false },
