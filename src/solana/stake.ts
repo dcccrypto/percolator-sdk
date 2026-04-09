@@ -500,8 +500,13 @@ export interface StakeAccounts {
 /**
  * Build account keys for InitPool instruction.
  * Returns array of {pubkey, isSigner, isWritable} in the order the program expects.
+ *
+ * @param a - Account public keys.
+ * @param tokenProgramId - Token program to use. Defaults to `TOKEN_PROGRAM_ID`
+ *   (SPL Token). Pass `TOKEN_2022_PROGRAM_ID` if the collateral or LP mint is
+ *   owned by Token-2022.
  */
-export function initPoolAccounts(a: StakeAccounts['initPool']) {
+export function initPoolAccounts(a: StakeAccounts['initPool'], tokenProgramId: PublicKey = TOKEN_PROGRAM_ID) {
   return [
     { pubkey: a.admin, isSigner: true, isWritable: true },
     { pubkey: a.slab, isSigner: false, isWritable: false },
@@ -511,7 +516,7 @@ export function initPoolAccounts(a: StakeAccounts['initPool']) {
     { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
     { pubkey: a.collateralMint, isSigner: false, isWritable: false },
     { pubkey: a.percolatorProgram, isSigner: false, isWritable: false },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
   ];
@@ -519,8 +524,10 @@ export function initPoolAccounts(a: StakeAccounts['initPool']) {
 
 /**
  * Build account keys for Deposit instruction.
+ *
+ * @param tokenProgramId - Token program to use. Defaults to `TOKEN_PROGRAM_ID`.
  */
-export function depositAccounts(a: StakeAccounts['deposit']) {
+export function depositAccounts(a: StakeAccounts['deposit'], tokenProgramId: PublicKey = TOKEN_PROGRAM_ID) {
   return [
     { pubkey: a.user, isSigner: true, isWritable: false },
     { pubkey: a.pool, isSigner: false, isWritable: true },
@@ -530,7 +537,7 @@ export function depositAccounts(a: StakeAccounts['deposit']) {
     { pubkey: a.userLpAta, isSigner: false, isWritable: true },
     { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
     { pubkey: a.depositPda, isSigner: false, isWritable: true },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
@@ -538,8 +545,10 @@ export function depositAccounts(a: StakeAccounts['deposit']) {
 
 /**
  * Build account keys for Withdraw instruction.
+ *
+ * @param tokenProgramId - Token program to use. Defaults to `TOKEN_PROGRAM_ID`.
  */
-export function withdrawAccounts(a: StakeAccounts['withdraw']) {
+export function withdrawAccounts(a: StakeAccounts['withdraw'], tokenProgramId: PublicKey = TOKEN_PROGRAM_ID) {
   return [
     { pubkey: a.user, isSigner: true, isWritable: false },
     { pubkey: a.pool, isSigner: false, isWritable: true },
@@ -549,15 +558,17 @@ export function withdrawAccounts(a: StakeAccounts['withdraw']) {
     { pubkey: a.userCollateralAta, isSigner: false, isWritable: true },
     { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
     { pubkey: a.depositPda, isSigner: false, isWritable: true },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
   ];
 }
 
 /**
  * Build account keys for FlushToInsurance instruction.
+ *
+ * @param tokenProgramId - Token program to use. Defaults to `TOKEN_PROGRAM_ID`.
  */
-export function flushToInsuranceAccounts(a: StakeAccounts['flushToInsurance']) {
+export function flushToInsuranceAccounts(a: StakeAccounts['flushToInsurance'], tokenProgramId: PublicKey = TOKEN_PROGRAM_ID) {
   return [
     { pubkey: a.caller, isSigner: true, isWritable: false },
     { pubkey: a.pool, isSigner: false, isWritable: true },
@@ -566,6 +577,6 @@ export function flushToInsuranceAccounts(a: StakeAccounts['flushToInsurance']) {
     { pubkey: a.slab, isSigner: false, isWritable: true },
     { pubkey: a.wrapperVault, isSigner: false, isWritable: true },
     { pubkey: a.percolatorProgram, isSigner: false, isWritable: false },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: tokenProgramId, isSigner: false, isWritable: false },
   ];
 }
