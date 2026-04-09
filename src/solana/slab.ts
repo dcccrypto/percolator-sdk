@@ -1268,7 +1268,11 @@ function buildLayoutV12_1(maxAccounts: number, dataLen?: number): SlabLayout {
     engineEmergencyOiModeOff: V12_1_ENGINE_EMERGENCY_OI_MODE_OFF,
     engineEmergencyStartSlotOff: V12_1_ENGINE_EMERGENCY_START_SLOT_OFF,
     engineLastBreakerSlotOff: V12_1_ENGINE_LAST_BREAKER_SLOT_OFF,
-    engineBitmapOff: V12_1_ENGINE_BITMAP_OFF,
+    // engineBitmapOff must be engine-relative (see interface comment at line 131).
+    // SBF bitmap is at engine+590; host bitmap is at engine+1016 (V12_1_ENGINE_BITMAP_OFF).
+    // Storing the constant directly was correct for host but wrong for SBF — SBF
+    // slabs would compute parseUsedIndices base = 616+1016=1632 instead of 616+590=1206.
+    engineBitmapOff: isSbf ? 590 : V12_1_ENGINE_BITMAP_OFF,
     postBitmap: 18,
     acctOwnerOff: V12_1_ACCT_OWNER_OFF,
 
