@@ -82,12 +82,14 @@ function buildV1SmallSlab(opts: {
 
   // maxPnlCap (u64 LE) — offset within config:
   //   3 pubkeys(96) + maxStaleness(8)+confFilter(2)+bump(1)+invert(1)+unitScale(4)=16
-  //   + 9 funding fields: 8+8+16+8+8+8+8+8+8=80
+  //   + 5 funding fields: 8+8+16+8+8=48 (V12_1 upstream rebase removed 4 deprecated
+  //     fields — fundingPremiumWeightBps, fundingSettlementIntervalSlots,
+  //     fundingPremiumDampeningE6, fundingPremiumMaxBpsPerSlot — see slab.ts:1724-1727)
   //   + 8 thresh fields: 16+8+8+8+8+16+16+16=96
   //   + oracleAuthority(32)+authorityPriceE6(8)+authorityTimestamp(8)=48
   //   + oraclePriceCapE2bps(8)+lastEffPriceE6(8)+oiCapMultiplierBps(8)=24
-  //   → 360 bytes before maxPnlCap → absolute = 104 + 360 = 464
-  dv.setBigUint64(464, opts.maxPnlCap ?? 0n, true);
+  //   → 328 bytes before maxPnlCap → absolute = 104 + 328 = 432
+  dv.setBigUint64(432, opts.maxPnlCap ?? 0n, true);
 
   // ---- ENGINE (V1_LEGACY: ENGINE_OFF=640, bitmapOff_actual=672) ----
   // SLAB_TIERS_V1M.small!.dataSize=65_352 → detectSlabLayout returns V1_LEGACY layout:
