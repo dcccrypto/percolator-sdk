@@ -332,7 +332,7 @@ describe("fetchAdlRankedPositions — mocked RPC (PERC-8339)", () => {
     expect(longs.length).toBe(2);
     expect(shorts.length).toBe(1);
     expect(shorts[0].idx).toBe(1);
-    expect(longs.every(p => p.positionSize > 0n)).toBe(true);
+    expect(longs.every(p => p.positionSigned > 0n)).toBe(true);
   });
 
   it("isTriggered=true when pnlPosTot > maxPnlCap", async () => {

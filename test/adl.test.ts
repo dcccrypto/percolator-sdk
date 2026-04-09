@@ -99,7 +99,7 @@ describe("rankAdlPositions — unit tests on pure ranking logic", () => {
     const pos: AdlRankedPosition = {
       idx: 5,
       owner: CALLER,
-      positionSize: 1_000_000_000n,
+      positionSigned: 1_000_000_000n,
       pnl: 100_000n,
       capital: 1_000_000n,
       pnlPct: 1000n, // 10%
@@ -128,7 +128,7 @@ describe("rankAdlPositions — unit tests on pure ranking logic", () => {
     expect(result).toBe(0n);
   });
 
-  it("side is determined by positionSize sign", () => {
+  it("side is determined by positionSigned sign", () => {
     const longSize = 1_000n;
     const shortSize = -1_000n;
     expect(longSize > 0n ? "long" : "short").toBe("long");

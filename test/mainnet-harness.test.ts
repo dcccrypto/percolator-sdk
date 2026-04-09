@@ -309,6 +309,7 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
         expect(idx).toBeGreaterThanOrEqual(0);
         expect(account.owner).toBeInstanceOf(PublicKey);
         expect(typeof account.positionSize).toBe("bigint");
+        expect(typeof account.positionBasisQ).toBe("bigint");
         expect(typeof account.capital).toBe("bigint");
       }
     });

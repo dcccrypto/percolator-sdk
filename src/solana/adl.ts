@@ -49,7 +49,7 @@ import { encodeExecuteAdl } from "../abi/instructions.js";
 // Types
 // ---------------------------------------------------------------------------
 
-/** Position side derived from positionSize sign. */
+/** Position side derived from the signed position field's sign. */
 export type AdlSide = "long" | "short";
 
 /**
@@ -62,8 +62,16 @@ export interface AdlRankedPosition {
   idx: number;
   /** Owner public key. */
   owner: PublicKey;
-  /** Raw position size (i128 — negative = short, positive = long). */
-  positionSize: bigint;
+  /**
+   * Signed position indicator (i128 — negative = short, positive = long).
+   *
+   * - For pre-V12_1 accounts this is `position_size` (lots).
+   * - For V12_1+ accounts this is `position_basis_q` (signed quote basis).
+   *
+   * Only the sign is meaningful for ADL ranking; the magnitude differs between
+   * the two layouts and should not be cross-compared.
+   */
+  positionSigned: bigint;
   /** Realised + mark-to-market PnL in lamports (i128 from slab). */
   pnl: bigint;
   /** Capital at entry in lamports (u128). */
@@ -225,23 +233,18 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
   const positions: AdlRankedPosition[] = [];
   for (const { idx, account } of accounts) {
     if (account.kind !== AccountKind.User) continue;
-    if (account.positionSize === 0n) continue;
+
+    // Pick the signed position indicator from whichever layout this account
+    // came from: V12_1+ accounts populate positionBasisQ, older layouts
+    // populate positionSize. The sign (long/short) is consistent across both.
+    const positionSigned: bigint =
+      account.positionBasisQ !== 0n ? account.positionBasisQ : account.positionSize;
+    if (positionSigned === 0n) continue;
 
     // Determine side from sign convention: long (> 0), short (< 0).
-    // If positionSize is 0, it was already skipped above.
-    const side: AdlSide = account.positionSize > 0n ? "long" : "short";
+    const side: AdlSide = positionSigned > 0n ? "long" : "short";
 
-    // Validate sign convention: longs must be positive, shorts must be negative.
-    if (side === "long" && account.positionSize <= 0n) {
-      console.warn(`[fetchAdlRankedPositions] account idx=${idx}: side=long but positionSize=${account.positionSize}`);
-      continue;
-    }
-    if (side === "short" && account.positionSize >= 0n) {
-      console.warn(`[fetchAdlRankedPositions] account idx=${idx}: side=short but positionSize=${account.positionSize}`);
-      continue;
-    }
-
-    // For shorts, positionSize is negative — PnL computation is symmetric:
+    // For shorts, positionSigned is negative — PnL computation is symmetric:
     // a short profits when price falls, so pnl stored in the slab already
     // reflects mark-to-market gain/loss for both sides.
     const pnlPct = computePnlPct(account.pnl, account.capital);
@@ -249,7 +252,7 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
     positions.push({
       idx,
       owner: account.owner,
-      positionSize: account.positionSize,
+      positionSigned,
       pnl: account.pnl,
       capital: account.capital,
       pnlPct,

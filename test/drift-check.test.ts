@@ -456,10 +456,10 @@ describe("V12_1 slab — layout detection and field offsets", () => {
     expect(ownerBytes[31]).toBe(0xab);
   });
 
-  it.skip("parseAccount: account slot 0 — position_size at offset 88 (SBF) — TODO: rebuild mock with SBF layout (i128, reads i64 sentinel)", () => {
+  it.skip("parseAccount: account slot 0 — position_basis_q at offset 88 (SBF) — TODO: rebuild mock with SBF layout (i128, reads i64 sentinel)", () => {
     const account = parseAccount(slabBuf, 0);
     // We wrote 7_777_777 as i64 LE at acct+296 (only lo 8 bytes)
-    expect(account.positionSize).toBe(7_777_777n);
+    expect(account.positionBasisQ).toBe(7_777_777n);
   });
 
   it.skip("parseAccount: entry_price removed in V12_1 — TODO: remove test (u64)", () => {

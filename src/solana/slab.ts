@@ -454,7 +454,9 @@ const V12_1_ACCT_LAST_FEE_SLOT_OFF = 256;   // was 240 in V_ADL
 // SBF offsets (empirically verified via repr(C) with u128 align=8):
 // position_basis_q is at offset 88 on SBF (between warmup_slope_per_step and adl_a_basis)
 // entry_price was REMOVED from Account in V12_1 upstream rebase
-const V12_1_ACCT_POSITION_SIZE_OFF = 88;     // position_basis_q: i128 at offset 88 (SBF)
+// In V12_1, both position_size and entry_price were collapsed into the single
+// position_basis_q (i128) field, which encodes the signed quote-denominated basis.
+const V12_1_ACCT_POSITION_BASIS_Q_OFF = 88;  // position_basis_q: i128 at offset 88 (SBF)
 const V12_1_ACCT_ENTRY_PRICE_OFF = -1;       // REMOVED in V12_1 — does not exist
 const V12_1_ACCT_FUNDING_INDEX_OFF = 288;    // moved to end (legacy, i64 not i128)
 
@@ -1549,7 +1551,23 @@ export interface Account {
   reservedPnl: bigint;
   warmupStartedAtSlot: bigint;
   warmupSlopePerStep: bigint;
+  /**
+   * Pre-V12_1 ONLY: signed position size in lots (i128).
+   * `0n` on V12_1+ accounts because the protocol replaced `position_size`
+   * with `positionBasisQ`. Use `positionBasisQ` for V12_1+ accounts.
+   */
   positionSize: bigint;
+  /**
+   * V12_1+ ONLY: signed position quote basis (i128, `position_basis_q` on chain).
+   * Sign indicates side (positive = long, negative = short). This field replaced
+   * `position_size` and `entry_price` in the V12_1 protocol upgrade.
+   * `0n` on pre-V12_1 accounts.
+   */
+  positionBasisQ: bigint;
+  /**
+   * Pre-V12_1 ONLY: entry price (u64). `0n` on V12_1+ where `entry_price` was
+   * removed and folded into `positionBasisQ`.
+   */
   entryPrice: bigint;
   fundingIndex: bigint;
   matcherProgram: PublicKey;
@@ -2093,7 +2111,10 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
   const isAdl = layout.accountSize >= 312 || isV12_1;
   const warmupStartedOff = isAdl ? V_ADL_ACCT_WARMUP_STARTED_OFF : ACCT_WARMUP_STARTED_OFF;
   const warmupSlopeOff   = isAdl ? V_ADL_ACCT_WARMUP_SLOPE_OFF   : ACCT_WARMUP_SLOPE_OFF;
-  const positionSizeOff  = isV12_1 ? V12_1_ACCT_POSITION_SIZE_OFF : (isAdl ? V_ADL_ACCT_POSITION_SIZE_OFF : ACCT_POSITION_SIZE_OFF);
+  // For V12_1, this offset points at position_basis_q (NOT position_size — see
+  // V12_1_ACCT_POSITION_BASIS_Q_OFF). The value is read into the dedicated
+  // positionBasisQ field below; positionSize is set to 0n for V12_1.
+  const positionFieldOff = isV12_1 ? V12_1_ACCT_POSITION_BASIS_Q_OFF : (isAdl ? V_ADL_ACCT_POSITION_SIZE_OFF : ACCT_POSITION_SIZE_OFF);
   const entryPriceOff    = isV12_1 ? V12_1_ACCT_ENTRY_PRICE_OFF   : (isAdl ? V_ADL_ACCT_ENTRY_PRICE_OFF   : ACCT_ENTRY_PRICE_OFF);
   const fundingIndexOff  = isV12_1 ? V12_1_ACCT_FUNDING_INDEX_OFF : (isAdl ? V_ADL_ACCT_FUNDING_INDEX_OFF : ACCT_FUNDING_INDEX_OFF);
   const matcherProgOff   = isV12_1 ? V12_1_ACCT_MATCHER_PROGRAM_OFF : (isAdl ? V_ADL_ACCT_MATCHER_PROGRAM_OFF : ACCT_MATCHER_PROGRAM_OFF);
@@ -2112,7 +2133,12 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
     reservedPnl: isAdl ? readU128LE(data, base + ACCT_RESERVED_PNL_OFF) : readU64LE(data, base + ACCT_RESERVED_PNL_OFF),
     warmupStartedAtSlot: readU64LE(data, base + warmupStartedOff),
     warmupSlopePerStep: readU128LE(data, base + warmupSlopeOff),
-    positionSize: readI128LE(data, base + positionSizeOff),
+    // V12_1 protocol replaced position_size + entry_price with position_basis_q.
+    // Pre-V12_1 layouts read the legacy position_size at positionFieldOff;
+    // V12_1 layouts read position_basis_q at the same offset slot but expose it
+    // via the dedicated positionBasisQ field instead, leaving positionSize as 0n.
+    positionSize: isV12_1 ? 0n : readI128LE(data, base + positionFieldOff),
+    positionBasisQ: isV12_1 ? readI128LE(data, base + positionFieldOff) : 0n,
     entryPrice: entryPriceOff >= 0 ? readU64LE(data, base + entryPriceOff) : 0n, // V12_1: entry_price removed
     // V12_1 changed funding_index from i128 to i64 (legacy field moved to end of account)
     fundingIndex: isV12_1 ? BigInt(readI64LE(data, base + fundingIndexOff)) : readI128LE(data, base + fundingIndexOff),
