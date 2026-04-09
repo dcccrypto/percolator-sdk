@@ -1214,8 +1214,13 @@ function buildLayoutV12_1(maxAccounts: number, dataLen?: number): SlabLayout {
   const hostSize = computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, maxAccounts, 18);
   const isSbf = dataLen !== undefined && dataLen !== hostSize;
   const engineOff = isSbf ? 616 : V12_1_ENGINE_OFF;
-  // SBF bitmap: engine+590 (abs 1206). Host: engine+368 (abs 1016).
-  const bitmapOff = isSbf ? 590 : (V12_1_ENGINE_BITMAP_OFF - V12_1_ENGINE_OFF);
+  // Engine-relative bitmap offset. Host=1016 (matches V12_1_ENGINE_BITMAP_OFF
+  // convention used by computeSlabSize, buildLayoutVADL, and buildLayoutVSetDexPool).
+  // SBF=590 (different struct alignment under cargo build-sbf).
+  // NOTE: A prior change here subtracted V12_1_ENGINE_OFF from the host value,
+  // which broke V12_1 host accountsOff (parser produced 9744 instead of 10392
+  // for the large tier and miscomputed every per-field offset downstream).
+  const bitmapOff = isSbf ? 590 : V12_1_ENGINE_BITMAP_OFF;
   const accountSize = isSbf ? V12_1_ACCOUNT_SIZE_SBF : V12_1_ACCOUNT_SIZE;
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
