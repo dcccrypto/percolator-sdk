@@ -221,14 +221,14 @@ export function computeWarmupProgress(
   const progressBps = (elapsed * 10000n) / warmupPeriodSlots;
   const slotsRemaining = warmupPeriodSlots - elapsed;
 
-  // Matured PnL = total PnL × progress%, capped at total PnL
-  // This represents the portion of PnL that has been linearly released
-  const maturedPnl = pnl > 0n
-    ? ((pnl * progressBps) / 10000n)
-    : 0n;
+  // Matured PnL = pnl minus the on-chain reserved amount.
+  // The time-based linear release (pnl * progress%) is the theoretical cap,
+  // but the actual available amount is determined by what's still reserved.
+  const timeReleased = pnl > 0n ? ((pnl * progressBps) / 10000n) : 0n;
+  const fromReserved = pnl > 0n && pnl > reservedPnl ? pnl - reservedPnl : 0n;
+  // Use the lesser of time-released and unreserved to avoid overstating
+  const maturedPnl = timeReleased < fromReserved ? timeReleased : fromReserved;
 
-  // The actual reserved amount from the account remains reserved, but
-  // we can also compute how much is still locked by comparing to matured
   const locked = reservedPnl > 0n ? reservedPnl : 0n;
 
   return {
