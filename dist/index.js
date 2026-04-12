@@ -1619,8 +1619,9 @@ var V12_1_ACCT_POSITION_SIZE_OFF = 88;
 var V12_1_ACCT_ENTRY_PRICE_OFF = -1;
 var V12_1_ACCT_FUNDING_INDEX_OFF = 288;
 var V12_15_ENGINE_OFF = 624;
+var V12_15_ENGINE_OFF_SBF = 616;
 var V12_15_ACCOUNT_SIZE = 4400;
-var V12_15_ACCOUNT_SIZE_SMALL = 944;
+var V12_15_ACCOUNT_SIZE_SMALL = 920;
 var V12_15_ACCT_ACCOUNT_ID_OFF = 0;
 var V12_15_ACCT_CAPITAL_OFF = 8;
 var V12_15_ACCT_KIND_OFF = 24;
@@ -2348,15 +2349,17 @@ function buildLayoutV12_1(maxAccounts, dataLen) {
     engineInsuranceIsolationBpsOff: isSbf ? -1 : 64
   };
 }
-function buildLayoutV12_15(maxAccounts) {
-  const engineOff = V12_15_ENGINE_OFF;
+function buildLayoutV12_15(maxAccounts, dataLen) {
+  const isSbf = dataLen === 237512;
+  const accountSize = isSbf ? V12_15_ACCOUNT_SIZE_SMALL : V12_15_ACCOUNT_SIZE;
+  const engineOff = isSbf ? V12_15_ENGINE_OFF_SBF : V12_15_ENGINE_OFF;
   const bitmapOff = V12_15_ENGINE_BITMAP_OFF;
-  const accountSize = V12_15_ACCOUNT_SIZE;
+  const effectiveBitmapOff = isSbf ? 640 : bitmapOff;
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
   const postBitmap = 18;
   const nextFreeBytes = maxAccounts * 2;
-  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const preAccountsLen = effectiveBitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
   const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
   return {
     version: 2,
@@ -2376,18 +2379,18 @@ function buildLayoutV12_15(maxAccounts) {
     engineInsuranceOff: 16,
     engineParamsOff: V12_15_ENGINE_PARAMS_OFF,
     // 32
-    paramsSize: V12_15_PARAMS_SIZE,
-    // 192
-    engineCurrentSlotOff: V12_15_ENGINE_CURRENT_SLOT_OFF,
-    // 224
+    paramsSize: isSbf ? 184 : V12_15_PARAMS_SIZE,
+    // SBF=184 (no trailing pad), native=192
+    engineCurrentSlotOff: isSbf ? 216 : V12_15_ENGINE_CURRENT_SLOT_OFF,
+    // SBF=216, native=224
     engineFundingIndexOff: -1,
     // not present in v12.15 engine struct
     engineLastFundingSlotOff: -1,
     // not present in v12.15 engine struct
     // funding_rate_e9 is i128 — stored in engineFundingRateBpsOff for EngineState.fundingRateBpsPerSlotLast
     // callers should treat this as the i128 funding rate in e9 units
-    engineFundingRateBpsOff: V12_15_ENGINE_FUNDING_RATE_E9_OFF,
-    // 240
+    engineFundingRateBpsOff: isSbf ? 224 : V12_15_ENGINE_FUNDING_RATE_E9_OFF,
+    // SBF=224, native=240
     engineMarkPriceOff: -1,
     // not present in v12.15 (removed with oracle refactor)
     engineLastCrankSlotOff: -1,
@@ -2400,10 +2403,10 @@ function buildLayoutV12_15(maxAccounts) {
     // not present in v12.15 engine
     engineShortOiOff: -1,
     // not present in v12.15 engine
-    engineCTotOff: V12_15_ENGINE_C_TOT_OFF,
-    // 344
-    enginePnlPosTotOff: V12_15_ENGINE_PNL_POS_TOT_OFF,
-    // 368
+    engineCTotOff: isSbf ? 320 : V12_15_ENGINE_C_TOT_OFF,
+    // SBF=320 (verified on-chain), native=344
+    enginePnlPosTotOff: isSbf ? 336 : V12_15_ENGINE_PNL_POS_TOT_OFF,
+    // SBF=336 (verified), native=368
     engineLiqCursorOff: -1,
     // not yet mapped
     engineGcCursorOff: -1,
@@ -2434,7 +2437,8 @@ function buildLayoutV12_15(maxAccounts) {
     // not present in v12.15
     engineLastBreakerSlotOff: -1,
     // not present in v12.15
-    engineBitmapOff: bitmapOff,
+    engineBitmapOff: effectiveBitmapOff,
+    // SBF=640, native=862
     postBitmap,
     acctOwnerOff: V12_15_ACCT_OWNER_OFF,
     // 192
@@ -2446,7 +2450,7 @@ function buildLayoutV12_15(maxAccounts) {
 }
 function detectSlabLayout(dataLen, data) {
   const v1215n = V12_15_SIZES.get(dataLen);
-  if (v1215n !== void 0) return buildLayoutV12_15(v1215n);
+  if (v1215n !== void 0) return buildLayoutV12_15(v1215n, dataLen);
   const v121n = V12_1_SIZES.get(dataLen);
   if (v121n !== void 0) return buildLayoutV12_1(v121n, dataLen);
   const vsdpn = V_SETDEXPOOL_SIZES.get(dataLen);
@@ -2742,7 +2746,7 @@ function parseParams(data, layoutHint) {
   if (data.length < base + Math.min(paramsSize, 56)) {
     throw new Error("Slab data too short for RiskParams");
   }
-  const isV12_15Params = paramsSize === V12_15_PARAMS_SIZE;
+  const isV12_15Params = paramsSize === V12_15_PARAMS_SIZE || paramsSize === 184;
   const result = {
     warmupPeriodSlots: isV12_15Params ? readU64LE(data, base + V12_15_PARAMS_H_MIN_OFF) : readU64LE(data, base + PARAMS_WARMUP_PERIOD_OFF),
     maintenanceMarginBps: readU64LE(data, base + PARAMS_MAINTENANCE_MARGIN_OFF),
@@ -2764,13 +2768,13 @@ function parseParams(data, layoutHint) {
   if (isV12_15Params) {
     result.hMin = readU64LE(data, base + V12_15_PARAMS_H_MIN_OFF);
     result.hMax = readU64LE(data, base + V12_15_PARAMS_H_MAX_OFF);
-    result.riskReductionThreshold = readU128LE(data, base + PARAMS_RISK_THRESHOLD_OFF);
-    result.maintenanceFeePerSlot = readU128LE(data, base + PARAMS_MAINTENANCE_FEE_OFF);
-    result.maxCrankStalenessSlots = readU64LE(data, base + PARAMS_MAX_CRANK_STALENESS_OFF);
-    result.liquidationFeeBps = readU64LE(data, base + PARAMS_LIQUIDATION_FEE_BPS_OFF);
-    result.liquidationFeeCap = readU128LE(data, base + PARAMS_LIQUIDATION_FEE_CAP_OFF);
-    result.liquidationBufferBps = readU64LE(data, base + PARAMS_LIQUIDATION_BUFFER_OFF);
-    result.minLiquidationAbs = readU128LE(data, base + PARAMS_MIN_LIQUIDATION_OFF);
+    result.riskReductionThreshold = 0n;
+    result.maintenanceFeePerSlot = 0n;
+    result.maxCrankStalenessSlots = readU64LE(data, base + 48);
+    result.liquidationFeeBps = readU64LE(data, base + 56);
+    result.liquidationFeeCap = readU128LE(data, base + 64);
+    result.liquidationBufferBps = 0n;
+    result.minLiquidationAbs = readU128LE(data, base + 80);
   } else if (paramsSize >= 144) {
     result.riskReductionThreshold = readU128LE(data, base + PARAMS_RISK_THRESHOLD_OFF);
     result.maintenanceFeePerSlot = readU128LE(data, base + PARAMS_MAINTENANCE_FEE_OFF);
@@ -2790,8 +2794,8 @@ function parseEngine(data) {
     throw new Error(`Unrecognized slab data length: ${data.length}. Cannot determine layout version.`);
   }
   const base = layout.engineOff;
-  const isV12_15 = (layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL) && layout.engineOff === V12_15_ENGINE_OFF;
-  const fundingRateBpsPerSlotLast = isV12_15 ? readI128LE(data, base + V12_15_ENGINE_FUNDING_RATE_E9_OFF) : readI64LE(data, base + layout.engineFundingRateBpsOff);
+  const isV12_15 = layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL;
+  const fundingRateBpsPerSlotLast = isV12_15 ? readI128LE(data, base + layout.engineFundingRateBpsOff) : readI64LE(data, base + layout.engineFundingRateBpsOff);
   return {
     vault: readU128LE(data, base),
     insuranceFund: {
@@ -2805,7 +2809,7 @@ function parseEngine(data) {
     fundingIndexQpbE6: layout.engineFundingIndexOff >= 0 ? readI128LE(data, base + layout.engineFundingIndexOff) : 0n,
     lastFundingSlot: layout.engineLastFundingSlotOff >= 0 ? readU64LE(data, base + layout.engineLastFundingSlotOff) : 0n,
     fundingRateBpsPerSlotLast,
-    fundingRateE9: isV12_15 ? readI128LE(data, base + V12_15_ENGINE_FUNDING_RATE_E9_OFF) : 0n,
+    fundingRateE9: isV12_15 ? readI128LE(data, base + layout.engineFundingRateBpsOff) : 0n,
     marketMode: isV12_15 ? readU8(data, base + V12_15_ENGINE_MARKET_MODE_OFF) === 1 ? 1 : 0 : null,
     lastCrankSlot: layout.engineLastCrankSlotOff >= 0 ? readU64LE(data, base + layout.engineLastCrankSlotOff) : 0n,
     maxCrankStalenessSlots: layout.engineMaxCrankStalenessOff >= 0 ? readU64LE(data, base + layout.engineMaxCrankStalenessOff) : 0n,
