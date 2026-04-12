@@ -145,7 +145,15 @@ export interface InitMarketArgs {
     maxMaintenanceFeePerSlot?: bigint | string;
     maxInsuranceFloor?: bigint | string;
     minOraclePriceCap?: bigint | string;
-    warmupPeriodSlots: bigint | string;
+    /**
+     * @deprecated Use hMin/hMax instead (v12.15+). If provided without hMin/hMax, both h_min
+     * and h_max are set to this value for backwards compatibility.
+     */
+    warmupPeriodSlots?: bigint | string;
+    /** Minimum horizon slots (v12.15+). Replaces warmupPeriodSlots. */
+    hMin?: bigint | string;
+    /** Maximum horizon slots (v12.15+). Replaces warmupPeriodSlots. */
+    hMax?: bigint | string;
     maintenanceMarginBps: bigint | string;
     initialMarginBps: bigint | string;
     tradingFeeBps: bigint | string;

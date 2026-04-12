@@ -357,10 +357,11 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeInitLP");
 }
 
-// Test InitMarket encoding (352 bytes total: 264 + 3×u128 new fields)
+// Test InitMarket encoding (360 bytes total: v12.15 adds hMax(8) to end of RiskParams)
 // Layout: tag(1) + admin(32) + mint(32) + indexFeedId(32) +
 //         maxStaleSecs(8) + confFilter(2) + invert(1) + unitScale(4) +
-//         RiskParams(192)  [was 144, grew by 3×u128=48]
+//         markPrice(8) + maxMaintFee(16) + maxInsFloor(16) + minOracleCap(8) +
+//         RiskParams: hMin(8)+mmBps(8)+...+minIm(16)+hMax(8) = 200 bytes [+8 for hMax]
 {
   // Use keypair-generated valid pubkeys
   const admin = PublicKey.unique();
@@ -394,7 +395,7 @@ console.log("\nTesting instruction encoders...\n");
     minNonzeroMmReq: "1000",
     minNonzeroImReq: "2000",
   });
-  assert(data.length === 352, `InitMarket length: expected 352, got ${data.length}`);
+  assert(data.length === 360, `InitMarket length: expected 360, got ${data.length}`);
   assert(data[0] === IX_TAG.InitMarket, "InitMarket tag byte");
   console.log("✓ encodeInitMarket");
 }

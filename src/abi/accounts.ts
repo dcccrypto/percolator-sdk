@@ -473,23 +473,6 @@ export const ACCOUNTS_ADVANCE_ORACLE_PHASE: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// PERC-623: Keeper Fund Instructions
-// ============================================================================
-
-/**
- * TopUpKeeperFund: 3 accounts
- * Permissionless — anyone can fund. Transfers lamports directly (no system program).
- */
-export const ACCOUNTS_TOPUP_KEEPER_FUND: readonly AccountSpec[] = [
-  { name: "funder", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true },
-  { name: "keeperFund", signer: false, writable: true },
-] as const;
-
-// Note: WithdrawKeeperReward has no separate instruction.
-// Rewards are paid automatically during KeeperCrank (tag 5).
-
-// ============================================================================
 // PERC-8110: SetOiImbalanceHardBlock
 // ============================================================================
 

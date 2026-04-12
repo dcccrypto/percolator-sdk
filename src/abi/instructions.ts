@@ -109,8 +109,7 @@ export const IX_TAG = {
   AttestCrossMargin: 55,
   /** PERC-622: Advance oracle phase (permissionless crank) */
   AdvanceOraclePhase: 56,
-  /** PERC-623: Top up a market's keeper fund (permissionless) */
-  TopUpKeeperFund: 57,
+  // 57: removed (keeper fund)
   /** PERC-629: Slash a market creator's deposit (permissionless) */
   SlashCreationDeposit: 58,
   /** PERC-628: Initialize the global shared vault (admin) */
@@ -173,7 +172,15 @@ export interface InitMarketArgs {
   maxInsuranceFloor?: bigint | string;         // u128 — max insurance floor
   minOraclePriceCap?: bigint | string;         // u64 — min oracle price cap in e2bps
   // RiskParams block (15 fields, read by read_risk_params on-chain)
-  warmupPeriodSlots: bigint | string;
+  /**
+   * @deprecated Use hMin/hMax instead (v12.15+). If provided without hMin/hMax, both h_min
+   * and h_max are set to this value for backwards compatibility.
+   */
+  warmupPeriodSlots?: bigint | string;
+  /** Minimum horizon slots (v12.15+). Replaces warmupPeriodSlots. */
+  hMin?: bigint | string;
+  /** Maximum horizon slots (v12.15+). Replaces warmupPeriodSlots. */
+  hMax?: bigint | string;
   maintenanceMarginBps: bigint | string;
   initialMarginBps: bigint | string;
   tradingFeeBps: bigint | string;
@@ -218,13 +225,20 @@ function encodeFeedId(feedId: string): Uint8Array {
 
 // tag(1) + admin(32) + mint(32) + feedId(32) + staleness(8) + conf(2) + invert(1) + scale(4) +
 // markPrice(8) + maxMaintFee(16) + maxInsFloor(16) + minOracleCap(8) +
-// RiskParams: warmup(8) + mmBps(8) + imBps(8) + tradeFee(8) + maxAcct(8) + newAcctFee(16) +
+// RiskParams: hMin(8) + mmBps(8) + imBps(8) + tradeFee(8) + maxAcct(8) + newAcctFee(16) +
 //   riskRedThresh(16) + maintFee(16) + maxStale(8) + liqFee(8) + liqCap(16) + liqBuf(8) +
-//   minLiqAbs(16) + minDeposit(16) + minMm(16) + minIm(16)
-// = 1+32+32+32+8+2+1+4+8+16+16+8 + 8+8+8+8+8+16+16+16+8+8+16+8+16+16+16+16 = 352
-const INIT_MARKET_DATA_LEN = 352;
+//   minLiqAbs(16) + minDeposit(16) + minMm(16) + minIm(16) + hMax(8)
+// = 1+32+32+32+8+2+1+4+8+16+16+8 + 8+8+8+8+8+16+16+16+8+8+16+8+16+16+16+16+8 = 360
+// Note: v12.15 on-chain instruction parser reads h_min at offset 0 and h_max at the end of
+// RiskParams. The warmupPeriodSlots alias writes both h_min and h_max from the same value
+// for backwards compatibility with pre-v12.15 callers.
+const INIT_MARKET_DATA_LEN = 360;
 
 export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
+  // Resolve h_min / h_max: prefer explicit hMin/hMax, fall back to warmupPeriodSlots alias.
+  const hMin = args.hMin ?? args.warmupPeriodSlots ?? 0n;
+  const hMax = args.hMax ?? args.warmupPeriodSlots ?? 0n;
+
   const data = concatBytes(
     encU8(IX_TAG.InitMarket),
     encPubkey(args.admin),
@@ -239,8 +253,8 @@ export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
     encU128(args.maxMaintenanceFeePerSlot ?? 0n),
     encU128(args.maxInsuranceFloor ?? 0n),
     encU64(args.minOraclePriceCap ?? 0n),
-    // RiskParams block (15 fields)
-    encU64(args.warmupPeriodSlots),
+    // RiskParams block (16 fields — h_min replaces warmup_period_slots, h_max added at end)
+    encU64(hMin),
     encU64(args.maintenanceMarginBps),
     encU64(args.initialMarginBps),
     encU64(args.tradingFeeBps),
@@ -256,6 +270,7 @@ export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
     encU128(args.minInitialDeposit),
     encU128(args.minNonzeroMmReq),
     encU128(args.minNonzeroImReq),
+    encU64(hMax),  // h_max — new in v12.15, appended after minNonzeroImReq
   );
   if (data.length !== INIT_MARKET_DATA_LEN) {
     throw new Error(
@@ -1199,33 +1214,6 @@ export function checkPhaseTransition(
       return [ORACLE_PHASE_MATURE, false];
   }
 }
-
-// ============================================================================
-// PERC-623: Keeper Fund Instructions
-// ============================================================================
-
-/**
- * TopUpKeeperFund (Tag 57) — permissionless keeper fund top-up.
- *
- * Instruction data: tag(1) + amount(8) = 9 bytes
- *
- * Accounts:
- *   0. [signer, writable] Funder
- *   1. [writable]         Slab
- *   2. [writable]         Keeper fund PDA
- *   3. []                 System program
- */
-export interface TopUpKeeperFundArgs {
-  amount: bigint | string;
-}
-
-export function encodeTopUpKeeperFund(args: TopUpKeeperFundArgs): Uint8Array {
-  return concatBytes(encU8(IX_TAG.TopUpKeeperFund), encU64(args.amount));
-}
-
-// Note: WithdrawKeeperReward does NOT exist as a separate instruction.
-// Keeper rewards are paid automatically during KeeperCrank (tag 5).
-// The keeper fund PDA is debited in-place when a successful crank is executed.
 
 // ============================================================================
 // PERC-629: Dynamic Creation Deposit

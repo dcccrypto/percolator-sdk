@@ -131,9 +131,21 @@ export declare const SLAB_TIERS_V12_1: Record<string, {
     description: string;
 }>;
 /**
+ * V12_15 slab tier sizes — percolator v12.15 (engine+prog sync).
+ * ENGINE_OFF=624, BITMAP_OFF=862 (relative), ACCOUNT_SIZE=4400, postBitmap=18.
+ * MAX_ACCOUNTS default changed from 4096 to 2048. Verified SLAB_LEN=1,128,448 for small (256).
+ * Account layout completely redesigned with reserve cohort arrays.
+ */
+export declare const SLAB_TIERS_V12_15: Record<string, {
+    maxAccounts: number;
+    dataSize: number;
+    label: string;
+    description: string;
+}>;
+/**
  * Detect the slab layout version from the raw account data length.
  * Returns the full SlabLayout descriptor, or null if the size is unrecognised.
- * Checks V12_1, V_SETDEXPOOL, V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes.
+ * Checks V12_15, V12_1, V_SETDEXPOOL, V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes.
  *
  * When `data` is provided and the size matches V1D, the version field at offset 8 is read
  * to disambiguate V2 slabs (which produce identical sizes to V1D with postBitmap=2).
@@ -229,6 +241,10 @@ export interface InsuranceFund {
     isolationBps: number;
 }
 export interface RiskParams {
+    /**
+     * @deprecated Split into hMin/hMax in v12.15 RiskParams. On V12_15 slabs this field returns
+     * hMin for backwards compatibility. On pre-v12.15 slabs hMin/hMax both mirror this value.
+     */
     warmupPeriodSlots: bigint;
     maintenanceMarginBps: bigint;
     initialMarginBps: bigint;
@@ -242,6 +258,10 @@ export interface RiskParams {
     liquidationFeeCap: bigint;
     liquidationBufferBps: bigint;
     minLiquidationAbs: bigint;
+    /** Minimum horizon slots (v12.15+). Replaces warmupPeriodSlots. 0n on pre-v12.15 slabs. */
+    hMin: bigint;
+    /** Maximum horizon slots (v12.15+). 0n on pre-v12.15 slabs. */
+    hMax: bigint;
 }
 export interface EngineState {
     vault: bigint;
@@ -249,7 +269,22 @@ export interface EngineState {
     currentSlot: bigint;
     fundingIndexQpbE6: bigint;
     lastFundingSlot: bigint;
+    /**
+     * Funding rate per slot. On pre-v12.15 slabs: i64 in BPS units.
+     * On v12.15+ slabs: i128 in e9 units (field renamed `funding_rate_e9` on-chain).
+     * Use `fundingRateE9` for v12.15-aware code.
+     */
     fundingRateBpsPerSlotLast: bigint;
+    /**
+     * Funding rate in e9 units (i128). v12.15+ only.
+     * 0n on pre-v12.15 slabs (use `fundingRateBpsPerSlotLast` instead).
+     */
+    fundingRateE9: bigint;
+    /**
+     * Market mode. v12.15+ only.
+     * 0 = Live, 1 = Resolved. null on pre-v12.15 slabs.
+     */
+    marketMode: 0 | 1 | null;
     lastCrankSlot: bigint;
     maxCrankStalenessSlots: bigint;
     totalOpenInterest: bigint;
@@ -257,6 +292,11 @@ export interface EngineState {
     shortOi: bigint;
     cTot: bigint;
     pnlPosTot: bigint;
+    /**
+     * Matured (settled) positive PnL total (u128). v12.15+ only.
+     * 0n on pre-v12.15 slabs.
+     */
+    pnlMaturedPosTot: bigint;
     liqCursor: number;
     gcCursor: number;
     lastSweepStartSlot: bigint;
@@ -280,22 +320,45 @@ export declare enum AccountKind {
     User = 0,
     LP = 1
 }
+/** Parsed reserve cohort (64 bytes on-chain). Raw bytes; structure is program-internal. */
+export type ReserveCohortBytes = Uint8Array;
 export interface Account {
     kind: AccountKind;
     accountId: bigint;
     capital: bigint;
     pnl: bigint;
     reservedPnl: bigint;
+    /** @deprecated Removed in v12.15. Always 0n on V12_15 slabs. */
     warmupStartedAtSlot: bigint;
+    /** @deprecated Removed in v12.15. Always 0n on V12_15 slabs. */
     warmupSlopePerStep: bigint;
     positionSize: bigint;
+    /** Entry price in e6 units. Present in V12_15 (offset 120) and V_ADL/V12_1_EP. -1 signals absent. */
     entryPrice: bigint;
     fundingIndex: bigint;
     matcherProgram: PublicKey;
     matcherContext: PublicKey;
     owner: PublicKey;
     feeCredits: bigint;
+    /** @deprecated Removed in v12.15. Always 0n on V12_15 slabs. */
     lastFeeSlot: bigint;
+    /** Total fees earned over account lifetime (u128). Present from v12.15. 0n on older layouts. */
+    feesEarnedTotal: bigint;
+    /**
+     * Reserve cohorts array (v12.15+). Up to 62 cohorts of 64 bytes each.
+     * `null` on pre-v12.15 slabs. Parse the raw bytes according to the on-chain ReserveCohort struct.
+     */
+    exactReserveCohorts: ReserveCohortBytes[] | null;
+    /** Number of active reserve cohorts (0–62). null on pre-v12.15 slabs. */
+    exactCohortCount: number | null;
+    /** Overflow (oldest) cohort raw bytes. null on pre-v12.15 slabs or when not present. */
+    overflowOlder: ReserveCohortBytes | null;
+    /** True if overflowOlder contains valid data. null on pre-v12.15 slabs. */
+    overflowOlderPresent: boolean | null;
+    /** Overflow (newest) cohort raw bytes. null on pre-v12.15 slabs or when not present. */
+    overflowNewest: ReserveCohortBytes | null;
+    /** True if overflowNewest contains valid data. null on pre-v12.15 slabs. */
+    overflowNewestPresent: boolean | null;
 }
 export declare function fetchSlab(connection: Connection, slabPubkey: PublicKey): Promise<Uint8Array>;
 export declare const RAMP_START_BPS = 1000n;
