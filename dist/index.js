@@ -1620,6 +1620,7 @@ var V12_1_ACCT_ENTRY_PRICE_OFF = -1;
 var V12_1_ACCT_FUNDING_INDEX_OFF = 288;
 var V12_15_ENGINE_OFF = 624;
 var V12_15_ACCOUNT_SIZE = 4400;
+var V12_15_ACCOUNT_SIZE_SMALL = 944;
 var V12_15_ACCT_ACCOUNT_ID_OFF = 0;
 var V12_15_ACCT_CAPITAL_OFF = 8;
 var V12_15_ACCT_KIND_OFF = 24;
@@ -1726,6 +1727,7 @@ for (const n of TIERS) {
   V12_15_SIZES.set(computeSlabSize(V12_15_ENGINE_OFF, V12_15_ENGINE_BITMAP_OFF, V12_15_ACCOUNT_SIZE, n, 18), n);
 }
 V12_15_SIZES.set(computeSlabSize(V12_15_ENGINE_OFF, V12_15_ENGINE_BITMAP_OFF, V12_15_ACCOUNT_SIZE, 2048, 18), 2048);
+V12_15_SIZES.set(237512, 256);
 var V12_1_SBF_ACCOUNT_SIZE = 280;
 var V12_1_SBF_ENGINE_OFF = 616;
 var V12_1_SBF_BITMAP_OFF = 584;
@@ -2788,7 +2790,7 @@ function parseEngine(data) {
     throw new Error(`Unrecognized slab data length: ${data.length}. Cannot determine layout version.`);
   }
   const base = layout.engineOff;
-  const isV12_15 = layout.accountSize === V12_15_ACCOUNT_SIZE && layout.engineOff === V12_15_ENGINE_OFF;
+  const isV12_15 = (layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL) && layout.engineOff === V12_15_ENGINE_OFF;
   const fundingRateBpsPerSlotLast = isV12_15 ? readI128LE(data, base + V12_15_ENGINE_FUNDING_RATE_E9_OFF) : readI64LE(data, base + layout.engineFundingRateBpsOff);
   return {
     vault: readU128LE(data, base),
@@ -2889,7 +2891,7 @@ function parseAccount(data, idx) {
   if (data.length < base + layout.accountSize) {
     throw new Error("Slab data too short for account");
   }
-  const isV12_15 = layout.accountSize === V12_15_ACCOUNT_SIZE;
+  const isV12_15 = layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL;
   const isV12_1 = !isV12_15 && (layout.engineOff === V12_1_ENGINE_OFF || layout.engineOff === V12_1_SBF_ENGINE_OFF) && (layout.accountSize === V12_1_ACCOUNT_SIZE || layout.accountSize === V12_1_ACCOUNT_SIZE_SBF);
   const isAdl = !isV12_15 && (layout.accountSize >= 312 || isV12_1);
   if (isV12_15) {
