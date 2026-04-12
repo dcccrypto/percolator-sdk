@@ -4164,7 +4164,7 @@ function deriveStakeVaultAuth(pool, programId) {
 }
 function deriveDepositPda(pool, user, programId) {
   return PublicKey10.findProgramAddressSync(
-    [TEXT.encode("deposit"), pool.toBytes(), user.toBytes()],
+    [TEXT.encode("stake_deposit"), pool.toBytes(), user.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
