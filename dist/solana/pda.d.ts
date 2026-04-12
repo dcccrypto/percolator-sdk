@@ -9,11 +9,6 @@ export declare function deriveVaultAuthority(programId: PublicKey, slab: PublicK
  * Seeds: ["lp", slab_key, lp_idx as u16 LE]
  */
 export declare function deriveLpPda(programId: PublicKey, slab: PublicKey, lpIdx: number): [PublicKey, number];
-/**
- * Derive keeper fund PDA.
- * Seeds: ["keeper_fund", slab_key]
- */
-export declare function deriveKeeperFund(programId: PublicKey, slab: PublicKey): [PublicKey, number];
 /** PumpSwap AMM program ID. */
 export declare const PUMPSWAP_PROGRAM_ID: PublicKey;
 /** Raydium CLMM (Concentrated Liquidity) program ID. */

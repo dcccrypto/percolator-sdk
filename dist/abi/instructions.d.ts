@@ -85,8 +85,6 @@ export declare const IX_TAG: {
     readonly AttestCrossMargin: 55;
     /** PERC-622: Advance oracle phase (permissionless crank) */
     readonly AdvanceOraclePhase: 56;
-    /** PERC-623: Top up a market's keeper fund (permissionless) */
-    readonly TopUpKeeperFund: 57;
     /** PERC-629: Slash a market creator's deposit (permissionless) */
     readonly SlashCreationDeposit: 58;
     /** PERC-628: Initialize the global shared vault (admin) */
@@ -698,21 +696,6 @@ export declare const PHASE2_MATURITY_SLOTS = 3024000n;
  * @returns [newPhase, shouldTransition]
  */
 export declare function checkPhaseTransition(currentSlot: bigint, marketCreatedSlot: bigint, oraclePhase: number, cumulativeVolumeE6: bigint, phase2DeltaSlots: number, hasMatureOracle: boolean): [number, boolean];
-/**
- * TopUpKeeperFund (Tag 57) — permissionless keeper fund top-up.
- *
- * Instruction data: tag(1) + amount(8) = 9 bytes
- *
- * Accounts:
- *   0. [signer, writable] Funder
- *   1. [writable]         Slab
- *   2. [writable]         Keeper fund PDA
- *   3. []                 System program
- */
-export interface TopUpKeeperFundArgs {
-    amount: bigint | string;
-}
-export declare function encodeTopUpKeeperFund(args: TopUpKeeperFundArgs): Uint8Array;
 /**
  * SlashCreationDeposit (Tag 58) — permissionless: slash a market creator's deposit
  * after the spam grace period has elapsed (PERC-629).

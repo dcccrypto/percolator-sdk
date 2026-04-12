@@ -188,8 +188,7 @@ var IX_TAG = {
   AttestCrossMargin: 55,
   /** PERC-622: Advance oracle phase (permissionless crank) */
   AdvanceOraclePhase: 56,
-  /** PERC-623: Top up a market's keeper fund (permissionless) */
-  TopUpKeeperFund: 57,
+  // 57: removed (keeper fund)
   /** PERC-629: Slash a market creator's deposit (permissionless) */
   SlashCreationDeposit: 58,
   /** PERC-628: Initialize the global shared vault (admin) */
@@ -600,9 +599,6 @@ function checkPhaseTransition(currentSlot, marketCreatedSlot, oraclePhase, cumul
       return [ORACLE_PHASE_MATURE, false];
   }
 }
-function encodeTopUpKeeperFund(args) {
-  return concatBytes(encU8(IX_TAG.TopUpKeeperFund), encU64(args.amount));
-}
 function encodeSlashCreationDeposit() {
   return encU8(IX_TAG.SlashCreationDeposit);
 }
@@ -964,11 +960,6 @@ var ACCOUNTS_AUDIT_CRANK = [
 ];
 var ACCOUNTS_ADVANCE_ORACLE_PHASE = [
   { name: "slab", signer: false, writable: true }
-];
-var ACCOUNTS_TOPUP_KEEPER_FUND = [
-  { name: "funder", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true },
-  { name: "keeperFund", signer: false, writable: true }
 ];
 var ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK = [
   { name: "admin", signer: true, writable: false },
@@ -3017,12 +3008,6 @@ function deriveLpPda(programId, slab, lpIdx) {
   new DataView(idxBuf.buffer).setUint16(0, lpIdx, true);
   return PublicKey4.findProgramAddressSync(
     [textEncoder.encode("lp"), slab.toBytes(), idxBuf],
-    programId
-  );
-}
-function deriveKeeperFund(programId, slab) {
-  return PublicKey4.findProgramAddressSync(
-    [textEncoder.encode("keeper_fund"), slab.toBytes()],
     programId
   );
 }
@@ -5942,7 +5927,6 @@ export {
   ACCOUNTS_SET_RISK_THRESHOLD,
   ACCOUNTS_SET_WALLET_CAP,
   ACCOUNTS_TOPUP_INSURANCE,
-  ACCOUNTS_TOPUP_KEEPER_FUND,
   ACCOUNTS_TRADE_CPI,
   ACCOUNTS_TRADE_NOCPI,
   ACCOUNTS_TRANSFER_POSITION_OWNERSHIP,
@@ -6048,7 +6032,6 @@ export {
   depositAccounts,
   deriveCreatorLockPda,
   deriveDepositPda,
-  deriveKeeperFund,
   deriveLpPda,
   derivePythPriceUpdateAccount,
   derivePythPushOraclePDA,
@@ -6145,7 +6128,6 @@ export {
   encodeStakeUpdateConfig,
   encodeStakeWithdraw,
   encodeTopUpInsurance,
-  encodeTopUpKeeperFund,
   encodeTradeCpi,
   encodeTradeCpiV2,
   encodeTradeNoCpi,
