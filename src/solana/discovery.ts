@@ -553,9 +553,10 @@ function isRateLimitError(err: unknown): boolean {
   );
 }
 
-/** Add up to 25% random jitter to avoid thundering-herd on retry. */
+/** Equal jitter: spread across [delay/2, delay] for fleet decorrelation. */
 function withJitter(delayMs: number): number {
-  return delayMs + Math.floor(Math.random() * delayMs * 0.25);
+  const half = Math.floor(delayMs / 2);
+  return half + Math.floor(Math.random() * (delayMs - half + 1));
 }
 
 /**

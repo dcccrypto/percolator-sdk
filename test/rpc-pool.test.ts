@@ -103,11 +103,11 @@ describe("_internal helpers", () => {
         baseDelayMs: 1000,
         jitterFactor: 0.25,
       })!;
-      // Run 100 times — delay should be in [1000, 1250] for attempt 0
+      // Run 100 times — equal jitter: delay should be in [500, 1000] for attempt 0
       for (let i = 0; i < 100; i++) {
         const delay = _internal.computeDelay(0, config);
-        expect(delay).toBeGreaterThanOrEqual(1000);
-        expect(delay).toBeLessThanOrEqual(1250);
+        expect(delay).toBeGreaterThanOrEqual(500);
+        expect(delay).toBeLessThanOrEqual(1000);
       }
     });
   });
