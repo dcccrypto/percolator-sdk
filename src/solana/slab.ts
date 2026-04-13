@@ -691,6 +691,8 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Lar
   const size = computeSlabSize(V1M_ENGINE_OFF, V1M_ENGINE_BITMAP_OFF, V1M_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V1M[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V1M mainnet)` };
 }
+for (const v of Object.values(SLAB_TIERS_V1M)) Object.freeze(v);
+Object.freeze(SLAB_TIERS_V1M);
 
 /**
  * V1M2 slab tier sizes — mainnet program rebuilt from main@4861c56 with 312-byte accounts.
@@ -703,6 +705,8 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Lar
   const size = computeSlabSize(V1M2_ENGINE_OFF, V1M2_ENGINE_BITMAP_OFF, V1M2_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V1M2[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V1M2 mainnet upgraded)` };
 }
+for (const v of Object.values(SLAB_TIERS_V1M2)) Object.freeze(v);
+Object.freeze(SLAB_TIERS_V1M2);
 
 /**
  * V_ADL slab tier sizes — PERC-8270/8271 ADL-upgraded program.
@@ -715,6 +719,8 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Lar
   const size = computeSlabSize(V_ADL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V_ADL[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V_ADL PERC-8270)` };
 }
+for (const v of Object.values(SLAB_TIERS_V_ADL)) Object.freeze(v);
+Object.freeze(SLAB_TIERS_V_ADL);
 
 /**
  * Build a complete SlabLayout descriptor for V0 or V1 (including V1-legacy) slabs.
@@ -1159,6 +1165,8 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Lar
   const size = computeSlabSize(V_SETDEXPOOL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V_SETDEXPOOL[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V_SETDEXPOOL PERC-SetDexPool)` };
 }
+for (const v of Object.values(SLAB_TIERS_V_SETDEXPOOL)) Object.freeze(v);
+Object.freeze(SLAB_TIERS_V_SETDEXPOOL);
 
 /**
  * V12_1 slab tier sizes — percolator-core v12.1 merge.
@@ -1170,6 +1178,8 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Lar
   const size = computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V12_1[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (v12.1)` };
 }
+for (const v of Object.values(SLAB_TIERS_V12_1)) Object.freeze(v);
+Object.freeze(SLAB_TIERS_V12_1);
 
 /**
  * Build a SlabLayout for V_SETDEXPOOL slabs (PERC-SetDexPool security fix).

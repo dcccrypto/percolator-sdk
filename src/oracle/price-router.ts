@@ -191,6 +191,9 @@ export const PYTH_SOLANA_FEEDS: Record<string, { symbol: string; mint: string }>
   // IOT
   "8bdd20f0c68bf7370a19389bbb3d17c1db7956c38efa08b2f3dd0e5db9b8c1ef": { symbol: "IOT", mint: "iotEVVZLEywoTn1QdwNPddxPWszn3zFhEot3MfL9fns" },
 };
+// Runtime immutability: prevent oracle feed poisoning via mutation.
+for (const v of Object.values(PYTH_SOLANA_FEEDS)) Object.freeze(v);
+Object.freeze(PYTH_SOLANA_FEEDS);
 
 // Reverse lookup: mint → feed ID
 const MINT_TO_PYTH_FEED = new Map<string, { feedId: string; symbol: string }>();
