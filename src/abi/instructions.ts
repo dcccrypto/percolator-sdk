@@ -353,12 +353,14 @@ export interface TradeNoCpiArgs {
 }
 
 export function encodeTradeNoCpi(args: TradeNoCpiArgs): Uint8Array {
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.TradeNoCpi),
     encU16(args.lpIdx),
     encU16(args.userIdx),
     encI128(args.size),
   );
+  if (data.length !== 21) throw new Error(`encodeTradeNoCpi: expected 21 bytes, got ${data.length}`);
+  return data;
 }
 
 /**
@@ -407,12 +409,14 @@ export interface TradeCpiArgs {
 }
 
 export function encodeTradeCpi(args: TradeCpiArgs): Uint8Array {
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.TradeCpi),
     encU16(args.lpIdx),
     encU16(args.userIdx),
     encI128(args.size),
   );
+  if (data.length !== 21) throw new Error(`encodeTradeCpi: expected 21 bytes, got ${data.length}`);
+  return data;
 }
 
 /**
@@ -431,13 +435,15 @@ export interface TradeCpiV2Args {
 }
 
 export function encodeTradeCpiV2(args: TradeCpiV2Args): Uint8Array {
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.TradeCpiV2),
     encU16(args.lpIdx),
     encU16(args.userIdx),
     encI128(args.size),
     encU8(args.bump),
   );
+  if (data.length !== 22) throw new Error(`encodeTradeCpiV2: expected 22 bytes, got ${data.length}`);
+  return data;
 }
 
 /**
@@ -495,7 +501,7 @@ export interface UpdateConfigArgs {
 }
 
 export function encodeUpdateConfig(args: UpdateConfigArgs): Uint8Array {
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.UpdateConfig),
     encU64(args.fundingHorizonSlots),
     encU64(args.fundingKBps),
@@ -511,6 +517,9 @@ export function encodeUpdateConfig(args: UpdateConfigArgs): Uint8Array {
     encU128(args.threshMax),
     encU128(args.threshMinStep),
   );
+  // tag(1) + 6×u64(48) + 2×i64(16) + 5×u128(80) = 145
+  if (data.length !== 145) throw new Error(`encodeUpdateConfig: expected 145 bytes, got ${data.length}`);
+  return data;
 }
 
 /**
@@ -1016,7 +1025,9 @@ export interface ExecuteAdlArgs {
 }
 
 export function encodeExecuteAdl(args: ExecuteAdlArgs): Uint8Array {
-  return concatBytes(encU8(IX_TAG.ExecuteAdl), encU16(args.targetIdx));
+  const data = concatBytes(encU8(IX_TAG.ExecuteAdl), encU16(args.targetIdx));
+  if (data.length !== 3) throw new Error(`encodeExecuteAdl: expected 3 bytes, got ${data.length}`);
+  return data;
 }
 
 // ============================================================================
