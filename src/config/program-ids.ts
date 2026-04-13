@@ -32,6 +32,11 @@ export const PROGRAM_IDS = {
     matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX",
   },
 } as const;
+// Runtime immutability: as const is compile-time only. Deep-freeze prevents
+// supply-chain attacks that could redirect program IDs via mutation.
+Object.freeze(PROGRAM_IDS.devnet);
+Object.freeze(PROGRAM_IDS.mainnet);
+Object.freeze(PROGRAM_IDS);
 
 export type Network = "devnet" | "mainnet";
 
