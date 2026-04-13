@@ -356,27 +356,34 @@ function parseEngineLight(
     };
   }
 
-  // V_ADL engine struct (PERC-8270/8271): ENGINE_OFF=624, layout-driven offsets.
-  // Must branch here because V_ADL has version===1 same as V1/V1M — differentiate by engineOff.
-  // All offsets from SlabLayout descriptor, which is computed by buildLayoutVADL().
-  const isVAdl = layout !== null && layout.engineOff === 624 && layout.accountSize === 312;
-  if (isVAdl) {
-    const l = layout!;
+  // Layout-driven engine parser for ALL V1-family layouts (V1, V1_LEGACY, V1M, V1M2,
+  // V_ADL, V_SETDEXPOOL, V12.1 HOST, V12.1 SBF). Uses >= 0 guards on every offset
+  // that may be -1 (e.g., V12.1 SBF omits fundingIndex, totalOi, LP fields).
+  // V0 and V2 already return early above. All V1-family buildLayout*() helpers
+  // populate the SlabLayout descriptor, so no hardcoded offsets are needed.
+  if (layout !== null) {
+    const l = layout;
     return {
       vault: readU128LE(data, base + 0),
       insuranceFund: {
         balance: readU128LE(data, base + l.engineInsuranceOff),
-        feeRevenue: readU128LE(data, base + l.engineInsuranceOff + 16),
-        isolatedBalance: readU128LE(data, base + l.engineInsuranceIsolatedOff),
-        isolationBps: readU16LE(data, base + l.engineInsuranceIsolationBpsOff),
+        feeRevenue: l.hasInsuranceIsolation
+          ? readU128LE(data, base + l.engineInsuranceOff + 16) : 0n,
+        isolatedBalance: l.engineInsuranceIsolatedOff >= 0
+          ? readU128LE(data, base + l.engineInsuranceIsolatedOff) : 0n,
+        isolationBps: l.engineInsuranceIsolationBpsOff >= 0
+          ? readU16LE(data, base + l.engineInsuranceIsolationBpsOff) : 0,
       },
       currentSlot: readU64LE(data, base + l.engineCurrentSlotOff),
-      fundingIndexQpbE6: readI128LE(data, base + l.engineFundingIndexOff),
-      lastFundingSlot: readU64LE(data, base + l.engineLastFundingSlotOff),
+      fundingIndexQpbE6: l.engineFundingIndexOff >= 0
+        ? readI128LE(data, base + l.engineFundingIndexOff) : 0n,
+      lastFundingSlot: l.engineLastFundingSlotOff >= 0
+        ? readU64LE(data, base + l.engineLastFundingSlotOff) : 0n,
       fundingRateBpsPerSlotLast: readI64LE(data, base + l.engineFundingRateBpsOff),
       lastCrankSlot: readU64LE(data, base + l.engineLastCrankSlotOff),
       maxCrankStalenessSlots: readU64LE(data, base + l.engineMaxCrankStalenessOff),
-      totalOpenInterest: readU128LE(data, base + l.engineTotalOiOff),
+      totalOpenInterest: l.engineTotalOiOff >= 0
+        ? readU128LE(data, base + l.engineTotalOiOff) : 0n,
       longOi: l.engineLongOiOff >= 0 ? readU128LE(data, base + l.engineLongOiOff) : 0n,
       shortOi: l.engineShortOiOff >= 0 ? readU128LE(data, base + l.engineShortOiOff) : 0n,
       cTot: readU128LE(data, base + l.engineCTotOff),
@@ -388,11 +395,16 @@ function parseEngineLight(
       crankCursor: readU16LE(data, base + l.engineCrankCursorOff),
       sweepStartIdx: readU16LE(data, base + l.engineSweepStartIdxOff),
       lifetimeLiquidations: readU64LE(data, base + l.engineLifetimeLiquidationsOff),
-      lifetimeForceCloses: readU64LE(data, base + l.engineLifetimeForceClosesOff),
-      netLpPos: readI128LE(data, base + l.engineNetLpPosOff),
-      lpSumAbs: readU128LE(data, base + l.engineLpSumAbsOff),
-      lpMaxAbs: readU128LE(data, base + l.engineLpMaxAbsOff),
-      lpMaxAbsSweep: readU128LE(data, base + l.engineLpMaxAbsSweepOff),
+      lifetimeForceCloses: l.engineLifetimeForceClosesOff >= 0
+        ? readU64LE(data, base + l.engineLifetimeForceClosesOff) : 0n,
+      netLpPos: l.engineNetLpPosOff >= 0
+        ? readI128LE(data, base + l.engineNetLpPosOff) : 0n,
+      lpSumAbs: l.engineLpSumAbsOff >= 0
+        ? readU128LE(data, base + l.engineLpSumAbsOff) : 0n,
+      lpMaxAbs: l.engineLpMaxAbsOff >= 0
+        ? readU128LE(data, base + l.engineLpMaxAbsOff) : 0n,
+      lpMaxAbsSweep: l.engineLpMaxAbsSweepOff >= 0
+        ? readU128LE(data, base + l.engineLpMaxAbsSweepOff) : 0n,
       emergencyOiMode: l.engineEmergencyOiModeOff >= 0 ? data[base + l.engineEmergencyOiModeOff] !== 0 : false,
       emergencyStartSlot: l.engineEmergencyStartSlotOff >= 0 ? readU64LE(data, base + l.engineEmergencyStartSlotOff) : 0n,
       lastBreakerSlot: l.engineLastBreakerSlotOff >= 0 ? readU64LE(data, base + l.engineLastBreakerSlotOff) : 0n,
@@ -402,53 +414,9 @@ function parseEngineLight(
     };
   }
 
-  // V1 engine struct (PERC-1094 corrected): ENGINE_OFF=600 (BPF/SBF, CONFIG_LEN=496)
-  // vault(0,16) + insurance(16,56) + params(72,288) + currentSlot(360) + fundingIndex(368,16)
-  // + lastFundingSlot(384) + fundingRateBps(392) + markPrice(400) + lastCrankSlot(424)
-  // + maxCrankStaleness(432) + totalOI(440,16) + longOi(456,16) + shortOi(472,16)
-  // + cTot(488,16) + pnlPosTot(504,16) + liqCursor(520,2) + gcCursor(522,2)
-  // + lastSweepStart(528) + lastSweepComplete(536) + crankCursor(544,2) + sweepStartIdx(546,2)
-  // + lifetimeLiquidations(552) + lifetimeForceCloses(560)
-  // + netLpPos(568,16) + lpSumAbs(584,16) + lpMaxAbs(600,16) + lpMaxAbsSweep(616,16)
-  // + emergencyOiMode(632,1+7pad) + emergencyStartSlot(640) + lastBreakerSlot(648) + bitmap(656)
-  return {
-    vault: readU128LE(data, base + 0),
-    insuranceFund: {
-      balance: readU128LE(data, base + 16),
-      feeRevenue: readU128LE(data, base + 32),
-      isolatedBalance: readU128LE(data, base + 48),
-      isolationBps: readU16LE(data, base + 64),
-    },
-    currentSlot: readU64LE(data, base + 360),     // PERC-1094: params end at 72+288=360 (was 352)
-    fundingIndexQpbE6: readI128LE(data, base + 368),
-    lastFundingSlot: readU64LE(data, base + 384),
-    fundingRateBpsPerSlotLast: readI64LE(data, base + 392),
-    lastCrankSlot: readU64LE(data, base + 424),
-    maxCrankStalenessSlots: readU64LE(data, base + 408),
-    totalOpenInterest: readU128LE(data, base + 416),
-    longOi: readU128LE(data, base + 432),
-    shortOi: readU128LE(data, base + 448),
-    cTot: readU128LE(data, base + 464),
-    pnlPosTot: readU128LE(data, base + 480),
-    liqCursor: readU16LE(data, base + 496),
-    gcCursor: readU16LE(data, base + 498),
-    lastSweepStartSlot: readU64LE(data, base + 504),
-    lastSweepCompleteSlot: readU64LE(data, base + 512),
-    crankCursor: readU16LE(data, base + 520),
-    sweepStartIdx: readU16LE(data, base + 522),
-    lifetimeLiquidations: readU64LE(data, base + 528),
-    lifetimeForceCloses: readU64LE(data, base + 536),
-    netLpPos: readI128LE(data, base + 544),
-    lpSumAbs: readU128LE(data, base + 560),
-    lpMaxAbs: readU128LE(data, base + 576),
-    lpMaxAbsSweep: readU128LE(data, base + 592),
-    emergencyOiMode: data[base + 608] !== 0,
-    emergencyStartSlot: readU64LE(data, base + 616),
-    lastBreakerSlot: readU64LE(data, base + 624),
-    markPriceE6: readU64LE(data, base + 400),      // PERC-1094: was 392
-    numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
-    nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
-  };
+  // Unreachable for known layouts — V0 handled at line 268, V2 at line 321,
+  // all V1-family above. Kept as defensive fallback for null-layout edge cases.
+  throw new Error(`parseEngineLight: no layout descriptor available (dataSize=${data.length})`);
 }
 
 /** Options for `discoverMarkets`. */
