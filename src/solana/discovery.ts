@@ -8,6 +8,7 @@ import {
   SLAB_TIERS_V2,
   SLAB_TIERS_V_ADL,
   SLAB_TIERS_V12_1,
+  SLAB_TIERS_V12_1_SBF,
   type SlabHeader,
   type MarketConfig,
   type EngineState,
@@ -60,14 +61,16 @@ const MAGIC_BYTES = new Uint8Array([0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x
  *          in SLAB_TIERS_V0 for discovery of legacy on-chain accounts.
  */
 /**
- * Default slab tiers for the current mainnet program (v12.1).
- * These are used by useCreateMarket to allocate slab accounts of the correct size.
+ * Default slab tiers for the current mainnet program (v12.1 SBF).
+ * These match the deployed SBF binary's struct layout (engineOff=616, accountSize=280).
+ * Used by useCreateMarket to allocate slab accounts of the correct size.
+ * SLAB_TIERS_V12_1 (HOST/aarch64) is kept for test builds.
  */
 export const SLAB_TIERS = {
-  micro:  SLAB_TIERS_V12_1["micro"],
-  small:  SLAB_TIERS_V12_1["small"],
-  medium: SLAB_TIERS_V12_1["medium"],
-  large:  SLAB_TIERS_V12_1["large"],
+  micro:  SLAB_TIERS_V12_1_SBF["micro"],
+  small:  SLAB_TIERS_V12_1_SBF["small"],
+  medium: SLAB_TIERS_V12_1_SBF["medium"],
+  large:  SLAB_TIERS_V12_1_SBF["large"],
 } as const;
 
 /** @deprecated V0 slab sizes — kept for backward compatibility with old on-chain slabs */
@@ -585,7 +588,8 @@ export async function discoverMarkets(
   // GH#1234) must also be included; omitting them causes legacy on-chain slabs to be missed by
   // dataSize filter queries and fall through to memcmp with wrong maxAccounts hint.
   const ALL_TIERS = [
-    ...Object.values(SLAB_TIERS),
+    ...Object.values(SLAB_TIERS),           // V12.1 SBF (mainnet deployed)
+    ...Object.values(SLAB_TIERS_V12_1),     // V12.1 HOST (test builds)
     ...Object.values(SLAB_TIERS_V0),
     ...Object.values(SLAB_TIERS_V1D),
     ...Object.values(SLAB_TIERS_V1D_LEGACY),

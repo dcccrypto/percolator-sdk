@@ -1172,6 +1172,21 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Lar
 }
 
 /**
+ * V12_1 slab tier sizes for the deployed SBF binary (mainnet).
+ * ENGINE_OFF=616, BITMAP_OFF=584 (relative to engine), ACCOUNT_SIZE=280.
+ * Verified by cargo build-sbf compile-time offset_of! assertions.
+ * Use these (not SLAB_TIERS_V12_1) for on-chain allocation and discovery.
+ */
+export const SLAB_TIERS_V12_1_SBF: Record<string, { maxAccounts: number; dataSize: number; label: string; description: string }> = {};
+for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]] as const) {
+  const bitmapBytes = Math.ceil(n / 64) * 8;
+  const preAccLen = V12_1_SBF_BITMAP_OFF + bitmapBytes + 18 + n * 2;
+  const accountsOff = Math.ceil(preAccLen / 8) * 8;
+  const size = V12_1_SBF_ENGINE_OFF + accountsOff + n * V12_1_SBF_ACCOUNT_SIZE;
+  SLAB_TIERS_V12_1_SBF[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (v12.1 SBF)` };
+}
+
+/**
  * Build a SlabLayout for V_SETDEXPOOL slabs (PERC-SetDexPool security fix).
  * ENGINE_OFF=632 (+8 from V_ADL=624 due to CONFIG_LEN growing 520→528).
  * All engine and account field offsets are identical to V_ADL.
