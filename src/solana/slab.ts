@@ -1704,6 +1704,11 @@ export function parseHeader(data: Uint8Array): SlabHeader {
  * @param layoutHint - Pre-detected layout to use; if omitted, detected from data.length.
  */
 export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): MarketConfig {
+  // Validate magic before parsing — prevents silent garbage interpretation of
+  // arbitrary buffers that happen to match a known slab size.
+  if (data.length >= 8 && readU64LE(data, 0) !== MAGIC) {
+    throw new Error(`parseConfig: invalid slab magic (expected PERCOLAT)`);
+  }
   const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length, data);
   const configOff = layout ? layout.configOffset : V0_HEADER_LEN;
   const configLen = layout ? layout.configLen : V0_CONFIG_LEN;
@@ -1973,6 +1978,11 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
  * Parse RiskEngine state (excluding accounts array). Layout-version aware.
  */
 export function parseEngine(data: Uint8Array): EngineState {
+  // Validate magic before parsing — prevents silent garbage interpretation of
+  // arbitrary buffers that happen to match a known slab size.
+  if (data.length >= 8 && readU64LE(data, 0) !== MAGIC) {
+    throw new Error(`parseEngine: invalid slab magic (expected PERCOLAT)`);
+  }
   const layout = detectSlabLayout(data.length, data);
   if (!layout) {
     throw new Error(`Unrecognized slab data length: ${data.length}. Cannot determine layout version.`);
