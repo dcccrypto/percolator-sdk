@@ -584,7 +584,10 @@ export async function discoverMarkets(
   // GH#1237/GH#1238: SLAB_TIERS_V1D_LEGACY (postBitmap=18, e.g. 65,104-byte slabs created before
   // GH#1234) must also be included; omitting them causes legacy on-chain slabs to be missed by
   // dataSize filter queries and fall through to memcmp with wrong maxAccounts hint.
-  const ALL_TIERS = [
+  // Deduplicate by dataSize — V1D and V2 share identical sizes (e.g., small=65088)
+  // so two separate getProgramAccounts queries with the same dataSize filter return
+  // the same accounts. detectSlabLayout disambiguates from the actual data.
+  const ALL_TIERS_RAW = [
     ...Object.values(SLAB_TIERS),
     ...Object.values(SLAB_TIERS_V0),
     ...Object.values(SLAB_TIERS_V1D),
@@ -593,6 +596,14 @@ export async function discoverMarkets(
     ...Object.values(SLAB_TIERS_V1M),
     ...Object.values(SLAB_TIERS_V_ADL),
   ];
+  const tierBySize = new Map<number, { dataSize: number; maxAccounts: number }>();
+  for (const tier of ALL_TIERS_RAW) {
+    const existing = tierBySize.get(tier.dataSize);
+    if (!existing || tier.maxAccounts > existing.maxAccounts) {
+      tierBySize.set(tier.dataSize, { dataSize: tier.dataSize, maxAccounts: tier.maxAccounts });
+    }
+  }
+  const ALL_TIERS = [...tierBySize.values()];
   type RawEntry = { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number; dataSize: number };
   let rawAccounts: RawEntry[] = [];
 
