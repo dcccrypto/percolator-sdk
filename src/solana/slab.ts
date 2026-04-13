@@ -1247,7 +1247,7 @@ function buildLayoutV12_1(maxAccounts: number, dataLen?: number): SlabLayout {
   const hostSize = computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, maxAccounts, 18);
   const isSbf = dataLen !== undefined && dataLen !== hostSize;
   const engineOff = isSbf ? V12_1_SBF_ENGINE_OFF : V12_1_ENGINE_OFF;
-  const bitmapOff = isSbf ? V12_1_SBF_BITMAP_OFF : (V12_1_ENGINE_BITMAP_OFF - V12_1_ENGINE_OFF);
+  const bitmapOff = isSbf ? V12_1_SBF_BITMAP_OFF : V12_1_ENGINE_BITMAP_OFF;
   const accountSize = isSbf ? V12_1_ACCOUNT_SIZE_SBF : V12_1_ACCOUNT_SIZE;
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
