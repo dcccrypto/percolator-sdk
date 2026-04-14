@@ -66,9 +66,9 @@ function buildV12_1SlabSmall(): Uint8Array {
   // V12_1 small tier: 256 accounts, 84152 bytes
   const TOTAL = 84152;
   const ENGINE_OFF = 648;
-  const BITMAP_OFF_REL = 1016;      // relative to ENGINE_OFF
+  const BITMAP_OFF_REL = 368;       // engine-relative (1016 - 648)
   const ACCOUNT_SIZE = 320;
-  const ACCOUNTS_OFF = 2232;        // absolute, pre-computed
+  const ACCOUNTS_OFF = 1584;        // absolute: 648 + ceil((368+32+18+512)/8)*8 = 648 + 936
 
   const buf = new Uint8Array(TOTAL);
   const dv = new DataView(buf.buffer);
@@ -87,8 +87,8 @@ function buildV12_1SlabSmall(): Uint8Array {
   // For the magic-valid check only — nonce/lastThrUpdateSlot live at specific offsets in V1 header.
   // (We don't test readNonce on V12_1 here — that's covered in slab-parser.test.ts)
 
-  // Engine bitmap area: absolute = ENGINE_OFF + BITMAP_OFF_REL = 648 + 1016 = 1664
-  // numUsedAccounts (u16) is at ENGINE_OFF + BITMAP_OFF_REL + bitmapBytes(4*8=32) = 1664+32 = 1696
+  // Engine bitmap area: absolute = ENGINE_OFF + BITMAP_OFF_REL = 648 + 368 = 1016
+  // numUsedAccounts (u16) is at ENGINE_OFF + BITMAP_OFF_REL + bitmapBytes(4*8=32) = 1016+32 = 1048
   // We want 1 used account (index 0) for parseAccount testing.
   const bitmapAbs = ENGINE_OFF + BITMAP_OFF_REL;
   // Set bit 0 in the bitmap (first word, LSB = account index 0)
@@ -420,7 +420,7 @@ describe("V12_1 slab — layout detection and field offsets", () => {
     expect(layout).not.toBeNull();
     expect(layout!.engineOff).toBe(648);
     expect(layout!.accountSize).toBe(320);
-    expect(layout!.engineBitmapOff).toBe(1016);
+    expect(layout!.engineBitmapOff).toBe(368); // engine-relative (1016 - 648)
   });
 
   it("detectSlabLayout V12_1 small: maxAccounts=256", () => {
@@ -428,29 +428,32 @@ describe("V12_1 slab — layout detection and field offsets", () => {
     expect(layout!.maxAccounts).toBe(256);
   });
 
-  it("detectSlabLayout V12_1 medium (331544 bytes): ENGINE_OFF=648, ACCOUNT_SIZE=320, BITMAP_OFF=1016", () => {
+  it("detectSlabLayout V12_1 medium (331544 bytes): ENGINE_OFF=648, ACCOUNT_SIZE=320, BITMAP_OFF=368", () => {
     const layout = detectSlabLayout(331544);
     expect(layout).not.toBeNull();
     expect(layout!.engineOff).toBe(648);
     expect(layout!.accountSize).toBe(320);
-    expect(layout!.engineBitmapOff).toBe(1016);
+    expect(layout!.engineBitmapOff).toBe(368); // engine-relative
   });
 
-  it("detectSlabLayout V12_1 accountsOff for small (256 accts) is 2232", () => {
+  it("detectSlabLayout V12_1 accountsOff for small (256 accts)", () => {
     const layout = detectSlabLayout(84152);
-    expect(layout!.accountsOff).toBe(2232);
+    // bitmapOff=368, bitmapWords=4 (256/64), postBitmap=18, nextFree=512
+    // preAccLen = 368 + 32 + 18 + 512 = 930, ceil(930/8)*8 = 936
+    // accountsOff = 648 + 936 = 1584
+    expect(layout!.accountsOff).toBe(1584);
   });
 
   it("detectLayout delegates to layout.accountsOff (no recompute regression)", () => {
     const r = detectLayout(84152);
     expect(r).not.toBeNull();
-    expect(r!.accountsOff).toBe(2232);
+    expect(r!.accountsOff).toBe(1584);
     expect(r!.maxAccounts).toBe(256);
   });
 
   it("parseAccount: account slot 0 — owner at relative offset 208", () => {
     const account = parseAccount(slabBuf, 0);
-    // We wrote 0xAB bytes into owner (absolute: 2232 + 208 = 2440..2472)
+    // We wrote 0xAB bytes into owner (absolute: 1584 + 208 = 1792..1824)
     const ownerBytes = account.owner.toBytes();
     expect(ownerBytes[0]).toBe(0xab);
     expect(ownerBytes[31]).toBe(0xab);
