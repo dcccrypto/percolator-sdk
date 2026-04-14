@@ -358,6 +358,9 @@ function encodeTradeCpiV2(args) {
     encU8(args.bump)
   );
 }
+function encodeUnresolveMarket(args) {
+  return concatBytes(encU8(IX_TAG.UnresolveMarket), encU64(args.confirmation));
+}
 function encodeSetRiskThreshold(args) {
   return concatBytes(
     encU8(IX_TAG.SetRiskThreshold),
@@ -480,12 +483,12 @@ function encodeSetPythOracle(args) {
 }
 var PYTH_RECEIVER_PROGRAM_ID = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
 async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
-  const { PublicKey: PublicKey15 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey16 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey15.findProgramAddressSync(
+  const [pda] = PublicKey16.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey15(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey16(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -1364,12 +1367,188 @@ function parseErrorFromLogs(logs) {
   return null;
 }
 
-// src/solana/slab.ts
+// src/abi/nft.ts
+import { PublicKey as PublicKey4 } from "@solana/web3.js";
+
+// src/config/program-ids.ts
 import { PublicKey as PublicKey3 } from "@solana/web3.js";
+function safeEnv(key) {
+  try {
+    return typeof process !== "undefined" && process?.env ? process.env[key] : void 0;
+  } catch {
+    return void 0;
+  }
+}
+var PROGRAM_IDS = {
+  devnet: {
+    percolator: "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD",
+    matcher: "GTRgyTDfrMvBubALAqtHuQwT8tbGyXid7svXZKtWfC9k"
+  },
+  mainnet: {
+    percolator: "ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv",
+    matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX"
+  }
+};
+function getProgramId(network) {
+  if (!network) {
+    const override = safeEnv("PROGRAM_ID");
+    if (override) {
+      console.warn(
+        `[percolator-sdk] PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
+      );
+      return new PublicKey3(override);
+    }
+  }
+  const detectedNetwork = getCurrentNetwork();
+  const targetNetwork = network ?? detectedNetwork;
+  const programId = PROGRAM_IDS[targetNetwork].percolator;
+  return new PublicKey3(programId);
+}
+function getMatcherProgramId(network) {
+  if (!network) {
+    const override = safeEnv("MATCHER_PROGRAM_ID");
+    if (override) {
+      console.warn(
+        `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
+      );
+      return new PublicKey3(override);
+    }
+  }
+  const detectedNetwork = getCurrentNetwork();
+  const targetNetwork = network ?? detectedNetwork;
+  const programId = PROGRAM_IDS[targetNetwork].matcher;
+  if (!programId) {
+    throw new Error(`Matcher program not deployed on ${targetNetwork}`);
+  }
+  return new PublicKey3(programId);
+}
+function getCurrentNetwork() {
+  const network = safeEnv("NETWORK")?.toLowerCase();
+  if (network === "mainnet" || network === "mainnet-beta") {
+    return "mainnet";
+  }
+  return "devnet";
+}
+
+// src/abi/nft.ts
+var NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");
+var NFT_PROGRAM_ID = new PublicKey4(
+  NFT_PROGRAM_OVERRIDE ?? "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS"
+);
+function getNftProgramId() {
+  return NFT_PROGRAM_ID;
+}
+var NFT_IX_TAG = {
+  MintPositionNft: 0,
+  BurnPositionNft: 1,
+  SettleFunding: 2,
+  GetPositionValue: 3,
+  ExecuteTransferHook: 4,
+  EmergencyBurn: 5
+};
+function encodeNftMint(userIdx) {
+  const buf = new Uint8Array(3);
+  buf[0] = NFT_IX_TAG.MintPositionNft;
+  buf[1] = userIdx & 255;
+  buf[2] = userIdx >> 8 & 255;
+  return buf;
+}
+function encodeNftBurn() {
+  return new Uint8Array([NFT_IX_TAG.BurnPositionNft]);
+}
+function encodeNftSettleFunding() {
+  return new Uint8Array([NFT_IX_TAG.SettleFunding]);
+}
+function encodeNftEmergencyBurn() {
+  return new Uint8Array([NFT_IX_TAG.EmergencyBurn]);
+}
+var ACCOUNTS_NFT_MINT = [
+  "sw",
+  "w",
+  "sw",
+  "w",
+  "r",
+  "r",
+  "r",
+  "r",
+  "r",
+  "w"
+];
+var ACCOUNTS_NFT_BURN = [
+  "s",
+  "w",
+  "w",
+  "w",
+  "r",
+  "r",
+  "r"
+];
+var ACCOUNTS_NFT_EMERGENCY_BURN = [
+  "s",
+  "w",
+  "w",
+  "w",
+  "r",
+  "r",
+  "r"
+];
+var TEXT = new TextEncoder();
+function idxBuf(userIdx) {
+  const buf = new Uint8Array(2);
+  new DataView(buf.buffer).setUint16(0, userIdx, true);
+  return buf;
+}
+function deriveNftPda(slab, userIdx, programId = NFT_PROGRAM_ID) {
+  return PublicKey4.findProgramAddressSync(
+    [TEXT.encode("position_nft"), slab.toBytes(), idxBuf(userIdx)],
+    programId
+  );
+}
+function deriveNftMint(slab, userIdx, programId = NFT_PROGRAM_ID) {
+  return PublicKey4.findProgramAddressSync(
+    [TEXT.encode("position_nft_mint"), slab.toBytes(), idxBuf(userIdx)],
+    programId
+  );
+}
+function deriveMintAuthority(programId = NFT_PROGRAM_ID) {
+  return PublicKey4.findProgramAddressSync(
+    [TEXT.encode("mint_authority")],
+    programId
+  );
+}
+var POSITION_NFT_STATE_LEN = 208;
+function parsePositionNftAccount(data) {
+  if (data.length < POSITION_NFT_STATE_LEN) {
+    throw new Error(
+      `PositionNft account too small: ${data.length} < ${POSITION_NFT_STATE_LEN}`
+    );
+  }
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return {
+    version: data[8],
+    bump: data[9],
+    slab: new PublicKey4(data.subarray(16, 48)),
+    userIdx: view.getUint16(48, true),
+    nftMint: new PublicKey4(data.subarray(56, 88)),
+    entryPriceE6: view.getBigUint64(88, true),
+    positionSize: view.getBigUint64(96, true),
+    isLong: data[104] === 1,
+    positionBasisQ: view.getBigInt64(112, true) | view.getBigInt64(120, true) << 64n,
+    lastFundingIndexE18: view.getBigInt64(128, true) | view.getBigInt64(136, true) << 64n,
+    mintedAt: view.getBigInt64(144, true),
+    accountId: view.getBigUint64(152, true)
+  };
+}
+
+// src/solana/slab.ts
+import { PublicKey as PublicKey5 } from "@solana/web3.js";
 function dv(data) {
   return new DataView(data.buffer, data.byteOffset, data.byteLength);
 }
 function readU8(data, off) {
+  if (off >= data.length) {
+    throw new RangeError(`readU8: offset ${off} out of bounds (length ${data.length})`);
+  }
   return data[off];
 }
 function readU16LE(data, off) {
@@ -1400,6 +1579,7 @@ function readU128LE(buf, offset) {
   return hi << 64n | lo;
 }
 var MAGIC = 0x504552434f4c4154n;
+var SLAB_MAGIC = MAGIC;
 var FLAG_RESOLVED = 1 << 0;
 var V0_HEADER_LEN = 72;
 var V0_CONFIG_LEN = 408;
@@ -2428,7 +2608,7 @@ function parseHeader(data) {
   const version = readU32LE(data, 8);
   const bump = readU8(data, 12);
   const flags = readU8(data, 13);
-  const admin = new PublicKey3(data.subarray(16, 48));
+  const admin = new PublicKey5(data.subarray(16, 48));
   const layout = detectSlabLayout(data.length, data);
   const roff = layout ? layout.reservedOff : V0_RESERVED_OFF;
   const nonce = readU64LE(data, roff);
@@ -2449,16 +2629,17 @@ function parseConfig(data, layoutHint) {
   const layout = layoutHint !== void 0 ? layoutHint : detectSlabLayout(data.length, data);
   const configOff = layout ? layout.configOffset : V0_HEADER_LEN;
   const configLen = layout ? layout.configLen : V0_CONFIG_LEN;
-  const minLen = configOff + Math.min(configLen, 120);
+  const MIN_CONFIG_BYTES = 376;
+  const minLen = configOff + Math.min(configLen, MIN_CONFIG_BYTES);
   if (data.length < minLen) {
     throw new Error(`Slab data too short for config: ${data.length} < ${minLen}`);
   }
   let off = configOff;
-  const collateralMint = new PublicKey3(data.subarray(off, off + 32));
+  const collateralMint = new PublicKey5(data.subarray(off, off + 32));
   off += 32;
-  const vaultPubkey = new PublicKey3(data.subarray(off, off + 32));
+  const vaultPubkey = new PublicKey5(data.subarray(off, off + 32));
   off += 32;
-  const indexFeedId = new PublicKey3(data.subarray(off, off + 32));
+  const indexFeedId = new PublicKey5(data.subarray(off, off + 32));
   off += 32;
   const maxStalenessSlots = readU64LE(data, off);
   off += 8;
@@ -2496,7 +2677,7 @@ function parseConfig(data, layoutHint) {
   off += 16;
   const threshMinStep = readU128LE(data, off);
   off += 16;
-  const oracleAuthority = new PublicKey3(data.subarray(off, off + 32));
+  const oracleAuthority = new PublicKey5(data.subarray(off, off + 32));
   off += 32;
   const authorityPriceE6 = readU64LE(data, off);
   off += 8;
@@ -2549,7 +2730,7 @@ function parseConfig(data, layoutHint) {
   if (configLen >= DEX_POOL_REL_OFF + 32 && data.length >= configOff + DEX_POOL_REL_OFF + 32) {
     const dexPoolBytes = data.subarray(configOff + DEX_POOL_REL_OFF, configOff + DEX_POOL_REL_OFF + 32);
     if (dexPoolBytes.some((b) => b !== 0)) {
-      dexPool = new PublicKey3(dexPoolBytes);
+      dexPool = new PublicKey5(dexPoolBytes);
     }
   }
   return {
@@ -2604,8 +2785,9 @@ function parseParams(data, layoutHint) {
   const paramsOff = layout ? layout.engineParamsOff : V0_ENGINE_PARAMS_OFF;
   const paramsSize = layout ? layout.paramsSize : V0_PARAMS_SIZE;
   const base = engineOff + paramsOff;
-  if (data.length < base + Math.min(paramsSize, 56)) {
-    throw new Error("Slab data too short for RiskParams");
+  const MIN_PARAMS_BYTES = paramsSize >= 144 ? 144 : 56;
+  if (data.length < base + MIN_PARAMS_BYTES) {
+    throw new Error(`Slab data too short for RiskParams: ${data.length} < ${base + MIN_PARAMS_BYTES}`);
   }
   const result = {
     warmupPeriodSlots: readU64LE(data, base + PARAMS_WARMUP_PERIOD_OFF),
@@ -2762,9 +2944,9 @@ function parseAccount(data, idx) {
     // V12_1: entry_price removed
     // V12_1 changed funding_index from i128 to i64 (legacy field moved to end of account)
     fundingIndex: isV12_1 ? BigInt(readI64LE(data, base + fundingIndexOff)) : readI128LE(data, base + fundingIndexOff),
-    matcherProgram: new PublicKey3(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
-    matcherContext: new PublicKey3(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
-    owner: new PublicKey3(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
+    matcherProgram: new PublicKey5(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
+    matcherContext: new PublicKey5(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
+    owner: new PublicKey5(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
     feeCredits: readI128LE(data, base + feeCreditsOff),
     lastFeeSlot: readU64LE(data, base + lastFeeSlotOff)
   };
@@ -2786,10 +2968,10 @@ function parseAllAccounts(data) {
 }
 
 // src/solana/pda.ts
-import { PublicKey as PublicKey4 } from "@solana/web3.js";
+import { PublicKey as PublicKey6 } from "@solana/web3.js";
 var textEncoder = new TextEncoder();
 function deriveVaultAuthority(programId, slab) {
-  return PublicKey4.findProgramAddressSync(
+  return PublicKey6.findProgramAddressSync(
     [textEncoder.encode("vault"), slab.toBytes()],
     programId
   );
@@ -2801,34 +2983,34 @@ function deriveLpPda(programId, slab, lpIdx) {
       `deriveLpPda: lpIdx must be an integer in [0, ${LP_INDEX_U16_MAX}], got ${lpIdx}`
     );
   }
-  const idxBuf = new Uint8Array(2);
-  new DataView(idxBuf.buffer).setUint16(0, lpIdx, true);
-  return PublicKey4.findProgramAddressSync(
-    [textEncoder.encode("lp"), slab.toBytes(), idxBuf],
+  const idxBuf2 = new Uint8Array(2);
+  new DataView(idxBuf2.buffer).setUint16(0, lpIdx, true);
+  return PublicKey6.findProgramAddressSync(
+    [textEncoder.encode("lp"), slab.toBytes(), idxBuf2],
     programId
   );
 }
 function deriveKeeperFund(programId, slab) {
-  return PublicKey4.findProgramAddressSync(
+  return PublicKey6.findProgramAddressSync(
     [textEncoder.encode("keeper_fund"), slab.toBytes()],
     programId
   );
 }
-var PUMPSWAP_PROGRAM_ID = new PublicKey4(
+var PUMPSWAP_PROGRAM_ID = new PublicKey6(
   "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 );
-var RAYDIUM_CLMM_PROGRAM_ID = new PublicKey4(
+var RAYDIUM_CLMM_PROGRAM_ID = new PublicKey6(
   "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
 );
-var METEORA_DLMM_PROGRAM_ID = new PublicKey4(
+var METEORA_DLMM_PROGRAM_ID = new PublicKey6(
   "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
 );
-var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey4(
+var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey6(
   "pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT"
 );
 var CREATOR_LOCK_SEED = "creator_lock";
 function deriveCreatorLockPda(programId, slab) {
-  return PublicKey4.findProgramAddressSync(
+  return PublicKey6.findProgramAddressSync(
     [textEncoder.encode(CREATOR_LOCK_SEED), slab.toBytes()],
     programId
   );
@@ -2860,7 +3042,7 @@ function derivePythPushOraclePDA(feedIdHex) {
     feedId[i] = byte;
   }
   const shardBuf = new Uint8Array(2);
-  return PublicKey4.findProgramAddressSync(
+  return PublicKey6.findProgramAddressSync(
     [shardBuf, feedId],
     PYTH_PUSH_ORACLE_PROGRAM_ID
   );
@@ -2884,10 +3066,10 @@ async function fetchTokenAccount(connection, address, tokenProgramId = TOKEN_PRO
 }
 
 // src/solana/discovery.ts
-import { PublicKey as PublicKey6 } from "@solana/web3.js";
+import { PublicKey as PublicKey8 } from "@solana/web3.js";
 
 // src/solana/static-markets.ts
-import { PublicKey as PublicKey5 } from "@solana/web3.js";
+import { PublicKey as PublicKey7 } from "@solana/web3.js";
 var MAINNET_MARKETS = [
   // Populated at mainnet launch — currently empty.
   // To add entries:
@@ -2925,7 +3107,7 @@ function registerStaticMarkets(network, entries) {
     if (!entry.slabAddress) continue;
     if (seen.has(entry.slabAddress)) continue;
     try {
-      new PublicKey5(entry.slabAddress);
+      new PublicKey7(entry.slabAddress);
     } catch {
       console.warn(
         `[registerStaticMarkets] Skipping invalid slabAddress: ${entry.slabAddress}`
@@ -3535,7 +3717,7 @@ async function discoverMarketsViaApi(connection, programId, apiBaseUrl, options 
   for (const entry of apiMarkets) {
     if (!entry.slab_address || typeof entry.slab_address !== "string") continue;
     try {
-      addresses.push(new PublicKey6(entry.slab_address));
+      addresses.push(new PublicKey8(entry.slab_address));
     } catch {
       console.warn(
         `[discoverMarketsViaApi] Skipping invalid slab address: ${entry.slab_address}`
@@ -3557,7 +3739,7 @@ async function discoverMarketsViaStaticBundle(connection, programId, entries, op
   for (const entry of entries) {
     if (!entry.slabAddress || typeof entry.slabAddress !== "string") continue;
     try {
-      addresses.push(new PublicKey6(entry.slabAddress));
+      addresses.push(new PublicKey8(entry.slabAddress));
     } catch {
       console.warn(
         `[discoverMarketsViaStaticBundle] Skipping invalid slab address: ${entry.slabAddress}`
@@ -3575,7 +3757,7 @@ async function discoverMarketsViaStaticBundle(connection, programId, entries, op
 }
 
 // src/solana/dex-oracle.ts
-import { PublicKey as PublicKey7 } from "@solana/web3.js";
+import { PublicKey as PublicKey9 } from "@solana/web3.js";
 function detectDexType(ownerProgramId) {
   if (ownerProgramId.equals(PUMPSWAP_PROGRAM_ID)) return "pumpswap";
   if (ownerProgramId.equals(RAYDIUM_CLMM_PROGRAM_ID)) return "raydium-clmm";
@@ -3611,10 +3793,10 @@ function parsePumpSwapPool(poolAddress, data) {
   return {
     dexType: "pumpswap",
     poolAddress,
-    baseMint: new PublicKey7(data.slice(35, 67)),
-    quoteMint: new PublicKey7(data.slice(67, 99)),
-    baseVault: new PublicKey7(data.slice(131, 163)),
-    quoteVault: new PublicKey7(data.slice(163, 195))
+    baseMint: new PublicKey9(data.slice(35, 67)),
+    quoteMint: new PublicKey9(data.slice(67, 99)),
+    baseVault: new PublicKey9(data.slice(131, 163)),
+    quoteVault: new PublicKey9(data.slice(163, 195))
   };
 }
 var SPL_TOKEN_AMOUNT_MIN_LEN = 72;
@@ -3640,8 +3822,8 @@ function parseRaydiumClmmPool(poolAddress, data) {
   return {
     dexType: "raydium-clmm",
     poolAddress,
-    baseMint: new PublicKey7(data.slice(73, 105)),
-    quoteMint: new PublicKey7(data.slice(105, 137))
+    baseMint: new PublicKey9(data.slice(73, 105)),
+    quoteMint: new PublicKey9(data.slice(105, 137))
   };
 }
 var MAX_TOKEN_DECIMALS = 24;
@@ -3678,8 +3860,8 @@ function parseMeteoraPool(poolAddress, data) {
   return {
     dexType: "meteora-dlmm",
     poolAddress,
-    baseMint: new PublicKey7(data.slice(81, 113)),
-    quoteMint: new PublicKey7(data.slice(113, 145))
+    baseMint: new PublicKey9(data.slice(81, 113)),
+    quoteMint: new PublicKey9(data.slice(113, 145))
   };
 }
 var MAX_BIN_STEP = 1e4;
@@ -3799,9 +3981,9 @@ function isValidChainlinkOracle(data) {
 }
 
 // src/solana/token-program.ts
-import { PublicKey as PublicKey8 } from "@solana/web3.js";
+import { PublicKey as PublicKey10 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID3 } from "@solana/spl-token";
-var TOKEN_2022_PROGRAM_ID = new PublicKey8(
+var TOKEN_2022_PROGRAM_ID = new PublicKey10(
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 );
 async function detectTokenProgram(connection, mint) {
@@ -3821,70 +4003,8 @@ function isStandardToken(tokenProgramId) {
 }
 
 // src/solana/stake.ts
-import { PublicKey as PublicKey10, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
+import { PublicKey as PublicKey11, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4 } from "@solana/spl-token";
-
-// src/config/program-ids.ts
-import { PublicKey as PublicKey9 } from "@solana/web3.js";
-function safeEnv(key) {
-  try {
-    return typeof process !== "undefined" && process?.env ? process.env[key] : void 0;
-  } catch {
-    return void 0;
-  }
-}
-var PROGRAM_IDS = {
-  devnet: {
-    percolator: "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD",
-    matcher: "GTRgyTDfrMvBubALAqtHuQwT8tbGyXid7svXZKtWfC9k"
-  },
-  mainnet: {
-    percolator: "ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv",
-    matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX"
-  }
-};
-function getProgramId(network) {
-  if (!network) {
-    const override = safeEnv("PROGRAM_ID");
-    if (override) {
-      console.warn(
-        `[percolator-sdk] PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
-      );
-      return new PublicKey9(override);
-    }
-  }
-  const detectedNetwork = getCurrentNetwork();
-  const targetNetwork = network ?? detectedNetwork;
-  const programId = PROGRAM_IDS[targetNetwork].percolator;
-  return new PublicKey9(programId);
-}
-function getMatcherProgramId(network) {
-  if (!network) {
-    const override = safeEnv("MATCHER_PROGRAM_ID");
-    if (override) {
-      console.warn(
-        `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
-      );
-      return new PublicKey9(override);
-    }
-  }
-  const detectedNetwork = getCurrentNetwork();
-  const targetNetwork = network ?? detectedNetwork;
-  const programId = PROGRAM_IDS[targetNetwork].matcher;
-  if (!programId) {
-    throw new Error(`Matcher program not deployed on ${targetNetwork}`);
-  }
-  return new PublicKey9(programId);
-}
-function getCurrentNetwork() {
-  const network = safeEnv("NETWORK")?.toLowerCase();
-  if (network === "mainnet" || network === "mainnet-beta") {
-    return "mainnet";
-  }
-  return "devnet";
-}
-
-// src/solana/stake.ts
 var STAKE_PROGRAM_IDS = {
   devnet: "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k",
   mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F"
@@ -3895,7 +4015,7 @@ function getStakeProgramId(network) {
     console.warn(
       `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
     );
-    return new PublicKey10(override);
+    return new PublicKey11(override);
   }
   const detectedNetwork = network ?? (() => {
     const n = safeEnv("NEXT_PUBLIC_DEFAULT_NETWORK")?.toLowerCase() ?? safeEnv("NETWORK")?.toLowerCase() ?? "";
@@ -3907,9 +4027,9 @@ function getStakeProgramId(network) {
       `Stake program not deployed on ${detectedNetwork}. Set STAKE_PROGRAM_ID env var or wait for DevOps to deploy and update STAKE_PROGRAM_IDS.mainnet.`
     );
   }
-  return new PublicKey10(id);
+  return new PublicKey11(id);
 }
-var STAKE_PROGRAM_ID = new PublicKey10(STAKE_PROGRAM_IDS.mainnet);
+var STAKE_PROGRAM_ID = new PublicKey11(STAKE_PROGRAM_IDS.mainnet);
 var STAKE_IX = {
   InitPool: 0,
   Deposit: 1,
@@ -3934,22 +4054,22 @@ var STAKE_IX = {
   /** PERC-303: Deposit into junior (first-loss) tranche */
   DepositJunior: 16
 };
-var TEXT = new TextEncoder();
+var TEXT2 = new TextEncoder();
 function deriveStakePool(slab, programId) {
-  return PublicKey10.findProgramAddressSync(
-    [TEXT.encode("stake_pool"), slab.toBytes()],
+  return PublicKey11.findProgramAddressSync(
+    [TEXT2.encode("stake_pool"), slab.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
 function deriveStakeVaultAuth(pool, programId) {
-  return PublicKey10.findProgramAddressSync(
-    [TEXT.encode("vault_auth"), pool.toBytes()],
+  return PublicKey11.findProgramAddressSync(
+    [TEXT2.encode("vault_auth"), pool.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
 function deriveDepositPda(pool, user, programId) {
-  return PublicKey10.findProgramAddressSync(
-    [TEXT.encode("deposit"), pool.toBytes(), user.toBytes()],
+  return PublicKey11.findProgramAddressSync(
+    [TEXT2.encode("deposit"), pool.toBytes(), user.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
@@ -4105,15 +4225,15 @@ function decodeStakePool(data) {
   const adminTransferred = bytes[off] === 1;
   off += 1;
   off += 4;
-  const slab = new PublicKey10(bytes.subarray(off, off + 32));
+  const slab = new PublicKey11(bytes.subarray(off, off + 32));
   off += 32;
-  const admin = new PublicKey10(bytes.subarray(off, off + 32));
+  const admin = new PublicKey11(bytes.subarray(off, off + 32));
   off += 32;
-  const collateralMint = new PublicKey10(bytes.subarray(off, off + 32));
+  const collateralMint = new PublicKey11(bytes.subarray(off, off + 32));
   off += 32;
-  const lpMint = new PublicKey10(bytes.subarray(off, off + 32));
+  const lpMint = new PublicKey11(bytes.subarray(off, off + 32));
   off += 32;
-  const vault = new PublicKey10(bytes.subarray(off, off + 32));
+  const vault = new PublicKey11(bytes.subarray(off, off + 32));
   off += 32;
   const totalDeposited = readU64LE4(bytes, off);
   off += 8;
@@ -4129,7 +4249,7 @@ function decodeStakePool(data) {
   off += 8;
   const totalWithdrawn = readU64LE4(bytes, off);
   off += 8;
-  const percolatorProgram = new PublicKey10(bytes.subarray(off, off + 32));
+  const percolatorProgram = new PublicKey11(bytes.subarray(off, off + 32));
   off += 32;
   const totalFeesEarned = readU64LE4(bytes, off);
   off += 8;
@@ -4179,6 +4299,20 @@ function decodeStakePool(data) {
     juniorBalance,
     juniorTotalLp,
     juniorFeeMultBps
+  };
+}
+var STAKE_DEPOSIT_SIZE = 152;
+function decodeDepositPda(data) {
+  if (data.length < STAKE_DEPOSIT_SIZE) {
+    throw new Error(`StakeDeposit data too short: ${data.length} < ${STAKE_DEPOSIT_SIZE}`);
+  }
+  return {
+    isInitialized: data[0] === 1,
+    bump: data[1],
+    pool: new PublicKey11(data.subarray(8, 40)),
+    user: new PublicKey11(data.subarray(40, 72)),
+    lastDepositSlot: readU64LE4(data, 72),
+    lpAmount: readU64LE4(data, 80)
   };
 }
 function initPoolAccounts(a) {
@@ -4940,8 +5074,8 @@ function formatResult(result, jsonMode) {
 }
 
 // src/runtime/lighthouse.ts
-import { PublicKey as PublicKey13, Transaction as Transaction2 } from "@solana/web3.js";
-var LIGHTHOUSE_PROGRAM_ID = new PublicKey13(
+import { PublicKey as PublicKey14, Transaction as Transaction2 } from "@solana/web3.js";
+var LIGHTHOUSE_PROGRAM_ID = new PublicKey14(
   "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"
 );
 var LIGHTHOUSE_PROGRAM_ID_STR2 = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
@@ -5261,7 +5395,7 @@ function computeWarmupProgress(currentSlot, warmupStartedAtSlot, warmupPeriodSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey14 } from "@solana/web3.js";
+import { PublicKey as PublicKey15 } from "@solana/web3.js";
 var U16_MAX = 65535;
 var U64_MAX = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
@@ -5291,7 +5425,7 @@ var ValidationError = class extends Error {
 };
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey14(value);
+    return new PublicKey15(value);
   } catch {
     throw new ValidationError(
       field,
@@ -5704,6 +5838,9 @@ export {
   ACCOUNTS_LIQUIDATE_AT_ORACLE,
   ACCOUNTS_LP_VAULT_WITHDRAW,
   ACCOUNTS_MINT_POSITION_NFT,
+  ACCOUNTS_NFT_BURN,
+  ACCOUNTS_NFT_EMERGENCY_BURN,
+  ACCOUNTS_NFT_MINT,
   ACCOUNTS_PAUSE_MARKET,
   ACCOUNTS_PUSH_ORACLE_PRICE,
   ACCOUNTS_QUEUE_WITHDRAWAL,
@@ -5748,6 +5885,8 @@ export {
   MAX_DECIMALS,
   MAX_ORACLE_PRICE,
   METEORA_DLMM_PROGRAM_ID,
+  NFT_IX_TAG,
+  NFT_PROGRAM_ID,
   ORACLE_PHASE_GROWING,
   ORACLE_PHASE_MATURE,
   ORACLE_PHASE_NASCENT,
@@ -5756,6 +5895,7 @@ export {
   PHASE1_VOLUME_MIN_SLOTS,
   PHASE2_MATURITY_SLOTS,
   PHASE2_VOLUME_THRESHOLD,
+  POSITION_NFT_STATE_LEN,
   PROGRAM_IDS,
   PUMPSWAP_PROGRAM_ID,
   PYTH_PUSH_ORACLE_PROGRAM_ID,
@@ -5765,6 +5905,7 @@ export {
   RAYDIUM_CLMM_PROGRAM_ID,
   RENOUNCE_ADMIN_CONFIRMATION,
   RpcPool,
+  SLAB_MAGIC,
   SLAB_TIERS,
   SLAB_TIERS_V0,
   SLAB_TIERS_V1,
@@ -5777,6 +5918,7 @@ export {
   SLAB_TIERS_V_ADL,
   SLAB_TIERS_V_ADL_DISCOVERY,
   SLAB_TIERS_V_SETDEXPOOL,
+  STAKE_DEPOSIT_SIZE,
   STAKE_IX,
   STAKE_POOL_SIZE,
   STAKE_PROGRAM_ID,
@@ -5818,6 +5960,7 @@ export {
   computeWarmupUnlockedCapital,
   concatBytes,
   countLighthouseInstructions,
+  decodeDepositPda,
   decodeError,
   decodeStakePool,
   depositAccounts,
@@ -5825,6 +5968,9 @@ export {
   deriveDepositPda,
   deriveKeeperFund,
   deriveLpPda,
+  deriveMintAuthority,
+  deriveNftMint,
+  deriveNftPda,
   derivePythPriceUpdateAccount,
   derivePythPushOraclePDA,
   deriveStakePool,
@@ -5879,6 +6025,10 @@ export {
   encodeLpVaultDeposit,
   encodeLpVaultWithdraw,
   encodeMintPositionNft,
+  encodeNftBurn,
+  encodeNftEmergencyBurn,
+  encodeNftMint,
+  encodeNftSettleFunding,
   encodePauseMarket,
   encodePushOraclePrice,
   encodeQueueWithdrawal,
@@ -5927,6 +6077,7 @@ export {
   encodeTransferOwnershipCpi,
   encodeTransferPositionOwnership,
   encodeUnpauseMarket,
+  encodeUnresolveMarket,
   encodeUpdateAdmin,
   encodeUpdateConfig,
   encodeUpdateHyperpMark,
@@ -5949,6 +6100,7 @@ export {
   getErrorName,
   getMarketsByAddress,
   getMatcherProgramId,
+  getNftProgramId,
   getProgramId,
   getStakeProgramId,
   getStaticMarkets,
@@ -5973,6 +6125,7 @@ export {
   parseErrorFromLogs,
   parseHeader,
   parseParams,
+  parsePositionNftAccount,
   parseUsedIndices,
   rankAdlPositions,
   readLastThrUpdateSlot,

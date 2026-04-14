@@ -1,4 +1,6 @@
 import { Connection, PublicKey } from "@solana/web3.js";
+/** Slab magic number ("PERCOLAT" as little-endian u64). */
+export declare const SLAB_MAGIC: bigint;
 /**
  * Full slab layout descriptor. Returned by detectSlabLayout().
  * All engine field offsets are relative to engineOff.
