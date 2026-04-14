@@ -18,7 +18,7 @@ export declare const PROGRAM_IDS: {
     };
     readonly mainnet: {
         readonly percolator: "ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv";
-        readonly matcher: "DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX";
+        readonly matcher: "GDK8wx38kpiSVSfGTVNiSdptX3Z5R4kQyqh6Q3QX6wmi";
     };
 };
 export type Network = "devnet" | "mainnet";
