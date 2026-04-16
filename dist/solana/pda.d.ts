@@ -5,6 +5,11 @@ import { PublicKey } from "@solana/web3.js";
  */
 export declare function deriveVaultAuthority(programId: PublicKey, slab: PublicKey): [PublicKey, number];
 /**
+ * Derive insurance LP mint PDA.
+ * Seeds: ["ins_lp", slab_key]
+ */
+export declare function deriveInsuranceLpMint(programId: PublicKey, slab: PublicKey): [PublicKey, number];
+/**
  * Derive LP PDA for TradeCpi.
  * Seeds: ["lp", slab_key, lp_idx as u16 LE]
  */

@@ -16,6 +16,20 @@ export function deriveVaultAuthority(
   );
 }
 
+/**
+ * Derive insurance LP mint PDA.
+ * Seeds: ["ins_lp", slab_key]
+ */
+export function deriveInsuranceLpMint(
+  programId: PublicKey,
+  slab: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [textEncoder.encode("ins_lp"), slab.toBytes()],
+    programId
+  );
+}
+
 const LP_INDEX_U16_MAX = 0xffff;
 
 /**
@@ -136,15 +150,7 @@ export function derivePythPushOraclePDA(feedIdHex: string): [PublicKey, number] 
   }
   const feedId = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
-    const hexPair = normalized.substring(i * 2, i * 2 + 2);
-    const byte = parseInt(hexPair, 16);
-    // Defensive check: ensure no NaN values in feed ID
-    if (Number.isNaN(byte)) {
-      throw new Error(
-        `derivePythPushOraclePDA: failed to parse hex byte at position ${i}: "${hexPair}"`,
-      );
-    }
-    feedId[i] = byte;
+    feedId[i] = parseInt(normalized.substring(i * 2, i * 2 + 2), 16);
   }
   const shardBuf = new Uint8Array(2); // shard_id = 0 (u16 LE)
   return PublicKey.findProgramAddressSync(

@@ -143,9 +143,7 @@ function computePnlPct(pnl: bigint, capital: bigint): bigint {
  */
 export function isAdlTriggered(slabData: Uint8Array): boolean {
   const layout = detectSlabLayout(slabData.length);
-  if (!layout) {
-    return false;
-  }
+  if (!layout) return false;
   try {
     const engine = parseEngine(slabData);
     if (engine.pnlPosTot === 0n) return false;
@@ -227,20 +225,7 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
     if (account.kind !== AccountKind.User) continue;
     if (account.positionSize === 0n) continue;
 
-    // Determine side from sign convention: long (> 0), short (< 0).
-    // If positionSize is 0, it was already skipped above.
     const side: AdlSide = account.positionSize > 0n ? "long" : "short";
-
-    // Validate sign convention: longs must be positive, shorts must be negative.
-    if (side === "long" && account.positionSize <= 0n) {
-      console.warn(`[fetchAdlRankedPositions] account idx=${idx}: side=long but positionSize=${account.positionSize}`);
-      continue;
-    }
-    if (side === "short" && account.positionSize >= 0n) {
-      console.warn(`[fetchAdlRankedPositions] account idx=${idx}: side=short but positionSize=${account.positionSize}`);
-      continue;
-    }
-
     // For shorts, positionSize is negative — PnL computation is symmetric:
     // a short profits when price falls, so pnl stored in the slab already
     // reflects mark-to-market gain/loss for both sides.
@@ -323,8 +308,7 @@ export function buildAdlInstruction(
       `buildAdlInstruction: targetIdx must be a non-negative integer, got ${targetIdx}`,
     );
   }
-  const dataBytes = encodeExecuteAdl({ targetIdx });
-  const data = Buffer.from(dataBytes);
+  const data = Buffer.from(encodeExecuteAdl({ targetIdx }));
 
   const keys: AccountMeta[] = [
     { pubkey: caller, isSigner: true, isWritable: false },
@@ -467,12 +451,7 @@ export function parseAdlEvent(logs: string[]): AdlEvent | null {
     if (tag !== ADL_EVENT_TAG) continue;
 
     try {
-      const targetIdxBig = BigInt(match[2]);
-      // Validate that targetIdx fits in u16 range before converting to Number
-      if (targetIdxBig < 0n || targetIdxBig > 65535n) {
-        continue;
-      }
-      const targetIdx = Number(targetIdxBig);
+      const targetIdx = Number(BigInt(match[2]));
       const price = BigInt(match[3]);
       const closedLo = BigInt(match[4]);
       const closedHi = BigInt(match[5]);
@@ -575,25 +554,6 @@ export async function fetchAdlRankings(
     );
   }
 
-  const json: unknown = await res.json();
-
-  // Runtime validation — the API response shape is not guaranteed
-  if (typeof json !== "object" || json === null) {
-    throw new Error("fetchAdlRankings: API returned non-object response");
-  }
-  const obj = json as Record<string, unknown>;
-  if (!Array.isArray(obj.rankings)) {
-    throw new Error("fetchAdlRankings: API response missing rankings array");
-  }
-  for (const entry of obj.rankings) {
-    if (typeof entry !== "object" || entry === null) {
-      throw new Error("fetchAdlRankings: invalid ranking entry (not an object)");
-    }
-    const r = entry as Record<string, unknown>;
-    if (typeof r.idx !== "number" || !Number.isInteger(r.idx) || r.idx < 0) {
-      throw new Error(`fetchAdlRankings: invalid ranking idx: ${r.idx}`);
-    }
-  }
-
-  return json as AdlApiResult;
+  const json = await res.json() as AdlApiResult;
+  return json;
 }

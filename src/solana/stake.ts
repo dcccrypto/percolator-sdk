@@ -4,17 +4,19 @@
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
  * Deployed devnet:  6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k
- * Deployed mainnet: (pending deployment — DevOps must set STAKE_PROGRAM_ID env var or deploy and update STAKE_PROGRAM_IDS.mainnet)
+ * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F
  */
 
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { safeEnv } from '../config/program-ids.js';
-import { concatBytes } from '../abi/encode.js';// ═══════════════════════════════════════════════════════════════
+import { concatBytes } from '../abi/encode.js';
+
+// ═══════════════════════════════════════════════════════════════
 // Program ID — network-conditional (mirrors program-ids.ts pattern)
 // ═══════════════════════════════════════════════════════════════
 
-/** Known stake program addresses per network. */
+/** Known stake program addresses per network. Mainnet is empty until deployed. */
 export const STAKE_PROGRAM_IDS = {
   devnet: '6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k',
   mainnet: 'DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F',
@@ -44,7 +46,13 @@ export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
     (() => {
       const n = safeEnv('NEXT_PUBLIC_DEFAULT_NETWORK')?.toLowerCase() ??
                 safeEnv('NETWORK')?.toLowerCase() ?? '';
-      return n === 'mainnet' || n === 'mainnet-beta' ? 'mainnet' : 'devnet';
+      if (n === 'mainnet' || n === 'mainnet-beta') return 'mainnet' as const;
+      if (n === 'devnet') return 'devnet' as const;
+      // In browser bundles, process.env is empty (env vars aren't inlined into
+      // third-party SDK code). Default to mainnet to match the app's fail-closed
+      // behavior — devnet must be opted into explicitly.
+      if (typeof window !== 'undefined') return 'mainnet' as const;
+      return 'devnet' as const;
     })();
 
   const id = STAKE_PROGRAM_IDS[detectedNetwork];
@@ -65,7 +73,7 @@ export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
  *   getStakeProgramId() so mainnet callers get a clear error rather than silently
  *   resolving to the devnet address.
  */
-export const STAKE_PROGRAM_ID = new PublicKey(STAKE_PROGRAM_IDS.mainnet);
+export const STAKE_PROGRAM_ID = new PublicKey(STAKE_PROGRAM_IDS.devnet);
 
 // ═══════════════════════════════════════════════════════════════
 // Instruction Tags (match src/instruction.rs)
@@ -140,9 +148,6 @@ function readU16LE(data: Uint8Array, off: number): number {
 // ═══════════════════════════════════════════════════════════════
 
 function u64Le(v: bigint | number): Uint8Array {
-  if (typeof v === "number" && !Number.isSafeInteger(v)) {
-    throw new Error(`u64Le: number ${v} exceeds Number.MAX_SAFE_INTEGER — use BigInt`);
-  }
   const big = BigInt(v);
   if (big < 0n) throw new Error(`u64Le: value must be non-negative, got ${big}`);
   if (big > 0xFFFF_FFFF_FFFF_FFFFn) throw new Error(`u64Le: value exceeds u64 max`);
@@ -151,9 +156,6 @@ function u64Le(v: bigint | number): Uint8Array {
 }
 
 function u128Le(v: bigint | number): Uint8Array {
-  if (typeof v === "number" && !Number.isSafeInteger(v)) {
-    throw new Error(`u128Le: number ${v} exceeds Number.MAX_SAFE_INTEGER — use BigInt`);
-  }
   const big = BigInt(v);
   if (big < 0n) throw new Error(`u128Le: value must be non-negative, got ${big}`);
   if (big > (1n << 128n) - 1n) throw new Error(`u128Le: value exceeds u128 max`);
@@ -164,7 +166,7 @@ function u128Le(v: bigint | number): Uint8Array {
 }
 
 function u16Le(v: number): Uint8Array {
-  if (!Number.isInteger(v) || v < 0 || v > 0xFFFF) throw new Error(`u16Le: value must be integer in range 0..65535, got ${v}`);  const arr = new Uint8Array(2);  new DataView(arr.buffer).setUint16(0, v, true);
+  if (v < 0 || v > 0xFFFF) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);  const arr = new Uint8Array(2);  new DataView(arr.buffer).setUint16(0, v, true);
   return arr;
 }
 

@@ -290,7 +290,9 @@ describe("Full 3-tier fallback: RPC → API → static bundle", () => {
     expect(mockConnection.getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
     const passedAddresses = (mockConnection.getMultipleAccountsInfo as ReturnType<typeof vi.fn>)
       .mock.calls[0][0] as PublicKey[];
-    expect(passedAddresses.map((a: PublicKey) => a.toBase58())).toEqual([staticAddr]);
+    const passedBase58 = passedAddresses.map((a: PublicKey) => a.toBase58());
+    // The registered address must be among those passed (built-in mainnet entries may also be present)
+    expect(passedBase58).toContain(staticAddr);
   });
 
   it("reaches tier 3 when RPC throws and API network-errors", async () => {
@@ -365,7 +367,8 @@ describe("Full 3-tier fallback: RPC → API → static bundle", () => {
     const call1Addrs = mockGetMultiple.mock.calls[0][0].map((a: PublicKey) => a.toBase58());
     const call2Addrs = mockGetMultiple.mock.calls[1][0].map((a: PublicKey) => a.toBase58());
     expect(call1Addrs).toEqual([apiAddr]);
-    expect(call2Addrs).toEqual([staticAddr]);
+    // Static addresses include the user-registered entry (+ any built-in mainnet entries)
+    expect(call2Addrs).toContain(staticAddr);
   });
 
   it("static bundle with multiple addresses passes all to getMultipleAccountsInfo", async () => {
@@ -391,7 +394,11 @@ describe("Full 3-tier fallback: RPC → API → static bundle", () => {
     });
 
     const passedAddresses = mockGetMultiple.mock.calls[0][0] as PublicKey[];
-    expect(passedAddresses).toHaveLength(5);
+    // 5 user-registered addresses + any built-in mainnet entries
+    expect(passedAddresses.length).toBeGreaterThanOrEqual(5);
+    for (const addr of addrs) {
+      expect(passedAddresses.map((a: PublicKey) => a.toBase58())).toContain(addr);
+    }
   });
 });
 
@@ -777,10 +784,12 @@ describe("0 markets returned vs actual errors — fallback trigger behavior", ()
       maxTierQueries: 1,
     });
 
-    // Only valid address passed
+    // Valid user address + any built-in mainnet entries passed (invalid skipped)
     const passedAddresses = mockGetMultiple.mock.calls[0][0] as PublicKey[];
-    expect(passedAddresses).toHaveLength(1);
-    expect(passedAddresses[0].toBase58()).toBe(fakePubkey(5).toBase58());
+    const passedBase58 = passedAddresses.map((a: PublicKey) => a.toBase58());
+    expect(passedBase58).toContain(fakePubkey(5).toBase58());
+    // Invalid address should NOT be present
+    expect(passedBase58.every((a: string) => a !== "definitely-not-base58!!!")).toBe(true);
   });
 });
 
@@ -891,7 +900,10 @@ describe("Static market registry interaction with tier 3", () => {
       { slabAddress: addr2, symbol: "ETH-PERP" },
     ]);
 
-    expect(getStaticMarkets("mainnet")).toHaveLength(2);
+    // User entries + built-in mainnet entries
+    const staticEntries = getStaticMarkets("mainnet");
+    expect(staticEntries.some(e => e.slabAddress === addr1)).toBe(true);
+    expect(staticEntries.some(e => e.slabAddress === addr2)).toBe(true);
 
     const mockGetMultiple = vi.fn().mockResolvedValue([null, null]);
     const mockConnection = {
@@ -912,18 +924,26 @@ describe("Static market registry interaction with tier 3", () => {
     });
 
     const passedAddresses = mockGetMultiple.mock.calls[0][0] as PublicKey[];
-    expect(passedAddresses).toHaveLength(2);
+    const passedBase58 = passedAddresses.map((a: PublicKey) => a.toBase58());
+    // Both registered addresses must be among those passed
+    expect(passedBase58).toContain(addr1);
+    expect(passedBase58).toContain(addr2);
   });
 
-  it("clearStaticMarkets removes entries — tier 3 has nothing to use", async () => {
+  it("clearStaticMarkets removes user entries — only built-in entries remain", async () => {
+    const userAddr = fakePubkey(10).toBase58();
     registerStaticMarkets("mainnet", [
-      { slabAddress: fakePubkey(10).toBase58() },
+      { slabAddress: userAddr },
     ]);
     clearStaticMarkets("mainnet");
-    expect(getStaticMarkets("mainnet")).toHaveLength(0);
+    // After clearing, user entry is gone; only built-in entries remain
+    const remaining = getStaticMarkets("mainnet");
+    expect(remaining.some(e => e.slabAddress === userAddr)).toBe(false);
 
+    const mockGetMultiple = vi.fn().mockResolvedValue([null]);
     const mockConnection = {
       getProgramAccounts: vi.fn().mockResolvedValue([]),
+      getMultipleAccountsInfo: mockGetMultiple,
     } as unknown as Connection;
 
     mockFetch.mockResolvedValueOnce({
@@ -938,14 +958,19 @@ describe("Static market registry interaction with tier 3", () => {
       maxTierQueries: 1,
     });
 
+    // Markets returned depend on built-in entries resolving on-chain (they won't with our mock)
     expect(result).toEqual([]);
   });
 
-  it("clearStaticMarkets() without arg clears all networks", () => {
-    registerStaticMarkets("mainnet", [{ slabAddress: fakePubkey(1).toBase58() }]);
-    registerStaticMarkets("devnet", [{ slabAddress: fakePubkey(2).toBase58() }]);
+  it("clearStaticMarkets() without arg clears all user entries", () => {
+    const mainnetAddr = fakePubkey(1).toBase58();
+    const devnetAddr = fakePubkey(2).toBase58();
+    registerStaticMarkets("mainnet", [{ slabAddress: mainnetAddr }]);
+    registerStaticMarkets("devnet", [{ slabAddress: devnetAddr }]);
     clearStaticMarkets();
-    expect(getStaticMarkets("mainnet")).toHaveLength(0);
+    // User entries removed; only built-in entries remain
+    expect(getStaticMarkets("mainnet").some(e => e.slabAddress === mainnetAddr)).toBe(false);
+    expect(getStaticMarkets("devnet").some(e => e.slabAddress === devnetAddr)).toBe(false);
     expect(getStaticMarkets("devnet")).toHaveLength(0);
   });
 
@@ -956,7 +981,9 @@ describe("Static market registry interaction with tier 3", () => {
       { slabAddress: addr },
       { slabAddress: addr },
     ]);
-    expect(getStaticMarkets("mainnet")).toHaveLength(1);
+    // Only one entry with this address (deduped), plus any built-in entries
+    const matching = getStaticMarkets("mainnet").filter(e => e.slabAddress === addr);
+    expect(matching).toHaveLength(1);
   });
 
   it("devnet and mainnet registries are independent", async () => {
@@ -984,10 +1011,11 @@ describe("Static market registry interaction with tier 3", () => {
       maxTierQueries: 1,
     });
 
-    // Only mainnet address passed — devnet was not mixed in
+    // Mainnet address (+ built-in mainnet entries) passed — devnet was not mixed in
     const passedAddresses = mockGetMultiple.mock.calls[0][0] as PublicKey[];
-    expect(passedAddresses).toHaveLength(1);
-    expect(passedAddresses[0].toBase58()).toBe(mainnetAddr);
+    const passedBase58 = passedAddresses.map((a: PublicKey) => a.toBase58());
+    expect(passedBase58).toContain(mainnetAddr);
+    expect(passedBase58).not.toContain(devnetAddr);
   });
 });
 

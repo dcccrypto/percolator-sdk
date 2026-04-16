@@ -143,9 +143,22 @@ export declare const SLAB_TIERS_V12_15: Record<string, {
     description: string;
 }>;
 /**
+ * V12_17 slab tier sizes — percolator v12.17 (two-bucket warmup, per-side funding).
+ * Uses SBF sizes (on-chain layout) for the dataSize values.
+ * ENGINE_OFF=504 (SBF), ACCOUNT_SIZE=352 (SBF), BITMAP_OFF=712 (SBF), postBitmap=4.
+ * RISK_BUF_LEN=160 appended after engine.
+ * Supported tiers: small(256), medium(1024), large(4096).
+ */
+export declare const SLAB_TIERS_V12_17: Record<string, {
+    maxAccounts: number;
+    dataSize: number;
+    label: string;
+    description: string;
+}>;
+/**
  * Detect the slab layout version from the raw account data length.
  * Returns the full SlabLayout descriptor, or null if the size is unrecognised.
- * Checks V12_15, V12_1, V_SETDEXPOOL, V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes.
+ * Checks V12_15, V12_1_EP, V12_1, V_SETDEXPOOL, V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes.
  *
  * When `data` is provided and the size matches V1D, the version field at offset 8 is read
  * to disambiguate V2 slabs (which produce identical sizes to V1D with postBitmap=2).
@@ -258,6 +271,14 @@ export interface RiskParams {
     liquidationFeeCap: bigint;
     liquidationBufferBps: bigint;
     minLiquidationAbs: bigint;
+    /** Minimum initial deposit to open an account (V12_1+ only) */
+    minInitialDeposit: bigint;
+    /** Minimum nonzero maintenance margin requirement (V12_1+ only) */
+    minNonzeroMmReq: bigint;
+    /** Minimum nonzero initial margin requirement (V12_1+ only) */
+    minNonzeroImReq: bigint;
+    /** Insurance fund floor (V12_1+ only) */
+    insuranceFloor: bigint;
     /** Minimum horizon slots (v12.15+). Replaces warmupPeriodSlots. 0n on pre-v12.15 slabs. */
     hMin: bigint;
     /** Maximum horizon slots (v12.15+). 0n on pre-v12.15 slabs. */
@@ -272,17 +293,15 @@ export interface EngineState {
     /**
      * Funding rate per slot. On pre-v12.15 slabs: i64 in BPS units.
      * On v12.15+ slabs: i128 in e9 units (field renamed `funding_rate_e9` on-chain).
-     * Use `fundingRateE9` for v12.15-aware code.
      */
     fundingRateBpsPerSlotLast: bigint;
     /**
      * Funding rate in e9 units (i128). v12.15+ only.
-     * 0n on pre-v12.15 slabs (use `fundingRateBpsPerSlotLast` instead).
+     * 0n on pre-v12.15 slabs.
      */
     fundingRateE9: bigint;
     /**
-     * Market mode. v12.15+ only.
-     * 0 = Live, 1 = Resolved. null on pre-v12.15 slabs.
+     * Market mode. v12.15+ only. 0 = Live, 1 = Resolved. null on pre-v12.15 slabs.
      */
     marketMode: 0 | 1 | null;
     lastCrankSlot: bigint;
@@ -293,8 +312,7 @@ export interface EngineState {
     cTot: bigint;
     pnlPosTot: bigint;
     /**
-     * Matured (settled) positive PnL total (u128). v12.15+ only.
-     * 0n on pre-v12.15 slabs.
+     * Matured (settled) positive PnL total (u128). v12.15+ only. 0n on pre-v12.15 slabs.
      */
     pnlMaturedPosTot: bigint;
     liqCursor: number;
@@ -315,6 +333,22 @@ export interface EngineState {
     numUsedAccounts: number;
     nextAccountId: bigint;
     markPriceE6: bigint;
+    /** last_oracle_price (u64, e6). V12_15+ only. 0n on pre-v12.15. */
+    oraclePriceE6: bigint;
+    /** Cumulative funding numerator for long side (i128). 0n on pre-v12.17. */
+    fLongNum: bigint;
+    /** Cumulative funding numerator for short side (i128). 0n on pre-v12.17. */
+    fShortNum: bigint;
+    /** Count of accounts with negative PnL. 0n on pre-v12.17. */
+    negPnlAccountCount: bigint;
+    /** Last funding-sample price (u64 e6). 0n on pre-v12.17. */
+    fundPxLast: bigint;
+    /** Matured positive PnL total (u128). v12.15+ only. 0n on pre-v12.15 slabs. */
+    resolvedKLongTerminalDelta: bigint;
+    /** Terminal K delta for short side (i128). 0n on pre-v12.17. */
+    resolvedKShortTerminalDelta: bigint;
+    /** Live oracle price used during resolution (u64 e6). 0n on pre-v12.17. */
+    resolvedLivePrice: bigint;
 }
 export declare enum AccountKind {
     User = 0,
@@ -349,7 +383,7 @@ export interface Account {
      * `null` on pre-v12.15 slabs. Parse the raw bytes according to the on-chain ReserveCohort struct.
      */
     exactReserveCohorts: ReserveCohortBytes[] | null;
-    /** Number of active reserve cohorts (0–62). null on pre-v12.15 slabs. */
+    /** Number of active reserve cohorts (0-62). null on pre-v12.15 slabs. */
     exactCohortCount: number | null;
     /** Overflow (oldest) cohort raw bytes. null on pre-v12.15 slabs or when not present. */
     overflowOlder: ReserveCohortBytes | null;
@@ -359,6 +393,34 @@ export interface Account {
     overflowNewest: ReserveCohortBytes | null;
     /** True if overflowNewest contains valid data. null on pre-v12.15 slabs. */
     overflowNewestPresent: boolean | null;
+    /** Per-account cumulative funding snapshot (i128). 0n on pre-v12.17 slabs. */
+    fSnap: bigint;
+    /** ADL A-basis snapshot (u128). 0n on pre-v12.17 slabs. */
+    adlABasis: bigint;
+    /** ADL K-coefficient snapshot (i128). 0n on pre-v12.17 slabs. */
+    adlKSnap: bigint;
+    /** ADL epoch snapshot (u64). 0n on pre-v12.17 slabs. */
+    adlEpochSnap: bigint;
+    /** True if the scheduled warmup bucket is active. null on pre-v12.17. */
+    schedPresent: boolean | null;
+    /** Remaining unreleased quantity in scheduled bucket. null on pre-v12.17. */
+    schedRemainingQ: bigint | null;
+    /** Anchor quantity for scheduled bucket. null on pre-v12.17. */
+    schedAnchorQ: bigint | null;
+    /** Start slot for scheduled bucket. null on pre-v12.17. */
+    schedStartSlot: bigint | null;
+    /** Warmup horizon for scheduled bucket. null on pre-v12.17. */
+    schedHorizon: bigint | null;
+    /** Release quantity for scheduled bucket. null on pre-v12.17. */
+    schedReleaseQ: bigint | null;
+    /** True if the pending warmup bucket is active. null on pre-v12.17. */
+    pendingPresent: boolean | null;
+    /** Remaining unreleased quantity in pending bucket. null on pre-v12.17. */
+    pendingRemainingQ: bigint | null;
+    /** Warmup horizon for pending bucket. null on pre-v12.17. */
+    pendingHorizon: bigint | null;
+    /** Creation slot for pending bucket. null on pre-v12.17. */
+    pendingCreatedSlot: bigint | null;
 }
 export declare function fetchSlab(connection: Connection, slabPubkey: PublicKey): Promise<Uint8Array>;
 export declare const RAMP_START_BPS = 1000n;

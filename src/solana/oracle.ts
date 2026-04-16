@@ -24,9 +24,6 @@ const MAX_DECIMALS = 18;
 /** Offset of decimals field in Chainlink aggregator account */
 const CHAINLINK_DECIMALS_OFFSET = 138;
 
-/** Offset of updated_at timestamp (i64 LE, Unix seconds) in Chainlink aggregator */
-const CHAINLINK_TIMESTAMP_OFFSET = 168;
-
 /** Offset of latest answer in Chainlink aggregator account */
 const CHAINLINK_ANSWER_OFFSET = 216;
 
@@ -37,13 +34,6 @@ const CHAINLINK_ANSWER_OFFSET = 216;
 export interface OraclePrice {
   price: bigint;
   decimals: number;
-  /** Unix timestamp (seconds) of the last oracle update, if available. */
-  updatedAt?: number;
-}
-
-export interface ParseChainlinkOptions {
-  /** Maximum allowed staleness in seconds. If the oracle update is older, an error is thrown. */
-  maxStalenessSeconds?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +64,7 @@ function readBigInt64LE(data: Uint8Array, off: number): bigint {
  * @returns Parsed oracle price with decimals
  * @throws if the buffer is invalid or contains unreasonable data
  */
-export function parseChainlinkPrice(data: Uint8Array, options?: ParseChainlinkOptions): OraclePrice {
+export function parseChainlinkPrice(data: Uint8Array): OraclePrice {
   if (data.length < CHAINLINK_MIN_SIZE) {
     throw new Error(
       `Oracle account data too small: ${data.length} bytes (need at least ${CHAINLINK_MIN_SIZE})`
@@ -95,21 +85,7 @@ export function parseChainlinkPrice(data: Uint8Array, options?: ParseChainlinkOp
     );
   }
 
-  // Read updated_at timestamp (i64 LE at offset 168)
-  const updatedAtBig = readBigInt64LE(data, CHAINLINK_TIMESTAMP_OFFSET);
-  const updatedAt = Number(updatedAtBig);
-
-  if (options?.maxStalenessSeconds !== undefined && updatedAt > 0) {
-    const now = Math.floor(Date.now() / 1000);
-    const age = now - updatedAt;
-    if (age > options.maxStalenessSeconds) {
-      throw new Error(
-        `Oracle price is stale: last updated ${age}s ago (max ${options.maxStalenessSeconds}s)`
-      );
-    }
-  }
-
-  return { price, decimals, updatedAt: updatedAt > 0 ? updatedAt : undefined };
+  return { price, decimals };
 }
 
 /**
@@ -127,4 +103,4 @@ export function isValidChainlinkOracle(data: Uint8Array): boolean {
 }
 
 // Re-export constants for consumers
-export { CHAINLINK_MIN_SIZE, CHAINLINK_DECIMALS_OFFSET, CHAINLINK_TIMESTAMP_OFFSET, CHAINLINK_ANSWER_OFFSET, MAX_DECIMALS };
+export { CHAINLINK_MIN_SIZE, CHAINLINK_DECIMALS_OFFSET, CHAINLINK_ANSWER_OFFSET, MAX_DECIMALS };

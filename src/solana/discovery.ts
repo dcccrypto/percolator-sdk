@@ -5,9 +5,13 @@ import {
   parseParams,
   detectSlabLayout,
   SLAB_TIERS_V1M,
+  SLAB_TIERS_V1M2,
   SLAB_TIERS_V2,
   SLAB_TIERS_V_ADL,
   SLAB_TIERS_V12_1,
+  SLAB_TIERS_V12_15,
+  SLAB_TIERS_V12_17,
+  SLAB_TIERS_V_SETDEXPOOL,
   type SlabHeader,
   type MarketConfig,
   type EngineState,
@@ -60,14 +64,14 @@ const MAGIC_BYTES = new Uint8Array([0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x
  *          in SLAB_TIERS_V0 for discovery of legacy on-chain accounts.
  */
 /**
- * Default slab tiers for the current mainnet program (v12.1).
+ * Default slab tiers for the current mainnet program (v12.17).
  * These are used by useCreateMarket to allocate slab accounts of the correct size.
+ * V12_17: two-bucket warmup, per-side funding, ACCOUNT_SIZE=352 (SBF).
  */
 export const SLAB_TIERS = {
-  micro:  SLAB_TIERS_V12_1["micro"],
-  small:  SLAB_TIERS_V12_1["small"],
-  medium: SLAB_TIERS_V12_1["medium"],
-  large:  SLAB_TIERS_V12_1["large"],
+  small:  SLAB_TIERS_V12_17["small"],
+  medium: SLAB_TIERS_V12_17["medium"],
+  large:  SLAB_TIERS_V12_17["large"],
 } as const;
 
 /** @deprecated V0 slab sizes — kept for backward compatibility with old on-chain slabs */
@@ -309,6 +313,9 @@ function parseEngineLight(
       emergencyStartSlot: 0n,
       lastBreakerSlot: 0n,
       markPriceE6: 0n, // V0 engine has no mark_price field
+      oraclePriceE6: 0n,
+      fLongNum: 0n, fShortNum: 0n, negPnlAccountCount: 0n, fundPxLast: 0n,
+      resolvedKLongTerminalDelta: 0n, resolvedKShortTerminalDelta: 0n, resolvedLivePrice: 0n,
       numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
       nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
     };
@@ -357,6 +364,9 @@ function parseEngineLight(
       emergencyStartSlot: 0n,
       lastBreakerSlot: 0n,
       markPriceE6: 0n,          // V2 has no mark_price
+      oraclePriceE6: 0n,
+      fLongNum: 0n, fShortNum: 0n, negPnlAccountCount: 0n, fundPxLast: 0n,
+      resolvedKLongTerminalDelta: 0n, resolvedKShortTerminalDelta: 0n, resolvedLivePrice: 0n,
       numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
       nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
     };
@@ -406,6 +416,9 @@ function parseEngineLight(
       emergencyStartSlot: l.engineEmergencyStartSlotOff >= 0 ? readU64LE(data, base + l.engineEmergencyStartSlotOff) : 0n,
       lastBreakerSlot: l.engineLastBreakerSlotOff >= 0 ? readU64LE(data, base + l.engineLastBreakerSlotOff) : 0n,
       markPriceE6: l.engineMarkPriceOff >= 0 ? readU64LE(data, base + l.engineMarkPriceOff) : 0n,
+      oraclePriceE6: 0n,
+      fLongNum: 0n, fShortNum: 0n, negPnlAccountCount: 0n, fundPxLast: 0n,
+      resolvedKLongTerminalDelta: 0n, resolvedKShortTerminalDelta: 0n, resolvedLivePrice: 0n,
       numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
       nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
     };
@@ -458,6 +471,9 @@ function parseEngineLight(
     emergencyStartSlot: readU64LE(data, base + 616),
     lastBreakerSlot: readU64LE(data, base + 624),
     markPriceE6: readU64LE(data, base + 400),      // PERC-1094: was 392
+    oraclePriceE6: 0n,
+    fLongNum: 0n, fShortNum: 0n, negPnlAccountCount: 0n, fundPxLast: 0n,
+    resolvedKLongTerminalDelta: 0n, resolvedKShortTerminalDelta: 0n, resolvedLivePrice: 0n,
     numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
     nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
   };
@@ -597,13 +613,17 @@ export async function discoverMarkets(
   // GH#1234) must also be included; omitting them causes legacy on-chain slabs to be missed by
   // dataSize filter queries and fall through to memcmp with wrong maxAccounts hint.
   const ALL_TIERS = [
-    ...Object.values(SLAB_TIERS),
+    ...Object.values(SLAB_TIERS),           // v12.17 (default)
+    ...Object.values(SLAB_TIERS_V12_15),    // v12.15
+    ...Object.values(SLAB_TIERS_V12_1),     // v12.1
     ...Object.values(SLAB_TIERS_V0),
     ...Object.values(SLAB_TIERS_V1D),
     ...Object.values(SLAB_TIERS_V1D_LEGACY),
     ...Object.values(SLAB_TIERS_V2),
     ...Object.values(SLAB_TIERS_V1M),
+    ...Object.values(SLAB_TIERS_V1M2),
     ...Object.values(SLAB_TIERS_V_ADL),
+    ...Object.values(SLAB_TIERS_V_SETDEXPOOL),
   ];
   type RawEntry = { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number; dataSize: number };
   let rawAccounts: RawEntry[] = [];

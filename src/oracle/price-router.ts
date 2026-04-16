@@ -94,12 +94,10 @@ function parseDexScreenerPairs(json: unknown): PriceSource[] {
     else if (liquidity > 1_000) confidence = 45;
 
     const priceUsd = pair.priceUsd;
-    const rawPrice =
+    const price =
       typeof priceUsd === "string" || typeof priceUsd === "number"
-        ? parseFloat(String(priceUsd))
-        : NaN;
-    if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
-    const price = rawPrice;
+        ? parseFloat(String(priceUsd)) || 0
+        : 0;
 
     let baseSym = "?";
     let quoteSym = "?";
@@ -137,11 +135,12 @@ function parseJupiterMintEntry(
   if (!isRecord(row)) return null;
   const rawPrice = row.price;
   if (rawPrice === undefined || rawPrice === null) return null;
-  const price = parseFloat(String(rawPrice));
-  if (!Number.isFinite(price) || price <= 0) return null;
+  const price = parseFloat(String(rawPrice)) || 0;
+  if (price <= 0) return null;
   let mintSymbol = "?";
   if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
-  return { price, mintSymbol };}
+  return { price, mintSymbol };
+}
 
 // ---------------------------------------------------------------------------
 // Top Solana tokens with known Pyth feeds (feed ID → symbol)
@@ -217,17 +216,10 @@ async function fetchDexSources(mint: string, signal?: AbortSignal): Promise<Pric
         headers: { "User-Agent": "percolator/1.0" },
       },
     );
-    if (!resp.ok) {
-      console.debug(`[fetchDexSources] HTTP ${resp.status} for mint ${mint}`);
-      return [];
-    }
+    if (!resp.ok) return [];
     const json: unknown = await resp.json();
     return parseDexScreenerPairs(json);
-  } catch (err) {
-    console.warn(
-      `[fetchDexSources] Error fetching DexScreener data for mint ${mint}:`,
-      err instanceof Error ? err.message : String(err),
-    );
+  } catch {
     return [];
   }
 }
@@ -243,7 +235,7 @@ function lookupPythSource(mint: string): PriceSource | null {
     type: "pyth",
     address: entry.feedId,
     pairLabel: `${entry.symbol} / USD (Pyth)`,
-    liquidity: Number.MAX_SAFE_INTEGER, // Pyth is considered deep liquidity
+    liquidity: Infinity, // Pyth is considered deep liquidity
     price: 0, // We don't fetch live price here; caller can enrich
     confidence: 95, // Pyth is highest reliability for supported tokens
   };
@@ -262,16 +254,10 @@ async function fetchJupiterSource(mint: string, signal?: AbortSignal): Promise<P
         headers: { "User-Agent": "percolator/1.0" },
       },
     );
-    if (!resp.ok) {
-      console.debug(`[fetchJupiterSource] HTTP ${resp.status} for mint ${mint}`);
-      return null;
-    }
+    if (!resp.ok) return null;
     const json: unknown = await resp.json();
     const row = parseJupiterMintEntry(json, mint);
-    if (!row) {
-      console.debug(`[fetchJupiterSource] No price data from Jupiter for mint ${mint}`);
-      return null;
-    }
+    if (!row) return null;
     return {
       type: "jupiter",
       address: mint,
@@ -280,11 +266,7 @@ async function fetchJupiterSource(mint: string, signal?: AbortSignal): Promise<P
       price: row.price,
       confidence: 40, // Fallback — lower confidence
     };
-  } catch (err) {
-    console.warn(
-      `[fetchJupiterSource] Error fetching Jupiter data for mint ${mint}:`,
-      err instanceof Error ? err.message : String(err),
-    );
+  } catch {
     return null;
   }
 }
@@ -300,13 +282,13 @@ export async function resolvePrice(
 ): Promise<PriceRouterResult> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_RESOLVE_TIMEOUT_MS;
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  const effectiveSignal = signal
+  const combinedSignal = signal
     ? combineAbortSignals([signal, timeoutSignal])
     : timeoutSignal;
 
   const [dexSources, jupiterSource] = await Promise.all([
-    fetchDexSources(mint, effectiveSignal),
-    fetchJupiterSource(mint, effectiveSignal),
+    fetchDexSources(mint, combinedSignal),
+    fetchJupiterSource(mint, combinedSignal),
   ]);
 
   const pythSource = lookupPythSource(mint);
@@ -315,25 +297,9 @@ export async function resolvePrice(
 
   // Add Pyth if available (highest priority for supported tokens)
   if (pythSource) {
-    // Enrich Pyth price from DEX and/or Jupiter — cross-validate when both exist
-    const dexPrice = dexSources[0]?.price ?? 0;
-    const jupPrice = jupiterSource?.price ?? 0;
-
-    if (dexPrice > 0 && jupPrice > 0) {
-      // Cross-validate: reject if sources diverge by more than 50%
-      const mid = (dexPrice + jupPrice) / 2;
-      const deviation = Math.abs(dexPrice - jupPrice) / mid;
-      if (deviation > 0.5) {
-        // Sources disagree significantly — don't enrich Pyth, lower confidence
-        pythSource.price = 0;
-        pythSource.confidence = 20;
-      } else {
-        pythSource.price = mid;
-      }
-    } else {
-      // Only one source available — use it but note reduced validation
-      pythSource.price = dexPrice || jupPrice || 0;
-    }
+    // Enrich Pyth price from Jupiter or DEX if available
+    const refPrice = dexSources[0]?.price || jupiterSource?.price || 0;
+    pythSource.price = refPrice;
     allSources.push(pythSource);
   }
 

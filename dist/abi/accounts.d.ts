@@ -50,7 +50,7 @@ export declare const ACCOUNTS_CLOSE_ACCOUNT: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_TOPUP_INSURANCE: readonly AccountSpec[];
 /**
- * TradeCpi: 7 accounts (PERC-199: clock sysvar removed — uses Clock::get() syscall)
+ * TradeCpi: 8 accounts (deployed program expects clock sysvar at index 3)
  */
 export declare const ACCOUNTS_TRADE_CPI: readonly AccountSpec[];
 /**
@@ -117,6 +117,21 @@ export declare const ACCOUNTS_UNPAUSE_MARKET: readonly AccountSpec[];
  * remember the positional order, and errors clearly on missing names.
  */
 export declare function buildAccountMetas(spec: readonly AccountSpec[], keys: PublicKey[] | Record<string, PublicKey>): AccountMeta[];
+/**
+ * CreateInsuranceMint: 9 accounts
+ * Creates SPL mint PDA for insurance LP tokens. Admin only, once per market.
+ */
+export declare const ACCOUNTS_CREATE_INSURANCE_MINT: readonly AccountSpec[];
+/**
+ * DepositInsuranceLP: 8 accounts
+ * Deposit collateral into insurance fund, receive LP tokens.
+ */
+export declare const ACCOUNTS_DEPOSIT_INSURANCE_LP: readonly AccountSpec[];
+/**
+ * WithdrawInsuranceLP: 8 accounts
+ * Burn LP tokens and withdraw proportional share of insurance fund.
+ */
+export declare const ACCOUNTS_WITHDRAW_INSURANCE_LP: readonly AccountSpec[];
 /**
  * LpVaultWithdraw: 10 accounts (tag 39, PERC-627 / GH#1926 / PERC-8287)
  *
@@ -229,6 +244,12 @@ export declare const ACCOUNTS_CLEAR_PENDING_SETTLEMENT: readonly AccountSpec[];
  * Sets the per-wallet position cap (admin only). capE6=0 disables.
  */
 export declare const ACCOUNTS_SET_WALLET_CAP: readonly AccountSpec[];
+/**
+ * SetDexPool: 3 accounts
+ * Admin pins the approved DEX pool address for a HYPERP market.
+ * After this call, UpdateHyperpMark rejects any pool that does not match.
+ */
+export declare const ACCOUNTS_SET_DEX_POOL: readonly AccountSpec[];
 /**
  * InitMatcherCtx: 5 accounts
  * Admin CPI-initializes the matcher context account for an LP slot.

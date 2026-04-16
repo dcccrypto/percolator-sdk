@@ -12,7 +12,11 @@ import {
   detectSlabLayout,
   SLAB_TIERS_V2,
   SLAB_TIERS_V1M,
+  SLAB_TIERS_V1M2,
   SLAB_TIERS_V_ADL,
+  SLAB_TIERS_V12_1,
+  SLAB_TIERS_V12_15,
+  SLAB_TIERS_V_SETDEXPOOL,
 } from "../src/solana/slab.js";
 
 // ============================================================================
@@ -20,9 +24,9 @@ import {
 // ============================================================================
 
 describe("SLAB_TIERS", () => {
-  it("has exactly 4 tiers: micro, small, medium, large", () => {
+  it("has exactly 3 tiers: small, medium, large (v12.17)", () => {
     const tierNames = Object.keys(SLAB_TIERS);
-    expect(tierNames).toEqual(["micro", "small", "medium", "large"]);
+    expect(tierNames).toEqual(["small", "medium", "large"]);
   });
 
   it("small tier has 256 max accounts", () => {
@@ -434,12 +438,16 @@ describe("discoverMarkets — sequential mode (PERC-1650)", () => {
     // Each tier got exactly ONE call (no retry on non-429)
     const allTierCount =
       Object.keys(SLAB_TIERS).length +
+      Object.keys(SLAB_TIERS_V12_15).length +
+      Object.keys(SLAB_TIERS_V12_1).length +
       Object.keys(SLAB_TIERS_V0).length +
       Object.keys(SLAB_TIERS_V1D).length +
       Object.keys(SLAB_TIERS_V1D_LEGACY).length +
       Object.keys(SLAB_TIERS_V2).length +
       Object.keys(SLAB_TIERS_V1M).length +
-      Object.keys(SLAB_TIERS_V_ADL).length;
+      Object.keys(SLAB_TIERS_V1M2).length +
+      Object.keys(SLAB_TIERS_V_ADL).length +
+      Object.keys(SLAB_TIERS_V_SETDEXPOOL).length;
     expect(callCount).toBeLessThanOrEqual(allTierCount + 2); // +2 for rounding
     // Memcmp fallback was called (0 raw accounts → fallback triggered)
     expect(memcmpCallCount).toBe(1);

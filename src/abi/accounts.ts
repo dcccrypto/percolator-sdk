@@ -45,6 +45,7 @@ export const ACCOUNTS_INIT_USER: readonly AccountSpec[] = [
   { name: "userAta", signer: false, writable: true },
   { name: "vault", signer: false, writable: true },
   { name: "tokenProgram", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false },
 ] as const;
 
 /**
@@ -94,6 +95,7 @@ export const ACCOUNTS_KEEPER_CRANK: readonly AccountSpec[] = [
   { name: "oracle", signer: false, writable: false },
 ] as const;
 
+
 /**
  * TradeNoCpi: 4 accounts (PERC-199: clock sysvar removed — uses Clock::get() syscall)
  */
@@ -141,12 +143,13 @@ export const ACCOUNTS_TOPUP_INSURANCE: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * TradeCpi: 7 accounts (PERC-199: clock sysvar removed — uses Clock::get() syscall)
+ * TradeCpi: 8 accounts (deployed program expects clock sysvar at index 3)
  */
 export const ACCOUNTS_TRADE_CPI: readonly AccountSpec[] = [
   { name: "user", signer: true, writable: true },
   { name: "lpOwner", signer: false, writable: false },  // LP delegated to matcher - no signature needed
   { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false },
   { name: "oracle", signer: false, writable: false },
   { name: "matcherProg", signer: false, writable: false },
   { name: "matcherCtx", signer: false, writable: true },
@@ -305,6 +308,52 @@ export function buildAccountMetas(
     isWritable: s.writable,
   }));
 }
+
+/**
+ * CreateInsuranceMint: 9 accounts
+ * Creates SPL mint PDA for insurance LP tokens. Admin only, once per market.
+ */
+export const ACCOUNTS_CREATE_INSURANCE_MINT: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: false },
+  { name: "insLpMint", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "collateralMint", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "rent", signer: false, writable: false },
+  { name: "payer", signer: true, writable: true },
+] as const;
+
+/**
+ * DepositInsuranceLP: 8 accounts
+ * Deposit collateral into insurance fund, receive LP tokens.
+ */
+export const ACCOUNTS_DEPOSIT_INSURANCE_LP: readonly AccountSpec[] = [
+  { name: "depositor", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "depositorAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "insLpMint", signer: false, writable: true },
+  { name: "depositorLpAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+] as const;
+
+/**
+ * WithdrawInsuranceLP: 8 accounts
+ * Burn LP tokens and withdraw proportional share of insurance fund.
+ */
+export const ACCOUNTS_WITHDRAW_INSURANCE_LP: readonly AccountSpec[] = [
+  { name: "withdrawer", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "withdrawerAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "insLpMint", signer: false, writable: true },
+  { name: "withdrawerLpAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+] as const;
 
 // ============================================================================
 // PERC-627 / GH#1926: LpVaultWithdraw (tag 39)
@@ -568,6 +617,21 @@ export const ACCOUNTS_CLEAR_PENDING_SETTLEMENT: readonly AccountSpec[] = [
 export const ACCOUNTS_SET_WALLET_CAP: readonly AccountSpec[] = [
   { name: "admin", signer: true, writable: false },
   { name: "slab", signer: false, writable: true },
+] as const;
+
+// ============================================================================
+// PERC-SetDexPool: SetDexPool (tag 74)
+// ============================================================================
+
+/**
+ * SetDexPool: 3 accounts
+ * Admin pins the approved DEX pool address for a HYPERP market.
+ * After this call, UpdateHyperpMark rejects any pool that does not match.
+ */
+export const ACCOUNTS_SET_DEX_POOL: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "poolAccount", signer: false, writable: false },
 ] as const;
 
 // ============================================================================

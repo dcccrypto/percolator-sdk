@@ -16,19 +16,11 @@ declare const CHAINLINK_MIN_SIZE = 224;
 declare const MAX_DECIMALS = 18;
 /** Offset of decimals field in Chainlink aggregator account */
 declare const CHAINLINK_DECIMALS_OFFSET = 138;
-/** Offset of updated_at timestamp (i64 LE, Unix seconds) in Chainlink aggregator */
-declare const CHAINLINK_TIMESTAMP_OFFSET = 168;
 /** Offset of latest answer in Chainlink aggregator account */
 declare const CHAINLINK_ANSWER_OFFSET = 216;
 export interface OraclePrice {
     price: bigint;
     decimals: number;
-    /** Unix timestamp (seconds) of the last oracle update, if available. */
-    updatedAt?: number;
-}
-export interface ParseChainlinkOptions {
-    /** Maximum allowed staleness in seconds. If the oracle update is older, an error is thrown. */
-    maxStalenessSeconds?: number;
 }
 /**
  * Parse price data from a Chainlink aggregator account buffer.
@@ -42,11 +34,11 @@ export interface ParseChainlinkOptions {
  * @returns Parsed oracle price with decimals
  * @throws if the buffer is invalid or contains unreasonable data
  */
-export declare function parseChainlinkPrice(data: Uint8Array, options?: ParseChainlinkOptions): OraclePrice;
+export declare function parseChainlinkPrice(data: Uint8Array): OraclePrice;
 /**
  * Validate that a buffer looks like a valid Chainlink aggregator account.
  * Returns true if the buffer passes all validation checks, false otherwise.
  * Use this for non-throwing validation.
  */
 export declare function isValidChainlinkOracle(data: Uint8Array): boolean;
-export { CHAINLINK_MIN_SIZE, CHAINLINK_DECIMALS_OFFSET, CHAINLINK_TIMESTAMP_OFFSET, CHAINLINK_ANSWER_OFFSET, MAX_DECIMALS };
+export { CHAINLINK_MIN_SIZE, CHAINLINK_DECIMALS_OFFSET, CHAINLINK_ANSWER_OFFSET, MAX_DECIMALS };

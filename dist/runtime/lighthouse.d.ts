@@ -55,7 +55,7 @@ export declare const LIGHTHOUSE_CONSTRAINT_ADDRESS = 6400;
  * Known Lighthouse/Anchor error codes that may appear in transaction logs.
  * All are in the Anchor error range (0x1770–0x1900+).
  */
-export declare const LIGHTHOUSE_ERROR_CODES: Set<6000 | 6032 | 6036 | 6038 | 6400 | 6001 | 6002 | 6003 | 6016 | 6033 | 6034 | 6035 | 6037 | 6039 | 6040 | 6041 | 6042 | 6043>;
+export declare const LIGHTHOUSE_ERROR_CODES: Set<6400 | 6000 | 6001 | 6002 | 6003 | 6016 | 6032 | 6033 | 6034 | 6035 | 6036 | 6037 | 6038 | 6039 | 6040 | 6041 | 6042 | 6043>;
 /**
  * Check if a TransactionInstruction is from the Lighthouse program.
  *

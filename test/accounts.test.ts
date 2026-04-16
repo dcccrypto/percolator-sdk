@@ -89,8 +89,8 @@ describe("Account orderings", () => {
     expect(ACCOUNTS_INIT_MARKET).toHaveLength(9);
   });
 
-  it("ACCOUNTS_INIT_USER has 5 accounts", () => {
-    expect(ACCOUNTS_INIT_USER).toHaveLength(5);
+  it("ACCOUNTS_INIT_USER has 6 accounts (v12.17: clock added)", () => {
+    expect(ACCOUNTS_INIT_USER).toHaveLength(6);
   });
 
   it("ACCOUNTS_INIT_LP has 5 accounts", () => {
@@ -125,8 +125,8 @@ describe("Account orderings", () => {
     expect(ACCOUNTS_TOPUP_INSURANCE).toHaveLength(5);
   });
 
-  it("ACCOUNTS_TRADE_CPI has 7 accounts (PERC-199: clock removed)", () => {
-    expect(ACCOUNTS_TRADE_CPI).toHaveLength(7);
+  it("ACCOUNTS_TRADE_CPI has 8 accounts (v12.17: lpPda added)", () => {
+    expect(ACCOUNTS_TRADE_CPI).toHaveLength(8);
   });
 
   it("ACCOUNTS_SET_RISK_THRESHOLD has 2 accounts", () => {

@@ -1,14 +1,14 @@
 import { PublicKey } from "@solana/web3.js";
 
-const U8_MAX = 255;
-const U16_MAX = 65_535;
-const U32_MAX = 4_294_967_295;
+const U8_MAX = 0xFF;
+const U16_MAX = 0xFFFF;
+const U32_MAX = 0xFFFFFFFF;
 
 /**
  * Encode u8 (1 byte)
  */
 export function encU8(val: number): Uint8Array {
-  if (!Number.isInteger(val) || val < 0 || val > 0xFF) {
+  if (!Number.isInteger(val) || val < 0 || val > U8_MAX) {
     throw new Error(`encU8: value out of range (0..255), got ${val}`);
   }
   return new Uint8Array([val]);
@@ -18,7 +18,7 @@ export function encU8(val: number): Uint8Array {
  * Encode u16 little-endian (2 bytes)
  */
 export function encU16(val: number): Uint8Array {
-  if (!Number.isInteger(val) || val < 0 || val > 0xFFFF) {
+  if (!Number.isInteger(val) || val < 0 || val > U16_MAX) {
     throw new Error(`encU16: value out of range (0..65535), got ${val}`);
   }
   const buf = new Uint8Array(2);
@@ -30,7 +30,7 @@ export function encU16(val: number): Uint8Array {
  * Encode u32 little-endian (4 bytes)
  */
 export function encU32(val: number): Uint8Array {
-  if (!Number.isInteger(val) || val < 0 || val > 0xFFFFFFFF) {
+  if (!Number.isInteger(val) || val < 0 || val > U32_MAX) {
     throw new Error(`encU32: value out of range (0..4294967295), got ${val}`);
   }
   const buf = new Uint8Array(4);

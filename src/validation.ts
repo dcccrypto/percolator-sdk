@@ -44,16 +44,6 @@ export class ValidationError extends Error {
 
 /**
  * Validate a public key string.
- *
- * @param value - Base58-encoded public key string.
- * @param field - Field name for error messages.
- * @returns Parsed `PublicKey` instance.
- * @throws {@link ValidationError} if the string is not a valid base58 public key.
- *
- * @example
- * ```ts
- * const key = validatePublicKey("11111111111111111111111111111111", "slab");
- * ```
  */
 export function validatePublicKey(value: string, field: string): PublicKey {
   try {
@@ -69,11 +59,6 @@ export function validatePublicKey(value: string, field: string): PublicKey {
 
 /**
  * Validate a non-negative integer index (u16 range for accounts).
- *
- * @param value - Decimal string representing the index.
- * @param field - Field name for error messages.
- * @returns Parsed integer in `[0, 65535]`.
- * @throws {@link ValidationError} if the value is not a valid u16 integer.
  */
 export function validateIndex(value: string, field: string): number {
   const t = requireDecimalUIntString(value, field);
@@ -84,30 +69,22 @@ export function validateIndex(value: string, field: string): number {
       `must be <= ${U16_MAX} (u16 max), got ${t}`
     );
   }
-  // U16 range (0–65535) is always safe to convert to Number
-  if (bi > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new ValidationError(field, `internal error: u16 value exceeds MAX_SAFE_INTEGER`);
-  }
   return Number(bi);
 }
 
 /**
  * Validate a non-negative amount (u64 range).
- *
- * @param value - Decimal string representing the amount.
- * @param field - Field name for error messages.
- * @returns Parsed `bigint` in `[0, 2^64 - 1]`.
- * @throws {@link ValidationError} if the value is negative or exceeds u64 max.
  */
 export function validateAmount(value: string, field: string): bigint {
-  const t = value.trim();
-  if (!/^(0|[1-9]\d*)$/.test(t)) {
+  let num: bigint;
+  try {
+    num = BigInt(value);
+  } catch {
     throw new ValidationError(
       field,
-      `"${value}" is not a valid non-negative integer. Use decimal digits only.`
+      `"${value}" is not a valid number. Use decimal digits only.`
     );
   }
-  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -124,14 +101,15 @@ export function validateAmount(value: string, field: string): bigint {
  * Validate a u128 value.
  */
 export function validateU128(value: string, field: string): bigint {
-  const t = value.trim();
-  if (!/^(0|[1-9]\d*)$/.test(t)) {
+  let num: bigint;
+  try {
+    num = BigInt(value);
+  } catch {
     throw new ValidationError(
       field,
-      `"${value}" is not a valid non-negative integer. Use decimal digits only.`
+      `"${value}" is not a valid number. Use decimal digits only.`
     );
   }
-  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -148,14 +126,15 @@ export function validateU128(value: string, field: string): bigint {
  * Validate an i64 value.
  */
 export function validateI64(value: string, field: string): bigint {
-  const t = value.trim();
-  if (!/^-?(0|[1-9]\d*)$/.test(t)) {
+  let num: bigint;
+  try {
+    num = BigInt(value);
+  } catch {
     throw new ValidationError(
       field,
-      `"${value}" is not a valid integer. Use decimal digits only, with optional leading minus.`
+      `"${value}" is not a valid number. Use decimal digits only, with optional leading minus.`
     );
   }
-  const num = BigInt(t);
   if (num < I64_MIN) {
     throw new ValidationError(
       field,
@@ -175,14 +154,15 @@ export function validateI64(value: string, field: string): bigint {
  * Validate an i128 value (trade sizes).
  */
 export function validateI128(value: string, field: string): bigint {
-  const t = value.trim();
-  if (!/^-?(0|[1-9]\d*)$/.test(t)) {
+  let num: bigint;
+  try {
+    num = BigInt(value);
+  } catch {
     throw new ValidationError(
       field,
-      `"${value}" is not a valid integer. Use decimal digits only, with optional leading minus.`
+      `"${value}" is not a valid number. Use decimal digits only, with optional leading minus.`
     );
   }
-  const num = BigInt(t);
   if (num < I128_MIN) {
     throw new ValidationError(
       field,
@@ -199,12 +179,7 @@ export function validateI128(value: string, field: string): bigint {
 }
 
 /**
- * Validate a basis points value (0–10000).
- *
- * @param value - Decimal string representing basis points.
- * @param field - Field name for error messages.
- * @returns Parsed integer in `[0, 10000]`.
- * @throws {@link ValidationError} if the value exceeds 10000.
+ * Validate a basis points value (0-10000).
  */
 export function validateBps(value: string, field: string): number {
   const t = requireDecimalUIntString(value, field);
@@ -214,10 +189,6 @@ export function validateBps(value: string, field: string): number {
       field,
       `must be <= 10000 (100%), got ${t}`
     );
-  }
-  // BPS range (0–10000) is always safe to convert to Number
-  if (bi > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new ValidationError(field, `internal error: bps value exceeds MAX_SAFE_INTEGER`);
   }
   return Number(bi);
 }
@@ -240,10 +211,6 @@ export function validateU16(value: string, field: string): number {
       field,
       `must be <= ${U16_MAX} (u16 max), got ${t}`
     );
-  }
-  // U16 range (0–65535) is always safe to convert to Number
-  if (bi > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new ValidationError(field, `internal error: u16 value exceeds MAX_SAFE_INTEGER`);
   }
   return Number(bi);
 }

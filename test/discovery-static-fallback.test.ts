@@ -205,11 +205,13 @@ describe("discoverMarkets with tier-3 static fallback", () => {
     // API was called (tier 2)
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    // getMultipleAccountsInfo was called with static address (tier 3)
+    // getMultipleAccountsInfo was called with static addresses (tier 3)
     expect(mockConnection.getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
     const passedAddresses = (mockConnection.getMultipleAccountsInfo as ReturnType<typeof vi.fn>)
       .mock.calls[0][0] as PublicKey[];
-    expect(passedAddresses.map((a: PublicKey) => a.toBase58())).toEqual([staticAddr]);
+    const passedBase58 = passedAddresses.map((a: PublicKey) => a.toBase58());
+    // The registered address must be among those passed (built-in mainnet entries may also be present)
+    expect(passedBase58).toContain(staticAddr);
   });
 
   it("falls back to static bundle when API returns 0 markets", async () => {
@@ -276,9 +278,10 @@ describe("discoverMarkets with tier-3 static fallback", () => {
     // First call: API address
     const apiAddresses = mockGetMultiple.mock.calls[0][0] as PublicKey[];
     expect(apiAddresses.map((a: PublicKey) => a.toBase58())).toEqual([apiAddr]);
-    // Second call: static address
+    // Second call: static addresses (user-registered + built-in mainnet entries)
     const staticAddresses = mockGetMultiple.mock.calls[1][0] as PublicKey[];
-    expect(staticAddresses.map((a: PublicKey) => a.toBase58())).toEqual([staticAddr]);
+    const staticBase58 = staticAddresses.map((a: PublicKey) => a.toBase58());
+    expect(staticBase58).toContain(staticAddr);
   });
 
   it("does NOT call tier 3 when network is not set", async () => {

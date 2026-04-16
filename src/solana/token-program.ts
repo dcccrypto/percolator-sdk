@@ -19,14 +19,7 @@ export async function detectTokenProgram(
 ): Promise<PublicKey> {
   const info = await connection.getAccountInfo(mint);
   if (!info) throw new Error(`Mint account not found: ${mint.toBase58()}`);
-
-  if (info.owner.equals(TOKEN_PROGRAM_ID)) return TOKEN_PROGRAM_ID;
-  if (info.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
-
-  throw new Error(
-    `Mint ${mint.toBase58()} is owned by ${info.owner.toBase58()}, ` +
-    `which is neither TOKEN_PROGRAM_ID nor TOKEN_2022_PROGRAM_ID`,
-  );
+  return info.owner;
 }
 
 /**

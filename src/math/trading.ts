@@ -11,17 +11,6 @@
 
 /**
  * Compute mark-to-market PnL for an open position.
- *
- * @param positionSize - Signed position size (positive = long, negative = short).
- * @param entryPrice   - Entry price in e6 format (1 USD = 1_000_000).
- * @param oraclePrice  - Current oracle price in e6 format.
- * @returns PnL in native token units (positive = profit, negative = loss).
- *
- * @example
- * ```ts
- * // Long 10 SOL at $100, oracle now $110 → profit
- * const pnl = computeMarkPnl(10_000_000n, 100_000_000n, 110_000_000n);
- * ```
  */
 export function computeMarkPnl(
   positionSize: bigint,
@@ -40,19 +29,6 @@ export function computeMarkPnl(
 /**
  * Compute liquidation price given entry, capital, position and maintenance margin.
  * Uses pure BigInt arithmetic for precision (no Number() truncation).
- *
- * @param entryPrice          - Entry price in e6 format.
- * @param capital             - Account capital in native token units.
- * @param positionSize        - Signed position size (positive = long, negative = short).
- * @param maintenanceMarginBps - Maintenance margin requirement in basis points (e.g. 500n = 5%).
- * @returns Liquidation price in e6 format. Returns 0n for longs that can't be liquidated,
- *          or max u64 for shorts with ≥100% maintenance margin.
- *
- * @example
- * ```ts
- * // Long 1 SOL at $100, $10 capital, 5% maintenance margin
- * const liqPrice = computeLiqPrice(100_000_000n, 10_000_000n, 1_000_000n, 500n);
- * ```
  */
 export function computeLiqPrice(
   entryPrice: bigint,
@@ -82,21 +58,6 @@ export function computeLiqPrice(
 /**
  * Compute estimated liquidation price BEFORE opening a trade.
  * Accounts for trading fees reducing effective capital.
- *
- * @param oracleE6   - Current oracle price in e6 format (used as entry estimate).
- * @param margin     - Deposit margin in native token units.
- * @param posSize    - Intended position size (absolute value used internally).
- * @param maintBps   - Maintenance margin in basis points.
- * @param feeBps     - Trading fee in basis points.
- * @param direction  - Trade direction: `"long"` or `"short"`.
- * @returns Estimated liquidation price in e6 format.
- *
- * @example
- * ```ts
- * const liq = computePreTradeLiqPrice(
- *   100_000_000n, 10_000_000n, 1_000_000n, 500n, 30n, "long"
- * );
- * ```
  */
 export function computePreTradeLiqPrice(
   oracleE6: bigint,
@@ -108,23 +69,26 @@ export function computePreTradeLiqPrice(
 ): bigint {
   if (oracleE6 === 0n || margin === 0n || posSize === 0n) return 0n;
   const absPos = posSize < 0n ? -posSize : posSize;
-  const fee = (absPos * feeBps) / 10000n;
-  const effectiveCapital = margin > fee ? margin - fee : 0n;
   const signedPos = direction === "long" ? absPos : -absPos;
-  return computeLiqPrice(oracleE6, effectiveCapital, signedPos, maintBps);
+  // Fee adjusts the effective entry price, not the capital.
+  // For longs: you pay more (oracle + fee) → worse entry → closer liquidation.
+  // For shorts: you receive less (oracle - fee) → worse entry → closer liquidation.
+  const feeAdjust = (oracleE6 * feeBps) / 10000n;
+  let adjustedEntry: bigint;
+  if (direction === "long") {
+    adjustedEntry = oracleE6 + feeAdjust;
+  } else {
+    // Clamp short entry to 1n — a zero or negative entry price is nonsensical
+    // and causes computeLiqPrice to return 0n ("no liquidation risk") when
+    // feeBps >= 10000, misleading the UI into showing the position is safe.
+    const shortEntry = oracleE6 - feeAdjust;
+    adjustedEntry = shortEntry > 0n ? shortEntry : 1n;
+  }
+  return computeLiqPrice(adjustedEntry, margin, signedPos, maintBps);
 }
 
 /**
  * Compute trading fee from notional value and fee rate in bps.
- *
- * @param notional      - Trade notional value in native token units.
- * @param tradingFeeBps - Fee rate in basis points (e.g. 30n = 0.30%).
- * @returns Fee amount in native token units.
- *
- * @example
- * ```ts
- * const fee = computeTradingFee(1_000_000_000n, 30n); // 0.30% of 1 SOL
- * ```
  */
 export function computeTradingFee(
   notional: bigint,
@@ -210,28 +174,9 @@ export function computeFeeSplit(
   if (config.lpBps === 0n && config.protocolBps === 0n && config.creatorBps === 0n) {
     return [totalFee, 0n, 0n];
   }
-
-  // Validate that splits equal exactly 100%
-  const totalBps = config.lpBps + config.protocolBps + config.creatorBps;
-  if (totalBps !== 10000n) {
-    throw new Error(
-      `Fee split must equal exactly 10000 bps (100%): lpBps=${config.lpBps} + protocolBps=${config.protocolBps} + ` +
-      `creatorBps=${config.creatorBps} = ${totalBps}`,
-    );
-  }
-
   const lp = (totalFee * config.lpBps) / 10000n;
   const protocol = (totalFee * config.protocolBps) / 10000n;
-  const creator = totalFee - lp - protocol; // only rounding dust (max 2 tokens)
-
-  // Sanity check: creator should never be negative if validation above passes
-  if (creator < 0n) {
-    throw new Error(
-      `Internal error: creator fee is negative (${creator}). ` +
-      `This should not happen if lpBps + protocolBps + creatorBps === 10000.`,
-    );
-  }
-
+  const creator = totalFee - lp - protocol;
   return [lp, protocol, creator];
 }
 
@@ -259,17 +204,6 @@ export function computePnlPercent(
 
 /**
  * Estimate entry price including fee impact (slippage approximation).
- *
- * @param oracleE6      - Current oracle price in e6 format.
- * @param tradingFeeBps - Trading fee in basis points.
- * @param direction     - Trade direction: `"long"` or `"short"`.
- * @returns Estimated entry price in e6 format (higher for longs, lower for shorts).
- *
- * @example
- * ```ts
- * const entry = computeEstimatedEntryPrice(100_000_000n, 30n, "long");
- * // → 100_030_000n (oracle + 0.30% fee impact)
- * ```
  */
 export function computeEstimatedEntryPrice(
   oracleE6: bigint,
@@ -277,17 +211,13 @@ export function computeEstimatedEntryPrice(
   direction: "long" | "short",
 ): bigint {
   if (oracleE6 === 0n) return 0n;
-  if (tradingFeeBps < 0n) {
-    throw new Error(`computeEstimatedEntryPrice: tradingFeeBps must be non-negative, got ${tradingFeeBps}`);
-  }
   const feeImpact = (oracleE6 * tradingFeeBps) / 10000n;
-  const result = direction === "long" ? oracleE6 + feeImpact : oracleE6 - feeImpact;
-  if (result <= 0n) {
-    throw new Error(
-      `computeEstimatedEntryPrice: result ${result} is non-positive (tradingFeeBps=${tradingFeeBps} too high for oracle=${oracleE6})`,
-    );
-  }
-  return result;
+  if (direction === "long") return oracleE6 + feeImpact;
+  // Clamp to 1 to prevent underflow — a zero or negative entry price is nonsensical
+  // and would cause computePreTradeLiqPrice to report "no liquidation risk" (liqPrice=0)
+  // when fee >= 100%, misleading the UI.
+  const shortEntry = oracleE6 - feeImpact;
+  return shortEntry > 0n ? shortEntry : 1n;
 }
 
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
@@ -295,15 +225,6 @@ const MIN_SAFE_BIGINT = BigInt(-Number.MAX_SAFE_INTEGER);
 
 /**
  * Convert per-slot funding rate (bps) to annualized percentage.
- *
- * @param fundingRateBpsPerSlot - Funding rate per slot in basis points (i64 from engine state).
- * @returns Annualized funding rate as a percentage (e.g. 12.5 = 12.5% APR).
- * @throws Error if the value exceeds Number.MAX_SAFE_INTEGER.
- *
- * @example
- * ```ts
- * const apr = computeFundingRateAnnualized(1n); // ~78.84% APR
- * ```
  */
 export function computeFundingRateAnnualized(
   fundingRateBpsPerSlot: bigint,
@@ -320,16 +241,6 @@ export function computeFundingRateAnnualized(
 
 /**
  * Compute margin required for a given notional and initial margin bps.
- *
- * @param notional         - Trade notional value in native token units.
- * @param initialMarginBps - Initial margin requirement in basis points (e.g. 1000n = 10%).
- * @returns Required margin in native token units.
- *
- * @example
- * ```ts
- * const margin = computeRequiredMargin(10_000_000_000n, 1000n); // 10% of notional
- * // → 1_000_000_000n
- * ```
  */
 export function computeRequiredMargin(
   notional: bigint,
@@ -341,59 +252,11 @@ export function computeRequiredMargin(
 /**
  * Compute maximum leverage from initial margin bps.
  *
- * Formula: leverage = 10000 / initialMarginBps
- * Uses scaled arithmetic to preserve precision for fractional leverage values.
- *
- * @param initialMarginBps - Initial margin requirement in basis points (e.g. 500n = 5% → 20x).
- * @returns Maximum leverage as a number (e.g. 20 for 500 bps, 3.003 for 3333 bps).
- * @throws Error if initialMarginBps is zero (infinite leverage is undefined).
- *
- * @example
- * ```ts
- * const maxLev = computeMaxLeverage(500n); // → 20
- * const maxLev2 = computeMaxLeverage(1000n); // → 10
- * const maxLev3 = computeMaxLeverage(3333n); // → 3.003 (not truncated to 3)
- * ```
+ * @throws Error if initialMarginBps is zero (infinite leverage is undefined)
  */
 export function computeMaxLeverage(initialMarginBps: bigint): number {
   if (initialMarginBps <= 0n) {
     throw new Error("computeMaxLeverage: initialMarginBps must be positive");
   }
-  // Use scaled arithmetic: (10000 * 1e6) / initialMarginBps / 1e6
-  // This preserves fractional leverage instead of truncating
-  const scaledResult = (10000n * 1_000_000n) / initialMarginBps;
-  return Number(scaledResult) / 1_000_000;
-}
-
-/**
- * Compute the maximum amount that can be withdrawn from a position.
- *
- * The withdrawable amount is the capital plus any matured (unreserved) PnL.
- * Reserved PnL is still locked and cannot be withdrawn until the warmup period elapses.
- *
- * Formula: max_withdrawable = capital + max(0, pnl - reserved_pnl)
- *
- * @param capital - Capital allocated to the position (in native token units)
- * @param pnl - Mark-to-market PnL (in native token units, can be negative)
- * @param reservedPnl - PnL that is still locked during warmup (always non-negative)
- * @returns The maximum amount in native units that can be withdrawn without closing the position
- *
- * @example
- * ```ts
- * // Position: 10 SOL capital, +2 SOL mark PnL, 0.5 SOL reserved
- * const max = computeMaxWithdrawable(
- *   10_000_000_000n,  // 10 SOL in lamports
- *   2_000_000_000n,   // +2 SOL in lamports
- *   500_000_000n      // 0.5 SOL reserved in lamports
- * );
- * // Returns: 11_500_000_000n (10 + (2 - 0.5) = 11.5 SOL in lamports)
- * ```
- */
-export function computeMaxWithdrawable(
-  capital: bigint,
-  pnl: bigint,
-  reservedPnl: bigint,
-): bigint {
-  const maturedPnl = pnl - reservedPnl;
-  return capital + (maturedPnl > 0n ? maturedPnl : 0n);
+  return Number(10000n / initialMarginBps);
 }

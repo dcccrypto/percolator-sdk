@@ -66,9 +66,9 @@ function buildV12_1SlabSmall(): Uint8Array {
   // V12_1 small tier: 256 accounts, 84152 bytes
   const TOTAL = 84152;
   const ENGINE_OFF = 648;
-  const BITMAP_OFF_REL = 1016;      // relative to ENGINE_OFF
+  const BITMAP_OFF_REL = 1016;      // V12_1_ENGINE_BITMAP_OFF (relative within engine)
   const ACCOUNT_SIZE = 320;
-  const ACCOUNTS_OFF = 2232;        // absolute, pre-computed
+  const ACCOUNTS_OFF = 2232;        // absolute: ENGINE_OFF + ceil((1016+32+18+512)/8)*8 = 648 + 1584 = 2232
 
   const buf = new Uint8Array(TOTAL);
   const dv = new DataView(buf.buffer);
@@ -467,11 +467,11 @@ describe("V12_1 slab — layout detection and field offsets", () => {
     expect(account.entryPrice).toBe(50_000_000_000n);
   });
 
-  it("parseAccount: account slot 0 — fundingIndex at relative offset 288 is i64, NOT i128", () => {
+  it("parseAccount: account slot 0 — fundingIndex not present in V12_1 (returns 0n)", () => {
     const account = parseAccount(slabBuf, 0);
-    // V12_1 changed funding_index from i128 → i64 (legacy field moved to end)
-    // We wrote -12345 as i64 LE at acct+288
-    expect(account.fundingIndex).toBe(-12345n);
+    // V12_1 sets fundingIndexOff = -1 (field not present in deployed SBF struct).
+    // parseAccount returns 0n when fundingIndexOff < 0.
+    expect(account.fundingIndex).toBe(0n);
   });
 
   it("parseAccount: accountId is 42", () => {
@@ -490,12 +490,12 @@ describe("V12_1 slab — layout detection and field offsets", () => {
 // ===========================================================================
 
 describe("STAKE_PROGRAM_ID — address constants", () => {
-  it("STAKE_PROGRAM_ID exports the mainnet address DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F", () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe("DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F");
+  it("STAKE_PROGRAM_ID exports the devnet address 6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k", () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe("6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k");
   });
 
-  it("STAKE_PROGRAM_ID equals STAKE_PROGRAM_IDS.mainnet", () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe(STAKE_PROGRAM_IDS.mainnet);
+  it("STAKE_PROGRAM_ID equals STAKE_PROGRAM_IDS.devnet", () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe(STAKE_PROGRAM_IDS.devnet);
   });
 
   it("getStakeProgramId('mainnet') returns DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F", () => {
@@ -579,7 +579,8 @@ describe("IX_TAG — value correctness and uniqueness", () => {
     const vals = (Object.values(IX_TAG) as number[]).sort((a, b) => a - b);
     const max = vals[vals.length - 1];
     // Tag 31 is an intentional gap (no decode arm on-chain).
-    const KNOWN_GAPS = new Set([31]);
+    // Tags 57 and 78 are removed (keeper fund).
+    const KNOWN_GAPS = new Set([31, 57, 78]);
     const valSet = new Set(vals);
     for (let i = 0; i <= max; i++) {
       if (!valSet.has(i) && !KNOWN_GAPS.has(i)) {

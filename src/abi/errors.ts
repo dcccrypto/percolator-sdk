@@ -296,36 +296,6 @@ export function getErrorHint(code: number): string | undefined {
   return PERCOLATOR_ERRORS[code]?.hint;
 }
 
-// ============================================================================
-// Lighthouse / Anchor error classification
-// ============================================================================
-
-/** Lighthouse v2 program ID (Blowfish/Phantom wallet middleware). */
-const LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
-
-/**
- * Anchor framework error codes (0x1770–0x1900+) that come from Lighthouse,
- * NOT from Percolator. Our program uses raw BPF with custom codes 0–65.
- */
-const ANCHOR_ERROR_RANGE_START = 0x1770;
-const ANCHOR_ERROR_RANGE_END = 0x1FFF;
-
-/** Well-known Anchor error names for common codes emitted by Lighthouse. */
-const ANCHOR_ERROR_NAMES: Record<number, string> = {
-  0x1790: "ConstraintMut",
-  0x1794: "ConstraintOwner",
-  0x1796: "ConstraintSeeds",
-  0x1900: "ConstraintAddress",
-};
-
-/**
- * Check whether an error code is in the Anchor framework error range
- * (used by Lighthouse, not Percolator).
- */
-export function isAnchorErrorCode(code: number): boolean {
-  return code >= ANCHOR_ERROR_RANGE_START && code <= ANCHOR_ERROR_RANGE_END;
-}
-
 /** Max hex digits for `custom program error: 0x...` — Solana custom errors are u32. */
 const CUSTOM_ERROR_HEX_MAX_LEN = 8;
 
@@ -335,25 +305,15 @@ const CUSTOM_ERROR_HEX_MAX_LEN = 8;
  *
  * Hex capture is bounded (1–8 digits) so pathological logs cannot feed unbounded
  * strings into `parseInt` or produce precision-loss codes above u32.
- *
- * Distinguishes between:
- * - Percolator program errors (codes 0–65): returns Percolator error info
- * - Anchor/Lighthouse errors (codes 0x1770–0x1FFF): returns Lighthouse-specific
- *   name and hint so callers can handle wallet middleware failures
  */
 export function parseErrorFromLogs(logs: string[]): {
   code: number;
   name: string;
   hint?: string;
-  source?: "percolator" | "lighthouse" | "unknown";
 } | null {
   if (!Array.isArray(logs)) {
     return null;
   }
-
-  // Track whether the failing instruction is inside a Lighthouse invocation
-  let insideLighthouse = false;
-
   const re = new RegExp(
     `custom program error: 0x([0-9a-fA-F]{1,${CUSTOM_ERROR_HEX_MAX_LEN}})(?![0-9a-fA-F])`,
     "i",
@@ -362,42 +322,17 @@ export function parseErrorFromLogs(logs: string[]): {
     if (typeof log !== "string") {
       continue;
     }
-
-    // Track Lighthouse program invocation context
-    if (log.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke`)) {
-      insideLighthouse = true;
-    } else if (log.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} success`)) {
-      insideLighthouse = false;
-    }
-
     const match = log.match(re);
     if (match) {
       const code = parseInt(match[1], 16);
       if (!Number.isFinite(code) || code < 0 || code > 0xffff_ffff) {
         continue;
       }
-
-      // Anchor/Lighthouse error range
-      if (isAnchorErrorCode(code) || insideLighthouse) {
-        const anchorName = ANCHOR_ERROR_NAMES[code] ?? `AnchorError(0x${code.toString(16)})`;
-        return {
-          code,
-          name: `Lighthouse:${anchorName}`,
-          hint:
-            "This error comes from the Lighthouse/Blowfish wallet guard, not from Percolator. " +
-            "The transaction itself is valid. Disable transaction simulation in your wallet " +
-            "settings, or use a wallet without Blowfish protection (e.g., Backpack, Solflare).",
-          source: "lighthouse",
-        };
-      }
-
-      // Percolator program error
       const info = decodeError(code);
       return {
         code,
         name: info?.name ?? `Unknown(${code})`,
         hint: info?.hint,
-        source: info ? "percolator" : "unknown",
       };
     }
   }

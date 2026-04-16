@@ -44,17 +44,12 @@ export type Network = "devnet" | "mainnet";
  * 3. Devnet default (safest fallback — bug bounty PERC-697)
  */
 export function getProgramId(network?: Network): PublicKey {
-  // Only allow env override when no explicit network is provided —
-  // an explicit parameter should always take precedence to prevent
-  // silent program substitution via environment variable injection.
-  if (!network) {
-    const override = safeEnv("PROGRAM_ID");
-    if (override) {
-      console.warn(
-        `[percolator-sdk] PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
-      );
-      return new PublicKey(override);
-    }
+  const override = safeEnv("PROGRAM_ID");
+  if (override) {
+    console.warn(
+      `[percolator-sdk] PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
+    );
+    return new PublicKey(override);
   }
 
   // Use provided network or detect from env — default to devnet (never mainnet silently)
@@ -69,14 +64,12 @@ export function getProgramId(network?: Network): PublicKey {
  * Get the Matcher program ID for the current network
  */
 export function getMatcherProgramId(network?: Network): PublicKey {
-  if (!network) {
-    const override = safeEnv("MATCHER_PROGRAM_ID");
-    if (override) {
-      console.warn(
-        `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
-      );
-      return new PublicKey(override);
-    }
+  const override = safeEnv("MATCHER_PROGRAM_ID");
+  if (override) {
+    console.warn(
+      `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
+    );
+    return new PublicKey(override);
   }
 
   // Use provided network or detect from env — default to devnet (never mainnet silently)

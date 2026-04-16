@@ -191,10 +191,9 @@ function computeRaydiumClmmPriceE6(data: Uint8Array): bigint {
 
   if (sqrtPriceX64 === 0n) return 0n;
 
-  // Compute (sqrtPriceX64^2 * 1e6) >> 128 directly using BigInt arbitrary
-  // precision. The previous split-shift approach truncated small sqrtPriceX64
-  // values (memecoins) to zero due to intermediate >> 64n losing all bits.
-  const priceE6Raw = (sqrtPriceX64 * sqrtPriceX64 * 1_000_000n) >> 128n;
+  const scaledSqrt = sqrtPriceX64 * 1_000_000n;
+  const term = scaledSqrt >> 64n;
+  const priceE6Raw = (term * sqrtPriceX64) >> 64n;
 
   const decimalDiff = 6 + decimals0 - decimals1;
   const adjustedDiff = decimalDiff - 6;
@@ -262,13 +261,6 @@ function computeMeteoraDlmmPriceE6(data: Uint8Array): bigint {
     );
   }
 
-  const MAX_ABS_BIN_ID = 500_000;
-  if (activeId > MAX_ABS_BIN_ID || activeId < -MAX_ABS_BIN_ID) {
-    throw new Error(
-      `Meteora DLMM: activeId ${activeId} exceeds safe range (±${MAX_ABS_BIN_ID})`,
-    );
-  }
-
   const SCALE = 1_000_000_000_000_000_000n; // 1e18
   const base = SCALE + (BigInt(binStep) * SCALE) / 10_000n;
 
@@ -278,16 +270,7 @@ function computeMeteoraDlmmPriceE6(data: Uint8Array): bigint {
   let result = SCALE;
   let b = base;
 
-  // Limit iterations to ~21 for safety (log2(500_000) + buffer)
-  let iterations = 0;
-  const MAX_ITERATIONS = 25;
-
   while (exp > 0n) {
-    if (iterations++ >= MAX_ITERATIONS) {
-      throw new Error(
-        `Meteora DLMM: exponentiation loop exceeded ${MAX_ITERATIONS} iterations (activeId=${activeId})`,
-      );
-    }
     if (exp & 1n) {
       result = (result * b) / SCALE;
     }

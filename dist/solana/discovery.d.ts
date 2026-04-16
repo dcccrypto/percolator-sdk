@@ -36,16 +36,11 @@ export interface DiscoveredMarket {
  *          in SLAB_TIERS_V0 for discovery of legacy on-chain accounts.
  */
 /**
- * Default slab tiers for the current mainnet program (v12.1).
+ * Default slab tiers for the current mainnet program (v12.17).
  * These are used by useCreateMarket to allocate slab accounts of the correct size.
+ * V12_17: two-bucket warmup, per-side funding, ACCOUNT_SIZE=352 (SBF).
  */
 export declare const SLAB_TIERS: {
-    readonly micro: {
-        maxAccounts: number;
-        dataSize: number;
-        label: string;
-        description: string;
-    };
     readonly small: {
         maxAccounts: number;
         dataSize: number;
@@ -166,12 +161,6 @@ export declare const SLAB_TIERS_V1D_LEGACY: {
 };
 /** @deprecated Alias — use SLAB_TIERS (already V1) */
 export declare const SLAB_TIERS_V1: {
-    readonly micro: {
-        maxAccounts: number;
-        dataSize: number;
-        label: string;
-        description: string;
-    };
     readonly small: {
         maxAccounts: number;
         dataSize: number;

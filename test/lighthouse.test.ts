@@ -16,7 +16,6 @@ import {
 
 import {
   parseErrorFromLogs,
-  isAnchorErrorCode,
 } from "../src/abi/errors.js";
 
 // ============================================================================
@@ -252,8 +251,8 @@ describe("classifyLighthouseError", () => {
 // parseErrorFromLogs — Lighthouse classification
 // ============================================================================
 
-describe("parseErrorFromLogs — Lighthouse vs Percolator", () => {
-  it("classifies 0x1900 as Lighthouse when inside Lighthouse invocation", () => {
+describe("parseErrorFromLogs — error code extraction", () => {
+  it("extracts 0x1900 error code from Lighthouse failure log", () => {
     const logs = [
       `Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke [1]`,
       `Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed: custom program error: 0x1900`,
@@ -261,33 +260,29 @@ describe("parseErrorFromLogs — Lighthouse vs Percolator", () => {
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
     expect(result!.code).toBe(0x1900);
-    expect(result!.name).toContain("Lighthouse");
-    expect(result!.source).toBe("lighthouse");
-    expect(result!.hint).toContain("Blowfish");
+    // 0x1900 is not a known Percolator error, so name is Unknown(6400)
+    expect(result!.name).toBe("Unknown(6400)");
   });
 
-  it("classifies 0x1900 as Lighthouse even without explicit invocation tracking", () => {
-    // The code is in the Anchor range (>= 0x1770), so it's always classified as Lighthouse
+  it("extracts 0x1900 error code without invocation context", () => {
     const logs = [
       "Program failed: custom program error: 0x1900",
     ];
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
-    expect(result!.source).toBe("lighthouse");
+    expect(result!.code).toBe(0x1900);
   });
 
-  it("classifies 0x1790 (ConstraintMut) as Lighthouse", () => {
+  it("extracts 0x1790 error code", () => {
     const logs = [
       `Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed: custom program error: 0x1790`,
     ];
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
     expect(result!.code).toBe(0x1790);
-    expect(result!.name).toBe("Lighthouse:ConstraintMut");
-    expect(result!.source).toBe("lighthouse");
   });
 
-  it("classifies Percolator error 0x10 correctly", () => {
+  it("resolves Percolator error 0x10 to EngineInvalidMatchingEngine", () => {
     const logs = [
       "Program PERCopuL6d4mMhAPGvVSfyFMuDe22p3vBE3Nz24SSXD failed: custom program error: 0x10",
     ];
@@ -295,10 +290,9 @@ describe("parseErrorFromLogs — Lighthouse vs Percolator", () => {
     expect(result).not.toBeNull();
     expect(result!.code).toBe(16);
     expect(result!.name).toBe("EngineInvalidMatchingEngine");
-    expect(result!.source).toBe("percolator");
   });
 
-  it("classifies Percolator ADL errors (61-65)", () => {
+  it("resolves Percolator ADL errors (61-65)", () => {
     for (const code of [61, 62, 63, 64, 65]) {
       const hex = code.toString(16);
       const logs = [
@@ -307,41 +301,19 @@ describe("parseErrorFromLogs — Lighthouse vs Percolator", () => {
       const result = parseErrorFromLogs(logs);
       expect(result).not.toBeNull();
       expect(result!.code).toBe(code);
-      expect(result!.source).toBe("percolator");
+      // ADL errors are known Percolator errors
+      expect(result!.name).not.toContain("Unknown");
     }
   });
 
-  it("returns source=unknown for codes outside both ranges", () => {
+  it("returns Unknown name for codes not in PERCOLATOR_ERRORS", () => {
     const logs = [
       "Program failed: custom program error: 0xBEEF",
     ];
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
     expect(result!.code).toBe(0xBEEF);
-    expect(result!.source).toBe("unknown");
-  });
-});
-
-// ============================================================================
-// isAnchorErrorCode
-// ============================================================================
-
-describe("isAnchorErrorCode", () => {
-  it("returns true for Anchor error range", () => {
-    expect(isAnchorErrorCode(0x1770)).toBe(true);
-    expect(isAnchorErrorCode(0x1900)).toBe(true);
-    expect(isAnchorErrorCode(0x1FFF)).toBe(true);
-  });
-
-  it("returns false for Percolator error codes", () => {
-    expect(isAnchorErrorCode(0)).toBe(false);
-    expect(isAnchorErrorCode(16)).toBe(false);
-    expect(isAnchorErrorCode(65)).toBe(false);
-  });
-
-  it("returns false for codes above Anchor range", () => {
-    expect(isAnchorErrorCode(0x2000)).toBe(false);
-    expect(isAnchorErrorCode(0xBEEF)).toBe(false);
+    expect(result!.name).toBe("Unknown(48879)");
   });
 });
 
@@ -350,7 +322,7 @@ describe("isAnchorErrorCode", () => {
 // ============================================================================
 
 describe("PERC-8442: L2TEx 0x1900 on ESa89R5 slab", () => {
-  it("correctly identifies the real-world failure as Lighthouse, not Percolator", () => {
+  it("correctly identifies the real-world failure via parseErrorFromLogs and isLighthouseFailureInLogs", () => {
     // Actual log pattern from mainnet Apr 3-4 2026
     const logs = [
       "Program ComputeBudget111111111111111111111111111111 invoke [1]",
@@ -366,14 +338,12 @@ describe("PERC-8442: L2TEx 0x1900 on ESa89R5 slab", () => {
       `Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed: custom program error: 0x1900`,
     ];
 
+    // parseErrorFromLogs extracts the error code (no source classification in v12.17)
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
     expect(result!.code).toBe(0x1900);
-    expect(result!.source).toBe("lighthouse");
-    expect(result!.name).toContain("Lighthouse");
-    expect(result!.name).toContain("ConstraintAddress");
 
-    // isLighthouseFailureInLogs should also detect it
+    // isLighthouseFailureInLogs should detect it via Lighthouse program ID in logs
     expect(isLighthouseFailureInLogs(logs)).toBe(true);
   });
 

@@ -438,6 +438,14 @@ const V12_1_SBF_OFF_LAST_SWEEP_COMPLETE = 312;
 const V12_1_SBF_OFF_CRANK_CURSOR = 320;
 const V12_1_SBF_OFF_SWEEP_START_IDX = 322;
 const V12_1_SBF_OFF_LIFETIME_LIQUIDATIONS = 328;
+// Probed from mainnet slab FLF9ghf6H4sfSexcQzDwse4gcGZKPb6qYCqo5Btat98 (290120 bytes).
+// These fields DO exist in the deployed SBF binary despite earlier "not in deployed struct" notes.
+const V12_1_SBF_OFF_TOTAL_OI = 448;           // u128: totalOpenInterest (verified: 907109 matches sum of abs positions)
+const V12_1_SBF_OFF_LONG_OI = 464;            // u128: longOi (verified: 907109 = all positions are long)
+const V12_1_SBF_OFF_SHORT_OI = 480;           // u128: shortOi (verified: 0)
+const V12_1_SBF_OFF_MARK_PRICE_E6 = 560;      // u64: markPriceE6 (verified: 85187279 = $85.19)
+const V12_1_SBF_OFF_MARK_PRICE_SLOT = 568;    // u64: slot when mark price was last updated
+const V12_1_SBF_OFF_EFFECTIVE_PRICE_E6 = 576;  // u64: lastEffectivePriceE6 (verified: matches mark)
 // ADL state: 336–576 (adl_mult, adl_coeff, adl_epoch, oi_eff, side_mode, etc.)
 // last_oracle_price: 560, last_market_slot: 568, funding_price_sample: 576
 // Bitmap (used field): 584
@@ -482,12 +490,23 @@ const V12_1_ACCT_MATCHER_CONTEXT_OFF = 176; // was 160 in V_ADL (+16 from new AD
 const V12_1_ACCT_OWNER_OFF = 208;           // was 192 in V_ADL (+16 from new ADL fields)
 const V12_1_ACCT_FEE_CREDITS_OFF = 240;     // was 224 in V_ADL
 const V12_1_ACCT_LAST_FEE_SLOT_OFF = 256;   // was 240 in V_ADL
-// SBF offsets (empirically verified via repr(C) with u128 align=8):
-// position_basis_q is at offset 88 on SBF (between warmup_slope_per_step and adl_a_basis)
-// entry_price was REMOVED from Account in V12_1 upstream rebase
 const V12_1_ACCT_POSITION_SIZE_OFF = 88;     // position_basis_q: i128 at offset 88 (SBF)
-const V12_1_ACCT_ENTRY_PRICE_OFF = -1;       // REMOVED in V12_1 — does not exist
-const V12_1_ACCT_FUNDING_INDEX_OFF = 288;    // moved to end (legacy, i64 not i128)
+const V12_1_ACCT_ENTRY_PRICE_OFF = -1;       // -1 for old V12_1 slabs (280-byte accounts)
+const V12_1_ACCT_FUNDING_INDEX_OFF = -1;     // does not exist in SBF layout
+
+// ---- V12_1_EP: V12_1 with entry_price re-added (accountSize=288 on SBF, 304 on host) ----
+// entry_price(u64) inserted after adl_epoch_snap, shifting matcher/owner/fees +8.
+// SBF layout (u128 align=8):
+//   ...adl_epoch_snap(u64@136) → entry_price(u64@144) → matcher_program(@152)
+//   → matcher_context(@184) → owner(@216) → fee_credits(@248) → last_fee_slot(@264)
+//   → fees_earned_total(@272) = 288 bytes
+const V12_1_EP_SBF_ACCOUNT_SIZE = 288;
+const V12_1_EP_ACCT_ENTRY_PRICE_OFF = 144;
+const V12_1_EP_ACCT_MATCHER_PROGRAM_OFF = 152;
+const V12_1_EP_ACCT_MATCHER_CONTEXT_OFF = 184;
+const V12_1_EP_ACCT_OWNER_OFF = 216;
+const V12_1_EP_ACCT_FEE_CREDITS_OFF = 248;
+const V12_1_EP_ACCT_LAST_FEE_SLOT_OFF = 264;
 
 // ---- V12_15 layout constants (percolator engine+prog v12.15 sync) ----
 // Account struct completely redesigned: sizeof=4400 bytes (SBF and host identical — all fields
@@ -560,6 +579,91 @@ const V12_15_ENGINE_BITMAP_OFF        = 862;
 
 // V12_15 size map for layout detection
 const V12_15_SIZES = new Map<number, number>();
+
+// ---- V12_17 layout constants (two-bucket warmup, per-side funding) ----
+// Account: 368 bytes (native, i128 align=16) / 352 bytes (SBF, i128 align=8).
+//   62-cohort reserve queue → two-bucket warmup (sched_* + pending_*).
+//   Removed: account_id, entry_price, fees_earned_total, cohort arrays.
+//   Added: f_snap(i128), sched_present/remaining_q/anchor_q/start_slot/horizon/release_q,
+//          pending_present/remaining_q/horizon/created_slot.
+// RiskParams sizeof=192 (native) / 184 (SBF). Same fields as v12.15.
+// RiskEngine: vault(16) + InsuranceFund(16) + RiskParams = 224 (native) / 216 (SBF) before current_slot.
+//   Removed: funding_rate_e9 (stored). Added: per-side f_long_num/f_short_num cumulative funding.
+//   Added: market_mode, resolved_*, neg_pnl_account_count, fund_px_last.
+//   MAX_ACCOUNTS default=4096 (was 2048 in v12.15).
+// RISK_BUF_OFF = ENGINE_OFF + ENGINE_LEN; RISK_BUF_LEN = 160.
+// On-chain (SBF) SLAB_LEN includes RISK_BUF; native test SLAB_LEN also includes it.
+
+// Native (i128 align=16)
+const V12_17_ENGINE_OFF           = 512;  // align_up(72 + 432, 16) — HEADER=72, CONFIG=432 (upstream 400 + dex_pool 32)
+const V12_17_ACCOUNT_SIZE         = 368;
+const V12_17_ENGINE_BITMAP_OFF    = 752;  // offset_of!(RiskEngine, used) on native
+const V12_17_DEFAULT_MAX_ACCOUNTS = 4096;
+const V12_17_RISK_BUF_LEN         = 160;
+
+// SBF (i128 align=8)
+const V12_17_ENGINE_OFF_SBF       = 504;  // align_up(72 + 432, 8)
+const V12_17_ACCOUNT_SIZE_SBF     = 352;
+const V12_17_ENGINE_BITMAP_OFF_SBF = 712; // offset_of!(RiskEngine, used) on SBF
+
+// V12_17 account field offsets (native — SBF offsets are 8 bytes less for fields after kind)
+const V12_17_ACCT_CAPITAL_OFF         = 0;    // U128=[u64;2]
+const V12_17_ACCT_KIND_OFF            = 16;   // u8
+const V12_17_ACCT_PNL_OFF             = 32;   // i128 (native 16-align pad from 17→32)
+const V12_17_ACCT_RESERVED_PNL_OFF    = 48;   // u128
+const V12_17_ACCT_POSITION_BASIS_Q_OFF = 64;  // i128
+const V12_17_ACCT_ADL_A_BASIS_OFF     = 80;   // u128
+const V12_17_ACCT_ADL_K_SNAP_OFF      = 96;   // i128
+const V12_17_ACCT_F_SNAP_OFF          = 112;  // i128
+const V12_17_ACCT_ADL_EPOCH_SNAP_OFF  = 128;  // u64
+const V12_17_ACCT_MATCHER_PROGRAM_OFF = 136;  // [u8;32]
+const V12_17_ACCT_MATCHER_CONTEXT_OFF = 168;  // [u8;32]
+const V12_17_ACCT_OWNER_OFF           = 200;  // [u8;32]
+const V12_17_ACCT_FEE_CREDITS_OFF     = 232;  // I128=[u64;2]
+const V12_17_ACCT_SCHED_PRESENT_OFF   = 248;  // u8
+const V12_17_ACCT_SCHED_REMAINING_Q_OFF = 256; // u128
+const V12_17_ACCT_SCHED_ANCHOR_Q_OFF  = 272;  // u128
+const V12_17_ACCT_SCHED_START_SLOT_OFF = 288; // u64
+const V12_17_ACCT_SCHED_HORIZON_OFF   = 296;  // u64
+const V12_17_ACCT_SCHED_RELEASE_Q_OFF = 304;  // u128
+const V12_17_ACCT_PENDING_PRESENT_OFF = 320;  // u8
+const V12_17_ACCT_PENDING_REMAINING_Q_OFF = 336; // u128
+const V12_17_ACCT_PENDING_HORIZON_OFF = 352;  // u64
+const V12_17_ACCT_PENDING_CREATED_SLOT_OFF = 360; // u64
+
+// V12_17 RiskEngine field offsets (native, relative to engine start)
+const V12_17_ENGINE_PARAMS_OFF          = 32;   // vault(16) + InsuranceFund(16)
+const V12_17_ENGINE_CURRENT_SLOT_OFF    = 224;  // params starts at 32, size 192 → 224
+const V12_17_ENGINE_MARKET_MODE_OFF     = 232;  // u8 (MarketMode enum)
+const V12_17_ENGINE_RESOLVED_PRICE_OFF  = 240;  // u64
+const V12_17_ENGINE_RESOLVED_K_LONG_OFF = 304;  // i128
+const V12_17_ENGINE_RESOLVED_K_SHORT_OFF = 320; // i128
+const V12_17_ENGINE_RESOLVED_LIVE_PRICE_OFF = 336; // u64
+const V12_17_ENGINE_C_TOT_OFF          = 352;  // U128
+const V12_17_ENGINE_PNL_POS_TOT_OFF    = 368;  // u128
+const V12_17_ENGINE_PNL_MATURED_POS_TOT_OFF = 384; // u128
+const V12_17_ENGINE_NEG_PNL_COUNT_OFF  = 648;  // u64
+const V12_17_ENGINE_LAST_ORACLE_PRICE_OFF = 656; // u64
+const V12_17_ENGINE_FUND_PX_LAST_OFF   = 664;  // u64
+const V12_17_ENGINE_F_LONG_NUM_OFF     = 688;  // i128
+const V12_17_ENGINE_F_SHORT_NUM_OFF    = 704;  // i128
+
+// SBF engine field offsets differ because RiskParams=184 (not 192) shifts everything after params.
+// Offset delta: native params=192, SBF params=184, so diff=8 starting from current_slot.
+// Additional differences accumulate from i128 alignment padding changes within the engine struct.
+const V12_17_SBF_ENGINE_CURRENT_SLOT_OFF = 216;
+const V12_17_SBF_ENGINE_MARKET_MODE_OFF  = 224;
+const V12_17_SBF_ENGINE_C_TOT_OFF       = 336;
+const V12_17_SBF_ENGINE_PNL_POS_TOT_OFF = 352;
+const V12_17_SBF_ENGINE_PNL_MATURED_POS_TOT_OFF = 368;
+const V12_17_SBF_ENGINE_NEG_PNL_COUNT_OFF = 616;
+const V12_17_SBF_ENGINE_LAST_ORACLE_PRICE_OFF = 624;
+const V12_17_SBF_ENGINE_FUND_PX_LAST_OFF = 632;
+const V12_17_SBF_ENGINE_F_LONG_NUM_OFF  = 648;
+const V12_17_SBF_ENGINE_F_SHORT_NUM_OFF = 664;
+
+// V12_17 size map for layout detection
+const V12_17_SIZES = new Map<number, number>();
 
 // ---- V1M layout constants (mainnet-deployed V1 program, ESa89R5) ----
 // The mainnet program has a LARGER RiskParams (336 bytes vs V1's 288) and 22 extra
@@ -730,12 +834,34 @@ for (const n of TIERS) {
   V12_15_SIZES.set(computeSlabSize(V12_15_ENGINE_OFF, V12_15_ENGINE_BITMAP_OFF, V12_15_ACCOUNT_SIZE, n, 18), n);
 }
 // V12_15 additional tier: MAX_ACCOUNTS=2048 (new default, changed from 4096 in v12.15).
-// computeSlabSize(624, 862, 4400, 2048, 18):
-//   bitmapBytes=ceil(2048/64)*8=256, preLen=862+256+18+4096=5232, accountsOff=align(5232,8)=5232
-//   total=624+5232+2048*4400 = 624+5232+9011200 = 9017056
 V12_15_SIZES.set(computeSlabSize(V12_15_ENGINE_OFF, V12_15_ENGINE_BITMAP_OFF, V12_15_ACCOUNT_SIZE, 2048, 18), 2048);
-// V12_15 small (SBF): 8 cohorts, 944-byte accounts. Hardcoded because SBF alignment differs from native.
-V12_15_SIZES.set(237512, 256);  // verified: cargo build-sbf --features small, SLAB_LEN=237512
+// V12_15_SMALL: --features small (8 cohorts, 944-byte accounts). Hardcoded sizes verified via cargo test.
+V12_15_SIZES.set(237512, 256);  // small (SBF): 256 accounts, 8 cohorts, SLAB_LEN=237512 (SBF u128 align=8)
+
+// V12_17 sizes — native and SBF, with and without RISK_BUF (160 bytes).
+// Native: Account align=16 → accountsOff alignment is 16, not 8.
+// SBF: Account align=8 → accountsOff alignment is 8.
+// Both on-chain and wrapper tests use SLAB_LEN which includes RISK_BUF.
+// postBitmap=4 (num_used_accounts: u16 + free_head: u16, no next_account_id or pad).
+const V12_17_TIERS = [256, 1024, 4096] as const;
+for (const n of V12_17_TIERS) {
+  const bitmapWords = Math.ceil(n / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const postBitmap = 4;
+  const nextFreeBytes = n * 2;
+
+  // Native (i128 align=16, Account align=16)
+  const preAccNative = V12_17_ENGINE_BITMAP_OFF + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffNative = Math.ceil(preAccNative / 16) * 16; // align to Account alignment (16)
+  const nativeSize = V12_17_ENGINE_OFF + accountsOffNative + n * V12_17_ACCOUNT_SIZE + V12_17_RISK_BUF_LEN;
+  V12_17_SIZES.set(nativeSize, n);
+
+  // SBF (i128 align=8, Account align=8)
+  const preAccSbf = V12_17_ENGINE_BITMAP_OFF_SBF + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffSbf = Math.ceil(preAccSbf / 8) * 8;
+  const sbfSize = V12_17_ENGINE_OFF_SBF + accountsOffSbf + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN;
+  V12_17_SIZES.set(sbfSize, n);
+}
 
 // SBF-specific V12_1 sizes (verified via cargo build-sbf compile-time offset_of! assertions).
 // SBF has ENGINE_OFF=616 (not 648) because HEADER=72 + CONFIG=544 = 616, align_up(616,8)=616.
@@ -750,6 +876,15 @@ for (const [, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 
   const accountsOff = Math.ceil(preAccLen / 8) * 8;
   const total = V12_1_SBF_ENGINE_OFF + accountsOff + n * V12_1_SBF_ACCOUNT_SIZE;
   V12_1_SIZES.set(total, n);
+}
+// V12_1_EP: entry_price re-added, accountSize=288 on SBF. Same engineOff/bitmapOff.
+const V12_1_EP_SIZES = new Map<number, number>();
+for (const [, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]] as const) {
+  const bitmapBytes = Math.ceil(n / 64) * 8;
+  const preAccLen = V12_1_SBF_BITMAP_OFF + bitmapBytes + 18 + n * 2;
+  const accountsOff = Math.ceil(preAccLen / 8) * 8;
+  const total = V12_1_SBF_ENGINE_OFF + accountsOff + n * V12_1_EP_SBF_ACCOUNT_SIZE;
+  V12_1_EP_SIZES.set(total, n);
 }
 
 /**
@@ -1266,6 +1401,22 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Med
 }
 
 /**
+ * V12_17 slab tier sizes — percolator v12.17 (two-bucket warmup, per-side funding).
+ * Uses SBF sizes (on-chain layout) for the dataSize values.
+ * ENGINE_OFF=504 (SBF), ACCOUNT_SIZE=352 (SBF), BITMAP_OFF=712 (SBF), postBitmap=4.
+ * RISK_BUF_LEN=160 appended after engine.
+ * Supported tiers: small(256), medium(1024), large(4096).
+ */
+export const SLAB_TIERS_V12_17: Record<string, { maxAccounts: number; dataSize: number; label: string; description: string }> = {};
+for (const [label, n] of [["Small", 256], ["Medium", 1024], ["Large", 4096]] as const) {
+  const bitmapBytes = Math.ceil(n / 64) * 8;
+  const preAcc = V12_17_ENGINE_BITMAP_OFF_SBF + bitmapBytes + 4 + n * 2;
+  const accountsOff = Math.ceil(preAcc / 8) * 8;
+  const size = V12_17_ENGINE_OFF_SBF + accountsOff + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN;
+  SLAB_TIERS_V12_17[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (v12.17)` };
+}
+
+/**
  * Build a SlabLayout for V_SETDEXPOOL slabs (PERC-SetDexPool security fix).
  * ENGINE_OFF=632 (+8 from V_ADL=624 due to CONFIG_LEN growing 520→528).
  * All engine and account field offsets are identical to V_ADL.
@@ -1336,12 +1487,12 @@ function buildLayoutVSetDexPool(maxAccounts: number): SlabLayout {
 function buildLayoutV12_1(maxAccounts: number, dataLen?: number): SlabLayout {
   // SBF vs host detection via size comparison.
   // SBF (deployed): HEADER=72, CONFIG=544, ENGINE_OFF=616, ACCOUNT=280, BITMAP=engine+584
-  // Host (tests):   HEADER=72, CONFIG=576, ENGINE_OFF=648, ACCOUNT=320, BITMAP=engine+368
+  // Host (tests):   HEADER=72, CONFIG=576, ENGINE_OFF=648, ACCOUNT=320, BITMAP=engine+1016
   // All SBF offsets verified via `cargo build-sbf` compile-time offset_of! assertions.
   const hostSize = computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, maxAccounts, 18);
   const isSbf = dataLen !== undefined && dataLen !== hostSize;
   const engineOff = isSbf ? V12_1_SBF_ENGINE_OFF : V12_1_ENGINE_OFF;
-  const bitmapOff = isSbf ? V12_1_SBF_BITMAP_OFF : (V12_1_ENGINE_BITMAP_OFF - V12_1_ENGINE_OFF);
+  const bitmapOff = isSbf ? V12_1_SBF_BITMAP_OFF : V12_1_ENGINE_BITMAP_OFF;
   const accountSize = isSbf ? V12_1_ACCOUNT_SIZE_SBF : V12_1_ACCOUNT_SIZE;
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
@@ -1371,12 +1522,12 @@ function buildLayoutV12_1(maxAccounts: number, dataLen?: number): SlabLayout {
     engineFundingIndexOff: isSbf ? -1 : V12_1_ENGINE_FUNDING_INDEX_OFF, // not in deployed struct
     engineLastFundingSlotOff: isSbf ? -1 : V12_1_ENGINE_LAST_FUNDING_SLOT_OFF, // not in deployed struct
     engineFundingRateBpsOff: isSbf ? V12_1_SBF_OFF_FUNDING_RATE : V12_1_ENGINE_FUNDING_RATE_BPS_OFF,
-    engineMarkPriceOff: isSbf ? -1 : V12_1_ENGINE_MARK_PRICE_OFF, // not in deployed struct
+    engineMarkPriceOff: isSbf ? V12_1_SBF_OFF_MARK_PRICE_E6 : V12_1_ENGINE_MARK_PRICE_OFF,
     engineLastCrankSlotOff: isSbf ? V12_1_SBF_OFF_LAST_CRANK_SLOT : V12_1_ENGINE_LAST_CRANK_SLOT_OFF,
     engineMaxCrankStalenessOff: isSbf ? V12_1_SBF_OFF_MAX_CRANK_STALENESS : V12_1_ENGINE_MAX_CRANK_STALENESS_OFF,
-    engineTotalOiOff: isSbf ? -1 : V12_1_ENGINE_TOTAL_OI_OFF, // not in deployed struct
-    engineLongOiOff: isSbf ? -1 : V12_1_ENGINE_LONG_OI_OFF,   // not in deployed struct
-    engineShortOiOff: isSbf ? -1 : V12_1_ENGINE_SHORT_OI_OFF, // not in deployed struct
+    engineTotalOiOff: isSbf ? V12_1_SBF_OFF_TOTAL_OI : V12_1_ENGINE_TOTAL_OI_OFF,
+    engineLongOiOff: isSbf ? V12_1_SBF_OFF_LONG_OI : V12_1_ENGINE_LONG_OI_OFF,
+    engineShortOiOff: isSbf ? V12_1_SBF_OFF_SHORT_OI : V12_1_ENGINE_SHORT_OI_OFF,
     engineCTotOff: isSbf ? V12_1_SBF_OFF_C_TOT : V12_1_ENGINE_C_TOT_OFF,
     enginePnlPosTotOff: isSbf ? V12_1_SBF_OFF_PNL_POS_TOT : V12_1_ENGINE_PNL_POS_TOT_OFF,
     engineLiqCursorOff: isSbf ? V12_1_SBF_OFF_LIQ_CURSOR : V12_1_ENGINE_LIQ_CURSOR_OFF,
@@ -1407,6 +1558,74 @@ function buildLayoutV12_1(maxAccounts: number, dataLen?: number): SlabLayout {
 }
 
 /**
+ * V12_1 with entry_price re-added (SBF only, accountSize=288).
+ * Same engine layout as V12_1 SBF, but account offsets shift +8 after entry_price.
+ */
+function buildLayoutV12_1EP(maxAccounts: number): SlabLayout {
+  const engineOff = V12_1_SBF_ENGINE_OFF; // 616
+  const bitmapOff = V12_1_SBF_BITMAP_OFF; // 584
+  const accountSize = V12_1_EP_SBF_ACCOUNT_SIZE; // 288
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const postBitmap = 18;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
+
+  return {
+    version: 1,
+    headerLen: 72,
+    configOffset: 72,
+    configLen: 544,
+    reservedOff: 80, // V1_RESERVED_OFF
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+
+    engineInsuranceOff: 16,
+    engineParamsOff: 32, // V12_1_ENGINE_PARAMS_OFF_SBF
+    paramsSize: 184, // V12_1_PARAMS_SIZE_SBF
+    // Engine offsets identical to V12_1 SBF
+    engineCurrentSlotOff: V12_1_SBF_OFF_CURRENT_SLOT,
+    engineFundingIndexOff: -1,
+    engineLastFundingSlotOff: -1,
+    engineFundingRateBpsOff: V12_1_SBF_OFF_FUNDING_RATE,
+    engineMarkPriceOff: V12_1_SBF_OFF_MARK_PRICE_E6,
+    engineLastCrankSlotOff: V12_1_SBF_OFF_LAST_CRANK_SLOT,
+    engineMaxCrankStalenessOff: V12_1_SBF_OFF_MAX_CRANK_STALENESS,
+    engineTotalOiOff: V12_1_SBF_OFF_TOTAL_OI,
+    engineLongOiOff: V12_1_SBF_OFF_LONG_OI,
+    engineShortOiOff: V12_1_SBF_OFF_SHORT_OI,
+    engineCTotOff: V12_1_SBF_OFF_C_TOT,
+    enginePnlPosTotOff: V12_1_SBF_OFF_PNL_POS_TOT,
+    engineLiqCursorOff: V12_1_SBF_OFF_LIQ_CURSOR,
+    engineGcCursorOff: V12_1_SBF_OFF_GC_CURSOR,
+    engineLastSweepStartOff: V12_1_SBF_OFF_LAST_SWEEP_START,
+    engineLastSweepCompleteOff: V12_1_SBF_OFF_LAST_SWEEP_COMPLETE,
+    engineCrankCursorOff: V12_1_SBF_OFF_CRANK_CURSOR,
+    engineSweepStartIdxOff: V12_1_SBF_OFF_SWEEP_START_IDX,
+    engineLifetimeLiquidationsOff: V12_1_SBF_OFF_LIFETIME_LIQUIDATIONS,
+    engineLifetimeForceClosesOff: -1,
+    engineNetLpPosOff: -1,
+    engineLpSumAbsOff: -1,
+    engineLpMaxAbsOff: -1,
+    engineLpMaxAbsSweepOff: -1,
+    engineEmergencyOiModeOff: -1,
+    engineEmergencyStartSlotOff: -1,
+    engineLastBreakerSlotOff: -1,
+    engineBitmapOff: bitmapOff,
+    postBitmap: 18,
+    // Account offsets — shifted +8 from V12_1 due to entry_price insertion
+    acctOwnerOff: V12_1_EP_ACCT_OWNER_OFF, // 216 (was 208)
+    hasInsuranceIsolation: false,
+    engineInsuranceIsolatedOff: -1,
+    engineInsuranceIsolationBpsOff: -1,
+  };
+}
+
+/**
  * Build a SlabLayout for V12_15 slabs (percolator v12.15 engine+prog sync).
  * ENGINE_OFF=624, ACCOUNT_SIZE=4400, BITMAP_OFF=862 (relative to engineOff).
  * Account layout: new reserve cohort arrays, entry_price re-added at offset 120,
@@ -1421,7 +1640,7 @@ function buildLayoutV12_15(maxAccounts: number, dataLen?: number): SlabLayout {
   const engineOff = isSbf ? V12_15_ENGINE_OFF_SBF : V12_15_ENGINE_OFF;
   const bitmapOff = V12_15_ENGINE_BITMAP_OFF;
   // SBF small has different bitmap/accounts offsets due to u128 align=8
-  const effectiveBitmapOff = isSbf ? 640 : bitmapOff; // SBF bitmap at engine+640
+  const effectiveBitmapOff = isSbf ? 648 : bitmapOff; // SBF bitmap at engine+648 (verified on-chain)
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
   const postBitmap = 18;
@@ -1431,7 +1650,7 @@ function buildLayoutV12_15(maxAccounts: number, dataLen?: number): SlabLayout {
 
   return {
     version: 2,
-    headerLen: V0_HEADER_LEN,     // 72 (same as V12_1)
+    headerLen: V0_HEADER_LEN,     // 72
     configOffset: V0_HEADER_LEN,  // 72
     configLen: 552,               // SBF CONFIG_LEN for v12.15
     reservedOff: V1_RESERVED_OFF, // 80
@@ -1447,11 +1666,9 @@ function buildLayoutV12_15(maxAccounts: number, dataLen?: number): SlabLayout {
     engineCurrentSlotOff: isSbf ? 216 : V12_15_ENGINE_CURRENT_SLOT_OFF, // SBF=216, native=224
     engineFundingIndexOff: -1,                 // not present in v12.15 engine struct
     engineLastFundingSlotOff: -1,              // not present in v12.15 engine struct
-    // funding_rate_e9 is i128 — stored in engineFundingRateBpsOff for EngineState.fundingRateBpsPerSlotLast
-    // callers should treat this as the i128 funding rate in e9 units
     engineFundingRateBpsOff: isSbf ? 224 : V12_15_ENGINE_FUNDING_RATE_E9_OFF, // SBF=224, native=240
-    engineMarkPriceOff: -1,                    // not present in v12.15 (removed with oracle refactor)
-    engineLastCrankSlotOff: -1,                // not yet mapped; set -1 until offset verified on-chain
+    engineMarkPriceOff: -1,                    // not present in v12.15
+    engineLastCrankSlotOff: -1,                // not yet mapped
     engineMaxCrankStalenessOff: -1,            // not yet mapped
     engineTotalOiOff: -1,                      // not present in v12.15 engine
     engineLongOiOff: -1,                       // not present in v12.15 engine
@@ -1477,7 +1694,89 @@ function buildLayoutV12_15(maxAccounts: number, dataLen?: number): SlabLayout {
     postBitmap,
     acctOwnerOff: V12_15_ACCT_OWNER_OFF, // 192
 
-    hasInsuranceIsolation: false,          // InsuranceFund = {balance: u128} = 16 bytes in v12.15
+    hasInsuranceIsolation: false,
+    engineInsuranceIsolatedOff: -1,
+    engineInsuranceIsolationBpsOff: -1,
+  };
+}
+
+/**
+ * Build a SlabLayout for V12_17 slabs (two-bucket warmup, per-side funding).
+ * Account: 368 bytes (native) / 352 bytes (SBF). No cohort arrays, no account_id, no entry_price.
+ * Engine: per-side cumulative funding (f_long_num/f_short_num), no stored funding_rate_e9.
+ * postBitmap=4 (num_used_accounts: u16 + free_head: u16).
+ * RISK_BUF_LEN=160 appended after engine.
+ */
+function buildLayoutV12_17(maxAccounts: number, dataLen: number): SlabLayout {
+  // Detect SBF vs native from account size and engine offset.
+  // SBF: ACCOUNT_SIZE=352, ENGINE_OFF=504. Native: ACCOUNT_SIZE=368, ENGINE_OFF=512.
+  const isSbf = (() => {
+    // Compute expected native size for this tier
+    const bitmapBytes = Math.ceil(maxAccounts / 64) * 8;
+    const preAccNative = V12_17_ENGINE_BITMAP_OFF + bitmapBytes + 4 + maxAccounts * 2;
+    const accountsOffNative = Math.ceil(preAccNative / 16) * 16;
+    const nativeSize = V12_17_ENGINE_OFF + accountsOffNative + maxAccounts * V12_17_ACCOUNT_SIZE + V12_17_RISK_BUF_LEN;
+    return dataLen !== nativeSize;
+  })();
+
+  const engineOff = isSbf ? V12_17_ENGINE_OFF_SBF : V12_17_ENGINE_OFF;
+  const accountSize = isSbf ? V12_17_ACCOUNT_SIZE_SBF : V12_17_ACCOUNT_SIZE;
+  const bitmapOff = isSbf ? V12_17_ENGINE_BITMAP_OFF_SBF : V12_17_ENGINE_BITMAP_OFF;
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const postBitmap = 4;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const acctAlign = isSbf ? 8 : 16;
+  const accountsOffRel = Math.ceil(preAccountsLen / acctAlign) * acctAlign;
+
+  return {
+    version: 2,
+    headerLen: V0_HEADER_LEN,      // 72
+    configOffset: V0_HEADER_LEN,   // 72
+    configLen: 432,                 // upstream 400 + dex_pool 32
+    reservedOff: V1_RESERVED_OFF,  // 80
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+
+    engineInsuranceOff: 16,
+    engineParamsOff: V12_17_ENGINE_PARAMS_OFF, // 32
+    paramsSize: isSbf ? 184 : 192,
+    engineCurrentSlotOff: isSbf ? V12_17_SBF_ENGINE_CURRENT_SLOT_OFF : V12_17_ENGINE_CURRENT_SLOT_OFF,
+    engineFundingIndexOff: -1,                 // replaced by per-side f_long_num/f_short_num
+    engineLastFundingSlotOff: -1,
+    engineFundingRateBpsOff: -1,               // no stored funding rate in v12.17
+    engineMarkPriceOff: -1,
+    engineLastCrankSlotOff: -1,
+    engineMaxCrankStalenessOff: -1,
+    engineTotalOiOff: -1,
+    engineLongOiOff: -1,
+    engineShortOiOff: -1,
+    engineCTotOff: isSbf ? V12_17_SBF_ENGINE_C_TOT_OFF : V12_17_ENGINE_C_TOT_OFF,
+    enginePnlPosTotOff: isSbf ? V12_17_SBF_ENGINE_PNL_POS_TOT_OFF : V12_17_ENGINE_PNL_POS_TOT_OFF,
+    engineLiqCursorOff: -1,
+    engineGcCursorOff: -1,
+    engineLastSweepStartOff: -1,
+    engineLastSweepCompleteOff: -1,
+    engineCrankCursorOff: -1,
+    engineSweepStartIdxOff: -1,
+    engineLifetimeLiquidationsOff: -1,
+    engineLifetimeForceClosesOff: -1,
+    engineNetLpPosOff: -1,
+    engineLpSumAbsOff: -1,
+    engineLpMaxAbsOff: -1,
+    engineLpMaxAbsSweepOff: -1,
+    engineEmergencyOiModeOff: -1,
+    engineEmergencyStartSlotOff: -1,
+    engineLastBreakerSlotOff: -1,
+    engineBitmapOff: bitmapOff,
+    postBitmap,
+    acctOwnerOff: isSbf ? 192 : V12_17_ACCT_OWNER_OFF, // SBF=192, native=200
+
+    hasInsuranceIsolation: false,
     engineInsuranceIsolatedOff: -1,
     engineInsuranceIsolationBpsOff: -1,
   };
@@ -1486,7 +1785,7 @@ function buildLayoutV12_15(maxAccounts: number, dataLen?: number): SlabLayout {
 /**
  * Detect the slab layout version from the raw account data length.
  * Returns the full SlabLayout descriptor, or null if the size is unrecognised.
- * Checks V12_15, V12_1, V_SETDEXPOOL, V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes.
+ * Checks V12_15, V12_1_EP, V12_1, V_SETDEXPOOL, V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes.
  *
  * When `data` is provided and the size matches V1D, the version field at offset 8 is read
  * to disambiguate V2 slabs (which produce identical sizes to V1D with postBitmap=2).
@@ -1496,13 +1795,22 @@ function buildLayoutV12_15(maxAccounts: number, dataLen?: number): SlabLayout {
  * @param data    - Optional raw slab data for version-field disambiguation
  */
 export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout | null {
-  // Check V12_15 sizes first (v12.15 engine+prog sync, ACCOUNT_SIZE=4400).
+  // Check V12_17 sizes first (two-bucket warmup, per-side funding).
+  // Unique account sizes (368 native / 352 SBF) + RISK_BUF — no collision with V12_15 (4400-byte accounts).
+  const v1217n = V12_17_SIZES.get(dataLen);
+  if (v1217n !== undefined) return buildLayoutV12_17(v1217n, dataLen);
+
+  // Check V12_15 sizes (v12.15 engine+prog sync, ACCOUNT_SIZE=4400).
   // Vastly larger account size — no collision with any earlier layout possible.
   const v1215n = V12_15_SIZES.get(dataLen);
   if (v1215n !== undefined) return buildLayoutV12_15(v1215n, dataLen);
 
-  // Check V12_1 sizes (percolator-core v12.1, ACCOUNT_SIZE=320, BITMAP_OFF=1016).
-  // Largest pre-v12.15 account size — no size collision with any earlier layout.
+  // Check V12_1_EP sizes (entry_price re-added, ACCOUNT_SIZE=288 on SBF).
+  // Must be checked before V12_1 (280-byte accounts) to avoid misdetection.
+  const v121epn = V12_1_EP_SIZES.get(dataLen);
+  if (v121epn !== undefined) return buildLayoutV12_1EP(v121epn);
+
+  // Check V12_1 sizes (percolator-core v12.1, ACCOUNT_SIZE=320/280, no entry_price).
   const v121n = V12_1_SIZES.get(dataLen);
   if (v121n !== undefined) return buildLayoutV12_1(v121n, dataLen);
 
@@ -1587,7 +1895,8 @@ const PARAMS_INITIAL_MARGIN_OFF = 16;
 const PARAMS_TRADING_FEE_OFF = 24;
 const PARAMS_MAX_ACCOUNTS_OFF = 32;
 const PARAMS_NEW_ACCOUNT_FEE_OFF = 40;
-// V1-only extended params (offset 56+)
+// V1-only extended params (offset 56+) — legacy offsets (V0/V1/V1D layouts with
+// riskReductionThreshold and liquidationBufferBps fields).
 const PARAMS_RISK_THRESHOLD_OFF = 56;
 const PARAMS_MAINTENANCE_FEE_OFF = 72;
 const PARAMS_MAX_CRANK_STALENESS_OFF = 88;
@@ -1595,6 +1904,20 @@ const PARAMS_LIQUIDATION_FEE_BPS_OFF = 96;
 const PARAMS_LIQUIDATION_FEE_CAP_OFF = 104;
 const PARAMS_LIQUIDATION_BUFFER_OFF = 120;
 const PARAMS_MIN_LIQUIDATION_OFF = 128;
+
+// V12_1 SBF params offsets — deployed struct has NO riskReductionThreshold or
+// liquidationBufferBps. Instead: maintenance_fee_per_slot follows new_account_fee
+// directly, and min_initial_deposit/min_nonzero_mm_req/min_nonzero_im_req/insurance_floor
+// are appended at the end. Verified via cargo build-sbf offset_of! assertions.
+const V12_1_PARAMS_MAINT_FEE_OFF = 56;       // U128
+const V12_1_PARAMS_MAX_CRANK_OFF = 72;        // u64
+const V12_1_PARAMS_LIQ_FEE_BPS_OFF = 80;      // u64
+const V12_1_PARAMS_LIQ_FEE_CAP_OFF = 88;      // U128
+const V12_1_PARAMS_MIN_LIQ_OFF = 104;          // U128
+const V12_1_PARAMS_MIN_INITIAL_DEP_OFF = 120;  // U128
+const V12_1_PARAMS_MIN_NZ_MM_OFF = 136;        // u128
+const V12_1_PARAMS_MIN_NZ_IM_OFF = 152;        // u128
+const V12_1_PARAMS_INS_FLOOR_OFF = 168;        // U128
 
 // =============================================================================
 // Account Layout (240/248 bytes)
@@ -1714,6 +2037,14 @@ export interface RiskParams {
   liquidationFeeCap: bigint;
   liquidationBufferBps: bigint;
   minLiquidationAbs: bigint;
+  /** Minimum initial deposit to open an account (V12_1+ only) */
+  minInitialDeposit: bigint;
+  /** Minimum nonzero maintenance margin requirement (V12_1+ only) */
+  minNonzeroMmReq: bigint;
+  /** Minimum nonzero initial margin requirement (V12_1+ only) */
+  minNonzeroImReq: bigint;
+  /** Insurance fund floor (V12_1+ only) */
+  insuranceFloor: bigint;
   /** Minimum horizon slots (v12.15+). Replaces warmupPeriodSlots. 0n on pre-v12.15 slabs. */
   hMin: bigint;
   /** Maximum horizon slots (v12.15+). 0n on pre-v12.15 slabs. */
@@ -1729,17 +2060,15 @@ export interface EngineState {
   /**
    * Funding rate per slot. On pre-v12.15 slabs: i64 in BPS units.
    * On v12.15+ slabs: i128 in e9 units (field renamed `funding_rate_e9` on-chain).
-   * Use `fundingRateE9` for v12.15-aware code.
    */
   fundingRateBpsPerSlotLast: bigint;
   /**
    * Funding rate in e9 units (i128). v12.15+ only.
-   * 0n on pre-v12.15 slabs (use `fundingRateBpsPerSlotLast` instead).
+   * 0n on pre-v12.15 slabs.
    */
   fundingRateE9: bigint;
   /**
-   * Market mode. v12.15+ only.
-   * 0 = Live, 1 = Resolved. null on pre-v12.15 slabs.
+   * Market mode. v12.15+ only. 0 = Live, 1 = Resolved. null on pre-v12.15 slabs.
    */
   marketMode: 0 | 1 | null;
   lastCrankSlot: bigint;
@@ -1750,8 +2079,7 @@ export interface EngineState {
   cTot: bigint;
   pnlPosTot: bigint;
   /**
-   * Matured (settled) positive PnL total (u128). v12.15+ only.
-   * 0n on pre-v12.15 slabs.
+   * Matured (settled) positive PnL total (u128). v12.15+ only. 0n on pre-v12.15 slabs.
    */
   pnlMaturedPosTot: bigint;
   liqCursor: number;
@@ -1772,6 +2100,24 @@ export interface EngineState {
   numUsedAccounts: number;
   nextAccountId: bigint;
   markPriceE6: bigint;
+  /** last_oracle_price (u64, e6). V12_15+ only. 0n on pre-v12.15. */
+  oraclePriceE6: bigint;
+
+  // ---- V12_17 engine fields ----
+  /** Cumulative funding numerator for long side (i128). 0n on pre-v12.17. */
+  fLongNum: bigint;
+  /** Cumulative funding numerator for short side (i128). 0n on pre-v12.17. */
+  fShortNum: bigint;
+  /** Count of accounts with negative PnL. 0n on pre-v12.17. */
+  negPnlAccountCount: bigint;
+  /** Last funding-sample price (u64 e6). 0n on pre-v12.17. */
+  fundPxLast: bigint;
+  /** Matured positive PnL total (u128). v12.15+ only. 0n on pre-v12.15 slabs. */
+  resolvedKLongTerminalDelta: bigint;
+  /** Terminal K delta for short side (i128). 0n on pre-v12.17. */
+  resolvedKShortTerminalDelta: bigint;
+  /** Live oracle price used during resolution (u64 e6). 0n on pre-v12.17. */
+  resolvedLivePrice: bigint;
 }
 
 export enum AccountKind {
@@ -1809,7 +2155,7 @@ export interface Account {
    * `null` on pre-v12.15 slabs. Parse the raw bytes according to the on-chain ReserveCohort struct.
    */
   exactReserveCohorts: ReserveCohortBytes[] | null;
-  /** Number of active reserve cohorts (0–62). null on pre-v12.15 slabs. */
+  /** Number of active reserve cohorts (0-62). null on pre-v12.15 slabs. */
   exactCohortCount: number | null;
   /** Overflow (oldest) cohort raw bytes. null on pre-v12.15 slabs or when not present. */
   overflowOlder: ReserveCohortBytes | null;
@@ -1819,6 +2165,40 @@ export interface Account {
   overflowNewest: ReserveCohortBytes | null;
   /** True if overflowNewest contains valid data. null on pre-v12.15 slabs. */
   overflowNewestPresent: boolean | null;
+
+  // ---- V12_17 fields (two-bucket warmup, per-side funding) ----
+  /** Per-account cumulative funding snapshot (i128). 0n on pre-v12.17 slabs. */
+  fSnap: bigint;
+  /** ADL A-basis snapshot (u128). 0n on pre-v12.17 slabs. */
+  adlABasis: bigint;
+  /** ADL K-coefficient snapshot (i128). 0n on pre-v12.17 slabs. */
+  adlKSnap: bigint;
+  /** ADL epoch snapshot (u64). 0n on pre-v12.17 slabs. */
+  adlEpochSnap: bigint;
+
+  // Scheduled reserve bucket (older, matures linearly)
+  /** True if the scheduled warmup bucket is active. null on pre-v12.17. */
+  schedPresent: boolean | null;
+  /** Remaining unreleased quantity in scheduled bucket. null on pre-v12.17. */
+  schedRemainingQ: bigint | null;
+  /** Anchor quantity for scheduled bucket. null on pre-v12.17. */
+  schedAnchorQ: bigint | null;
+  /** Start slot for scheduled bucket. null on pre-v12.17. */
+  schedStartSlot: bigint | null;
+  /** Warmup horizon for scheduled bucket. null on pre-v12.17. */
+  schedHorizon: bigint | null;
+  /** Release quantity for scheduled bucket. null on pre-v12.17. */
+  schedReleaseQ: bigint | null;
+
+  // Pending reserve bucket (newest, does not mature while pending)
+  /** True if the pending warmup bucket is active. null on pre-v12.17. */
+  pendingPresent: boolean | null;
+  /** Remaining unreleased quantity in pending bucket. null on pre-v12.17. */
+  pendingRemainingQ: bigint | null;
+  /** Warmup horizon for pending bucket. null on pre-v12.17. */
+  pendingHorizon: bigint | null;
+  /** Creation slot for pending bucket. null on pre-v12.17. */
+  pendingCreatedSlot: bigint | null;
 }
 
 // =============================================================================
@@ -2166,23 +2546,37 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
     throw new Error("Slab data too short for RiskParams");
   }
 
-  // Detect V12_15 layout: paramsSize=192 (native) or 184 (SBF). In v12.15, warmup_period_slots
-  // is replaced by h_min(u64@160) + h_max(u64@168). max_accounts moved to offset 24 (from 32).
+  // Detect V12_15 layout: paramsSize=192. In v12.15, warmup_period_slots is replaced by
+  // h_min(u64@160) + h_max(u64@168). max_accounts moved to offset 24 (from 32).
   const isV12_15Params = paramsSize === V12_15_PARAMS_SIZE || paramsSize === 184; // 192=native, 184=SBF
 
-  // Basic params present in both V0 and V1
+  // Detect V12_1 SBF layout — deployed struct has different field order from legacy layouts.
+  // V12_1 SBF: no riskReductionThreshold/liquidationBufferBps; adds minInitialDeposit/
+  // minNonzeroMmReq/minNonzeroImReq/insuranceFloor at the end.
+  const isV12_1Sbf = !isV12_15Params && layout !== null && layout !== undefined &&
+    (layout.engineOff === V12_1_SBF_ENGINE_OFF) && paramsSize === 184;
+
+  // Basic params present in all layouts (offsets 0-55 are identical)
   const result: RiskParams = {
     warmupPeriodSlots: isV12_15Params
       ? readU64LE(data, base + V12_15_PARAMS_H_MIN_OFF)   // backwards compat: return hMin
       : readU64LE(data, base + PARAMS_WARMUP_PERIOD_OFF),
-    maintenanceMarginBps: readU64LE(data, base + PARAMS_MAINTENANCE_MARGIN_OFF),
-    initialMarginBps: readU64LE(data, base + PARAMS_INITIAL_MARGIN_OFF),
-    tradingFeeBps: readU64LE(data, base + PARAMS_TRADING_FEE_OFF),
+    maintenanceMarginBps: isV12_15Params
+      ? readU64LE(data, base + 0)   // v12.15: mm_bps is first field (offset 0)
+      : readU64LE(data, base + PARAMS_MAINTENANCE_MARGIN_OFF),
+    initialMarginBps: isV12_15Params
+      ? readU64LE(data, base + 8)
+      : readU64LE(data, base + PARAMS_INITIAL_MARGIN_OFF),
+    tradingFeeBps: isV12_15Params
+      ? readU64LE(data, base + 16)
+      : readU64LE(data, base + PARAMS_TRADING_FEE_OFF),
     maxAccounts: isV12_15Params
-      ? readU64LE(data, base + V12_15_PARAMS_MAX_ACCOUNTS_OFF)  // moved to offset 24 in v12.15
+      ? readU64LE(data, base + V12_15_PARAMS_MAX_ACCOUNTS_OFF)  // offset 24 in v12.15
       : readU64LE(data, base + PARAMS_MAX_ACCOUNTS_OFF),
-    newAccountFee: readU128LE(data, base + PARAMS_NEW_ACCOUNT_FEE_OFF),
-    // Extended params: only read if V1 (paramsSize >= 144)
+    newAccountFee: isV12_15Params
+      ? readU128LE(data, base + 32)  // offset 32 in v12.15
+      : readU128LE(data, base + PARAMS_NEW_ACCOUNT_FEE_OFF),
+    // Extended params: defaults; overwritten below if layout supports them
     riskReductionThreshold: 0n,
     maintenanceFeePerSlot: 0n,
     maxCrankStalenessSlots: 0n,
@@ -2190,24 +2584,48 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
     liquidationFeeCap: 0n,
     liquidationBufferBps: 0n,
     minLiquidationAbs: 0n,
+    minInitialDeposit: 0n,
+    minNonzeroMmReq: 0n,
+    minNonzeroImReq: 0n,
+    insuranceFloor: 0n,
     hMin: 0n,
     hMax: 0n,
   };
 
   if (isV12_15Params) {
-    // V12_15 RiskParams: read hMin/hMax. riskReductionThreshold and maintenanceFeePerSlot
-    // were removed in v12.15 — set to 0n.
+    // V12_15 RiskParams: read hMin/hMax, insurance_floor occupies offset 144.
     result.hMin = readU64LE(data, base + V12_15_PARAMS_H_MIN_OFF);
     result.hMax = readU64LE(data, base + V12_15_PARAMS_H_MAX_OFF);
+    result.insuranceFloor = readU128LE(data, base + V12_15_PARAMS_INSURANCE_FLOOR_OFF);
+    // v12.15 RiskParams: no riskReductionThreshold, no maintenanceFeePerSlot.
+    // All offsets shift -8 from legacy (warmupPeriodSlots removed from start).
     result.riskReductionThreshold = 0n; // removed in v12.15
     result.maintenanceFeePerSlot  = 0n; // removed in v12.15
-    // v12.15 RiskParams offsets (verified on native and SBF — no i128 fields shift these)
+    // v12.15 RiskParams offsets (same on native and SBF — no i128 fields in RiskParams)
     result.maxCrankStalenessSlots = readU64LE(data, base + 48);
     result.liquidationFeeBps      = readU64LE(data, base + 56);
     result.liquidationFeeCap      = readU128LE(data, base + 64);
     result.liquidationBufferBps   = 0n; // removed (wire slot reused as resolve_price_deviation_bps)
     result.minLiquidationAbs      = readU128LE(data, base + 80);
+    result.minInitialDeposit      = readU128LE(data, base + 96);
+    result.minNonzeroMmReq        = readU128LE(data, base + 112);
+    result.minNonzeroImReq        = readU128LE(data, base + 128);
+  } else if (isV12_1Sbf) {
+    // V12_1 SBF deployed struct — no riskReductionThreshold/liquidationBufferBps
+    result.maintenanceFeePerSlot = readU128LE(data, base + V12_1_PARAMS_MAINT_FEE_OFF);
+    result.maxCrankStalenessSlots = readU64LE(data, base + V12_1_PARAMS_MAX_CRANK_OFF);
+    result.liquidationFeeBps = readU64LE(data, base + V12_1_PARAMS_LIQ_FEE_BPS_OFF);
+    result.liquidationFeeCap = readU128LE(data, base + V12_1_PARAMS_LIQ_FEE_CAP_OFF);
+    result.minLiquidationAbs = readU128LE(data, base + V12_1_PARAMS_MIN_LIQ_OFF);
+    result.minInitialDeposit = readU128LE(data, base + V12_1_PARAMS_MIN_INITIAL_DEP_OFF);
+    result.minNonzeroMmReq = readU128LE(data, base + V12_1_PARAMS_MIN_NZ_MM_OFF);
+    result.minNonzeroImReq = readU128LE(data, base + V12_1_PARAMS_MIN_NZ_IM_OFF);
+    result.insuranceFloor = readU128LE(data, base + V12_1_PARAMS_INS_FLOOR_OFF);
+    // hMin/hMax: backfill from warmupPeriodSlots for pre-v12.15 callers
+    result.hMin = result.warmupPeriodSlots;
+    result.hMax = result.warmupPeriodSlots;
   } else if (paramsSize >= 144) {
+    // Legacy V0/V1/V1D layouts with riskReductionThreshold + liquidationBufferBps
     result.riskReductionThreshold = readU128LE(data, base + PARAMS_RISK_THRESHOLD_OFF);
     result.maintenanceFeePerSlot = readU128LE(data, base + PARAMS_MAINTENANCE_FEE_OFF);
     result.maxCrankStalenessSlots = readU64LE(data, base + PARAMS_MAX_CRANK_STALENESS_OFF);
@@ -2234,10 +2652,86 @@ export function parseEngine(data: Uint8Array): EngineState {
 
   const base = layout.engineOff;
 
-  // Detect v12.15 layout: matches both native (ACCOUNT_SIZE=4400) and SBF (ACCOUNT_SIZE=920).
-  const isV12_15 = layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL;
+  // Detect layout versions
+  const isV12_17 = layout.accountSize === V12_17_ACCOUNT_SIZE || layout.accountSize === V12_17_ACCOUNT_SIZE_SBF;
+  const isV12_15 = !isV12_17 && (layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL) && (layout.engineOff === V12_15_ENGINE_OFF || layout.engineOff === V12_15_ENGINE_OFF_SBF);
 
-  // For v12.15: funding_rate_e9 is i128 at engineFundingRateBpsOff (224 for SBF, 240 for native).
+  // V12_17: completely new engine layout — per-side funding, no stored funding_rate_e9.
+  if (isV12_17) {
+    const isSbf = layout.engineOff === V12_17_ENGINE_OFF_SBF;
+
+    const currentSlotOff = isSbf ? V12_17_SBF_ENGINE_CURRENT_SLOT_OFF : V12_17_ENGINE_CURRENT_SLOT_OFF;
+    const marketModeOff = isSbf ? V12_17_SBF_ENGINE_MARKET_MODE_OFF : V12_17_ENGINE_MARKET_MODE_OFF;
+    const cTotOff = isSbf ? V12_17_SBF_ENGINE_C_TOT_OFF : V12_17_ENGINE_C_TOT_OFF;
+    const pnlPosTotOff = isSbf ? V12_17_SBF_ENGINE_PNL_POS_TOT_OFF : V12_17_ENGINE_PNL_POS_TOT_OFF;
+    const pnlMaturedOff = isSbf ? V12_17_SBF_ENGINE_PNL_MATURED_POS_TOT_OFF : V12_17_ENGINE_PNL_MATURED_POS_TOT_OFF;
+    const negPnlOff = isSbf ? V12_17_SBF_ENGINE_NEG_PNL_COUNT_OFF : V12_17_ENGINE_NEG_PNL_COUNT_OFF;
+    const oraclePriceOff = isSbf ? V12_17_SBF_ENGINE_LAST_ORACLE_PRICE_OFF : V12_17_ENGINE_LAST_ORACLE_PRICE_OFF;
+    const fundPxLastOff = isSbf ? V12_17_SBF_ENGINE_FUND_PX_LAST_OFF : V12_17_ENGINE_FUND_PX_LAST_OFF;
+    const fLongNumOff = isSbf ? V12_17_SBF_ENGINE_F_LONG_NUM_OFF : V12_17_ENGINE_F_LONG_NUM_OFF;
+    const fShortNumOff = isSbf ? V12_17_SBF_ENGINE_F_SHORT_NUM_OFF : V12_17_ENGINE_F_SHORT_NUM_OFF;
+    // resolved_k offsets: native 304/320, SBF 288/304
+    const resolvedKLongOff = isSbf ? 288 : V12_17_ENGINE_RESOLVED_K_LONG_OFF;
+    const resolvedKShortOff = isSbf ? 304 : V12_17_ENGINE_RESOLVED_K_SHORT_OFF;
+    const resolvedLivePriceOff = isSbf ? 320 : V12_17_ENGINE_RESOLVED_LIVE_PRICE_OFF;
+
+    // numUsedAccounts: at bitmap + bitmapBytes (postBitmap=4: num_used_accounts is first u16)
+    const bitmapEnd = layout.engineBitmapOff + layout.bitmapWords * 8;
+
+    return {
+      vault: readU128LE(data, base),
+      insuranceFund: {
+        balance: readU128LE(data, base + 16),
+        feeRevenue: 0n,
+        isolatedBalance: 0n,
+        isolationBps: 0,
+      },
+      currentSlot: readU64LE(data, base + currentSlotOff),
+      fundingIndexQpbE6: 0n,          // replaced by per-side funding
+      lastFundingSlot: 0n,
+      fundingRateBpsPerSlotLast: 0n,   // no stored funding rate in v12.17
+      fundingRateE9: 0n,               // no stored funding rate in v12.17
+      marketMode: readU8(data, base + marketModeOff) === 1 ? 1 : 0,
+      lastCrankSlot: 0n,
+      maxCrankStalenessSlots: 0n,
+      totalOpenInterest: 0n,
+      longOi: 0n,
+      shortOi: 0n,
+      cTot: readU128LE(data, base + cTotOff),
+      pnlPosTot: readU128LE(data, base + pnlPosTotOff),
+      pnlMaturedPosTot: readU128LE(data, base + pnlMaturedOff),
+      liqCursor: 0,
+      gcCursor: 0,
+      lastSweepStartSlot: 0n,
+      lastSweepCompleteSlot: 0n,
+      crankCursor: 0,
+      sweepStartIdx: 0,
+      lifetimeLiquidations: 0n,
+      lifetimeForceCloses: 0n,
+      netLpPos: 0n,
+      lpSumAbs: 0n,
+      lpMaxAbs: 0n,
+      lpMaxAbsSweep: 0n,
+      emergencyOiMode: false,
+      emergencyStartSlot: 0n,
+      lastBreakerSlot: 0n,
+      markPriceE6: 0n,
+      oraclePriceE6: readU64LE(data, base + oraclePriceOff),
+      numUsedAccounts: readU16LE(data, base + bitmapEnd),
+      nextAccountId: 0n,               // removed in v12.17 (replaced by mat_counter in header)
+
+      // V12_17 fields
+      fLongNum: readI128LE(data, base + fLongNumOff),
+      fShortNum: readI128LE(data, base + fShortNumOff),
+      negPnlAccountCount: readU64LE(data, base + negPnlOff),
+      fundPxLast: readU64LE(data, base + fundPxLastOff),
+      resolvedKLongTerminalDelta: readI128LE(data, base + resolvedKLongOff),
+      resolvedKShortTerminalDelta: readI128LE(data, base + resolvedKShortOff),
+      resolvedLivePrice: readU64LE(data, base + resolvedLivePriceOff),
+    };
+  }
+
+  // For v12.15: funding_rate_e9 is i128 at layout.engineFundingRateBpsOff (224 SBF, 240 native).
   // For pre-v12.15: i64 at engineFundingRateBpsOff.
   const fundingRateBpsPerSlotLast = isV12_15
     ? readI128LE(data, base + layout.engineFundingRateBpsOff)
@@ -2268,7 +2762,7 @@ export function parseEngine(data: Uint8Array): EngineState {
       ? readI128LE(data, base + layout.engineFundingRateBpsOff)
       : 0n,
     marketMode: isV12_15
-      ? (readU8(data, base + V12_15_ENGINE_MARKET_MODE_OFF) === 1 ? 1 : 0)
+      ? (readU8(data, base + layout.engineFundingRateBpsOff + 16) === 1 ? 1 : 0)
       : null,
     lastCrankSlot: layout.engineLastCrankSlotOff >= 0
       ? readU64LE(data, base + layout.engineLastCrankSlotOff) : 0n,
@@ -2316,6 +2810,11 @@ export function parseEngine(data: Uint8Array): EngineState {
       ? readU64LE(data, base + layout.engineLastBreakerSlotOff) : 0n,
     markPriceE6: layout.engineMarkPriceOff >= 0
       ? readU64LE(data, base + layout.engineMarkPriceOff) : 0n,
+    // V12_15: last_oracle_price at engine+608 (SBF) / engine+... (native).
+    // Located at bitmapOff - 40 on SBF (648-40=608, verified on-chain).
+    oraclePriceE6: isV12_15
+      ? readU64LE(data, base + layout.engineBitmapOff - 40)
+      : 0n,
     numUsedAccounts: (() => {
       if (layout.postBitmap < 18) return 0;
       const bw = layout.bitmapWords;
@@ -2327,6 +2826,15 @@ export function parseEngine(data: Uint8Array): EngineState {
       const numUsedOff = layout.engineBitmapOff + bw * 8;
       return readU64LE(data, base + Math.ceil((numUsedOff + 2) / 8) * 8);
     })(),
+
+    // V12_17 fields (not present in pre-v12.17)
+    fLongNum: 0n,
+    fShortNum: 0n,
+    negPnlAccountCount: 0n,
+    fundPxLast: 0n,
+    resolvedKLongTerminalDelta: 0n,
+    resolvedKShortTerminalDelta: 0n,
+    resolvedLivePrice: 0n,
   };
 }
 
@@ -2403,13 +2911,76 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
 
   // Select layout-dependent account field offsets.
   // V12_15 (account_size=4400): completely new layout, reserve cohorts, warmup/lastFeeSlot removed.
-  // V12_1 (account_size=320/280): new ADL fields shift offsets; no entry_price on SBF.
-  // V_ADL (account_size=312): reserved_pnl grew u64→u128.
+  // V12_1 (account_size=320/280): new fields (position_basis_q, adl_a_basis, adl_k_snap, adl_epoch_snap)
+  //   shift matcher/owner/fee offsets +16 from V_ADL, and move legacy fields to end.
+  // V_ADL (account_size=312): reserved_pnl grew u64→u128 (PERC-8267), shifting from pre-ADL offsets.
   // Pre-ADL (account_size<312): original offsets.
-  // V12_1: detect by engineOff (most reliable since SBF/host account sizes differ).
-  const isV12_15 = layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL;
-  const isV12_1 = !isV12_15 && (layout.engineOff === V12_1_ENGINE_OFF || layout.engineOff === V12_1_SBF_ENGINE_OFF) && (layout.accountSize === V12_1_ACCOUNT_SIZE || layout.accountSize === V12_1_ACCOUNT_SIZE_SBF);
-  const isAdl = !isV12_15 && (layout.accountSize >= 312 || isV12_1);
+  // V12_1: engineOff=648 + bitmapOff(rel)=368. Detect by engineOff (most reliable).
+  // Account is 320 on aarch64, 280 on SBF — accountSize alone is ambiguous.
+  // V12_1_EP: entry_price re-added, accountSize=288 on SBF. All offsets after entry_price shift +8.
+  const isV12_17 = layout.accountSize === V12_17_ACCOUNT_SIZE || layout.accountSize === V12_17_ACCOUNT_SIZE_SBF;
+  const isV12_15 = !isV12_17 && (layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL);
+  const isV12_1EP = !isV12_17 && !isV12_15 && layout.accountSize === V12_1_EP_SBF_ACCOUNT_SIZE && layout.engineOff === V12_1_SBF_ENGINE_OFF;
+  const isV12_1 = !isV12_17 && !isV12_15 && !isV12_1EP && (layout.engineOff === V12_1_ENGINE_OFF || layout.engineOff === V12_1_SBF_ENGINE_OFF) && (layout.accountSize === V12_1_ACCOUNT_SIZE || layout.accountSize === V12_1_ACCOUNT_SIZE_SBF);
+  const isAdl = !isV12_17 && !isV12_15 && (layout.accountSize >= 312 || isV12_1 || isV12_1EP);
+
+  if (isV12_17) {
+    // V12_17 fast path: two-bucket warmup, per-side funding, no account_id/entry_price/cohorts.
+    //
+    // SBF vs native alignment delta:
+    //   After `kind: u8`, native i128 (align=16) inserts 15 bytes pad vs SBF (align=8) 7 bytes → d1=8.
+    //   After `pending_present: u8`, the same happens again: native pads 15 vs SBF 7 → d2=16.
+    //   The first gap (after sched_present) does NOT add extra delta because sched_present lands at
+    //   native offset 248 where (249 % 16 = 9) needs only 7 bytes — same as SBF. But pending_present
+    //   lands at native 320 where (321 % 16 = 1) needs 15 bytes vs SBF's 7.
+    const isSbf = layout.accountSize === V12_17_ACCOUNT_SIZE_SBF;
+    const d1 = isSbf ? 8 : 0;  // fields after kind through pending_present
+    const d2 = isSbf ? 16 : 0; // fields after pending_present (pending_remaining_q onward)
+
+    const kindByte = readU8(data, base + V12_17_ACCT_KIND_OFF);
+    const kind = kindByte === 1 ? AccountKind.LP : AccountKind.User;
+
+    return {
+      kind,
+      accountId: 0n,           // removed in v12.17
+      capital: readU128LE(data, base + V12_17_ACCT_CAPITAL_OFF),
+      pnl: readI128LE(data, base + V12_17_ACCT_PNL_OFF - d1),
+      reservedPnl: readU128LE(data, base + V12_17_ACCT_RESERVED_PNL_OFF - d1),
+      warmupStartedAtSlot: 0n, // removed
+      warmupSlopePerStep: 0n,  // removed
+      positionSize: readI128LE(data, base + V12_17_ACCT_POSITION_BASIS_Q_OFF - d1),
+      entryPrice: 0n,          // removed — compute off-chain from position_basis_q / effective_pos_q
+      fundingIndex: 0n,        // replaced by per-side f_long_num/f_short_num + per-account f_snap
+      matcherProgram: new PublicKey(data.subarray(base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1, base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1 + 32)),
+      matcherContext: new PublicKey(data.subarray(base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1, base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1 + 32)),
+      owner: new PublicKey(data.subarray(base + V12_17_ACCT_OWNER_OFF - d1, base + V12_17_ACCT_OWNER_OFF - d1 + 32)),
+      feeCredits: readI128LE(data, base + V12_17_ACCT_FEE_CREDITS_OFF - d1),
+      lastFeeSlot: 0n,         // removed
+      feesEarnedTotal: 0n,     // removed in v12.17
+      exactReserveCohorts: null, // replaced by two-bucket warmup
+      exactCohortCount: null,
+      overflowOlder: null,
+      overflowOlderPresent: null,
+      overflowNewest: null,
+      overflowNewestPresent: null,
+
+      // V12_17 fields
+      fSnap: readI128LE(data, base + V12_17_ACCT_F_SNAP_OFF - d1),
+      adlABasis: readU128LE(data, base + V12_17_ACCT_ADL_A_BASIS_OFF - d1),
+      adlKSnap: readI128LE(data, base + V12_17_ACCT_ADL_K_SNAP_OFF - d1),
+      adlEpochSnap: readU64LE(data, base + V12_17_ACCT_ADL_EPOCH_SNAP_OFF - d1),
+      schedPresent: readU8(data, base + V12_17_ACCT_SCHED_PRESENT_OFF - d1) !== 0,
+      schedRemainingQ: readU128LE(data, base + V12_17_ACCT_SCHED_REMAINING_Q_OFF - d1),
+      schedAnchorQ: readU128LE(data, base + V12_17_ACCT_SCHED_ANCHOR_Q_OFF - d1),
+      schedStartSlot: readU64LE(data, base + V12_17_ACCT_SCHED_START_SLOT_OFF - d1),
+      schedHorizon: readU64LE(data, base + V12_17_ACCT_SCHED_HORIZON_OFF - d1),
+      schedReleaseQ: readU128LE(data, base + V12_17_ACCT_SCHED_RELEASE_Q_OFF - d1),
+      pendingPresent: readU8(data, base + V12_17_ACCT_PENDING_PRESENT_OFF - d1) !== 0,
+      pendingRemainingQ: readU128LE(data, base + V12_17_ACCT_PENDING_REMAINING_Q_OFF - d2),
+      pendingHorizon: readU64LE(data, base + V12_17_ACCT_PENDING_HORIZON_OFF - d2),
+      pendingCreatedSlot: readU64LE(data, base + V12_17_ACCT_PENDING_CREATED_SLOT_OFF - d2),
+    };
+  }
 
   if (isV12_15) {
     // V12_15 fast path: fixed offsets, all fields explicit.
@@ -2450,19 +3021,25 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
       overflowOlderPresent,
       overflowNewest: data.slice(base + V12_15_ACCT_OVERFLOW_NEWEST_OFF, base + V12_15_ACCT_OVERFLOW_NEWEST_OFF + 64),
       overflowNewestPresent,
+
+      // v12.17 fields (not present in v12.15)
+      fSnap: 0n, adlABasis: 0n, adlKSnap: 0n, adlEpochSnap: 0n,
+      schedPresent: null, schedRemainingQ: null, schedAnchorQ: null,
+      schedStartSlot: null, schedHorizon: null, schedReleaseQ: null,
+      pendingPresent: null, pendingRemainingQ: null, pendingHorizon: null, pendingCreatedSlot: null,
     };
   }
 
   // Pre-v12.15 path
   const warmupStartedOff = isAdl ? V_ADL_ACCT_WARMUP_STARTED_OFF : ACCT_WARMUP_STARTED_OFF;
   const warmupSlopeOff   = isAdl ? V_ADL_ACCT_WARMUP_SLOPE_OFF   : ACCT_WARMUP_SLOPE_OFF;
-  const positionSizeOff  = isV12_1 ? V12_1_ACCT_POSITION_SIZE_OFF : (isAdl ? V_ADL_ACCT_POSITION_SIZE_OFF : ACCT_POSITION_SIZE_OFF);
-  const entryPriceOff    = isV12_1 ? V12_1_ACCT_ENTRY_PRICE_OFF   : (isAdl ? V_ADL_ACCT_ENTRY_PRICE_OFF   : ACCT_ENTRY_PRICE_OFF);
-  const fundingIndexOff  = isV12_1 ? V12_1_ACCT_FUNDING_INDEX_OFF : (isAdl ? V_ADL_ACCT_FUNDING_INDEX_OFF : ACCT_FUNDING_INDEX_OFF);
-  const matcherProgOff   = isV12_1 ? V12_1_ACCT_MATCHER_PROGRAM_OFF : (isAdl ? V_ADL_ACCT_MATCHER_PROGRAM_OFF : ACCT_MATCHER_PROGRAM_OFF);
-  const matcherCtxOff    = isV12_1 ? V12_1_ACCT_MATCHER_CONTEXT_OFF : (isAdl ? V_ADL_ACCT_MATCHER_CONTEXT_OFF : ACCT_MATCHER_CONTEXT_OFF);
-  const feeCreditsOff    = isV12_1 ? V12_1_ACCT_FEE_CREDITS_OFF   : (isAdl ? V_ADL_ACCT_FEE_CREDITS_OFF   : ACCT_FEE_CREDITS_OFF);
-  const lastFeeSlotOff   = isV12_1 ? V12_1_ACCT_LAST_FEE_SLOT_OFF : (isAdl ? V_ADL_ACCT_LAST_FEE_SLOT_OFF : ACCT_LAST_FEE_SLOT_OFF);
+  const positionSizeOff  = (isV12_1 || isV12_1EP) ? V12_1_ACCT_POSITION_SIZE_OFF : (isAdl ? V_ADL_ACCT_POSITION_SIZE_OFF : ACCT_POSITION_SIZE_OFF);
+  const entryPriceOff    = isV12_1EP ? V12_1_EP_ACCT_ENTRY_PRICE_OFF : (isV12_1 ? V12_1_ACCT_ENTRY_PRICE_OFF : (isAdl ? V_ADL_ACCT_ENTRY_PRICE_OFF : ACCT_ENTRY_PRICE_OFF));
+  const fundingIndexOff  = (isV12_1 || isV12_1EP) ? -1 : (isAdl ? V_ADL_ACCT_FUNDING_INDEX_OFF : ACCT_FUNDING_INDEX_OFF);
+  const matcherProgOff   = isV12_1EP ? V12_1_EP_ACCT_MATCHER_PROGRAM_OFF : (isV12_1 ? V12_1_ACCT_MATCHER_PROGRAM_OFF : (isAdl ? V_ADL_ACCT_MATCHER_PROGRAM_OFF : ACCT_MATCHER_PROGRAM_OFF));
+  const matcherCtxOff    = isV12_1EP ? V12_1_EP_ACCT_MATCHER_CONTEXT_OFF : (isV12_1 ? V12_1_ACCT_MATCHER_CONTEXT_OFF : (isAdl ? V_ADL_ACCT_MATCHER_CONTEXT_OFF : ACCT_MATCHER_CONTEXT_OFF));
+  const feeCreditsOff    = isV12_1EP ? V12_1_EP_ACCT_FEE_CREDITS_OFF : (isV12_1 ? V12_1_ACCT_FEE_CREDITS_OFF : (isAdl ? V_ADL_ACCT_FEE_CREDITS_OFF : ACCT_FEE_CREDITS_OFF));
+  const lastFeeSlotOff   = isV12_1EP ? V12_1_EP_ACCT_LAST_FEE_SLOT_OFF : (isV12_1 ? V12_1_ACCT_LAST_FEE_SLOT_OFF : (isAdl ? V_ADL_ACCT_LAST_FEE_SLOT_OFF : ACCT_LAST_FEE_SLOT_OFF));
 
   const kindByte = readU8(data, base + ACCT_KIND_OFF);
   const kind = kindByte === 1 ? AccountKind.LP : AccountKind.User;
@@ -2476,9 +3053,9 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
     warmupStartedAtSlot: readU64LE(data, base + warmupStartedOff),
     warmupSlopePerStep: readU128LE(data, base + warmupSlopeOff),
     positionSize: readI128LE(data, base + positionSizeOff),
-    entryPrice: entryPriceOff >= 0 ? readU64LE(data, base + entryPriceOff) : 0n, // V12_1: entry_price removed
-    // V12_1 changed funding_index from i128 to i64 (legacy field moved to end of account)
-    fundingIndex: isV12_1 ? BigInt(readI64LE(data, base + fundingIndexOff)) : readI128LE(data, base + fundingIndexOff),
+    entryPrice: entryPriceOff >= 0 ? readU64LE(data, base + entryPriceOff) : 0n,
+    // V12_1/V12_1_EP: funding_index not present in SBF layout
+    fundingIndex: (isV12_1 || isV12_1EP) ? (fundingIndexOff >= 0 ? BigInt(readI64LE(data, base + fundingIndexOff)) : 0n) : readI128LE(data, base + fundingIndexOff),
     matcherProgram: new PublicKey(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
     matcherContext: new PublicKey(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
     owner: new PublicKey(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
@@ -2491,6 +3068,12 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
     overflowOlderPresent: null,
     overflowNewest: null,
     overflowNewestPresent: null,
+
+    // v12.17 fields (not present in pre-v12.17)
+    fSnap: 0n, adlABasis: 0n, adlKSnap: 0n, adlEpochSnap: 0n,
+    schedPresent: null, schedRemainingQ: null, schedAnchorQ: null,
+    schedStartSlot: null, schedHorizon: null, schedReleaseQ: null,
+    pendingPresent: null, pendingRemainingQ: null, pendingHorizon: null, pendingCreatedSlot: null,
   };
 }
 

@@ -40,9 +40,8 @@ const slab = Keypair.generate().publicKey;
 const user = Keypair.generate().publicKey;
 
 describe('STAKE_PROGRAM_ID', () => {
-  it('is a valid public key (mainnet address)', () => {
-    // STAKE_PROGRAM_ID exports the mainnet address (updated in SDK v1.0.0-beta.4+)
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe('DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F');
+  it('is a valid public key', () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe('6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k');
   });
 });
 
@@ -243,7 +242,7 @@ describe('Instruction encoders', () => {
 
 describe('Account builders', () => {
   const admin = Keypair.generate().publicKey;
-  const percolatorProgram = new PublicKey('GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24');
+  const percolatorProgram = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
 
   it('initPoolAccounts returns 11 accounts in correct order', () => {
     const [pool] = deriveStakePool(slab);
@@ -349,8 +348,8 @@ describe('negative value guards', () => {
   });
 
   it('encodeStakeAdminSetHwmConfig rejects out-of-range bps', () => {
-    expect(() => encodeStakeAdminSetHwmConfig(true, 70000)).toThrow('u16Le');
-    expect(() => encodeStakeAdminSetHwmConfig(true, -1)).toThrow('u16Le');
+    expect(() => encodeStakeAdminSetHwmConfig(true, 70000)).toThrow('u16 range');
+    expect(() => encodeStakeAdminSetHwmConfig(true, -1)).toThrow('u16 range');
   });
 
   it('encodeStakeDeposit accepts valid amounts', () => {

@@ -55,11 +55,8 @@ export const IX_TAG = {
   ReclaimEmptyAccount: 25,
   SettleAccount: 26,
   // Tags 27-28: on-chain = DepositFeeCredits/ConvertReleasedPnl.
-  // Legacy aliases (PauseMarket/UnpauseMarket) kept — those instructions don't exist on-chain.
   DepositFeeCredits: 27,
-  /** @deprecated No on-chain PauseMarket instruction */ PauseMarket: 27,
   ConvertReleasedPnl: 28,
-  /** @deprecated No on-chain UnpauseMarket instruction */ UnpauseMarket: 28,
   // Tags 29-30: on-chain = ResolvePermissionless/ForceCloseResolved.
   ResolvePermissionless: 29,
   /** @deprecated Use ResolvePermissionless */ AcceptAdmin: 29,
@@ -146,6 +143,11 @@ export const IX_TAG = {
   SetDexPool: 74,
   /** CPI to the matcher program to initialize a matcher context account for an LP slot. Admin-only. */
   InitMatcherCtx: 75,
+  /** PauseMarket (tag 76): admin emergency pause. Blocks Trade/Deposit/Withdraw/InitUser. */
+  PauseMarket: 76,
+  /** UnpauseMarket (tag 77): admin unpause. Re-enables all operations. */
+  UnpauseMarket: 77,
+  // 78: removed (keeper fund)
 } as const;
 Object.freeze(IX_TAG);
 
@@ -171,27 +173,27 @@ export interface InitMarketArgs {
   maxMaintenanceFeePerSlot?: bigint | string;  // u128 — max maintenance fee per slot
   maxInsuranceFloor?: bigint | string;         // u128 — max insurance floor
   minOraclePriceCap?: bigint | string;         // u64 — min oracle price cap in e2bps
-  // RiskParams block (15 fields, read by read_risk_params on-chain)
+  // RiskParams block (16 fields, read by read_risk_params on-chain)
   /**
-   * @deprecated Use hMin/hMax instead (v12.15+). If provided without hMin/hMax, both h_min
-   * and h_max are set to this value for backwards compatibility.
+   * @deprecated Use hMin and hMax instead (v12.15+). Accepted as fallback for both hMin and hMax
+   * when hMin/hMax are not provided.
    */
   warmupPeriodSlots?: bigint | string;
-  /** Minimum horizon slots (v12.15+). Replaces warmupPeriodSlots. */
+  /** Minimum horizon slots (v12.15+). Falls back to warmupPeriodSlots if not provided. */
   hMin?: bigint | string;
-  /** Maximum horizon slots (v12.15+). Replaces warmupPeriodSlots. */
+  /** Maximum horizon slots (v12.15+). Falls back to warmupPeriodSlots if not provided. */
   hMax?: bigint | string;
   maintenanceMarginBps: bigint | string;
   initialMarginBps: bigint | string;
   tradingFeeBps: bigint | string;
   maxAccounts: bigint | string;
   newAccountFee: bigint | string;
-  riskReductionThreshold: bigint | string;    // maps to insurance_floor slot on-chain
+  insuranceFloor?: bigint | string;           // u128 — wire slot: old riskReductionThreshold → insurance_floor
   maintenanceFeePerSlot: bigint | string;
   maxCrankStalenessSlots: bigint | string;
   liquidationFeeBps: bigint | string;
   liquidationFeeCap: bigint | string;
-  liquidationBufferBps: bigint | string;
+  liquidationBufferBps?: bigint | string;     // u64 — wire compat: read and discarded by program
   minLiquidationAbs: bigint | string;
   minInitialDeposit: bigint | string;         // u128 — min deposit to open account
   minNonzeroMmReq: bigint | string;           // u128 — must be > 0, < minNonzeroImReq
@@ -226,16 +228,13 @@ function encodeFeedId(feedId: string): Uint8Array {
 // tag(1) + admin(32) + mint(32) + feedId(32) + staleness(8) + conf(2) + invert(1) + scale(4) +
 // markPrice(8) + maxMaintFee(16) + maxInsFloor(16) + minOracleCap(8) +
 // RiskParams: hMin(8) + mmBps(8) + imBps(8) + tradeFee(8) + maxAcct(8) + newAcctFee(16) +
-//   riskRedThresh(16) + maintFee(16) + maxStale(8) + liqFee(8) + liqCap(16) + liqBuf(8) +
-//   minLiqAbs(16) + minDeposit(16) + minMm(16) + minIm(16) + hMax(8)
+//   maintFee(16) + maxStale(8) + liqFee(8) + liqCap(16) +
+//   minLiqAbs(16) + minDeposit(16) + minMm(16) + minIm(16) + insFloor(16) + hMax(8)
 // = 1+32+32+32+8+2+1+4+8+16+16+8 + 8+8+8+8+8+16+16+16+8+8+16+8+16+16+16+16+8 = 360
-// Note: v12.15 on-chain instruction parser reads h_min at offset 0 and h_max at the end of
-// RiskParams. The warmupPeriodSlots alias writes both h_min and h_max from the same value
-// for backwards compatibility with pre-v12.15 callers.
-const INIT_MARKET_DATA_LEN = 360;
+const INIT_MARKET_DATA_LEN = 352; // v12.15: hMax inline (was appended), maintenanceFeePerSlot→hMax+pad
 
 export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
-  // Resolve h_min / h_max: prefer explicit hMin/hMax, fall back to warmupPeriodSlots alias.
+  // Resolve hMin/hMax with fallback to warmupPeriodSlots for backwards compat
   const hMin = args.hMin ?? args.warmupPeriodSlots ?? 0n;
   const hMax = args.hMax ?? args.warmupPeriodSlots ?? 0n;
 
@@ -253,24 +252,26 @@ export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
     encU128(args.maxMaintenanceFeePerSlot ?? 0n),
     encU128(args.maxInsuranceFloor ?? 0n),
     encU64(args.minOraclePriceCap ?? 0n),
-    // RiskParams block (16 fields — h_min replaces warmup_period_slots, h_max added at end)
+    // RiskParams wire format — must match read_risk_params() in percolator.rs
+    // In v12.15: warmup_period_slots replaced by hMin/hMax. hMin is written first (same slot),
+    // hMax appended at end. liquidationBufferBps is read but discarded (kept for wire compat).
     encU64(hMin),
     encU64(args.maintenanceMarginBps),
     encU64(args.initialMarginBps),
     encU64(args.tradingFeeBps),
     encU64(args.maxAccounts),
     encU128(args.newAccountFee),
-    encU128(args.riskReductionThreshold),
-    encU128(args.maintenanceFeePerSlot),
+    encU128(args.insuranceFloor ?? 0n),          // wire slot: old riskReductionThreshold → now insurance_floor
+    encU64(hMax),                                // v12.15: h_max (u64) — was low 8 bytes of maintenanceFeePerSlot (u128)
+    encU64(0n),                                  // padding (u64) — remaining 8 bytes of old u128 slot
     encU64(args.maxCrankStalenessSlots),
     encU64(args.liquidationFeeBps),
     encU128(args.liquidationFeeCap),
-    encU64(args.liquidationBufferBps),
+    encU64(args.liquidationBufferBps ?? 0n),     // wire slot: read as resolve_price_deviation_bps by program
     encU128(args.minLiquidationAbs),
     encU128(args.minInitialDeposit),
     encU128(args.minNonzeroMmReq),
     encU128(args.minNonzeroImReq),
-    encU64(hMax),  // h_max — new in v12.15, appended after minNonzeroImReq
   );
   if (data.length !== INIT_MARKET_DATA_LEN) {
     throw new Error(
@@ -1391,28 +1392,24 @@ export function encodeSetOiImbalanceHardBlock(args: { thresholdBps: number }): U
  * Creates a PositionNft PDA + Token-2022 mint with metadata, then mints 1 NFT to the
  * position owner's ATA. The NFT represents ownership of `user_idx` in the slab.
  *
+ * The program creates the ATA internally via CPI when the 11th account (Associated Token
+ * Program) is provided. This is required because the NFT mint PDA doesn't exist until the
+ * program creates it, so the ATA can't be created in a preceding instruction.
+ *
  * Instruction data layout: tag(1) + user_idx(2) = 3 bytes
  *
- * Accounts:
- *   0. [signer, writable] payer
- *   1. [writable]         slab
- *   2. [writable]         position_nft PDA  (created — seeds: ["position_nft", slab, user_idx])
- *   3. [writable]         nft_mint PDA      (created)
- *   4. [writable]         owner_ata         (Token-2022 ATA for owner)
- *   5. [signer]           owner             (must match engine account owner)
- *   6. []                 vault_authority PDA
- *   7. []                 token_2022_program
- *   8. []                 system_program
- *   9. []                 rent sysvar
- *
- * @example
- * ```ts
- * const ix = new TransactionInstruction({
- *   programId: PROGRAM_ID,
- *   keys: buildAccountMetas(ACCOUNTS_MINT_POSITION_NFT, [payer, slab, nftPda, nftMint, ownerAta, owner, vaultAuth, TOKEN_2022_PROGRAM_ID, SystemProgram.programId, SYSVAR_RENT_PUBKEY]),
- *   data: Buffer.from(encodeMintPositionNft({ userIdx: 5 })),
- * });
- * ```
+ * Accounts (11):
+ *   0.  [signer, writable] payer
+ *   1.  [writable]         slab
+ *   2.  [writable]         position_nft PDA  (created — seeds: ["position_nft", slab, user_idx_u16_le])
+ *   3.  [writable]         nft_mint PDA      (created — seeds: ["position_nft_mint", slab, user_idx_u16_le])
+ *   4.  [writable]         owner_ata         (Token-2022 ATA for nft_mint — created by program if absent)
+ *   5.  [signer]           owner             (must match engine account owner)
+ *   6.  []                 vault_authority PDA (seeds: ["vault", slab])
+ *   7.  []                 token_2022_program (TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb)
+ *   8.  []                 system_program
+ *   9.  []                 rent sysvar
+ *   10. []                 associated_token_program (ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL)
  */
 export interface MintPositionNftArgs {
   userIdx: number;
@@ -1749,4 +1746,24 @@ export function encodeCloseOrphanSlab(): Uint8Array {
 /** SetDexPool (tag 74): pool pubkey */
 export function encodeSetDexPool(args: { pool: PublicKey | string }): Uint8Array {
   return concatBytes(encU8(IX_TAG.SetDexPool), encPubkey(args.pool));
+}
+
+// Insurance LP — aliases for LP Vault instructions (tags 37/38/39).
+// The insurance LP feature uses the same on-chain instructions as the LP vault
+// but with insurance-specific account layouts (ACCOUNTS_*_INSURANCE_LP).
+
+/** CreateInsuranceMint: creates the insurance LP mint PDA (tag 37, same as CreateLpVault) */
+export function encodeCreateInsuranceMint(): Uint8Array {
+  // CreateLpVault with default params (fee_share_bps=0, no util curve)
+  return encodeCreateLpVault({ feeShareBps: 0n });
+}
+
+/** DepositInsuranceLP: deposit collateral, receive LP tokens (tag 38, same as LpVaultDeposit) */
+export function encodeDepositInsuranceLP(args: { amount: bigint | string }): Uint8Array {
+  return encodeLpVaultDeposit({ amount: args.amount });
+}
+
+/** WithdrawInsuranceLP: burn LP tokens, withdraw collateral (tag 39, same as LpVaultWithdraw) */
+export function encodeWithdrawInsuranceLP(args: { lpAmount: bigint | string }): Uint8Array {
+  return encodeLpVaultWithdraw({ lpAmount: args.lpAmount });
 }
