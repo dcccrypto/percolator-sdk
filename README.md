@@ -2,7 +2,7 @@
 
 TypeScript SDK for building clients, bots, and UIs on top of the [Percolator](https://github.com/dcccrypto/percolator) perpetual futures protocol on Solana.
 
-> **⚠️ BETA** — `1.0.0-beta.1`. Security audit (0x-SquidSol) complete. All 709 tests passing. Pending Helius API key + mainnet market deployment before `1.0.0` stable.
+> **BETA** — `1.0.0-beta.25`. Internal security audit complete. 742 tests passing. Mainnet live. Pending Squads multisig migration before `1.0.0` stable release.
 
 [![npm](https://img.shields.io/npm/v/@percolator/sdk?color=14F195)](https://www.npmjs.com/package/@percolator/sdk)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -434,8 +434,10 @@ const markets = await discoverMarkets(connection);
 
 | Program | Network | Address |
 |---------|---------|---------|
-| Percolator | Mainnet | `GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24` |
+| Percolator | Mainnet | `ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv` |
 | Matcher | Mainnet | `DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX` |
+| Stake | Mainnet | `DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F` |
+| NFT | Mainnet | `FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS` |
 | Percolator | Devnet | `FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD` |
 | Matcher | Devnet | `GTRgyTDfrMvBubALAqtHuQwT8tbGyXid7svXZKtWfC9k` |
 
@@ -689,18 +691,25 @@ const markets = await getMarketsByAddress(
 ```bash
 pnpm install              # Install dependencies
 pnpm build                # Build with tsup (outputs to dist/)
-pnpm test                 # Run test suite (vitest)
+pnpm test                 # Run all 742 tests (vitest)
 pnpm lint                 # Type-check (tsc --noEmit)
+pnpm verify-layout        # Verify ABI byte offsets against on-chain layout
 ```
 
 ### Testing
 
-Tests cover ABI encoding roundtrips, PDA derivation, slab parsing, validation, and trading math:
+Tests cover ABI encoding roundtrips, PDA derivation, slab parsing, validation, and trading math. 742 tests, 0 failures.
 
 ```bash
 pnpm test                 # Run all tests
 pnpm test -- --watch      # Watch mode
 ```
+
+### v12.17 Layout Support
+
+The SDK supports the v12.17 slab layout natively via `detectSlabLayout()`. The layout detection function inspects account size to select the correct field offsets for header, config, and per-account data.
+
+A key fix in this version corrects the SBF byte offsets for `d1`/`d2` delta fields that were misaligned in earlier SDK versions. The `parseAllAccounts()` function applies the correct offsets for both devnet (legacy layout) and mainnet (v12.17 layout) slabs automatically.
 
 ### Publishing
 
