@@ -66,11 +66,11 @@ describe("instruction encoders", () => {
     expect(data[0]).toBe(IX_TAG.WithdrawCollateral);
   });
 
-  it("encodeKeeperCrank produces 4 bytes", () => {
-    const data = encodeKeeperCrank({ callerIdx: 1, allowPanic: true });
+  it("encodeKeeperCrank produces 4 bytes (empty candidates)", () => {
+    const data = encodeKeeperCrank({ callerIdx: 1 });
     expect(data.length).toBe(4);
     expect(data[0]).toBe(IX_TAG.KeeperCrank);
-    expect(data[3]).toBe(1);
+    expect(data[3]).toBe(1); // format_version = 1
   });
 
   it("encodeTradeNoCpi produces 21 bytes", () => {
@@ -85,9 +85,9 @@ describe("instruction encoders", () => {
     expect(data[5]).toBe(192); // -1000000 LE first byte
   });
 
-  it("encodeTradeCpi produces 21 bytes", () => {
-    const data = encodeTradeCpi({ lpIdx: 2, userIdx: 3, size: "-500" });
-    expect(data.length).toBe(21);
+  it("encodeTradeCpi produces 29 bytes", () => {
+    const data = encodeTradeCpi({ lpIdx: 2, userIdx: 3, size: "-500", limitPriceE6: "0" });
+    expect(data.length).toBe(29);
     expect(data[0]).toBe(IX_TAG.TradeCpi);
   });
 
@@ -139,7 +139,7 @@ describe("instruction encoders", () => {
       liquidationBufferBps: "50", minLiquidationAbs: "1000000",
       minInitialDeposit: "500000", minNonzeroMmReq: "1000", minNonzeroImReq: "2000",
     });
-    expect(data.length).toBe(352);
+    expect(data.length).toBe(344);
     expect(data[0]).toBe(IX_TAG.InitMarket);
   });
 
@@ -183,7 +183,7 @@ describe("instruction encoders", () => {
       liquidationBufferBps: "50", minLiquidationAbs: "1000000",
       minInitialDeposit: "500000", minNonzeroMmReq: "1000", minNonzeroImReq: "2000",
     });
-    expect(data.length).toBe(352);
+    expect(data.length).toBe(344);
   });
 
   it("encodeCloseSlab produces 1 byte", () => {
@@ -237,26 +237,17 @@ describe("truncated instruction payloads", () => {
   const updateConfigArgs = {
     fundingHorizonSlots: "0",
     fundingKBps: "0",
-    fundingInvScaleNotionalE6: "0",
     fundingMaxPremiumBps: "0",
     fundingMaxBpsPerSlot: "0",
-    threshFloor: "0",
-    threshRiskBps: "0",
-    threshUpdateIntervalSlots: "0",
-    threshStepBps: "0",
-    threshAlphaBps: "0",
-    threshMin: "0",
-    threshMax: "0",
-    threshMinStep: "0",
   } as const;
 
   const cases: [string, () => Uint8Array][] = [
     ["InitUser", () => encodeInitUser({ feePayment: "1000000" })],
     ["DepositCollateral", () => encodeDepositCollateral({ userIdx: 5, amount: "1000000" })],
     ["WithdrawCollateral", () => encodeWithdrawCollateral({ userIdx: 10, amount: "500000" })],
-    ["KeeperCrank", () => encodeKeeperCrank({ callerIdx: 1, allowPanic: true })],
+    ["KeeperCrank", () => encodeKeeperCrank({ callerIdx: 1 })],
     ["TradeNoCpi", () => encodeTradeNoCpi({ lpIdx: 0, userIdx: 1, size: "1000000" })],
-    ["TradeCpi", () => encodeTradeCpi({ lpIdx: 2, userIdx: 3, size: "-500" })],
+    ["TradeCpi", () => encodeTradeCpi({ lpIdx: 2, userIdx: 3, size: "-500", limitPriceE6: "0" })],
     ["TradeCpiV2", () => encodeTradeCpiV2({ lpIdx: 2, userIdx: 3, size: "1000000", bump: 254 })],
     ["LiquidateAtOracle", () => encodeLiquidateAtOracle({ targetIdx: 42 })],
     ["CloseAccount", () => encodeCloseAccount({ userIdx: 100 })],

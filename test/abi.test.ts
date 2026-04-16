@@ -245,17 +245,15 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeWithdrawCollateral");
 }
 
-// Test KeeperCrank encoding (4 bytes: tag + u16 + u8)
-// Note: fundingRate is now computed on-chain, no longer passed in instruction
+// Test KeeperCrank encoding (v12.17: tag + u16 + format_version=1 + candidates)
 {
   const data = encodeKeeperCrank({
     callerIdx: 1,
-    allowPanic: true,
   });
-  assert(data.length === 4, "KeeperCrank length");
+  assert(data.length === 4, "KeeperCrank length (empty candidates)");
   assert(data[0] === IX_TAG.KeeperCrank, "KeeperCrank tag byte");
   assertBuf(data.subarray(1, 3), [1, 0], "KeeperCrank callerIdx");
-  assert(data[3] === 1, "KeeperCrank allowPanic");
+  assert(data[3] === 1, "KeeperCrank format_version=1");
   console.log("✓ encodeKeeperCrank");
 }
 
@@ -283,10 +281,10 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeTradeNoCpi (negative size)");
 }
 
-// Test TradeCpi encoding (21 bytes: tag + u16 + u16 + i128)
+// Test TradeCpi encoding (29 bytes: tag + u16 + u16 + i128 + u64)
 {
-  const data = encodeTradeCpi({ lpIdx: 2, userIdx: 3, size: "-500" });
-  assert(data.length === 21, "TradeCpi length");
+  const data = encodeTradeCpi({ lpIdx: 2, userIdx: 3, size: "-500", limitPriceE6: "50000000" });
+  assert(data.length === 29, "TradeCpi length");
   assert(data[0] === IX_TAG.TradeCpi, "TradeCpi tag byte");
   assertBuf(data.subarray(1, 3), [2, 0], "TradeCpi lpIdx");
   assertBuf(data.subarray(3, 5), [3, 0], "TradeCpi userIdx");
@@ -395,7 +393,7 @@ console.log("\nTesting instruction encoders...\n");
     minNonzeroMmReq: "1000",
     minNonzeroImReq: "2000",
   });
-  assert(data.length === 352, `InitMarket length: expected 352, got ${data.length}`);
+  assert(data.length === 344, `InitMarket length: expected 344, got ${data.length}`);
   assert(data[0] === IX_TAG.InitMarket, "InitMarket tag byte");
   console.log("✓ encodeInitMarket");
 }

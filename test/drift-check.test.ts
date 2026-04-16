@@ -3,7 +3,7 @@
  *
  * Comprehensive tests verifying no drift between the SDK and the on-chain program.
  * Covers:
- *   1. encodeInitMarket — 352-byte layout with all fields, byte-level field-order verification
+ *   1. encodeInitMarket — 344-byte layout with all fields, byte-level field-order verification
  *   2. KeeperCrank / DepositCollateral / WithdrawCollateral — tag + field encoding
  *   3. V12_1 slab parsing — ENGINE_OFF, ACCOUNT_SIZE, BITMAP_OFF, per-field offsets, i64 fundingIndex
  *   4. STAKE_PROGRAM_ID — mainnet/devnet addresses
@@ -66,9 +66,9 @@ function buildV12_1SlabSmall(): Uint8Array {
   // V12_1 small tier: 256 accounts, 84152 bytes
   const TOTAL = 84152;
   const ENGINE_OFF = 648;
-  const BITMAP_OFF_REL = 1016;      // V12_1_ENGINE_BITMAP_OFF (relative within engine)
+  const BITMAP_OFF_REL = 368;       // engine-relative (1016 - 648)
   const ACCOUNT_SIZE = 320;
-  const ACCOUNTS_OFF = 2232;        // absolute: ENGINE_OFF + ceil((1016+32+18+512)/8)*8 = 648 + 1584 = 2232
+  const ACCOUNTS_OFF = 1584;        // absolute: 648 + ceil((368+32+18+512)/8)*8 = 648 + 936
 
   const buf = new Uint8Array(TOTAL);
   const dv = new DataView(buf.buffer);
@@ -87,8 +87,8 @@ function buildV12_1SlabSmall(): Uint8Array {
   // For the magic-valid check only — nonce/lastThrUpdateSlot live at specific offsets in V1 header.
   // (We don't test readNonce on V12_1 here — that's covered in slab-parser.test.ts)
 
-  // Engine bitmap area: absolute = ENGINE_OFF + BITMAP_OFF_REL = 648 + 1016 = 1664
-  // numUsedAccounts (u16) is at ENGINE_OFF + BITMAP_OFF_REL + bitmapBytes(4*8=32) = 1664+32 = 1696
+  // Engine bitmap area: absolute = ENGINE_OFF + BITMAP_OFF_REL = 648 + 368 = 1016
+  // numUsedAccounts (u16) is at ENGINE_OFF + BITMAP_OFF_REL + bitmapBytes(4*8=32) = 1016+32 = 1048
   // We want 1 used account (index 0) for parseAccount testing.
   const bitmapAbs = ENGINE_OFF + BITMAP_OFF_REL;
   // Set bit 0 in the bitmap (first word, LSB = account index 0)
@@ -348,23 +348,23 @@ describe.skip("encodeInitMarket — 352-byte layout (post-3-u128-fields bump)", 
 // 2. KeeperCrank / DepositCollateral / WithdrawCollateral — roundtrip
 // ===========================================================================
 
-describe("encodeKeeperCrank — tag + callerIdx(u16) + allowPanic(u8) roundtrip", () => {
-  it("encodes tag=5, callerIdx=7, allowPanic=true", () => {
-    const data = encodeKeeperCrank({ callerIdx: 7, allowPanic: true });
+describe("encodeKeeperCrank — tag + callerIdx(u16) + format_version=1(u8) + candidates", () => {
+  it("encodes tag=5, callerIdx=7, empty candidates", () => {
+    const data = encodeKeeperCrank({ callerIdx: 7 });
     expect(data.length).toBe(4);
     expect(data[0]).toBe(IX_TAG.KeeperCrank);       // tag = 5
     expect(data[0]).toBe(5);
     expect(readU16LE(data, 1)).toBe(7);              // callerIdx
-    expect(data[3]).toBe(1);                          // allowPanic = true
+    expect(data[3]).toBe(1);                          // format_version = 1
   });
 
-  it("encodes allowPanic=false as 0", () => {
-    const data = encodeKeeperCrank({ callerIdx: 0, allowPanic: false });
-    expect(data[3]).toBe(0);
+  it("format_version is always 1 (v12.17)", () => {
+    const data = encodeKeeperCrank({ callerIdx: 0 });
+    expect(data[3]).toBe(1);
   });
 
   it("callerIdx max u16 (65535) encodes correctly", () => {
-    const data = encodeKeeperCrank({ callerIdx: 65535, allowPanic: true });
+    const data = encodeKeeperCrank({ callerIdx: 65535 });
     expect(readU16LE(data, 1)).toBe(65535);
   });
 });
@@ -420,7 +420,7 @@ describe("V12_1 slab — layout detection and field offsets", () => {
     expect(layout).not.toBeNull();
     expect(layout!.engineOff).toBe(648);
     expect(layout!.accountSize).toBe(320);
-    expect(layout!.engineBitmapOff).toBe(1016);
+    expect(layout!.engineBitmapOff).toBe(368); // engine-relative (1016 - 648)
   });
 
   it("detectSlabLayout V12_1 small: maxAccounts=256", () => {
@@ -428,29 +428,32 @@ describe("V12_1 slab — layout detection and field offsets", () => {
     expect(layout!.maxAccounts).toBe(256);
   });
 
-  it("detectSlabLayout V12_1 medium (331544 bytes): ENGINE_OFF=648, ACCOUNT_SIZE=320, BITMAP_OFF=1016", () => {
+  it("detectSlabLayout V12_1 medium (331544 bytes): ENGINE_OFF=648, ACCOUNT_SIZE=320, BITMAP_OFF=368", () => {
     const layout = detectSlabLayout(331544);
     expect(layout).not.toBeNull();
     expect(layout!.engineOff).toBe(648);
     expect(layout!.accountSize).toBe(320);
-    expect(layout!.engineBitmapOff).toBe(1016);
+    expect(layout!.engineBitmapOff).toBe(368); // engine-relative
   });
 
-  it("detectSlabLayout V12_1 accountsOff for small (256 accts) is 2232", () => {
+  it("detectSlabLayout V12_1 accountsOff for small (256 accts)", () => {
     const layout = detectSlabLayout(84152);
-    expect(layout!.accountsOff).toBe(2232);
+    // bitmapOff=368, bitmapWords=4 (256/64), postBitmap=18, nextFree=512
+    // preAccLen = 368 + 32 + 18 + 512 = 930, ceil(930/8)*8 = 936
+    // accountsOff = 648 + 936 = 1584
+    expect(layout!.accountsOff).toBe(1584);
   });
 
   it("detectLayout delegates to layout.accountsOff (no recompute regression)", () => {
     const r = detectLayout(84152);
     expect(r).not.toBeNull();
-    expect(r!.accountsOff).toBe(2232);
+    expect(r!.accountsOff).toBe(1584);
     expect(r!.maxAccounts).toBe(256);
   });
 
   it("parseAccount: account slot 0 — owner at relative offset 208", () => {
     const account = parseAccount(slabBuf, 0);
-    // We wrote 0xAB bytes into owner (absolute: 2232 + 208 = 2440..2472)
+    // We wrote 0xAB bytes into owner (absolute: 1584 + 208 = 1792..1824)
     const ownerBytes = account.owner.toBytes();
     expect(ownerBytes[0]).toBe(0xab);
     expect(ownerBytes[31]).toBe(0xab);
@@ -630,14 +633,12 @@ describe("encoding roundtrip — manual decode verifies no endianness or off-by-
     expect(readU64LE(data, 3)).toBe(123_456_789n);
   });
 
-  it("encodeKeeperCrank: all fields round-trip", () => {
+  it("encodeKeeperCrank: all callerIdx values round-trip", () => {
     for (const callerIdx of [0, 1, 500, 65535]) {
-      for (const allowPanic of [true, false]) {
-        const data = encodeKeeperCrank({ callerIdx, allowPanic });
-        expect(data[0]).toBe(IX_TAG.KeeperCrank);
-        expect(readU16LE(data, 1)).toBe(callerIdx);
-        expect(data[3]).toBe(allowPanic ? 1 : 0);
-      }
+      const data = encodeKeeperCrank({ callerIdx });
+      expect(data[0]).toBe(IX_TAG.KeeperCrank);
+      expect(readU16LE(data, 1)).toBe(callerIdx);
+      expect(data[3]).toBe(1); // format_version = 1
     }
   });
 
@@ -671,9 +672,9 @@ describe("encoding roundtrip — manual decode verifies no endianness or off-by-
       minNonzeroMmReq: MM_REQ.toString(),
       minNonzeroImReq: IM_REQ.toString(),
     });
-    // +40 offset due to 3 new fields (maxMaintenanceFeePerSlot/maxInsuranceFloor/minOraclePriceCap)
-    expect(readU128LE(data, 304)).toBe(DEPOSIT);
-    expect(readU128LE(data, 320)).toBe(MM_REQ);
-    expect(readU128LE(data, 336)).toBe(IM_REQ);
+    // v12.17: 8 bytes shorter (hMax padding removed), offsets shifted -8 from v12.15
+    expect(readU128LE(data, 296)).toBe(DEPOSIT);
+    expect(readU128LE(data, 312)).toBe(MM_REQ);
+    expect(readU128LE(data, 328)).toBe(IM_REQ);
   });
 });

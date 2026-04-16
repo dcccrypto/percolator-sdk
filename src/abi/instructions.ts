@@ -228,10 +228,10 @@ function encodeFeedId(feedId: string): Uint8Array {
 // tag(1) + admin(32) + mint(32) + feedId(32) + staleness(8) + conf(2) + invert(1) + scale(4) +
 // markPrice(8) + maxMaintFee(16) + maxInsFloor(16) + minOracleCap(8) +
 // RiskParams: hMin(8) + mmBps(8) + imBps(8) + tradeFee(8) + maxAcct(8) + newAcctFee(16) +
-//   maintFee(16) + maxStale(8) + liqFee(8) + liqCap(16) +
-//   minLiqAbs(16) + minDeposit(16) + minMm(16) + minIm(16) + insFloor(16) + hMax(8)
-// = 1+32+32+32+8+2+1+4+8+16+16+8 + 8+8+8+8+8+16+16+16+8+8+16+8+16+16+16+16+8 = 360
-const INIT_MARKET_DATA_LEN = 352; // v12.15: hMax inline (was appended), maintenanceFeePerSlot→hMax+pad
+//   insFloor(16) + hMax(8) + maxStale(8) + liqFee(8) + liqCap(16) + resolveDev(8) +
+//   minLiqAbs(16) + minDeposit(16) + minMm(16) + minIm(16)
+// = 1+32+32+32+8+2+1+4+8+16+16+8 + 8+8+8+8+8+16+16+8+8+8+16+8+16+16+16+16 = 344
+const INIT_MARKET_DATA_LEN = 344; // v12.17: removed hMax/maxStale padding (was v12.15 u128 compat shim)
 
 export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
   // Resolve hMin/hMax with fallback to warmupPeriodSlots for backwards compat
@@ -262,12 +262,11 @@ export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
     encU64(args.maxAccounts),
     encU128(args.newAccountFee),
     encU128(args.insuranceFloor ?? 0n),          // wire slot: old riskReductionThreshold → now insurance_floor
-    encU64(hMax),                                // v12.15: h_max (u64) — was low 8 bytes of maintenanceFeePerSlot (u128)
-    encU64(0n),                                  // padding (u64) — remaining 8 bytes of old u128 slot
-    encU64(args.maxCrankStalenessSlots),
+    encU64(hMax),                                // h_max (u64)
+    encU64(args.maxCrankStalenessSlots),         // v12.17: no padding between hMax and maxCrankStalenessSlots
     encU64(args.liquidationFeeBps),
     encU128(args.liquidationFeeCap),
-    encU64(args.liquidationBufferBps ?? 0n),     // wire slot: read as resolve_price_deviation_bps by program
+    encU64(args.liquidationBufferBps ?? 0n),     // v12.17: read as resolve_price_deviation_bps by program
     encU128(args.minLiquidationAbs),
     encU128(args.minInitialDeposit),
     encU128(args.minNonzeroMmReq),
@@ -343,20 +342,54 @@ export function encodeWithdrawCollateral(args: WithdrawCollateralArgs): Uint8Arr
 }
 
 /**
- * KeeperCrank instruction data (4 bytes)
- * Funding rate is computed on-chain from LP inventory.
+ * Liquidation policy for KeeperCrank candidates (v12.17 two-phase crank).
+ *
+ * On-chain wire tags:
+ *   0x00 = FullClose — liquidate the entire position
+ *   0x01 = ExactPartial(u128) — reduce position by exactly `quantity` units
+ *   0xFF = TouchOnly — accrue fees / sweep dust, do NOT liquidate
+ */
+export const LiquidationPolicyTag = {
+  FullClose: 0,
+  ExactPartial: 1,
+  TouchOnly: 0xFF,
+} as const;
+
+export type KeeperCrankCandidate =
+  | { policy: typeof LiquidationPolicyTag.FullClose; idx: number }
+  | { policy: typeof LiquidationPolicyTag.ExactPartial; idx: number; quantity: bigint | string }
+  | { policy: typeof LiquidationPolicyTag.TouchOnly; idx: number };
+
+/**
+ * KeeperCrank instruction data (v12.17 two-phase crank).
+ *
+ * Wire format: tag(1) + caller_idx(u16) + format_version=1(u8) +
+ *   candidates: [ idx(u16) + policy_tag(u8) [+ quantity(u128) if ExactPartial] ]*
+ *
+ * Empty candidates list = simple crank (accrue funding, sweep dust).
+ * With candidates = targeted liquidation/touch pass.
  */
 export interface KeeperCrankArgs {
   callerIdx: number;
-  allowPanic: boolean;
+  candidates?: KeeperCrankCandidate[];
 }
 
 export function encodeKeeperCrank(args: KeeperCrankArgs): Uint8Array {
-  return concatBytes(
+  const parts: Uint8Array[] = [
     encU8(IX_TAG.KeeperCrank),
     encU16(args.callerIdx),
-    encU8(args.allowPanic ? 1 : 0),
-  );
+    encU8(1), // format_version = 1 (REQUIRED by v12.17)
+  ];
+  if (args.candidates) {
+    for (const c of args.candidates) {
+      parts.push(encU16(c.idx));
+      parts.push(encU8(c.policy));
+      if (c.policy === LiquidationPolicyTag.ExactPartial) {
+        parts.push(encU128(c.quantity));
+      }
+    }
+  }
+  return concatBytes(...parts);
 }
 
 /**
@@ -414,12 +447,19 @@ export function encodeTopUpInsurance(args: TopUpInsuranceArgs): Uint8Array {
 }
 
 /**
- * TradeCpi instruction data (21 bytes)
+ * TradeCpi instruction data (29 bytes)
+ *
+ * v12.17: limit_price_e6 is now REQUIRED (slippage protection).
+ * Set to 0 to accept any price (no slippage protection).
+ * For buys: tx reverts if execution price > limitPriceE6.
+ * For sells: tx reverts if execution price < limitPriceE6.
  */
 export interface TradeCpiArgs {
   lpIdx: number;
   userIdx: number;
   size: bigint | string;
+  /** Limit price in e6 units. 0 = no limit (accept any price). */
+  limitPriceE6: bigint | string;
 }
 
 export function encodeTradeCpi(args: TradeCpiArgs): Uint8Array {
@@ -428,16 +468,13 @@ export function encodeTradeCpi(args: TradeCpiArgs): Uint8Array {
     encU16(args.lpIdx),
     encU16(args.userIdx),
     encI128(args.size),
+    encU64(args.limitPriceE6),
   );
 }
 
 /**
- * TradeCpiV2 instruction data (22 bytes) — PERC-154 optimized trade CPI.
- *
- * Same as TradeCpi but includes a caller-provided PDA bump byte.
- * Uses create_program_address instead of find_program_address,
- * saving ~1500 CU per trade. The bump should be obtained once via
- * deriveLpPda() and cached for the lifetime of the market.
+ * @deprecated Tag 35 removed in v12.17. Use TradeCpi (tag 10) with limitPriceE6 instead.
+ * TradeCpi now handles PDA bump internally. Sending tag 35 will fail with InvalidInstructionData.
  */
 export interface TradeCpiV2Args {
   lpIdx: number;
@@ -446,6 +483,7 @@ export interface TradeCpiV2Args {
   bump: number;
 }
 
+/** @deprecated Tag 35 removed in v12.17. Use encodeTradeCpi with limitPriceE6 instead. */
 export function encodeTradeCpiV2(args: TradeCpiV2Args): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.TradeCpiV2),
@@ -457,12 +495,26 @@ export function encodeTradeCpiV2(args: TradeCpiV2Args): Uint8Array {
 }
 
 /**
- * SetRiskThreshold instruction data (17 bytes)
+ * @deprecated Tag 36 removed in v12.17. Will fail on-chain with InvalidInstructionData.
+ */
+export interface UnresolveMarketArgs {
+  confirmation: bigint | string;
+}
+
+/** @deprecated Tag 36 removed in v12.17. Will fail on-chain. */
+export function encodeUnresolveMarket(args: UnresolveMarketArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.UnresolveMarket), encU64(args.confirmation));
+}
+
+/**
+ * @deprecated Tag 11 removed in v12.17. Insurance floor is now set at InitMarket.
+ * Sending this instruction will fail with InvalidInstructionData.
  */
 export interface SetRiskThresholdArgs {
   newThreshold: bigint | string;
 }
 
+/** @deprecated Tag 11 removed in v12.17. Will fail on-chain. */
 export function encodeSetRiskThreshold(args: SetRiskThresholdArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.SetRiskThreshold),
@@ -489,25 +541,17 @@ export function encodeCloseSlab(): Uint8Array {
 }
 
 /**
- * UpdateConfig instruction data
- * Updates funding and threshold parameters at runtime (admin only)
+ * UpdateConfig instruction data (33 bytes)
+ *
+ * v12.17: Only 4 funding parameters. Threshold/insurance parameters are set
+ * at InitMarket and updated via dedicated instructions (SetRiskThreshold removed).
+ * fundingInvScaleNotionalE6 removed (now computed on-chain from LP state).
  */
 export interface UpdateConfigArgs {
-  // Funding parameters
   fundingHorizonSlots: bigint | string;
   fundingKBps: bigint | string;
-  fundingInvScaleNotionalE6: bigint | string;
   fundingMaxPremiumBps: bigint | string;
   fundingMaxBpsPerSlot: bigint | string;
-  // Threshold parameters
-  threshFloor: bigint | string;
-  threshRiskBps: bigint | string;
-  threshUpdateIntervalSlots: bigint | string;
-  threshStepBps: bigint | string;
-  threshAlphaBps: bigint | string;
-  threshMin: bigint | string;
-  threshMax: bigint | string;
-  threshMinStep: bigint | string;
 }
 
 export function encodeUpdateConfig(args: UpdateConfigArgs): Uint8Array {
@@ -515,27 +559,20 @@ export function encodeUpdateConfig(args: UpdateConfigArgs): Uint8Array {
     encU8(IX_TAG.UpdateConfig),
     encU64(args.fundingHorizonSlots),
     encU64(args.fundingKBps),
-    encU128(args.fundingInvScaleNotionalE6),
     encI64(args.fundingMaxPremiumBps),  // Rust: i64 (can be negative)
     encI64(args.fundingMaxBpsPerSlot),  // Rust: i64 (can be negative)
-    encU128(args.threshFloor),
-    encU64(args.threshRiskBps),
-    encU64(args.threshUpdateIntervalSlots),
-    encU64(args.threshStepBps),
-    encU64(args.threshAlphaBps),
-    encU128(args.threshMin),
-    encU128(args.threshMax),
-    encU128(args.threshMinStep),
   );
 }
 
 /**
- * SetMaintenanceFee instruction data (17 bytes)
+ * @deprecated Tag 15 removed in v12.17. Maintenance fee is set at InitMarket only.
+ * Sending this instruction will fail with InvalidInstructionData.
  */
 export interface SetMaintenanceFeeArgs {
   newFee: bigint | string;
 }
 
+/** @deprecated Tag 15 removed in v12.17. Will fail on-chain. */
 export function encodeSetMaintenanceFee(args: SetMaintenanceFeeArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.SetMaintenanceFee),
@@ -655,12 +692,9 @@ export function encodeAdminForceClose(args: AdminForceCloseArgs): Uint8Array {
 }
 
 /**
- * UpdateRiskParams instruction data (17 or 25 bytes)
- * Update initial and maintenance margin BPS (admin only).
- *
- * R2-S13: The Rust program uses `data.len() >= 25` to detect the optional
- * tradingFeeBps field, so variable-length encoding is safe. When tradingFeeBps
- * is omitted, the data is 17 bytes (tag + 2×u64). When included, 25 bytes.
+ * @deprecated Tag 22 is now SetInsuranceWithdrawPolicy in v12.17.
+ * This encoder sends the WRONG wire format (u64+u64 instead of pubkey+u64+u16+u64).
+ * Use encodeSetInsuranceWithdrawPolicy instead.
  */
 export interface UpdateRiskParamsArgs {
   initialMarginBps: bigint | string;
@@ -668,6 +702,7 @@ export interface UpdateRiskParamsArgs {
   tradingFeeBps?: bigint | string;
 }
 
+/** @deprecated Use encodeSetInsuranceWithdrawPolicy (tag 22). This sends wrong wire format. */
 export function encodeUpdateRiskParams(args: UpdateRiskParamsArgs): Uint8Array {
   const parts = [
     encU8(IX_TAG.UpdateRiskParams),
@@ -692,11 +727,9 @@ export const RENOUNCE_ADMIN_CONFIRMATION = 0x52454E4F554E4345n;
 export const UNRESOLVE_CONFIRMATION = 0xDEAD_BEEF_CAFE_1234n;
 
 /**
- * RenounceAdmin instruction data (9 bytes)
- * Irreversibly set admin to all zeros. After this, all admin-only instructions fail.
- *
- * Requires the confirmation code 0x52454E4F554E4345 ("RENOUNCE" as u64 LE)
- * to prevent accidental invocation.
+ * @deprecated Tag 23 is now WithdrawInsuranceLimited in v12.17.
+ * This encoder sends the confirmation code as a withdrawal amount — DANGEROUS.
+ * Use encodeWithdrawInsuranceLimited instead.
  */
 export function encodeRenounceAdmin(): Uint8Array {
   return concatBytes(
@@ -779,43 +812,26 @@ export function encodeUnpauseMarket(): Uint8Array {
 // ============================================================================
 
 /**
- * SetPythOracle (Tag 32) — switch a market to Pyth-pinned mode.
- *
- * After this instruction:
- * - oracle_authority is cleared → PushOraclePrice is disabled
- * - index_feed_id is set to feed_id → validated on every price read
- * - max_staleness_secs and conf_filter_bps are updated
- * - All price reads go directly to read_pyth_price_e6() with on-chain
- *   staleness + confidence + feed-ID validation (no silent fallback)
- *
- * Instruction data: tag(1) + feed_id(32) + max_staleness_secs(8) + conf_filter_bps(2) = 43 bytes
- *
- * Accounts:
- *   0. [signer, writable] Admin
- *   1. [writable]         Slab
+ * @deprecated Tag 32 removed in v12.17. Pyth oracle is configured at InitMarket via indexFeedId.
+ * Sending this instruction will fail with InvalidInstructionData.
  */
 export interface SetPythOracleArgs {
-  /** 32-byte Pyth feed ID. All zeros is invalid (reserved for Hyperp mode). */
   feedId: Uint8Array;
-  /** Maximum age of Pyth price in seconds before OracleStale is returned. Must be > 0. */
   maxStalenessSecs: bigint;
-  /** Max confidence/price ratio in bps (0 = no confidence check). */
   confFilterBps: number;
 }
 
+/** @deprecated Tag 32 removed in v12.17. Pyth is configured at InitMarket. */
 export function encodeSetPythOracle(args: SetPythOracleArgs): Uint8Array {
   if (args.feedId.length !== 32) throw new Error('feedId must be 32 bytes');
   if (args.maxStalenessSecs <= 0n) throw new Error('maxStalenessSecs must be > 0');
 
   const buf = new Uint8Array(43);
   const dv = new DataView(buf.buffer);
-
-  // Tag 32 (SetPythOracle)
   buf[0] = 32;
   buf.set(args.feedId, 1);
-  dv.setBigUint64(33, args.maxStalenessSecs, /* little-endian */ true);
+  dv.setBigUint64(33, args.maxStalenessSecs, true);
   dv.setUint16(41, args.confFilterBps, true);
-
   return buf;
 }
 
@@ -850,18 +866,8 @@ export async function derivePythPriceUpdateAccount(
 // Tag 33 — permissionless mark price EMA crank (defined in IX_TAG above).
 
 /**
- * UpdateMarkPrice (Tag 33) — permissionless EMA mark price crank.
- *
- * Reads the current oracle price on-chain, applies 8-hour EMA smoothing
- * with circuit breaker, and writes result to authority_price_e6.
- *
- * Instruction data: 1 byte (tag only — all params read from on-chain state)
- *
- * Accounts:
- *   0. [writable] Slab
- *   1. []         Oracle account (Pyth PriceUpdateV2 / Chainlink / DEX AMM)
- *   2. []         Clock sysvar (SysvarC1ock11111111111111111111111111111111)
- *   3..N []       Remaining accounts (PumpSwap vaults, etc. if needed)
+ * @deprecated Tag 33 removed in v12.17. Use UpdateHyperpMark (tag 34) for DEX-oracle markets.
+ * Sending this instruction will fail with InvalidInstructionData.
  */
 export function encodeUpdateMarkPrice(): Uint8Array {
   return new Uint8Array([33]);

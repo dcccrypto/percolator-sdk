@@ -469,8 +469,8 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
     });
 
     it("encodeKeeperCrank() produces valid data", () => {
-      const data = encodeKeeperCrank({ callerIdx: 0, allowPanic: false });
-      expect(data.length).toBe(4); // tag(1) + u16(2) + u8(1)
+      const data = encodeKeeperCrank({ callerIdx: 0 });
+      expect(data.length).toBe(4); // tag(1) + u16(2) + format_version(1)
     });
 
     it("encodeLiquidateAtOracle() produces valid data", () => {

@@ -267,6 +267,23 @@ export interface TradeCpiV2Args {
 }
 export declare function encodeTradeCpiV2(args: TradeCpiV2Args): Uint8Array;
 /**
+ * UnresolveMarket (Tag 36, PERC-273) — clear RESOLVED flag, re-enable trading.
+ *
+ * Admin only. Requires confirmation code 0xDEAD_BEEF_CAFE_1234 to prevent
+ * accidental invocation.
+ *
+ * Instruction data: tag(1) + confirmation(8) = 9 bytes
+ *
+ * Accounts:
+ *   0. [signer]   admin
+ *   1. [writable] slab
+ */
+export interface UnresolveMarketArgs {
+    /** Must be 0xDEAD_BEEF_CAFE_1234n to confirm intent. */
+    confirmation: bigint | string;
+}
+export declare function encodeUnresolveMarket(args: UnresolveMarketArgs): Uint8Array;
+/**
  * SetRiskThreshold instruction data (17 bytes)
  */
 export interface SetRiskThresholdArgs {

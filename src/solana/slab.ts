@@ -11,6 +11,9 @@ function dv(data: Uint8Array): DataView {
 }
 /** Read a single unsigned byte at `off`. */
 function readU8(data: Uint8Array, off: number): number {
+  if (off >= data.length) {
+    throw new RangeError(`readU8: offset ${off} out of bounds (length ${data.length})`);
+  }
   return data[off];
 }
 /** Read a little-endian u16 at `off`. */
@@ -77,6 +80,9 @@ function readU128LE(buf: Uint8Array, offset: number): bigint {
 // =============================================================================
 
 const MAGIC: bigint = 0x504552434f4c4154n; // "PERCOLAT"
+
+/** Slab magic number ("PERCOLAT" as little-endian u64). */
+export const SLAB_MAGIC = MAGIC;
 
 // Flag bits in header._padding[0] at offset 13
 const FLAG_RESOLVED = 1 << 0;
@@ -1492,7 +1498,7 @@ function buildLayoutV12_1(maxAccounts: number, dataLen?: number): SlabLayout {
   const hostSize = computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, maxAccounts, 18);
   const isSbf = dataLen !== undefined && dataLen !== hostSize;
   const engineOff = isSbf ? V12_1_SBF_ENGINE_OFF : V12_1_ENGINE_OFF;
-  const bitmapOff = isSbf ? V12_1_SBF_BITMAP_OFF : V12_1_ENGINE_BITMAP_OFF;
+  const bitmapOff = isSbf ? V12_1_SBF_BITMAP_OFF : (V12_1_ENGINE_BITMAP_OFF - V12_1_ENGINE_OFF);
   const accountSize = isSbf ? V12_1_ACCOUNT_SIZE_SBF : V12_1_ACCOUNT_SIZE;
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
@@ -2316,7 +2322,10 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
   const configOff = layout ? layout.configOffset : V0_HEADER_LEN;
   const configLen = layout ? layout.configLen : V0_CONFIG_LEN;
 
-  const minLen = configOff + Math.min(configLen, 120); // need at least basic fields
+  // Mandatory config fields (collateralMint..maxPnlCap) consume 376 bytes.
+  // V1 extended fields are optional and guarded by their own `remaining` checks.
+  const MIN_CONFIG_BYTES = 376;
+  const minLen = configOff + Math.min(configLen, MIN_CONFIG_BYTES);
   if (data.length < minLen) {
     throw new Error(`Slab data too short for config: ${data.length} < ${minLen}`);
   }
@@ -2542,8 +2551,11 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
   const paramsSize = layout ? layout.paramsSize : V0_PARAMS_SIZE;
   const base = engineOff + paramsOff;
 
-  if (data.length < base + Math.min(paramsSize, 56)) {
-    throw new Error("Slab data too short for RiskParams");
+  // Validate we have enough data for the fields we'll actually read.
+  // V0 basic params need 56 bytes; V1 extended params need 144 bytes.
+  const MIN_PARAMS_BYTES = paramsSize >= 144 ? 144 : 56;
+  if (data.length < base + MIN_PARAMS_BYTES) {
+    throw new Error(`Slab data too short for RiskParams: ${data.length} < ${base + MIN_PARAMS_BYTES}`);
   }
 
   // Detect V12_15 layout: paramsSize=192. In v12.15, warmup_period_slots is replaced by

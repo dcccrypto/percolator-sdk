@@ -136,6 +136,31 @@ export declare const STAKE_POOL_SIZE = 352;
  * Decode a StakePool account from raw data buffer. * Uses DataView for all u64/u16 reads — browser-safe.
  */
 export declare function decodeStakePool(data: Uint8Array): StakePoolState;
+/** Size of StakeDeposit on-chain (bytes). */
+export declare const STAKE_DEPOSIT_SIZE = 152;
+/** Decoded StakeDeposit PDA state. */
+export interface StakeDepositState {
+    isInitialized: boolean;
+    bump: number;
+    pool: PublicKey;
+    user: PublicKey;
+    lastDepositSlot: bigint;
+    lpAmount: bigint;
+}
+/**
+ * Decode a StakeDeposit PDA account from raw data.
+ *
+ * On-chain layout (152 bytes, percolator-stake/src/state.rs):
+ *   [0]       is_initialized  u8
+ *   [1]       bump            u8
+ *   [2..8]    _padding
+ *   [8..40]   pool            [u8; 32]
+ *   [40..72]  user            [u8; 32]
+ *   [72..80]  last_deposit_slot u64
+ *   [80..88]  lp_amount       u64
+ *   [88..152] _reserved
+ */
+export declare function decodeDepositPda(data: Uint8Array): StakeDepositState;
 export interface StakeAccounts {
     /** InitPool accounts */
     initPool: {

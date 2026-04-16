@@ -450,6 +450,50 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// StakeDeposit PDA decoder
+// ═══════════════════════════════════════════════════════════════
+
+/** Size of StakeDeposit on-chain (bytes). */
+export const STAKE_DEPOSIT_SIZE = 152;
+
+/** Decoded StakeDeposit PDA state. */
+export interface StakeDepositState {
+  isInitialized: boolean;
+  bump: number;
+  pool: PublicKey;
+  user: PublicKey;
+  lastDepositSlot: bigint;
+  lpAmount: bigint;
+}
+
+/**
+ * Decode a StakeDeposit PDA account from raw data.
+ *
+ * On-chain layout (152 bytes, percolator-stake/src/state.rs):
+ *   [0]       is_initialized  u8
+ *   [1]       bump            u8
+ *   [2..8]    _padding
+ *   [8..40]   pool            [u8; 32]
+ *   [40..72]  user            [u8; 32]
+ *   [72..80]  last_deposit_slot u64
+ *   [80..88]  lp_amount       u64
+ *   [88..152] _reserved
+ */
+export function decodeDepositPda(data: Uint8Array): StakeDepositState {
+  if (data.length < STAKE_DEPOSIT_SIZE) {
+    throw new Error(`StakeDeposit data too short: ${data.length} < ${STAKE_DEPOSIT_SIZE}`);
+  }
+  return {
+    isInitialized: data[0] === 1,
+    bump: data[1],
+    pool: new PublicKey(data.subarray(8, 40)),
+    user: new PublicKey(data.subarray(40, 72)),
+    lastDepositSlot: readU64LE(data, 72),
+    lpAmount: readU64LE(data, 80),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Account Specs (for building TransactionInstructions)
 // ═══════════════════════════════════════════════════════════════
 

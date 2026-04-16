@@ -616,10 +616,10 @@ console.log("\n✅ All slab tests passed!");
   assert(layoutLarge!.engineOff === 648, `V12_1 large engineOff should be 648, got ${layoutLarge!.engineOff}`);
   assert(layoutLarge!.accountSize === 320, `V12_1 large accountSize should be 320, got ${layoutLarge!.accountSize}`);
   assert(layoutLarge!.maxAccounts === 4096, `V12_1 large maxAccounts should be 4096`);
-  assert(layoutLarge!.engineBitmapOff === 1016, `V12_1 bitmapOff should be 1016, got ${layoutLarge!.engineBitmapOff}`);
+  assert(layoutLarge!.engineBitmapOff === 368, `V12_1 bitmapOff should be 368 (engine-relative), got ${layoutLarge!.engineBitmapOff}`);
   assert(layoutLarge!.acctOwnerOff === 208, `V12_1 acctOwnerOff should be 208, got ${layoutLarge!.acctOwnerOff}`);
-  // accountsOff = engineOff + ceil((1016+512+18+8192)/8)*8 = 648 + 9744 = 10392
-  assert(layoutLarge!.accountsOff === 10392, `V12_1 large accountsOff should be 10392, got ${layoutLarge!.accountsOff}`);
+  // accountsOff = engineOff + ceil((368+512+18+8192)/8)*8 = 648 + 9096 = 9744
+  assert(layoutLarge!.accountsOff === 9744, `V12_1 large accountsOff should be 9744, got ${layoutLarge!.accountsOff}`);
   console.log(`  ✓ V12_1 large slab (${V12_1_LARGE_SIZE}, 4096 accounts) detected correctly`);
 
   // Medium tier: 1024 accounts
