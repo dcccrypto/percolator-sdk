@@ -123,6 +123,14 @@ export declare const IX_TAG: {
     readonly PauseMarket: 76;
     /** UnpauseMarket (tag 77): admin unpause. Re-enables all operations. */
     readonly UnpauseMarket: 77;
+    /** PERC-305 / SECURITY(H-4): Set PnL cap for ADL pre-check (admin only). */
+    readonly SetMaxPnlCap: 78;
+    /** PERC-309: Set OI cap multiplier for LP withdrawal limits (admin only). Packed u64. */
+    readonly SetOiCapMultiplier: 79;
+    /** PERC-314: Set dispute params (window_slots + bond_amount, admin only). */
+    readonly SetDisputeParams: 80;
+    /** PERC-315: Set LP collateral params (enabled + ltv_bps, admin only). */
+    readonly SetLpCollateralParams: 81;
 };
 /**
  * InitMarket instruction data (256 bytes total)
@@ -1119,3 +1127,70 @@ export declare function encodeDepositInsuranceLP(args: {
 export declare function encodeWithdrawInsuranceLP(args: {
     lpAmount: bigint | string;
 }): Uint8Array;
+/**
+ * SetMaxPnlCap (Tag 78, PERC-305 / SECURITY(H-4)) — set the PnL cap for ADL
+ * pre-check (admin only). When `pnl_pos_tot <= max_pnl_cap`, ADL returns
+ * early (no deleveraging needed).
+ *
+ * `capE6 = 0` disables the cap (ADL always runs when insurance is depleted).
+ *
+ * Instruction data: tag(1) + cap(u64, 8) = 9 bytes
+ */
+export interface SetMaxPnlCapArgs {
+    /** PnL cap in engine quote units (e.g., 1_000_000 = $1 e6). 0 = cap disabled. */
+    cap: bigint | string;
+}
+export declare function encodeSetMaxPnlCap(args: SetMaxPnlCapArgs): Uint8Array;
+/**
+ * SetOiCapMultiplier (Tag 79, PERC-309) — set the OI cap multiplier for LP
+ * withdrawal limits (admin only). Packed u64:
+ *   lo 32 bits: multiplier_bps (e.g., 15000 = 1.5× soft cap in stressed state)
+ *   hi 32 bits: soft_cap_bps   (e.g., 8000  = 80% base cap)
+ *
+ * `packed = 0` disables enforcement (no cap on LP withdrawals).
+ *
+ * Instruction data: tag(1) + packed(u64, 8) = 9 bytes
+ */
+export interface SetOiCapMultiplierArgs {
+    /** Packed u64: lo32 = multiplier_bps, hi32 = soft_cap_bps. 0 = disabled. */
+    packed: bigint | string;
+}
+export declare function encodeSetOiCapMultiplier(args: SetOiCapMultiplierArgs): Uint8Array;
+/** Convenience: pack (multiplier_bps, soft_cap_bps) into the u64 expected by SetOiCapMultiplier. */
+export declare function packOiCap(multiplierBps: number, softCapBps: number): bigint;
+/**
+ * SetDisputeParams (Tag 80, PERC-314) — configure settlement dispute window
+ * and bond (admin only).
+ *
+ * - `windowSlots = 0` disables disputes (ChallengeSettlement returns
+ *   DisputeWindowClosed). Max: 2_000_000 slots (≈ 8 days at 400ms slots) to
+ *   prevent DoS via absurd freezes.
+ * - `bondAmount` (collateral tokens): refunded on dispute upheld, forfeited
+ *   on reject. 0 = no bond required.
+ *
+ * Instruction data: tag(1) + window_slots(u64, 8) + bond_amount(u64, 8) = 17 bytes
+ */
+export interface SetDisputeParamsArgs {
+    /** Dispute window in slots. 0 = disputes disabled. Max 2_000_000. */
+    windowSlots: bigint | string;
+    /** Bond required to open a dispute (collateral units). 0 = no bond. */
+    bondAmount: bigint | string;
+}
+export declare function encodeSetDisputeParams(args: SetDisputeParamsArgs): Uint8Array;
+/**
+ * SetLpCollateralParams (Tag 81, PERC-315) — configure LP token collateral
+ * acceptance (admin only).
+ *
+ * - `enabled = 0`: DepositLpCollateral rejects all new deposits.
+ * - `enabled = 1`: deposits allowed, subject to `ltvBps` haircut on value.
+ * - `ltvBps` max 10_000 (100%). Typical: 5000 (50% LTV).
+ *
+ * Instruction data: tag(1) + enabled(u8, 1) + ltv_bps(u16, 2) = 4 bytes
+ */
+export interface SetLpCollateralParamsArgs {
+    /** 0 = disabled (blocks new deposits), 1 = enabled. */
+    enabled: number;
+    /** LTV in bps (0-10000). 5000 = 50% LTV. */
+    ltvBps: number;
+}
+export declare function encodeSetLpCollateralParams(args: SetLpCollateralParamsArgs): Uint8Array;

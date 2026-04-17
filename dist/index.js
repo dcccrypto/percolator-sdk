@@ -226,7 +226,15 @@ var IX_TAG = {
   /** PauseMarket (tag 76): admin emergency pause. Blocks Trade/Deposit/Withdraw/InitUser. */
   PauseMarket: 76,
   /** UnpauseMarket (tag 77): admin unpause. Re-enables all operations. */
-  UnpauseMarket: 77
+  UnpauseMarket: 77,
+  /** PERC-305 / SECURITY(H-4): Set PnL cap for ADL pre-check (admin only). */
+  SetMaxPnlCap: 78,
+  /** PERC-309: Set OI cap multiplier for LP withdrawal limits (admin only). Packed u64. */
+  SetOiCapMultiplier: 79,
+  /** PERC-314: Set dispute params (window_slots + bond_amount, admin only). */
+  SetDisputeParams: 80,
+  /** PERC-315: Set LP collateral params (enabled + ltv_bps, admin only). */
+  SetLpCollateralParams: 81
   // 78: removed (keeper fund)
 };
 Object.freeze(IX_TAG);
@@ -741,6 +749,41 @@ function encodeDepositInsuranceLP(args) {
 }
 function encodeWithdrawInsuranceLP(args) {
   return encodeLpVaultWithdraw({ lpAmount: args.lpAmount });
+}
+function encodeSetMaxPnlCap(args) {
+  return concatBytes(encU8(IX_TAG.SetMaxPnlCap), encU64(args.cap));
+}
+function encodeSetOiCapMultiplier(args) {
+  return concatBytes(encU8(IX_TAG.SetOiCapMultiplier), encU64(args.packed));
+}
+function packOiCap(multiplierBps, softCapBps) {
+  if (multiplierBps < 0 || multiplierBps > 4294967295) {
+    throw new Error(`packOiCap: multiplier_bps out of u32 range: ${multiplierBps}`);
+  }
+  if (softCapBps < 0 || softCapBps > 4294967295) {
+    throw new Error(`packOiCap: soft_cap_bps out of u32 range: ${softCapBps}`);
+  }
+  return BigInt(multiplierBps) | BigInt(softCapBps) << 32n;
+}
+function encodeSetDisputeParams(args) {
+  return concatBytes(
+    encU8(IX_TAG.SetDisputeParams),
+    encU64(args.windowSlots),
+    encU64(args.bondAmount)
+  );
+}
+function encodeSetLpCollateralParams(args) {
+  if (args.enabled !== 0 && args.enabled !== 1) {
+    throw new Error(`encodeSetLpCollateralParams: enabled must be 0 or 1, got ${args.enabled}`);
+  }
+  if (args.ltvBps < 0 || args.ltvBps > 1e4) {
+    throw new Error(`encodeSetLpCollateralParams: ltvBps ${args.ltvBps} out of range [0, 10000]`);
+  }
+  return concatBytes(
+    encU8(IX_TAG.SetLpCollateralParams),
+    encU8(args.enabled),
+    encU16(args.ltvBps)
+  );
 }
 
 // src/abi/accounts.ts
@@ -6596,10 +6639,14 @@ export {
   encodeResolveMarket,
   encodeResolvePermissionless,
   encodeSetDexPool,
+  encodeSetDisputeParams,
   encodeSetInsuranceIsolation,
   encodeSetInsuranceWithdrawPolicy,
+  encodeSetLpCollateralParams,
   encodeSetMaintenanceFee,
+  encodeSetMaxPnlCap,
   encodeSetOffsetPair,
+  encodeSetOiCapMultiplier,
   encodeSetOiImbalanceHardBlock,
   encodeSetOracleAuthority,
   encodeSetOraclePriceCap,
@@ -6670,6 +6717,7 @@ export {
   isToken2022,
   isValidChainlinkOracle,
   maxAccountIndex,
+  packOiCap,
   parseAccount,
   parseAdlEvent,
   parseAllAccounts,

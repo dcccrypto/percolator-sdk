@@ -155,6 +155,8 @@ export const IX_TAG = {
   SetDisputeParams: 80,
   /** PERC-315: Set LP collateral params (enabled + ltv_bps, admin only). */
   SetLpCollateralParams: 81,
+  /** Phase E (2026-04-17): Accept a pending admin transfer. Signer must match pending_admin. */
+  AcceptAdmin: 82,
   // 78: removed (keeper fund)
 } as const;
 Object.freeze(IX_TAG);
@@ -1892,4 +1894,26 @@ export function encodeSetLpCollateralParams(args: SetLpCollateralParamsArgs): Ui
     encU8(args.enabled),
     encU16(args.ltvBps),
   );
+}
+
+/**
+ * AcceptAdmin (Tag 82, Phase E 2026-04-17) — complete a two-step admin transfer.
+ *
+ * Called by the PROPOSED new admin (the pubkey passed to UpdateAdmin with
+ * `new_admin != default()`). The signer must match config.pending_admin
+ * exactly. On success, header.admin is swapped to pending_admin and
+ * pending_admin is cleared.
+ *
+ * Use `try_update_admin` then `try_accept_admin` for a full rotation, or
+ * skip AcceptAdmin entirely to leave a pending transfer that the old
+ * admin can overwrite (propose-again) or the new admin can never accept.
+ *
+ * Accounts:
+ *   [0] new admin (signer, must match pending_admin)
+ *   [1] slab (writable)
+ *
+ * Instruction data: tag(1) = 1 byte. No payload.
+ */
+export function encodeAcceptAdmin(): Uint8Array {
+  return encU8(IX_TAG.AcceptAdmin);
 }
