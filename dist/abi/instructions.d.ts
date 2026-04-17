@@ -40,7 +40,7 @@ export declare const IX_TAG: {
     readonly DepositFeeCredits: 27;
     readonly ConvertReleasedPnl: 28;
     readonly ResolvePermissionless: 29;
-    /** @deprecated Use ResolvePermissionless */ readonly AcceptAdmin: 29;
+    /** @deprecated Use ResolvePermissionless */ readonly AcceptAdmin: 82;
     readonly ForceCloseResolved: 30;
     readonly SetPythOracle: 32;
     readonly UpdateMarkPrice: 33;
@@ -1194,3 +1194,22 @@ export interface SetLpCollateralParamsArgs {
     ltvBps: number;
 }
 export declare function encodeSetLpCollateralParams(args: SetLpCollateralParamsArgs): Uint8Array;
+/**
+ * AcceptAdmin (Tag 82, Phase E 2026-04-17) — complete a two-step admin transfer.
+ *
+ * Called by the PROPOSED new admin (the pubkey passed to UpdateAdmin with
+ * `new_admin != default()`). The signer must match config.pending_admin
+ * exactly. On success, header.admin is swapped to pending_admin and
+ * pending_admin is cleared.
+ *
+ * Use `try_update_admin` then `try_accept_admin` for a full rotation, or
+ * skip AcceptAdmin entirely to leave a pending transfer that the old
+ * admin can overwrite (propose-again) or the new admin can never accept.
+ *
+ * Accounts:
+ *   [0] new admin (signer, must match pending_admin)
+ *   [1] slab (writable)
+ *
+ * Instruction data: tag(1) = 1 byte. No payload.
+ */
+export declare function encodeAcceptAdmin(): Uint8Array;

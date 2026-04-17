@@ -59,7 +59,8 @@ export const IX_TAG = {
   ConvertReleasedPnl: 28,
   // Tags 29-30: on-chain = ResolvePermissionless/ForceCloseResolved.
   ResolvePermissionless: 29,
-  /** @deprecated Use ResolvePermissionless */ AcceptAdmin: 29,
+  // Note: `AcceptAdmin` used to be a @deprecated alias for tag 29; removed in
+  // beta.27 because AcceptAdmin is now a real instruction at tag 82 (Phase E).
   ForceCloseResolved: 30,
   // Tag 31: gap (no decode arm on-chain)
   SetPythOracle: 32,

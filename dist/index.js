@@ -234,7 +234,9 @@ var IX_TAG = {
   /** PERC-314: Set dispute params (window_slots + bond_amount, admin only). */
   SetDisputeParams: 80,
   /** PERC-315: Set LP collateral params (enabled + ltv_bps, admin only). */
-  SetLpCollateralParams: 81
+  SetLpCollateralParams: 81,
+  /** Phase E (2026-04-17): Accept a pending admin transfer. Signer must match pending_admin. */
+  AcceptAdmin: 82
   // 78: removed (keeper fund)
 };
 Object.freeze(IX_TAG);
@@ -784,6 +786,9 @@ function encodeSetLpCollateralParams(args) {
     encU8(args.enabled),
     encU16(args.ltvBps)
   );
+}
+function encodeAcceptAdmin() {
+  return encU8(IX_TAG.AcceptAdmin);
 }
 
 // src/abi/accounts.ts
@@ -6589,6 +6594,7 @@ export {
   encU32,
   encU64,
   encU8,
+  encodeAcceptAdmin,
   encodeAdminForceClose,
   encodeAdvanceEpoch,
   encodeAdvanceOraclePhase,
