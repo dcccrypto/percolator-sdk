@@ -7,7 +7,7 @@ import {
   encodeLiquidateAtOracle, encodeCloseAccount,
   encodeTopUpInsurance, encodeSetRiskThreshold, encodeUpdateAdmin,
   encodeCloseSlab, encodeUpdateConfig, encodeSetMaintenanceFee,
-  encodeSetOracleAuthority, encodePushOraclePrice, encodeSetOraclePriceCap,
+  encodeSetOraclePriceCap,
   encodeResolveMarket, encodeWithdrawInsurance,
   IX_TAG,
 } from "../src/abi/instructions.js";
@@ -191,12 +191,6 @@ describe("instruction encoders", () => {
     expect(encodeCloseSlab()[0]).toBe(IX_TAG.CloseSlab);
   });
 
-  it("encodePushOraclePrice produces 17 bytes", () => {
-    const data = encodePushOraclePrice({ priceE6: "50000000", timestamp: "1700000000" });
-    expect(data.length).toBe(17);
-    expect(data[0]).toBe(IX_TAG.PushOraclePrice);
-  });
-
   it("encodeResolveMarket produces 1 byte", () => {
     expect(encodeResolveMarket()[0]).toBe(IX_TAG.ResolveMarket);
   });
@@ -265,8 +259,6 @@ describe("truncated instruction payloads", () => {
     ["CloseSlab", () => encodeCloseSlab()],
     ["UpdateConfig", () => encodeUpdateConfig(updateConfigArgs)],
     ["SetMaintenanceFee", () => encodeSetMaintenanceFee({ newFee: "0" })],
-    ["SetOracleAuthority", () => encodeSetOracleAuthority({ newAuthority: new PublicKey("11111111111111111111111111111111") })],
-    ["PushOraclePrice", () => encodePushOraclePrice({ priceE6: "50000000", timestamp: "1700000000" })],
     ["SetOraclePriceCap", () => encodeSetOraclePriceCap({ maxChangeE2bps: "1000" })],
     ["ResolveMarket", () => encodeResolveMarket()],
     ["WithdrawInsurance", () => encodeWithdrawInsurance()],

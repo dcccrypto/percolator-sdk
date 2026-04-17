@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.0-beta.29] — 2026-04-17
+
+- **BREAKING**: Removed `encodeSetOracleAuthority` (IX 16) and `encodePushOraclePrice` (IX 17). The on-chain program no longer supports admin-pushed oracle prices; all live markets must use Pyth, Chainlink, or Hyperp DEX-fed oracles. Phase G of pre-audit hardening — see percolator-prog commit 5391dc4.
+
+---
+
 ## [1.0.0-beta.1] — 2026-04-04
 
 ### Changed

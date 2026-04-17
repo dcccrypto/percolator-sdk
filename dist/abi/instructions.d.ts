@@ -1,10 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
 /**
- * Oracle price constraints.
- * Maximum oracle price that can be pushed to the on-chain oracle authority.
- */
-export declare const MAX_ORACLE_PRICE = 1000000000000n;
-/**
  * Instruction tags - exact match to Rust ix::Instruction::decode
  */
 export declare const IX_TAG: {
@@ -24,8 +19,6 @@ export declare const IX_TAG: {
     readonly CloseSlab: 13;
     readonly UpdateConfig: 14;
     readonly SetMaintenanceFee: 15;
-    readonly SetOracleAuthority: 16;
-    readonly PushOraclePrice: 17;
     readonly SetOraclePriceCap: 18;
     readonly ResolveMarket: 19;
     readonly WithdrawInsurance: 20;
@@ -40,7 +33,6 @@ export declare const IX_TAG: {
     readonly DepositFeeCredits: 27;
     readonly ConvertReleasedPnl: 28;
     readonly ResolvePermissionless: 29;
-    /** @deprecated Use ResolvePermissionless */ readonly AcceptAdmin: 82;
     readonly ForceCloseResolved: 30;
     readonly SetPythOracle: 32;
     readonly UpdateMarkPrice: 33;
@@ -131,6 +123,8 @@ export declare const IX_TAG: {
     readonly SetDisputeParams: 80;
     /** PERC-315: Set LP collateral params (enabled + ltv_bps, admin only). */
     readonly SetLpCollateralParams: 81;
+    /** Phase E (2026-04-17): Accept a pending admin transfer. Signer must match pending_admin. */
+    readonly AcceptAdmin: 82;
 };
 /**
  * InitMarket instruction data (256 bytes total)
@@ -358,35 +352,6 @@ export interface SetMaintenanceFeeArgs {
 }
 /** @deprecated Tag 15 removed in v12.17. Will fail on-chain. */
 export declare function encodeSetMaintenanceFee(args: SetMaintenanceFeeArgs): Uint8Array;
-/**
- * SetOracleAuthority instruction data (33 bytes)
- * Sets the oracle price authority. Pass zero pubkey to disable and require Pyth/Chainlink.
- */
-export interface SetOracleAuthorityArgs {
-    newAuthority: PublicKey | string;
-}
-export declare function encodeSetOracleAuthority(args: SetOracleAuthorityArgs): Uint8Array;
-/**
- * PushOraclePrice instruction data (17 bytes)
- * Push a new oracle price (oracle authority only).
- * The price should be in e6 format and already include any inversion/scaling.
- */
-export interface PushOraclePriceArgs {
-    priceE6: bigint | string;
-    timestamp: bigint | string;
-}
-/**
- * Encode PushOraclePrice instruction data with validation.
- *
- * Validates oracle price constraints:
- * - Price cannot be zero (division by zero in on-chain engine)
- * - Price cannot exceed MAX_ORACLE_PRICE (prevents overflow in price math)
- *
- * @param args - PushOraclePrice arguments
- * @returns Encoded instruction data (17 bytes)
- * @throws Error if price is 0 or exceeds MAX_ORACLE_PRICE
- */
-export declare function encodePushOraclePrice(args: PushOraclePriceArgs): Uint8Array;
 /**
  * SetOraclePriceCap instruction data (9 bytes)
  * Set oracle price circuit breaker cap (admin only).

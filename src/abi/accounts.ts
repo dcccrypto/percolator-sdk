@@ -197,29 +197,11 @@ export const ACCOUNTS_SET_MAINTENANCE_FEE: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * SetOracleAuthority: 2 accounts
- * Sets the oracle price authority (admin only)
- */
-export const ACCOUNTS_SET_ORACLE_AUTHORITY: readonly AccountSpec[] = [
-  { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true },
-] as const;
-
-/**
  * SetOraclePriceCap: 2 accounts
  * Set oracle price circuit breaker cap (admin only)
  */
 export const ACCOUNTS_SET_ORACLE_PRICE_CAP: readonly AccountSpec[] = [
   { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true },
-] as const;
-
-/**
- * PushOraclePrice: 2 accounts
- * Push oracle price (oracle authority only)
- */
-export const ACCOUNTS_PUSH_ORACLE_PRICE: readonly AccountSpec[] = [
-  { name: "authority", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
 ] as const;
 

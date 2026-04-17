@@ -96,7 +96,6 @@ function concatBytes(...arrays) {
 }
 
 // src/abi/instructions.ts
-var MAX_ORACLE_PRICE = 1000000000000n;
 var IX_TAG = {
   InitMarket: 0,
   InitUser: 1,
@@ -114,8 +113,7 @@ var IX_TAG = {
   CloseSlab: 13,
   UpdateConfig: 14,
   SetMaintenanceFee: 15,
-  SetOracleAuthority: 16,
-  PushOraclePrice: 17,
+  // 16, 17 — removed in v1.0.0-beta.29 (Phase G admin-push oracle removal)
   SetOraclePriceCap: 18,
   ResolveMarket: 19,
   WithdrawInsurance: 20,
@@ -138,8 +136,8 @@ var IX_TAG = {
   ConvertReleasedPnl: 28,
   // Tags 29-30: on-chain = ResolvePermissionless/ForceCloseResolved.
   ResolvePermissionless: 29,
-  /** @deprecated Use ResolvePermissionless */
-  AcceptAdmin: 29,
+  // Note: `AcceptAdmin` used to be a @deprecated alias for tag 29; removed in
+  // beta.27 because AcceptAdmin is now a real instruction at tag 82 (Phase E).
   ForceCloseResolved: 30,
   // Tag 31: gap (no decode arm on-chain)
   SetPythOracle: 32,
@@ -425,26 +423,6 @@ function encodeSetMaintenanceFee(args) {
   return concatBytes(
     encU8(IX_TAG.SetMaintenanceFee),
     encU128(args.newFee)
-  );
-}
-function encodeSetOracleAuthority(args) {
-  return concatBytes(
-    encU8(IX_TAG.SetOracleAuthority),
-    encPubkey(args.newAuthority)
-  );
-}
-function encodePushOraclePrice(args) {
-  const price = typeof args.priceE6 === "string" ? BigInt(args.priceE6) : args.priceE6;
-  if (price === 0n) {
-    throw new Error("encodePushOraclePrice: price cannot be zero (division by zero in engine)");
-  }
-  if (price > MAX_ORACLE_PRICE) {
-    throw new Error(`encodePushOraclePrice: price exceeds maximum (${MAX_ORACLE_PRICE}), got ${price}`);
-  }
-  return concatBytes(
-    encU8(IX_TAG.PushOraclePrice),
-    encU64(price),
-    encI64(args.timestamp)
   );
 }
 function encodeSetOraclePriceCap(args) {
@@ -908,16 +886,8 @@ var ACCOUNTS_SET_MAINTENANCE_FEE = [
   { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true }
 ];
-var ACCOUNTS_SET_ORACLE_AUTHORITY = [
-  { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true }
-];
 var ACCOUNTS_SET_ORACLE_PRICE_CAP = [
   { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true }
-];
-var ACCOUNTS_PUSH_ORACLE_PRICE = [
-  { name: "authority", signer: true, writable: true },
   { name: "slab", signer: false, writable: true }
 ];
 var ACCOUNTS_RESOLVE_MARKET = [
@@ -6443,7 +6413,6 @@ export {
   ACCOUNTS_NFT_EMERGENCY_BURN,
   ACCOUNTS_NFT_MINT,
   ACCOUNTS_PAUSE_MARKET,
-  ACCOUNTS_PUSH_ORACLE_PRICE,
   ACCOUNTS_QUEUE_WITHDRAWAL,
   ACCOUNTS_RECLAIM_SLAB_RENT,
   ACCOUNTS_RESOLVE_MARKET,
@@ -6451,7 +6420,6 @@ export {
   ACCOUNTS_SET_INSURANCE_ISOLATION,
   ACCOUNTS_SET_MAINTENANCE_FEE,
   ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK,
-  ACCOUNTS_SET_ORACLE_AUTHORITY,
   ACCOUNTS_SET_ORACLE_PRICE_CAP,
   ACCOUNTS_SET_PENDING_SETTLEMENT,
   ACCOUNTS_SET_RISK_THRESHOLD,
@@ -6485,7 +6453,6 @@ export {
   MARK_PRICE_EMA_ALPHA_E6,
   MARK_PRICE_EMA_WINDOW_SLOTS,
   MAX_DECIMALS,
-  MAX_ORACLE_PRICE,
   METEORA_DLMM_PROGRAM_ID,
   NFT_IX_TAG,
   NFT_PROGRAM_ID,
@@ -6635,7 +6602,6 @@ export {
   encodeNftMint,
   encodeNftSettleFunding,
   encodePauseMarket,
-  encodePushOraclePrice,
   encodeQueueWithdrawal,
   encodeQueueWithdrawalSV,
   encodeReclaimSlabRent,
@@ -6654,7 +6620,6 @@ export {
   encodeSetOffsetPair,
   encodeSetOiCapMultiplier,
   encodeSetOiImbalanceHardBlock,
-  encodeSetOracleAuthority,
   encodeSetOraclePriceCap,
   encodeSetPendingSettlement,
   encodeSetPythOracle,

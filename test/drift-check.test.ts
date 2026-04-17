@@ -583,7 +583,8 @@ describe("IX_TAG — value correctness and uniqueness", () => {
     const max = vals[vals.length - 1];
     // Tag 31 is an intentional gap (no decode arm on-chain).
     // Tags 57 and 78 are removed (keeper fund).
-    const KNOWN_GAPS = new Set([31, 57, 78]);
+    // Tags 16 and 17 removed in v1.0.0-beta.29 (Phase G admin-push oracle removal).
+    const KNOWN_GAPS = new Set([16, 17, 31, 57, 78]);
     const valSet = new Set(vals);
     for (let i = 0; i <= max; i++) {
       if (!valSet.has(i) && !KNOWN_GAPS.has(i)) {

@@ -12,12 +12,6 @@ import {
 } from "./encode.js";
 
 /**
- * Oracle price constraints.
- * Maximum oracle price that can be pushed to the on-chain oracle authority.
- */
-export const MAX_ORACLE_PRICE = 1_000_000_000_000n; // 1 trillion e6 = 1M USD/unit
-
-/**
  * Instruction tags - exact match to Rust ix::Instruction::decode
  */
 export const IX_TAG = {
@@ -37,8 +31,7 @@ export const IX_TAG = {
   CloseSlab: 13,
   UpdateConfig: 14,
   SetMaintenanceFee: 15,
-  SetOracleAuthority: 16,
-  PushOraclePrice: 17,
+  // 16, 17 — removed in v1.0.0-beta.29 (Phase G admin-push oracle removal)
   SetOraclePriceCap: 18,
   ResolveMarket: 19,
   WithdrawInsurance: 20,
@@ -588,60 +581,6 @@ export function encodeSetMaintenanceFee(args: SetMaintenanceFeeArgs): Uint8Array
   return concatBytes(
     encU8(IX_TAG.SetMaintenanceFee),
     encU128(args.newFee),
-  );
-}
-
-/**
- * SetOracleAuthority instruction data (33 bytes)
- * Sets the oracle price authority. Pass zero pubkey to disable and require Pyth/Chainlink.
- */
-export interface SetOracleAuthorityArgs {
-  newAuthority: PublicKey | string;
-}
-
-export function encodeSetOracleAuthority(args: SetOracleAuthorityArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.SetOracleAuthority),
-    encPubkey(args.newAuthority),
-  );
-}
-
-/**
- * PushOraclePrice instruction data (17 bytes)
- * Push a new oracle price (oracle authority only).
- * The price should be in e6 format and already include any inversion/scaling.
- */
-export interface PushOraclePriceArgs {
-  priceE6: bigint | string;
-  timestamp: bigint | string;
-}
-
-/**
- * Encode PushOraclePrice instruction data with validation.
- *
- * Validates oracle price constraints:
- * - Price cannot be zero (division by zero in on-chain engine)
- * - Price cannot exceed MAX_ORACLE_PRICE (prevents overflow in price math)
- *
- * @param args - PushOraclePrice arguments
- * @returns Encoded instruction data (17 bytes)
- * @throws Error if price is 0 or exceeds MAX_ORACLE_PRICE
- */
-export function encodePushOraclePrice(args: PushOraclePriceArgs): Uint8Array {
-  const price = typeof args.priceE6 === "string" ? BigInt(args.priceE6) : args.priceE6;
-
-  if (price === 0n) {
-    throw new Error("encodePushOraclePrice: price cannot be zero (division by zero in engine)");
-  }
-
-  if (price > MAX_ORACLE_PRICE) {
-    throw new Error(`encodePushOraclePrice: price exceeds maximum (${MAX_ORACLE_PRICE}), got ${price}`);
-  }
-
-  return concatBytes(
-    encU8(IX_TAG.PushOraclePrice),
-    encU64(price),
-    encI64(args.timestamp),
   );
 }
 

@@ -74,20 +74,10 @@ export declare const ACCOUNTS_UPDATE_CONFIG: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_SET_MAINTENANCE_FEE: readonly AccountSpec[];
 /**
- * SetOracleAuthority: 2 accounts
- * Sets the oracle price authority (admin only)
- */
-export declare const ACCOUNTS_SET_ORACLE_AUTHORITY: readonly AccountSpec[];
-/**
  * SetOraclePriceCap: 2 accounts
  * Set oracle price circuit breaker cap (admin only)
  */
 export declare const ACCOUNTS_SET_ORACLE_PRICE_CAP: readonly AccountSpec[];
-/**
- * PushOraclePrice: 2 accounts
- * Push oracle price (oracle authority only)
- */
-export declare const ACCOUNTS_PUSH_ORACLE_PRICE: readonly AccountSpec[];
 /**
  * ResolveMarket: 2 accounts
  * Resolves a binary/premarket (admin only)
