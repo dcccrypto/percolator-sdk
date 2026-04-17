@@ -89,6 +89,15 @@ export declare const ACCOUNTS_RESOLVE_MARKET: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_WITHDRAW_INSURANCE: readonly AccountSpec[];
 /**
+ * WithdrawInsuranceLimited (tag 23): 7 or 8 accounts.
+ * On live markets the 8th oracle account is REQUIRED (upstream 8ce8d54):
+ * the handler does a same-instruction accrue_market_to against the fresh
+ * oracle price to prevent withdrawals against overstated insurance.
+ * On resolved markets the oracle is frozen — 7 accounts suffice.
+ */
+export declare const ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED: readonly AccountSpec[];
+export declare const ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE: readonly AccountSpec[];
+/**
  * PauseMarket: 2 accounts
  */
 export declare const ACCOUNTS_PAUSE_MARKET: readonly AccountSpec[];

@@ -228,6 +228,28 @@ export const ACCOUNTS_WITHDRAW_INSURANCE: readonly AccountSpec[] = [
 ] as const;
 
 /**
+ * WithdrawInsuranceLimited (tag 23): 7 or 8 accounts.
+ * On live markets the 8th oracle account is REQUIRED (upstream 8ce8d54):
+ * the handler does a same-instruction accrue_market_to against the fresh
+ * oracle price to prevent withdrawals against overstated insurance.
+ * On resolved markets the oracle is frozen — 7 accounts suffice.
+ */
+export const ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED: readonly AccountSpec[] = [
+  { name: "authority", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "authorityAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "vaultPda", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false },
+] as const;
+
+export const ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE: readonly AccountSpec[] = [
+  ...ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
+  { name: "oracle", signer: false, writable: false },
+] as const;
+
+/**
  * PauseMarket: 2 accounts
  */
 export const ACCOUNTS_PAUSE_MARKET: readonly AccountSpec[] = [

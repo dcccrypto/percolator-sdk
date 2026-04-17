@@ -1625,7 +1625,12 @@ export function encodeSetInsuranceWithdrawPolicy(args: SetInsuranceWithdrawPolic
   return concatBytes(encU8(IX_TAG.SetInsuranceWithdrawPolicy), encPubkey(args.authority), encU64(args.minWithdrawBase), encU16(args.maxWithdrawBps), encU64(args.cooldownSlots));
 }
 
-/** WithdrawInsuranceLimited (tag 23): amount */
+/**
+ * WithdrawInsuranceLimited (tag 23): amount.
+ * Account count is 7 (resolved markets) or 8 (live markets — oracle required
+ * for same-instruction accrue_market_to per upstream 8ce8d54).
+ * See ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE / _RESOLVED in accounts.ts.
+ */
 export function encodeWithdrawInsuranceLimited(args: { amount: bigint | string }): Uint8Array {
   return concatBytes(encU8(IX_TAG.WithdrawInsuranceLimited), encU64(args.amount));
 }

@@ -1026,7 +1026,12 @@ export interface SetInsuranceWithdrawPolicyArgs {
     cooldownSlots: bigint | string;
 }
 export declare function encodeSetInsuranceWithdrawPolicy(args: SetInsuranceWithdrawPolicyArgs): Uint8Array;
-/** WithdrawInsuranceLimited (tag 23): amount */
+/**
+ * WithdrawInsuranceLimited (tag 23): amount.
+ * Account count is 7 (resolved markets) or 8 (live markets — oracle required
+ * for same-instruction accrue_market_to per upstream 8ce8d54).
+ * See ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE / _RESOLVED in accounts.ts.
+ */
 export declare function encodeWithdrawInsuranceLimited(args: {
     amount: bigint | string;
 }): Uint8Array;

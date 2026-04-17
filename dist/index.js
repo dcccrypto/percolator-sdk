@@ -902,6 +902,19 @@ var ACCOUNTS_WITHDRAW_INSURANCE = [
   { name: "tokenProgram", signer: false, writable: false },
   { name: "vaultPda", signer: false, writable: false }
 ];
+var ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED = [
+  { name: "authority", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "authorityAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "vaultPda", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false }
+];
+var ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE = [
+  ...ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
+  { name: "oracle", signer: false, writable: false }
+];
 var ACCOUNTS_PAUSE_MARKET = [
   { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true }
@@ -6433,6 +6446,8 @@ export {
   ACCOUNTS_UPDATE_CONFIG,
   ACCOUNTS_WITHDRAW_COLLATERAL,
   ACCOUNTS_WITHDRAW_INSURANCE,
+  ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE,
+  ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
   ACCOUNTS_WITHDRAW_INSURANCE_LP,
   AccountKind,
   CHAINLINK_ANSWER_OFFSET,
