@@ -204,12 +204,41 @@ export interface WithdrawCollateralArgs {
 }
 export declare function encodeWithdrawCollateral(args: WithdrawCollateralArgs): Uint8Array;
 /**
- * KeeperCrank instruction data (4 bytes)
- * Funding rate is computed on-chain from LP inventory.
+ * Liquidation policy for KeeperCrank candidates (v12.17 two-phase crank).
+ *
+ * On-chain wire tags:
+ *   0x00 = FullClose — liquidate the entire position
+ *   0x01 = ExactPartial(u128) — reduce position by exactly `quantity` units
+ *   0xFF = TouchOnly — accrue fees / sweep dust, do NOT liquidate
+ */
+export declare const LiquidationPolicyTag: {
+    readonly FullClose: 0;
+    readonly ExactPartial: 1;
+    readonly TouchOnly: 255;
+};
+export type KeeperCrankCandidate = {
+    policy: typeof LiquidationPolicyTag.FullClose;
+    idx: number;
+} | {
+    policy: typeof LiquidationPolicyTag.ExactPartial;
+    idx: number;
+    quantity: bigint | string;
+} | {
+    policy: typeof LiquidationPolicyTag.TouchOnly;
+    idx: number;
+};
+/**
+ * KeeperCrank instruction data (v12.17 two-phase crank).
+ *
+ * Wire format: tag(1) + caller_idx(u16) + format_version=1(u8) +
+ *   candidates: [ idx(u16) + policy_tag(u8) [+ quantity(u128) if ExactPartial] ]*
+ *
+ * Empty candidates list = simple crank (accrue funding, sweep dust).
+ * With candidates = targeted liquidation/touch pass.
  */
 export interface KeeperCrankArgs {
     callerIdx: number;
-    allowPanic: boolean;
+    candidates?: KeeperCrankCandidate[];
 }
 export declare function encodeKeeperCrank(args: KeeperCrankArgs): Uint8Array;
 /**
@@ -243,21 +272,24 @@ export interface TopUpInsuranceArgs {
 }
 export declare function encodeTopUpInsurance(args: TopUpInsuranceArgs): Uint8Array;
 /**
- * TradeCpi instruction data (21 bytes)
+ * TradeCpi instruction data (29 bytes)
+ *
+ * v12.17: limit_price_e6 is now REQUIRED (slippage protection).
+ * Set to 0 to accept any price (no slippage protection).
+ * For buys: tx reverts if execution price > limitPriceE6.
+ * For sells: tx reverts if execution price < limitPriceE6.
  */
 export interface TradeCpiArgs {
     lpIdx: number;
     userIdx: number;
     size: bigint | string;
+    /** Limit price in e6 units. 0 = no limit (accept any price). */
+    limitPriceE6: bigint | string;
 }
 export declare function encodeTradeCpi(args: TradeCpiArgs): Uint8Array;
 /**
- * TradeCpiV2 instruction data (22 bytes) — PERC-154 optimized trade CPI.
- *
- * Same as TradeCpi but includes a caller-provided PDA bump byte.
- * Uses create_program_address instead of find_program_address,
- * saving ~1500 CU per trade. The bump should be obtained once via
- * deriveLpPda() and cached for the lifetime of the market.
+ * @deprecated Tag 35 removed in v12.17. Use TradeCpi (tag 10) with limitPriceE6 instead.
+ * TradeCpi now handles PDA bump internally. Sending tag 35 will fail with InvalidInstructionData.
  */
 export interface TradeCpiV2Args {
     lpIdx: number;
@@ -265,30 +297,24 @@ export interface TradeCpiV2Args {
     size: bigint | string;
     bump: number;
 }
+/** @deprecated Tag 35 removed in v12.17. Use encodeTradeCpi with limitPriceE6 instead. */
 export declare function encodeTradeCpiV2(args: TradeCpiV2Args): Uint8Array;
 /**
- * UnresolveMarket (Tag 36, PERC-273) — clear RESOLVED flag, re-enable trading.
- *
- * Admin only. Requires confirmation code 0xDEAD_BEEF_CAFE_1234 to prevent
- * accidental invocation.
- *
- * Instruction data: tag(1) + confirmation(8) = 9 bytes
- *
- * Accounts:
- *   0. [signer]   admin
- *   1. [writable] slab
+ * @deprecated Tag 36 removed in v12.17. Will fail on-chain with InvalidInstructionData.
  */
 export interface UnresolveMarketArgs {
-    /** Must be 0xDEAD_BEEF_CAFE_1234n to confirm intent. */
     confirmation: bigint | string;
 }
+/** @deprecated Tag 36 removed in v12.17. Will fail on-chain. */
 export declare function encodeUnresolveMarket(args: UnresolveMarketArgs): Uint8Array;
 /**
- * SetRiskThreshold instruction data (17 bytes)
+ * @deprecated Tag 11 removed in v12.17. Insurance floor is now set at InitMarket.
+ * Sending this instruction will fail with InvalidInstructionData.
  */
 export interface SetRiskThresholdArgs {
     newThreshold: bigint | string;
 }
+/** @deprecated Tag 11 removed in v12.17. Will fail on-chain. */
 export declare function encodeSetRiskThreshold(args: SetRiskThresholdArgs): Uint8Array;
 /**
  * UpdateAdmin instruction data (33 bytes)
@@ -302,31 +328,27 @@ export declare function encodeUpdateAdmin(args: UpdateAdminArgs): Uint8Array;
  */
 export declare function encodeCloseSlab(): Uint8Array;
 /**
- * UpdateConfig instruction data
- * Updates funding and threshold parameters at runtime (admin only)
+ * UpdateConfig instruction data (33 bytes)
+ *
+ * v12.17: Only 4 funding parameters. Threshold/insurance parameters are set
+ * at InitMarket and updated via dedicated instructions (SetRiskThreshold removed).
+ * fundingInvScaleNotionalE6 removed (now computed on-chain from LP state).
  */
 export interface UpdateConfigArgs {
     fundingHorizonSlots: bigint | string;
     fundingKBps: bigint | string;
-    fundingInvScaleNotionalE6: bigint | string;
     fundingMaxPremiumBps: bigint | string;
     fundingMaxBpsPerSlot: bigint | string;
-    threshFloor: bigint | string;
-    threshRiskBps: bigint | string;
-    threshUpdateIntervalSlots: bigint | string;
-    threshStepBps: bigint | string;
-    threshAlphaBps: bigint | string;
-    threshMin: bigint | string;
-    threshMax: bigint | string;
-    threshMinStep: bigint | string;
 }
 export declare function encodeUpdateConfig(args: UpdateConfigArgs): Uint8Array;
 /**
- * SetMaintenanceFee instruction data (17 bytes)
+ * @deprecated Tag 15 removed in v12.17. Maintenance fee is set at InitMarket only.
+ * Sending this instruction will fail with InvalidInstructionData.
  */
 export interface SetMaintenanceFeeArgs {
     newFee: bigint | string;
 }
+/** @deprecated Tag 15 removed in v12.17. Will fail on-chain. */
 export declare function encodeSetMaintenanceFee(args: SetMaintenanceFeeArgs): Uint8Array;
 /**
  * SetOracleAuthority instruction data (33 bytes)
@@ -395,18 +417,16 @@ export interface AdminForceCloseArgs {
 }
 export declare function encodeAdminForceClose(args: AdminForceCloseArgs): Uint8Array;
 /**
- * UpdateRiskParams instruction data (17 or 25 bytes)
- * Update initial and maintenance margin BPS (admin only).
- *
- * R2-S13: The Rust program uses `data.len() >= 25` to detect the optional
- * tradingFeeBps field, so variable-length encoding is safe. When tradingFeeBps
- * is omitted, the data is 17 bytes (tag + 2×u64). When included, 25 bytes.
+ * @deprecated Tag 22 is now SetInsuranceWithdrawPolicy in v12.17.
+ * This encoder sends the WRONG wire format (u64+u64 instead of pubkey+u64+u16+u64).
+ * Use encodeSetInsuranceWithdrawPolicy instead.
  */
 export interface UpdateRiskParamsArgs {
     initialMarginBps: bigint | string;
     maintenanceMarginBps: bigint | string;
     tradingFeeBps?: bigint | string;
 }
+/** @deprecated Use encodeSetInsuranceWithdrawPolicy (tag 22). This sends wrong wire format. */
 export declare function encodeUpdateRiskParams(args: UpdateRiskParamsArgs): Uint8Array;
 /**
  * On-chain confirmation code for RenounceAdmin (must match program constant).
@@ -418,11 +438,9 @@ export declare const RENOUNCE_ADMIN_CONFIRMATION = 5928230587143701317n;
  */
 export declare const UNRESOLVE_CONFIRMATION = 16045690984503054900n;
 /**
- * RenounceAdmin instruction data (9 bytes)
- * Irreversibly set admin to all zeros. After this, all admin-only instructions fail.
- *
- * Requires the confirmation code 0x52454E4F554E4345 ("RENOUNCE" as u64 LE)
- * to prevent accidental invocation.
+ * @deprecated Tag 23 is now WithdrawInsuranceLimited in v12.17.
+ * This encoder sends the confirmation code as a withdrawal amount — DANGEROUS.
+ * Use encodeWithdrawInsuranceLimited instead.
  */
 export declare function encodeRenounceAdmin(): Uint8Array;
 /**
@@ -481,29 +499,15 @@ export declare function encodePauseMarket(): Uint8Array;
  */
 export declare function encodeUnpauseMarket(): Uint8Array;
 /**
- * SetPythOracle (Tag 32) — switch a market to Pyth-pinned mode.
- *
- * After this instruction:
- * - oracle_authority is cleared → PushOraclePrice is disabled
- * - index_feed_id is set to feed_id → validated on every price read
- * - max_staleness_secs and conf_filter_bps are updated
- * - All price reads go directly to read_pyth_price_e6() with on-chain
- *   staleness + confidence + feed-ID validation (no silent fallback)
- *
- * Instruction data: tag(1) + feed_id(32) + max_staleness_secs(8) + conf_filter_bps(2) = 43 bytes
- *
- * Accounts:
- *   0. [signer, writable] Admin
- *   1. [writable]         Slab
+ * @deprecated Tag 32 removed in v12.17. Pyth oracle is configured at InitMarket via indexFeedId.
+ * Sending this instruction will fail with InvalidInstructionData.
  */
 export interface SetPythOracleArgs {
-    /** 32-byte Pyth feed ID. All zeros is invalid (reserved for Hyperp mode). */
     feedId: Uint8Array;
-    /** Maximum age of Pyth price in seconds before OracleStale is returned. Must be > 0. */
     maxStalenessSecs: bigint;
-    /** Max confidence/price ratio in bps (0 = no confidence check). */
     confFilterBps: number;
 }
+/** @deprecated Tag 32 removed in v12.17. Pyth is configured at InitMarket. */
 export declare function encodeSetPythOracle(args: SetPythOracleArgs): Uint8Array;
 /**
  * Derive the expected Pyth PriceUpdateV2 account address for a given feed ID.
@@ -515,18 +519,8 @@ export declare function encodeSetPythOracle(args: SetPythOracleArgs): Uint8Array
 export declare const PYTH_RECEIVER_PROGRAM_ID = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
 export declare function derivePythPriceUpdateAccount(feedId: Uint8Array, shardId?: number): Promise<string>;
 /**
- * UpdateMarkPrice (Tag 33) — permissionless EMA mark price crank.
- *
- * Reads the current oracle price on-chain, applies 8-hour EMA smoothing
- * with circuit breaker, and writes result to authority_price_e6.
- *
- * Instruction data: 1 byte (tag only — all params read from on-chain state)
- *
- * Accounts:
- *   0. [writable] Slab
- *   1. []         Oracle account (Pyth PriceUpdateV2 / Chainlink / DEX AMM)
- *   2. []         Clock sysvar (SysvarC1ock11111111111111111111111111111111)
- *   3..N []       Remaining accounts (PumpSwap vaults, etc. if needed)
+ * @deprecated Tag 33 removed in v12.17. Use UpdateHyperpMark (tag 34) for DEX-oracle markets.
+ * Sending this instruction will fail with InvalidInstructionData.
  */
 export declare function encodeUpdateMarkPrice(): Uint8Array;
 /**

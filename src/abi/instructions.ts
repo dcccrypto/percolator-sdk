@@ -147,6 +147,14 @@ export const IX_TAG = {
   PauseMarket: 76,
   /** UnpauseMarket (tag 77): admin unpause. Re-enables all operations. */
   UnpauseMarket: 77,
+  /** PERC-305 / SECURITY(H-4): Set PnL cap for ADL pre-check (admin only). */
+  SetMaxPnlCap: 78,
+  /** PERC-309: Set OI cap multiplier for LP withdrawal limits (admin only). Packed u64. */
+  SetOiCapMultiplier: 79,
+  /** PERC-314: Set dispute params (window_slots + bond_amount, admin only). */
+  SetDisputeParams: 80,
+  /** PERC-315: Set LP collateral params (enabled + ltv_bps, admin only). */
+  SetLpCollateralParams: 81,
   // 78: removed (keeper fund)
 } as const;
 Object.freeze(IX_TAG);
@@ -1772,4 +1780,116 @@ export function encodeDepositInsuranceLP(args: { amount: bigint | string }): Uin
 /** WithdrawInsuranceLP: burn LP tokens, withdraw collateral (tag 39, same as LpVaultWithdraw) */
 export function encodeWithdrawInsuranceLP(args: { lpAmount: bigint | string }): Uint8Array {
   return encodeLpVaultWithdraw({ lpAmount: args.lpAmount });
+}
+
+// ============================================================================
+// Phase B admin setters (tags 78-81) — added 2026-04-17
+// Wire up MarketConfig fields added in prog Phase A. Admin-only, validated.
+// Accounts for all 4: [admin(signer), slab(writable)] (2 accounts).
+// ============================================================================
+
+/**
+ * SetMaxPnlCap (Tag 78, PERC-305 / SECURITY(H-4)) — set the PnL cap for ADL
+ * pre-check (admin only). When `pnl_pos_tot <= max_pnl_cap`, ADL returns
+ * early (no deleveraging needed).
+ *
+ * `capE6 = 0` disables the cap (ADL always runs when insurance is depleted).
+ *
+ * Instruction data: tag(1) + cap(u64, 8) = 9 bytes
+ */
+export interface SetMaxPnlCapArgs {
+  /** PnL cap in engine quote units (e.g., 1_000_000 = $1 e6). 0 = cap disabled. */
+  cap: bigint | string;
+}
+
+export function encodeSetMaxPnlCap(args: SetMaxPnlCapArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.SetMaxPnlCap), encU64(args.cap));
+}
+
+/**
+ * SetOiCapMultiplier (Tag 79, PERC-309) — set the OI cap multiplier for LP
+ * withdrawal limits (admin only). Packed u64:
+ *   lo 32 bits: multiplier_bps (e.g., 15000 = 1.5× soft cap in stressed state)
+ *   hi 32 bits: soft_cap_bps   (e.g., 8000  = 80% base cap)
+ *
+ * `packed = 0` disables enforcement (no cap on LP withdrawals).
+ *
+ * Instruction data: tag(1) + packed(u64, 8) = 9 bytes
+ */
+export interface SetOiCapMultiplierArgs {
+  /** Packed u64: lo32 = multiplier_bps, hi32 = soft_cap_bps. 0 = disabled. */
+  packed: bigint | string;
+}
+
+export function encodeSetOiCapMultiplier(args: SetOiCapMultiplierArgs): Uint8Array {
+  return concatBytes(encU8(IX_TAG.SetOiCapMultiplier), encU64(args.packed));
+}
+
+/** Convenience: pack (multiplier_bps, soft_cap_bps) into the u64 expected by SetOiCapMultiplier. */
+export function packOiCap(multiplierBps: number, softCapBps: number): bigint {
+  if (multiplierBps < 0 || multiplierBps > 0xFFFF_FFFF) {
+    throw new Error(`packOiCap: multiplier_bps out of u32 range: ${multiplierBps}`);
+  }
+  if (softCapBps < 0 || softCapBps > 0xFFFF_FFFF) {
+    throw new Error(`packOiCap: soft_cap_bps out of u32 range: ${softCapBps}`);
+  }
+  return BigInt(multiplierBps) | (BigInt(softCapBps) << 32n);
+}
+
+/**
+ * SetDisputeParams (Tag 80, PERC-314) — configure settlement dispute window
+ * and bond (admin only).
+ *
+ * - `windowSlots = 0` disables disputes (ChallengeSettlement returns
+ *   DisputeWindowClosed). Max: 2_000_000 slots (≈ 8 days at 400ms slots) to
+ *   prevent DoS via absurd freezes.
+ * - `bondAmount` (collateral tokens): refunded on dispute upheld, forfeited
+ *   on reject. 0 = no bond required.
+ *
+ * Instruction data: tag(1) + window_slots(u64, 8) + bond_amount(u64, 8) = 17 bytes
+ */
+export interface SetDisputeParamsArgs {
+  /** Dispute window in slots. 0 = disputes disabled. Max 2_000_000. */
+  windowSlots: bigint | string;
+  /** Bond required to open a dispute (collateral units). 0 = no bond. */
+  bondAmount: bigint | string;
+}
+
+export function encodeSetDisputeParams(args: SetDisputeParamsArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.SetDisputeParams),
+    encU64(args.windowSlots),
+    encU64(args.bondAmount),
+  );
+}
+
+/**
+ * SetLpCollateralParams (Tag 81, PERC-315) — configure LP token collateral
+ * acceptance (admin only).
+ *
+ * - `enabled = 0`: DepositLpCollateral rejects all new deposits.
+ * - `enabled = 1`: deposits allowed, subject to `ltvBps` haircut on value.
+ * - `ltvBps` max 10_000 (100%). Typical: 5000 (50% LTV).
+ *
+ * Instruction data: tag(1) + enabled(u8, 1) + ltv_bps(u16, 2) = 4 bytes
+ */
+export interface SetLpCollateralParamsArgs {
+  /** 0 = disabled (blocks new deposits), 1 = enabled. */
+  enabled: number;
+  /** LTV in bps (0-10000). 5000 = 50% LTV. */
+  ltvBps: number;
+}
+
+export function encodeSetLpCollateralParams(args: SetLpCollateralParamsArgs): Uint8Array {
+  if (args.enabled !== 0 && args.enabled !== 1) {
+    throw new Error(`encodeSetLpCollateralParams: enabled must be 0 or 1, got ${args.enabled}`);
+  }
+  if (args.ltvBps < 0 || args.ltvBps > 10_000) {
+    throw new Error(`encodeSetLpCollateralParams: ltvBps ${args.ltvBps} out of range [0, 10000]`);
+  }
+  return concatBytes(
+    encU8(IX_TAG.SetLpCollateralParams),
+    encU8(args.enabled),
+    encU16(args.ltvBps),
+  );
 }
