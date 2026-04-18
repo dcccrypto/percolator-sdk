@@ -258,11 +258,29 @@ function encodeFeedId(feedId) {
   }
   return bytes;
 }
-var INIT_MARKET_DATA_LEN = 344;
+var INIT_MARKET_BASE_LEN = 344;
+var INIT_MARKET_EXTENDED_TAIL_LEN = 66;
+function extendedTailHasNonZero(t) {
+  const toBigInt = (v) => typeof v === "string" ? BigInt(v) : v;
+  return t.insuranceWithdrawMaxBps !== 0 || toBigInt(t.insuranceWithdrawCooldownSlots) !== 0n || toBigInt(t.permissionlessResolveStaleSlots) !== 0n || toBigInt(t.fundingHorizonSlots) !== 0n || toBigInt(t.fundingKBps) !== 0n || toBigInt(t.fundingMaxPremiumBps) !== 0n || toBigInt(t.fundingMaxBpsPerSlot) !== 0n || toBigInt(t.markMinFee) !== 0n || toBigInt(t.forceCloseDelaySlots) !== 0n;
+}
+function encodeExtendedTail(t) {
+  return concatBytes(
+    encU16(t.insuranceWithdrawMaxBps),
+    encU64(t.insuranceWithdrawCooldownSlots),
+    encU64(t.permissionlessResolveStaleSlots),
+    encU64(t.fundingHorizonSlots),
+    encU64(t.fundingKBps),
+    encI64(t.fundingMaxPremiumBps),
+    encI64(t.fundingMaxBpsPerSlot),
+    encU64(t.markMinFee),
+    encU64(t.forceCloseDelaySlots)
+  );
+}
 function encodeInitMarket(args) {
   const hMin = args.hMin ?? args.warmupPeriodSlots ?? 0n;
   const hMax = args.hMax ?? args.warmupPeriodSlots ?? 0n;
-  const data = concatBytes(
+  const base = concatBytes(
     encU8(IX_TAG.InitMarket),
     encPubkey(args.admin),
     encPubkey(args.collateralMint),
@@ -300,12 +318,21 @@ function encodeInitMarket(args) {
     encU128(args.minNonzeroMmReq),
     encU128(args.minNonzeroImReq)
   );
-  if (data.length !== INIT_MARKET_DATA_LEN) {
+  if (base.length !== INIT_MARKET_BASE_LEN) {
     throw new Error(
-      `encodeInitMarket: expected ${INIT_MARKET_DATA_LEN} bytes, got ${data.length}`
+      `encodeInitMarket: base payload expected ${INIT_MARKET_BASE_LEN} bytes, got ${base.length}`
     );
   }
-  return data;
+  if (args.extendedTail && extendedTailHasNonZero(args.extendedTail)) {
+    const tail = encodeExtendedTail(args.extendedTail);
+    if (tail.length !== INIT_MARKET_EXTENDED_TAIL_LEN) {
+      throw new Error(
+        `encodeInitMarket: extended tail expected ${INIT_MARKET_EXTENDED_TAIL_LEN} bytes, got ${tail.length}`
+      );
+    }
+    return concatBytes(base, tail);
+  }
+  return base;
 }
 function encodeInitUser(args) {
   return concatBytes(encU8(IX_TAG.InitUser), encU64(args.feePayment));
@@ -800,7 +827,8 @@ var ACCOUNTS_INIT_LP = [
   { name: "slab", signer: false, writable: true },
   { name: "userAta", signer: false, writable: true },
   { name: "vault", signer: false, writable: true },
-  { name: "tokenProgram", signer: false, writable: false }
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false }
 ];
 var ACCOUNTS_DEPOSIT_COLLATERAL = [
   { name: "user", signer: true, writable: true },
@@ -874,9 +902,17 @@ var ACCOUNTS_UPDATE_ADMIN = [
   { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true }
 ];
-var ACCOUNTS_CLOSE_SLAB = [
-  { name: "admin", signer: true, writable: true },
+var ACCOUNTS_ACCEPT_ADMIN = [
+  { name: "pendingAdmin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_CLOSE_SLAB = [
+  { name: "dest", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "destAta", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false }
 ];
 var ACCOUNTS_UPDATE_CONFIG = [
   { name: "admin", signer: true, writable: true },
@@ -1568,6 +1604,16 @@ function deriveMintAuthority(programId = NFT_PROGRAM_ID) {
   );
 }
 var POSITION_NFT_STATE_LEN = 208;
+function readI128FromView(view, offset) {
+  const lo = view.getBigUint64(offset, true);
+  const hi = view.getBigUint64(offset + 8, true);
+  const unsigned = hi << 64n | lo;
+  const SIGN_BIT = 1n << 127n;
+  if (unsigned >= SIGN_BIT) {
+    return unsigned - (1n << 128n);
+  }
+  return unsigned;
+}
 function parsePositionNftAccount(data) {
   if (data.length < POSITION_NFT_STATE_LEN) {
     throw new Error(
@@ -1584,8 +1630,8 @@ function parsePositionNftAccount(data) {
     entryPriceE6: view.getBigUint64(88, true),
     positionSize: view.getBigUint64(96, true),
     isLong: data[104] === 1,
-    positionBasisQ: view.getBigInt64(112, true) | view.getBigInt64(120, true) << 64n,
-    lastFundingIndexE18: view.getBigInt64(128, true) | view.getBigInt64(136, true) << 64n,
+    positionBasisQ: readI128FromView(view, 112),
+    lastFundingIndexE18: readI128FromView(view, 128),
     mintedAt: view.getBigInt64(144, true),
     accountId: view.getBigUint64(152, true)
   };
@@ -2862,8 +2908,12 @@ function buildLayoutV12_17(maxAccounts, dataLen) {
     // 72
     configOffset: V0_HEADER_LEN,
     // 72
-    configLen: 432,
-    // upstream 400 + dex_pool 32
+    // configLen = 512 (SBF-aligned MarketConfig size after Phase A/B/E).
+    // Verified field-by-field against percolator-prog/src/percolator.rs MarketConfig struct.
+    // Missing 80 bytes from prior value 432: max_pnl_cap, last_audit_pause_slot,
+    // oi_cap_multiplier_bps, dispute_window_slots, dispute_bond_amount,
+    // lp_collateral_enabled, lp_collateral_ltv_bps, _new_fields_pad, pending_admin.
+    configLen: 512,
     reservedOff: V1_RESERVED_OFF,
     // 80
     engineOff,
@@ -6400,6 +6450,7 @@ async function resolvePrice(mint, signal, options) {
   };
 }
 export {
+  ACCOUNTS_ACCEPT_ADMIN,
   ACCOUNTS_ADVANCE_ORACLE_PHASE,
   ACCOUNTS_AUDIT_CRANK,
   ACCOUNTS_BURN_POSITION_NFT,

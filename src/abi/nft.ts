@@ -227,6 +227,35 @@ export interface PositionNftState {
 }
 
 /**
+ * Read a little-endian signed i128 from a DataView at `offset`.
+ *
+ * Both 64-bit halves are read as UNSIGNED to avoid the sign-extension that
+ * `getBigInt64` applies to the low half. If bit 127 of the combined 128-bit
+ * value is set the result is negative and two's-complement sign extension is
+ * applied explicitly.
+ *
+ * Bug fixed (S-3): the prior code used `getBigInt64` for the low half, which
+ * returns a *signed* BigInt. When bit 63 of the low half is set the value is
+ * negative (e.g. -1 rather than 0xffffffffffffffff), so OR-ing it with the
+ * shifted high half collapses the sign bit into all high bits and corrupts the
+ * result.
+ *
+ * @param view   DataView wrapping the raw account bytes
+ * @param offset Byte offset of the i128 field (little-endian)
+ * @returns      Signed BigInt in the range [-2^127, 2^127)
+ */
+function readI128FromView(view: DataView, offset: number): bigint {
+  const lo = view.getBigUint64(offset, true);
+  const hi = view.getBigUint64(offset + 8, true);
+  const unsigned = (hi << 64n) | lo;
+  const SIGN_BIT = 1n << 127n;
+  if (unsigned >= SIGN_BIT) {
+    return unsigned - (1n << 128n);
+  }
+  return unsigned;
+}
+
+/**
  * Parse a PositionNft account from raw bytes.
  * @throws if data is shorter than POSITION_NFT_STATE_LEN (208 bytes).
  */
@@ -248,8 +277,8 @@ export function parsePositionNftAccount(data: Uint8Array): PositionNftState {
     entryPriceE6: view.getBigUint64(88, true),
     positionSize: view.getBigUint64(96, true),
     isLong: data[104] === 1,
-    positionBasisQ: view.getBigInt64(112, true) | (view.getBigInt64(120, true) << 64n),
-    lastFundingIndexE18: view.getBigInt64(128, true) | (view.getBigInt64(136, true) << 64n),
+    positionBasisQ: readI128FromView(view, 112),
+    lastFundingIndexE18: readI128FromView(view, 128),
     mintedAt: view.getBigInt64(144, true),
     accountId: view.getBigUint64(152, true),
   };
