@@ -2,7 +2,7 @@
  * Percolator program error definitions.
  * Each error includes a name and actionable guidance.
  */
-interface ErrorInfo {
+export interface ErrorInfo {
   name: string;
   hint: string;
 }
