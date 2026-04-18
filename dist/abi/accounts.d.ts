@@ -17,7 +17,15 @@ export declare const ACCOUNTS_INIT_MARKET: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_INIT_USER: readonly AccountSpec[];
 /**
- * InitLP: 5 accounts (clock/oracle removed in commit 410f947)
+ * InitLP: 6 accounts
+ * Program at percolator.rs:6607 calls expect_len(accounts, 6).
+ * The 6th account (accounts[5]) is the clock sysvar — used via Clock::from_account_info.
+ * [0] user         signer, writable (LP owner; pays fee)
+ * [1] slab         writable
+ * [2] userAta      writable (collateral source for fee)
+ * [3] vault        writable (collateral destination)
+ * [4] tokenProgram read-only
+ * [5] clock        read-only (SYSVAR_CLOCK_PUBKEY)
  */
 export declare const ACCOUNTS_INIT_LP: readonly AccountSpec[];
 /**
@@ -62,7 +70,23 @@ export declare const ACCOUNTS_SET_RISK_THRESHOLD: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_UPDATE_ADMIN: readonly AccountSpec[];
 /**
- * CloseSlab: 2 accounts
+ * AcceptAdmin: 2 accounts (tag 82)
+ * Second half of two-step admin transfer. The proposed new admin must sign to
+ * complete the transfer. Program at percolator.rs:7994 calls expect_len(accounts, 2).
+ * [0] pendingAdmin  signer, writable (must match config.pending_admin)
+ * [1] slab          writable
+ */
+export declare const ACCOUNTS_ACCEPT_ADMIN: readonly AccountSpec[];
+/**
+ * CloseSlab: 6 accounts
+ * Drains vault and recovers rent after market is fully resolved and all accounts closed.
+ * Program at percolator.rs:8033 calls expect_len(accounts, 6).
+ * [0] dest            signer, writable (receives rent + drained vault tokens)
+ * [1] slab            writable
+ * [2] vault           writable (token account — drained)
+ * [3] vaultAuthority  read-only (PDA that signs the drain transfer)
+ * [4] destAta         writable (dest's token ATA receiving drained tokens)
+ * [5] tokenProgram    read-only
  */
 export declare const ACCOUNTS_CLOSE_SLAB: readonly AccountSpec[];
 /**

@@ -135,6 +135,46 @@ export declare const IX_TAG: {
  * Note: indexFeedId is the Pyth Pull feed ID (32 bytes hex), NOT an oracle pubkey.
  * The program validates PriceUpdateV2 accounts against this feed ID at runtime.
  */
+/**
+ * Optional 66-byte extended tail for InitMarket (S-4).
+ *
+ * When present and any field is non-zero the encoder appends a 66-byte block
+ * in the exact order that the program reads it (percolator.rs:1516-1545):
+ *   insurance_withdraw_max_bps          u16  (2 bytes)
+ *   insurance_withdraw_cooldown_slots   u64  (8 bytes)
+ *   permissionless_resolve_stale_slots  u64  (8 bytes)
+ *   funding_horizon_slots               u64  (8 bytes)
+ *   funding_k_bps                       u64  (8 bytes)
+ *   funding_max_premium_bps             i64  (8 bytes)
+ *   funding_max_bps_per_slot            i64  (8 bytes)
+ *   mark_min_fee                        u64  (8 bytes)
+ *   force_close_delay_slots             u64  (8 bytes)
+ *   total = 2 + 8*8 = 66 bytes
+ *
+ * When absent (or all fields are zero) the encoder omits the tail and the
+ * program treats all extended fields as their default zero values. This
+ * preserves full backward compatibility with existing 344-byte payloads.
+ */
+export interface InitMarketExtendedTail {
+    /** Maximum percentage of insurance fund withdrawable per cooldown window (0–10 000 bps). */
+    insuranceWithdrawMaxBps: number;
+    /** Slots that must elapse between insurance withdrawals. Required when insuranceWithdrawMaxBps > 0. */
+    insuranceWithdrawCooldownSlots: bigint | string;
+    /** Slots after which an unresolved market may be permissionlessly resolved. */
+    permissionlessResolveStaleSlots: bigint | string;
+    /** Funding rate horizon in slots (custom_funding_k denominator). */
+    fundingHorizonSlots: bigint | string;
+    /** Funding rate K parameter in bps (0 = disabled). */
+    fundingKBps: bigint | string;
+    /** Maximum funding premium in bps (i64 — may be negative to flip direction). */
+    fundingMaxPremiumBps: bigint | string;
+    /** Maximum funding rate change per slot in bps (i64). */
+    fundingMaxBpsPerSlot: bigint | string;
+    /** Minimum fee charged per mark-price update (u64, in collateral base units). */
+    markMinFee: bigint | string;
+    /** Slots to delay forced close after trigger condition is met (0 = immediate). */
+    forceCloseDelaySlots: bigint | string;
+}
 export interface InitMarketArgs {
     admin: PublicKey | string;
     collateralMint: PublicKey | string;
@@ -171,7 +211,49 @@ export interface InitMarketArgs {
     minInitialDeposit: bigint | string;
     minNonzeroMmReq: bigint | string;
     minNonzeroImReq: bigint | string;
+    /**
+     * Optional 66-byte extended tail (S-4).
+     * When present and any field is non-zero, appended after the 344-byte base payload.
+     * When absent (or all zeros), the base 344-byte payload is sent and the program
+     * uses default zero values for all extended fields.
+     * @see InitMarketExtendedTail
+     */
+    extendedTail?: InitMarketExtendedTail;
 }
+/**
+ * Encode InitMarket instruction data.
+ *
+ * Produces either a 344-byte base payload (no extended tail) or a 410-byte
+ * payload (344 + 66 extended tail) depending on whether `args.extendedTail`
+ * is provided and contains at least one non-zero field.
+ *
+ * The program (percolator.rs:1527-1545) treats an empty `rest` as all-zero
+ * defaults, so the 344-byte form is fully backward-compatible.
+ *
+ * @param args InitMarket arguments
+ * @returns Encoded instruction bytes
+ *
+ * @example
+ * ```ts
+ * const ix = encodeInitMarket({
+ *   admin: adminPk,
+ *   collateralMint: mintPk,
+ *   indexFeedId: "0000...0000",
+ *   // ... required fields ...
+ *   extendedTail: {
+ *     insuranceWithdrawMaxBps: 500,
+ *     insuranceWithdrawCooldownSlots: 216000n,
+ *     permissionlessResolveStaleSlots: 0n,
+ *     fundingHorizonSlots: 0n,
+ *     fundingKBps: 0n,
+ *     fundingMaxPremiumBps: 0n,
+ *     fundingMaxBpsPerSlot: 0n,
+ *     markMinFee: 0n,
+ *     forceCloseDelaySlots: 0n,
+ *   },
+ * });
+ * ```
+ */
 export declare function encodeInitMarket(args: InitMarketArgs): Uint8Array;
 /**
  * InitUser instruction data (9 bytes)
