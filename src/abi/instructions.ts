@@ -155,6 +155,13 @@ export const IX_TAG = {
 } as const;
 Object.freeze(IX_TAG);
 
+function removedInstruction(name: string, tag: number, replacement?: string): never {
+  const suffix = replacement ? ` Use ${replacement} instead.` : "";
+  throw new Error(
+    `${name} (tag ${tag}) is not accepted by the deployed wrapper program.${suffix}`,
+  );
+}
+
 /**
  * InitMarket instruction data (256 bytes total)
  * Layout: tag(1) + admin(32) + mint(32) + indexFeedId(32) +
@@ -633,14 +640,8 @@ export interface TradeCpiV2Args {
 }
 
 /** @deprecated Tag 35 removed in v12.17. Use encodeTradeCpi with limitPriceE6 instead. */
-export function encodeTradeCpiV2(args: TradeCpiV2Args): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.TradeCpiV2),
-    encU16(args.lpIdx),
-    encU16(args.userIdx),
-    encI128(args.size),
-    encU8(args.bump),
-  );
+export function encodeTradeCpiV2(_args: TradeCpiV2Args): Uint8Array {
+  return removedInstruction("TradeCpiV2", IX_TAG.TradeCpiV2, "encodeTradeCpi()");
 }
 
 /**
@@ -651,8 +652,8 @@ export interface UnresolveMarketArgs {
 }
 
 /** @deprecated Tag 36 removed in v12.17. Will fail on-chain. */
-export function encodeUnresolveMarket(args: UnresolveMarketArgs): Uint8Array {
-  return concatBytes(encU8(IX_TAG.UnresolveMarket), encU64(args.confirmation));
+export function encodeUnresolveMarket(_args: UnresolveMarketArgs): Uint8Array {
+  return removedInstruction("UnresolveMarket", IX_TAG.UnresolveMarket, "encodeResolveMarket()");
 }
 
 /**
@@ -664,11 +665,8 @@ export interface SetRiskThresholdArgs {
 }
 
 /** @deprecated Tag 11 removed in v12.17. Will fail on-chain. */
-export function encodeSetRiskThreshold(args: SetRiskThresholdArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.SetRiskThreshold),
-    encU128(args.newThreshold),
-  );
+export function encodeSetRiskThreshold(_args: SetRiskThresholdArgs): Uint8Array {
+  return removedInstruction("SetRiskThreshold", IX_TAG.SetRiskThreshold, "encodeInitMarket()");
 }
 
 /**
@@ -722,11 +720,8 @@ export interface SetMaintenanceFeeArgs {
 }
 
 /** @deprecated Tag 15 removed in v12.17. Will fail on-chain. */
-export function encodeSetMaintenanceFee(args: SetMaintenanceFeeArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.SetMaintenanceFee),
-    encU128(args.newFee),
-  );
+export function encodeSetMaintenanceFee(_args: SetMaintenanceFeeArgs): Uint8Array {
+  return removedInstruction("SetMaintenanceFee", IX_TAG.SetMaintenanceFee, "encodeInitMarket()");
 }
 
 /**
@@ -798,16 +793,12 @@ export interface UpdateRiskParamsArgs {
 }
 
 /** @deprecated Use encodeSetInsuranceWithdrawPolicy (tag 22). This sends wrong wire format. */
-export function encodeUpdateRiskParams(args: UpdateRiskParamsArgs): Uint8Array {
-  const parts = [
-    encU8(IX_TAG.UpdateRiskParams),
-    encU64(args.initialMarginBps),
-    encU64(args.maintenanceMarginBps),
-  ];
-  if (args.tradingFeeBps !== undefined) {
-    parts.push(encU64(args.tradingFeeBps));
-  }
-  return concatBytes(...parts);
+export function encodeUpdateRiskParams(_args: UpdateRiskParamsArgs): Uint8Array {
+  return removedInstruction(
+    "UpdateRiskParams",
+    IX_TAG.UpdateRiskParams,
+    "encodeSetInsuranceWithdrawPolicy()",
+  );
 }
 
 /**
@@ -827,9 +818,10 @@ export const UNRESOLVE_CONFIRMATION = 0xDEAD_BEEF_CAFE_1234n;
  * Use encodeWithdrawInsuranceLimited instead.
  */
 export function encodeRenounceAdmin(): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.RenounceAdmin),
-    encU64(RENOUNCE_ADMIN_CONFIRMATION),
+  return removedInstruction(
+    "RenounceAdmin",
+    IX_TAG.RenounceAdmin,
+    "encodeWithdrawInsuranceLimited()",
   );
 }
 
@@ -918,16 +910,8 @@ export interface SetPythOracleArgs {
 
 /** @deprecated Tag 32 removed in v12.17. Pyth is configured at InitMarket. */
 export function encodeSetPythOracle(args: SetPythOracleArgs): Uint8Array {
-  if (args.feedId.length !== 32) throw new Error('feedId must be 32 bytes');
-  if (args.maxStalenessSecs <= 0n) throw new Error('maxStalenessSecs must be > 0');
-
-  const buf = new Uint8Array(43);
-  const dv = new DataView(buf.buffer);
-  buf[0] = 32;
-  buf.set(args.feedId, 1);
-  dv.setBigUint64(33, args.maxStalenessSecs, true);
-  dv.setUint16(41, args.confFilterBps, true);
-  return buf;
+  void args;
+  return removedInstruction("SetPythOracle", IX_TAG.SetPythOracle, "encodeInitMarket()");
 }
 
 /**
@@ -965,7 +949,7 @@ export async function derivePythPriceUpdateAccount(
  * Sending this instruction will fail with InvalidInstructionData.
  */
 export function encodeUpdateMarkPrice(): Uint8Array {
-  return new Uint8Array([33]);
+  return removedInstruction("UpdateMarkPrice", IX_TAG.UpdateMarkPrice, "encodeUpdateHyperpMark()");
 }
 
 /**
@@ -1047,7 +1031,12 @@ export function encodeFundMarketInsurance(args: { amount: bigint }): Uint8Array 
  * Accounts: [admin(signer), slab(writable)]
  */
 export function encodeSetInsuranceIsolation(args: { bps: number }): Uint8Array {
-  return concatBytes(encU8(IX_TAG.SetInsuranceIsolation), encU16(args.bps));
+  void args;
+  return removedInstruction(
+    "SetInsuranceIsolation",
+    IX_TAG.SetInsuranceIsolation,
+    "encodeFundMarketInsurance()",
+  );
 }
 
 // ============================================================================
@@ -1342,7 +1331,7 @@ export function checkPhaseTransition(
  * @deprecated Not yet implemented on-chain — will fail with InvalidInstructionData.
  */
 export function encodeSlashCreationDeposit(): Uint8Array {
-  return encU8(IX_TAG.SlashCreationDeposit);
+  return removedInstruction("SlashCreationDeposit", IX_TAG.SlashCreationDeposit);
 }
 
 // ============================================================================
@@ -1365,11 +1354,8 @@ export interface InitSharedVaultArgs {
 }
 
 export function encodeInitSharedVault(args: InitSharedVaultArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.InitSharedVault),
-    encU64(args.epochDurationSlots),
-    encU16(args.maxMarketExposureBps),
-  );
+  void args;
+  return removedInstruction("InitSharedVault", IX_TAG.InitSharedVault);
 }
 
 /**
@@ -1390,7 +1376,8 @@ export interface AllocateMarketArgs {
 }
 
 export function encodeAllocateMarket(args: AllocateMarketArgs): Uint8Array {
-  return concatBytes(encU8(IX_TAG.AllocateMarket), encU128(args.amount));
+  void args;
+  return removedInstruction("AllocateMarket", IX_TAG.AllocateMarket);
 }
 
 /**
@@ -1410,7 +1397,8 @@ export interface QueueWithdrawalSVArgs {
 }
 
 export function encodeQueueWithdrawalSV(args: QueueWithdrawalSVArgs): Uint8Array {
-  return concatBytes(encU8(IX_TAG.QueueWithdrawalSV), encU64(args.lpAmount));
+  void args;
+  return removedInstruction("QueueWithdrawalSV", IX_TAG.QueueWithdrawalSV);
 }
 
 /**
@@ -1430,7 +1418,7 @@ export function encodeQueueWithdrawalSV(args: QueueWithdrawalSVArgs): Uint8Array
  *   7. []                 Token program
  */
 export function encodeClaimEpochWithdrawal(): Uint8Array {
-  return encU8(IX_TAG.ClaimEpochWithdrawal);
+  return removedInstruction("ClaimEpochWithdrawal", IX_TAG.ClaimEpochWithdrawal);
 }
 
 /**
@@ -1444,7 +1432,7 @@ export function encodeClaimEpochWithdrawal(): Uint8Array {
  *   1. [writable]         Shared vault PDA
  */
 export function encodeAdvanceEpoch(): Uint8Array {
-  return encU8(IX_TAG.AdvanceEpoch);
+  return removedInstruction("AdvanceEpoch", IX_TAG.AdvanceEpoch);
 }
 
 // PERC-628: Tag 63 ─────────────────────────────────────────────────────────

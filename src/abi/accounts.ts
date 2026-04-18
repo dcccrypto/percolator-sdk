@@ -512,6 +512,33 @@ export const ACCOUNTS_EXECUTE_ADL: readonly AccountSpec[] = [
   { name: "oracle", signer: false, writable: false },
 ] as const;
 
+export const ACCOUNTS_RESOLVE_PERMISSIONLESS: readonly AccountSpec[] = [
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false },
+] as const;
+
+export const ACCOUNTS_FORCE_CLOSE_RESOLVED: readonly AccountSpec[] = [
+  { name: "slab", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "ownerAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false },
+] as const;
+
+export const ACCOUNTS_ADMIN_FORCE_CLOSE: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "ownerAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false },
+] as const;
+
 // ============================================================================
 // CloseStaleSlabs (tag 51) / ReclaimSlabRent (tag 52)
 // ============================================================================
@@ -558,6 +585,98 @@ export const ACCOUNTS_ADVANCE_ORACLE_PHASE: readonly AccountSpec[] = [
   { name: "slab", signer: false, writable: true },
 ] as const;
 
+export const ACCOUNTS_UPDATE_HYPERP_MARK: readonly AccountSpec[] = [
+  { name: "slab", signer: false, writable: true },
+  { name: "dexPool", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false },
+] as const;
+
+export const ACCOUNTS_CREATE_LP_VAULT: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "lpVaultState", signer: false, writable: true },
+  { name: "lpVaultMint", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "rent", signer: false, writable: false },
+] as const;
+
+export const ACCOUNTS_LP_VAULT_DEPOSIT: readonly AccountSpec[] = [
+  { name: "depositor", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "depositorAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpVaultMint", signer: false, writable: true },
+  { name: "depositorLpAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true },
+] as const;
+
+export const ACCOUNTS_LP_VAULT_CRANK_FEES: readonly AccountSpec[] = [
+  { name: "slab", signer: false, writable: true },
+  { name: "lpVaultState", signer: false, writable: true },
+] as const;
+
+export const ACCOUNTS_CHALLENGE_SETTLEMENT: readonly AccountSpec[] = [
+  { name: "challenger", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "dispute", signer: false, writable: true },
+  { name: "challengerAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+] as const;
+
+export const ACCOUNTS_RESOLVE_DISPUTE: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "dispute", signer: false, writable: true },
+  { name: "challengerAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+] as const;
+
+export const ACCOUNTS_DEPOSIT_LP_COLLATERAL: readonly AccountSpec[] = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "userLpAta", signer: false, writable: true },
+  { name: "lpVaultMint", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpEscrow", signer: false, writable: true },
+] as const;
+
+export const ACCOUNTS_WITHDRAW_LP_COLLATERAL: readonly AccountSpec[] = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "userLpAta", signer: false, writable: true },
+  { name: "lpVaultMint", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpEscrow", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+] as const;
+
+export const ACCOUNTS_SET_OFFSET_PAIR: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slabA", signer: false, writable: true },
+  { name: "slabB", signer: false, writable: true },
+  { name: "pairPda", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false },
+] as const;
+
+export const ACCOUNTS_ATTEST_CROSS_MARGIN: readonly AccountSpec[] = [
+  { name: "payer", signer: true, writable: true },
+  { name: "slabA", signer: false, writable: true },
+  { name: "slabB", signer: false, writable: true },
+  { name: "attestation", signer: false, writable: true },
+  { name: "pairPda", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+] as const;
+
 // ============================================================================
 // PERC-8110: SetOiImbalanceHardBlock
 // ============================================================================
@@ -567,6 +686,26 @@ export const ACCOUNTS_ADVANCE_ORACLE_PHASE: readonly AccountSpec[] = [
  * Sets the OI imbalance hard-block threshold (admin only)
  */
 export const ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+export const ACCOUNTS_SET_MAX_PNL_CAP: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+export const ACCOUNTS_SET_OI_CAP_MULTIPLIER: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+export const ACCOUNTS_SET_DISPUTE_PARAMS: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+] as const;
+
+export const ACCOUNTS_SET_LP_COLLATERAL_PARAMS: readonly AccountSpec[] = [
   { name: "admin", signer: true, writable: false },
   { name: "slab", signer: false, writable: true },
 ] as const;
@@ -643,6 +782,12 @@ export const ACCOUNTS_CLEAR_PENDING_SETTLEMENT: readonly AccountSpec[] = [
   { name: "positionNftPda", signer: false, writable: true },
 ] as const;
 
+export const ACCOUNTS_TRANSFER_OWNERSHIP_CPI: readonly AccountSpec[] = [
+  { name: "caller", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "nftProgram", signer: false, writable: false },
+] as const;
+
 // ============================================================================
 // PERC-8111: SetWalletCap
 // ============================================================================
@@ -654,6 +799,21 @@ export const ACCOUNTS_CLEAR_PENDING_SETTLEMENT: readonly AccountSpec[] = [
 export const ACCOUNTS_SET_WALLET_CAP: readonly AccountSpec[] = [
   { name: "admin", signer: true, writable: false },
   { name: "slab", signer: false, writable: true },
+] as const;
+
+export const ACCOUNTS_RESCUE_ORPHAN_VAULT: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "adminAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "vaultPda", signer: false, writable: false },
+] as const;
+
+export const ACCOUNTS_CLOSE_ORPHAN_SLAB: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
 ] as const;
 
 // ============================================================================

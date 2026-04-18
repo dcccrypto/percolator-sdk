@@ -35,12 +35,14 @@ import {
   encodeStakeAdminSetMaintenanceFee,
   encodeStakeAdminResolveMarket,
   encodeStakeAdminWithdrawInsurance,
+  encodeStakeReturnInsurance,
   encodeStakeAdminSetInsurancePolicy,
   encodeStakeAccrueFees,
   encodeStakeInitTradingPool,
   encodeStakeAdminSetHwmConfig,
   encodeStakeAdminSetTrancheConfig,
   encodeStakeDepositJunior,
+  encodeStakeSetMarketResolved,
   initPoolAccounts,
   depositAccounts,
   withdrawAccounts,
@@ -321,61 +323,45 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
   });
 
   describe('Phase 5: Admin CPI Forwarding', () => {
-    it('AdminSetOracleAuthority encodes pubkey for CPI', () => {
+    it('AdminSetOracleAuthority rejects removed stake tag 6', () => {
       const newAuth = Keypair.generate().publicKey;
-      const data = encodeStakeAdminSetOracleAuthority(newAuth);
-      expect(data[0]).toBe(STAKE_IX.AdminSetOracleAuthority);
-      expect(new PublicKey(data.subarray(1, 33)).equals(newAuth)).toBe(true);
-      expect(data.length).toBe(33); // 1 tag + 32 pubkey
+      expect(() => encodeStakeAdminSetOracleAuthority(newAuth)).toThrow(/tag 6/i);
     });
 
-    it('AdminSetRiskThreshold encodes u128 for CPI', () => {
+    it('AdminSetRiskThreshold rejects removed stake tag 7', () => {
       const bigThreshold = (1n << 96n) + 42n; // exercises high word
-      const data = encodeStakeAdminSetRiskThreshold(bigThreshold);
-      expect(data[0]).toBe(STAKE_IX.AdminSetRiskThreshold);
-      const lo = readU64LE(data, 1);
-      const hi = readU64LE(data, 9);
-      expect(lo + (hi << 64n)).toBe(bigThreshold);
-      expect(data.length).toBe(17); // 1 tag + 16 u128
+      expect(() => encodeStakeAdminSetRiskThreshold(bigThreshold)).toThrow(/tag 7/i);
     });
 
-    it('AdminSetMaintenanceFee encodes u128 for CPI', () => {
-      const data = encodeStakeAdminSetMaintenanceFee(500n);
-      expect(data[0]).toBe(STAKE_IX.AdminSetMaintenanceFee);
-      const lo = readU64LE(data, 1);
-      const hi = readU64LE(data, 9);
-      expect(lo + (hi << 64n)).toBe(500n);
+    it('AdminSetMaintenanceFee rejects removed stake tag 8', () => {
+      expect(() => encodeStakeAdminSetMaintenanceFee(500n)).toThrow(/tag 8/i);
     });
 
-    it('AdminResolveMarket encodes tag-only', () => {
-      const data = encodeStakeAdminResolveMarket();
-      expect(data[0]).toBe(STAKE_IX.AdminResolveMarket);
-      expect(data.length).toBe(1);
+    it('AdminResolveMarket rejects removed stake tag 9', () => {
+      expect(() => encodeStakeAdminResolveMarket()).toThrow(/tag 9/i);
     });
 
-    it('AdminWithdrawInsurance encodes u64 amount', () => {
+    it('ReturnInsurance is the live tag 10 path', () => {
+      const data = encodeStakeReturnInsurance(777_000n);
+      expect(data[0]).toBe(STAKE_IX.ReturnInsurance);
+      expect(readU64LE(data, 1)).toBe(777_000n);
+      expect(data.length).toBe(9);
+    });
+
+    it('AdminWithdrawInsurance remains a deprecated alias for ReturnInsurance', () => {
       const data = encodeStakeAdminWithdrawInsurance(777_000n);
       expect(data[0]).toBe(STAKE_IX.AdminWithdrawInsurance);
       expect(readU64LE(data, 1)).toBe(777_000n);
       expect(data.length).toBe(9);
     });
 
-    it('AdminSetInsurancePolicy encodes pubkey + u64 + u16 + u64', () => {
+    it('AdminSetInsurancePolicy rejects removed stake tag 11', () => {
       const authority = Keypair.generate().publicKey;
-      const data = encodeStakeAdminSetInsurancePolicy(authority, 100_000n, 500, 100n);
-      expect(data[0]).toBe(STAKE_IX.AdminSetInsurancePolicy);
-      // 1 tag + 32 pubkey + 8 minWithdrawBase + 2 maxWithdrawBps + 8 cooldownSlots = 51
-      expect(data.length).toBe(51);
-      expect(new PublicKey(data.subarray(1, 33)).equals(authority)).toBe(true);
-      expect(readU64LE(data, 33)).toBe(100_000n);
-      expect(readU16LE(data, 41)).toBe(500);
-      expect(readU64LE(data, 43)).toBe(100n);
+      expect(() => encodeStakeAdminSetInsurancePolicy(authority, 100_000n, 500, 100n)).toThrow(/tag 11/i);
     });
 
-    it('TransferAdmin is tag-only', () => {
-      const data = encodeStakeTransferAdmin();
-      expect(data[0]).toBe(STAKE_IX.TransferAdmin);
-      expect(data.length).toBe(1);
+    it('TransferAdmin rejects removed stake tag 5', () => {
+      expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
     });
 
     it('UpdateConfig encodes optional fields correctly', () => {
@@ -405,6 +391,12 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       const neither = encodeStakeUpdateConfig(undefined, undefined);
       expect(neither[1]).toBe(0);
       expect(neither[10]).toBe(0);
+    });
+
+    it('SetMarketResolved uses live tag 18', () => {
+      const data = encodeStakeSetMarketResolved();
+      expect(data[0]).toBe(STAKE_IX.SetMarketResolved);
+      expect(data.length).toBe(1);
     });
   });
 });
@@ -458,34 +450,37 @@ describe('Stake PDA Chain — Multi-Market Isolation', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('Stake Instruction Tags — No Gaps or Conflicts', () => {
-  it('tags are contiguous 0..16', () => {
+  it('tags match the live on-chain mapping, including tombstones and aliases', () => {
     const tags = Object.values(STAKE_IX);
-    expect(tags).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(tags).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 14, 15, 16, 18]);
   });
 
-  it('each encoder produces the correct tag byte', () => {
-    const tagMap: [number, Uint8Array][] = [
+  it('live encoders produce the correct tag byte and tombstoned encoders throw', () => {
+    const liveTagMap: [number, Uint8Array][] = [
       [STAKE_IX.InitPool, encodeStakeInitPool(0n, 0n)],
       [STAKE_IX.Deposit, encodeStakeDeposit(0n)],
       [STAKE_IX.Withdraw, encodeStakeWithdraw(0n)],
       [STAKE_IX.FlushToInsurance, encodeStakeFlushToInsurance(0n)],
       [STAKE_IX.UpdateConfig, encodeStakeUpdateConfig()],
-      [STAKE_IX.TransferAdmin, encodeStakeTransferAdmin()],
-      [STAKE_IX.AdminSetOracleAuthority, encodeStakeAdminSetOracleAuthority(PublicKey.default)],
-      [STAKE_IX.AdminSetRiskThreshold, encodeStakeAdminSetRiskThreshold(0n)],
-      [STAKE_IX.AdminSetMaintenanceFee, encodeStakeAdminSetMaintenanceFee(0n)],
-      [STAKE_IX.AdminResolveMarket, encodeStakeAdminResolveMarket()],
+      [STAKE_IX.ReturnInsurance, encodeStakeReturnInsurance(0n)],
       [STAKE_IX.AdminWithdrawInsurance, encodeStakeAdminWithdrawInsurance(0n)],
-      [STAKE_IX.AdminSetInsurancePolicy, encodeStakeAdminSetInsurancePolicy(PublicKey.default, 0n, 0, 0n)],
       [STAKE_IX.AccrueFees, encodeStakeAccrueFees()],
       [STAKE_IX.InitTradingPool, encodeStakeInitTradingPool(0n, 0n)],
       [STAKE_IX.AdminSetHwmConfig, encodeStakeAdminSetHwmConfig(false, 0)],
       [STAKE_IX.AdminSetTrancheConfig, encodeStakeAdminSetTrancheConfig(0)],
       [STAKE_IX.DepositJunior, encodeStakeDepositJunior(0n)],
+      [STAKE_IX.SetMarketResolved, encodeStakeSetMarketResolved()],
     ];
 
-    for (const [expectedTag, data] of tagMap) {
+    for (const [expectedTag, data] of liveTagMap) {
       expect(data[0]).toBe(expectedTag);
     }
+
+    expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
+    expect(() => encodeStakeAdminSetOracleAuthority(PublicKey.default)).toThrow(/tag 6/i);
+    expect(() => encodeStakeAdminSetRiskThreshold(0n)).toThrow(/tag 7/i);
+    expect(() => encodeStakeAdminSetMaintenanceFee(0n)).toThrow(/tag 8/i);
+    expect(() => encodeStakeAdminResolveMarket()).toThrow(/tag 9/i);
+    expect(() => encodeStakeAdminSetInsurancePolicy(PublicKey.default, 0n, 0, 0n)).toThrow(/tag 11/i);
   });
 });

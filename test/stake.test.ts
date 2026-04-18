@@ -12,12 +12,15 @@ import {
   encodeStakeAdminSetMaintenanceFee,
   encodeStakeAdminResolveMarket,
   encodeStakeAdminWithdrawInsurance,
+  encodeStakeReturnInsurance,
   encodeStakeAccrueFees,
   encodeStakeInitTradingPool,
   encodeStakeAdminSetHwmConfig,
   encodeStakeAdminSetTrancheConfig,
   encodeStakeDepositJunior,
   encodeStakeAdminSetInsurancePolicy,
+  encodeStakeSetMarketResolved,
+  decodeStakePool,
   deriveStakePool,
   deriveStakeVaultAuth,
   deriveDepositPda,
@@ -65,42 +68,36 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
   });
 
   it("encodeStakeTransferAdmin", () => {
-    const data = encodeStakeTransferAdmin();
-    expect(data).toBeInstanceOf(Uint8Array);
-    expect(data[0]).toBe(STAKE_IX.TransferAdmin);
-    expect(data.length).toBe(1);
+    expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
   });
 
   it("encodeStakeAdminSetOracleAuthority", () => {
     const key = PublicKey.default;
-    const data = encodeStakeAdminSetOracleAuthority(key);    expect(data).toBeInstanceOf(Uint8Array);
-    expect(data[0]).toBe(STAKE_IX.AdminSetOracleAuthority);
-    expect(data.length).toBe(1 + 32);
+    expect(() => encodeStakeAdminSetOracleAuthority(key)).toThrow(/tag 6/i);
   });
 
   it("encodeStakeAdminSetRiskThreshold", () => {
-    const data = encodeStakeAdminSetRiskThreshold(1000n);
-    expect(data).toBeInstanceOf(Uint8Array);
-    expect(data[0]).toBe(STAKE_IX.AdminSetRiskThreshold);
-    expect(data.length).toBe(1 + 16);
+    expect(() => encodeStakeAdminSetRiskThreshold(1000n)).toThrow(/tag 7/i);
   });
 
   it("encodeStakeAdminSetMaintenanceFee", () => {
-    const data = encodeStakeAdminSetMaintenanceFee(50n);    expect(data).toBeInstanceOf(Uint8Array);
-    expect(data[0]).toBe(STAKE_IX.AdminSetMaintenanceFee);
-    expect(data.length).toBe(1 + 16);
+    expect(() => encodeStakeAdminSetMaintenanceFee(50n)).toThrow(/tag 8/i);
   });
 
   it("encodeStakeAdminResolveMarket", () => {
-    const data = encodeStakeAdminResolveMarket();
-    expect(data).toBeInstanceOf(Uint8Array);
-    expect(data[0]).toBe(STAKE_IX.AdminResolveMarket);
-    expect(data.length).toBe(1);
+    expect(() => encodeStakeAdminResolveMarket()).toThrow(/tag 9/i);
   });
 
   it("encodeStakeAdminWithdrawInsurance", () => {
     const data = encodeStakeAdminWithdrawInsurance(10_000n);    expect(data).toBeInstanceOf(Uint8Array);
     expect(data[0]).toBe(STAKE_IX.AdminWithdrawInsurance);
+    expect(data.length).toBe(1 + 8);
+  });
+
+  it("encodeStakeReturnInsurance", () => {
+    const data = encodeStakeReturnInsurance(10_000n);
+    expect(data).toBeInstanceOf(Uint8Array);
+    expect(data[0]).toBe(STAKE_IX.ReturnInsurance);
     expect(data.length).toBe(1 + 8);
   });
 
@@ -139,9 +136,49 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
 
   it("encodeStakeAdminSetInsurancePolicy", () => {
     const auth = PublicKey.default;
-    const data = encodeStakeAdminSetInsurancePolicy(auth, 100n, 5000, 86400n);    expect(data).toBeInstanceOf(Uint8Array);
-    expect(data[0]).toBe(STAKE_IX.AdminSetInsurancePolicy);
-    expect(data.length).toBe(1 + 32 + 8 + 2 + 8);
+    expect(() => encodeStakeAdminSetInsurancePolicy(auth, 100n, 5000, 86400n)).toThrow(/tag 11/i);
+  });
+
+  it("encodeStakeSetMarketResolved", () => {
+    const data = encodeStakeSetMarketResolved();
+    expect(data).toBeInstanceOf(Uint8Array);
+    expect(data[0]).toBe(STAKE_IX.SetMarketResolved);
+    expect(data.length).toBe(1);
+  });
+
+  it("decodeStakePool reads marketResolved and HWM fields from current reserved offsets", () => {
+    const buf = new Uint8Array(352);
+    const dv = new DataView(buf.buffer);
+    buf[0] = 1;
+    buf[1] = 2;
+    buf.set(PublicKey.default.toBytes(), 8);
+    buf.set(PublicKey.default.toBytes(), 40);
+    buf.set(PublicKey.default.toBytes(), 72);
+    buf.set(PublicKey.default.toBytes(), 104);
+    buf.set(PublicKey.default.toBytes(), 136);
+    dv.setBigUint64(168, 1n, true);
+    dv.setBigUint64(176, 2n, true);
+    dv.setBigUint64(184, 3n, true);
+    dv.setBigUint64(192, 4n, true);
+    dv.setBigUint64(200, 5n, true);
+    dv.setBigUint64(208, 6n, true);
+    dv.setBigUint64(216, 7n, true);
+    buf.set(PublicKey.default.toBytes(), 224);
+    dv.setBigUint64(256, 8n, true);
+    dv.setBigUint64(264, 9n, true);
+    dv.setBigUint64(272, 10n, true);
+    const reservedStart = 288;
+    buf[reservedStart + 9] = 1;
+    buf[reservedStart + 10] = 1;
+    dv.setBigUint64(reservedStart + 11, 123n, true);
+    dv.setBigUint64(reservedStart + 19, 456n, true);
+    dv.setUint16(reservedStart + 27, 777, true);
+
+    const pool = decodeStakePool(buf);
+    expect(pool.marketResolved).toBe(true);
+    expect(pool.hwmEnabled).toBe(true);
+    expect(pool.epochHighWaterTvl).toBe((456n << 64n) | 123n);
+    expect(pool.hwmFloorBps).toBe(777);
   });
 });
 

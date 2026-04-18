@@ -38,12 +38,21 @@ export declare const STAKE_IX: {
     readonly Withdraw: 2;
     readonly FlushToInsurance: 3;
     readonly UpdateConfig: 4;
+    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
     readonly TransferAdmin: 5;
+    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
     readonly AdminSetOracleAuthority: 6;
+    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
     readonly AdminSetRiskThreshold: 7;
+    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
     readonly AdminSetMaintenanceFee: 8;
+    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
     readonly AdminResolveMarket: 9;
+    /** Current on-chain tag 10: transfer withdrawn insurance back into the pool vault. */
+    readonly ReturnInsurance: 10;
+    /** @deprecated Legacy alias for ReturnInsurance. */
     readonly AdminWithdrawInsurance: 10;
+    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
     readonly AdminSetInsurancePolicy: 11;
     /** PERC-272: Accrue trading fees to LP vault */
     readonly AccrueFees: 12;
@@ -55,6 +64,8 @@ export declare const STAKE_IX: {
     readonly AdminSetTrancheConfig: 15;
     /** PERC-303: Deposit into junior (first-loss) tranche */
     readonly DepositJunior: 16;
+    /** Mark the pool as resolved after the wrapper market has been resolved directly. */
+    readonly SetMarketResolved: 18;
 };
 /** Derive the stake pool PDA for a given slab (market). */
 export declare function deriveStakePool(slab: PublicKey, programId?: PublicKey): [PublicKey, number];
@@ -72,17 +83,19 @@ export declare function encodeStakeWithdraw(lpAmount: bigint | number): Uint8Arr
 export declare function encodeStakeFlushToInsurance(amount: bigint | number): Uint8Array;
 /** Tag 4: UpdateConfig — update cooldown and/or deposit cap. */
 export declare function encodeStakeUpdateConfig(newCooldownSlots?: bigint | number, newDepositCap?: bigint | number): Uint8Array;
-/** Tag 5: TransferAdmin — transfer wrapper admin to pool PDA. */
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export declare function encodeStakeTransferAdmin(): Uint8Array;
-/** Tag 6: AdminSetOracleAuthority — forward to wrapper via CPI. */
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export declare function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Uint8Array;
-/** Tag 7: AdminSetRiskThreshold — forward to wrapper via CPI. */
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export declare function encodeStakeAdminSetRiskThreshold(newThreshold: bigint | number): Uint8Array;
-/** Tag 8: AdminSetMaintenanceFee — forward to wrapper via CPI. */
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export declare function encodeStakeAdminSetMaintenanceFee(newFee: bigint | number): Uint8Array;
-/** Tag 9: AdminResolveMarket — forward to wrapper via CPI. */
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export declare function encodeStakeAdminResolveMarket(): Uint8Array;
-/** Tag 10: AdminWithdrawInsurance — withdraw insurance after market resolution. */
+/** Tag 10: ReturnInsurance — transfer withdrawn insurance back into the stake pool vault. */
+export declare function encodeStakeReturnInsurance(amount: bigint | number): Uint8Array;
+/** @deprecated Legacy alias for tag 10. Current on-chain semantics are ReturnInsurance. */
 export declare function encodeStakeAdminWithdrawInsurance(amount: bigint | number): Uint8Array;
 /** Tag 12: AccrueFees — permissionless: accrue trading fees to LP vault. */
 export declare function encodeStakeAccrueFees(): Uint8Array;
@@ -94,7 +107,9 @@ export declare function encodeStakeAdminSetHwmConfig(enabled: boolean, hwmFloorB
 export declare function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps: number): Uint8Array;
 /** Tag 16 (PERC-303): DepositJunior — deposit into first-loss junior tranche. */
 export declare function encodeStakeDepositJunior(amount: bigint | number): Uint8Array;
-/** Tag 11: AdminSetInsurancePolicy — set withdrawal policy on wrapper. */
+/** Tag 18: SetMarketResolved — blocks new deposits after the wrapper market is resolved. */
+export declare function encodeStakeSetMarketResolved(): Uint8Array;
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export declare function encodeStakeAdminSetInsurancePolicy(authority: PublicKey, minWithdrawBase: bigint | number, maxWithdrawBps: number, cooldownSlots: bigint | number): Uint8Array;
 /**
  * Decoded StakePool state (352 bytes on-chain).
@@ -105,6 +120,7 @@ export interface StakePoolState {
     bump: number;
     vaultAuthorityBump: number;
     adminTransferred: boolean;
+    marketResolved: boolean;
     slab: PublicKey;
     admin: PublicKey;
     collateralMint: PublicKey;

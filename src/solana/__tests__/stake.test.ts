@@ -18,8 +18,10 @@ import {
   encodeStakeAdminSetMaintenanceFee,
   encodeStakeAdminResolveMarket,
   encodeStakeAdminWithdrawInsurance,
+  encodeStakeReturnInsurance,
   encodeStakeAdminSetInsurancePolicy,
   encodeStakeAdminSetHwmConfig,
+  encodeStakeSetMarketResolved,
   initPoolAccounts,
   depositAccounts,
   withdrawAccounts,
@@ -57,8 +59,10 @@ describe('STAKE_IX tags', () => {
     expect(STAKE_IX.AdminSetRiskThreshold).toBe(7);
     expect(STAKE_IX.AdminSetMaintenanceFee).toBe(8);
     expect(STAKE_IX.AdminResolveMarket).toBe(9);
+    expect(STAKE_IX.ReturnInsurance).toBe(10);
     expect(STAKE_IX.AdminWithdrawInsurance).toBe(10);
     expect(STAKE_IX.AdminSetInsurancePolicy).toBe(11);
+    expect(STAKE_IX.SetMarketResolved).toBe(18);
   });
 });
 
@@ -162,69 +166,53 @@ describe('Instruction encoders', () => {
     expect(readU64LE(buf, 11)).toBe(500n);
   });
 
-  it('encodeStakeTransferAdmin — tag 5, 1 byte', () => {
-    const buf = encodeStakeTransferAdmin();
-    expect(buf.length).toBe(1);
-    expect(buf[0]).toBe(5);
+  it('encodeStakeTransferAdmin rejects removed tag 5', () => {
+    expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
   });
 
-  it('encodeStakeAdminSetOracleAuthority — tag 6 + pubkey', () => {
+  it('encodeStakeAdminSetOracleAuthority rejects removed tag 6', () => {
     const auth = Keypair.generate().publicKey;
-    const buf = encodeStakeAdminSetOracleAuthority(auth);
-    expect(buf[0]).toBe(6);
-    expect(buf.length).toBe(1 + 32);
-    expect(new PublicKey(buf.subarray(1, 33)).equals(auth)).toBe(true);
+    expect(() => encodeStakeAdminSetOracleAuthority(auth)).toThrow(/tag 6/i);
   });
 
-  it('encodeStakeAdminSetRiskThreshold — tag 7 + u128', () => {
-    const buf = encodeStakeAdminSetRiskThreshold(12345n);
-    expect(buf[0]).toBe(7);
-    expect(buf.length).toBe(1 + 16);
-    const lo = readU64LE(buf, 1);
-    const hi = readU64LE(buf, 9);
-    expect(lo + (hi << 64n)).toBe(12345n);
+  it('encodeStakeAdminSetRiskThreshold rejects removed tag 7', () => {
+    expect(() => encodeStakeAdminSetRiskThreshold(12345n)).toThrow(/tag 7/i);
   });
 
-  it('encodeStakeAdminSetRiskThreshold — exercises u128 high word', () => {
+  it('encodeStakeAdminSetRiskThreshold still rejects large values because tag 7 is dead', () => {
     const largeValue = (1n << 64n) + 1n; // requires non-zero high word
-    const buf = encodeStakeAdminSetRiskThreshold(largeValue);
-    const lo = readU64LE(buf, 1);
-    const hi = readU64LE(buf, 9);
-    expect(lo).toBe(1n);
-    expect(hi).toBe(1n);
-    expect(lo + (hi << 64n)).toBe(largeValue);
+    expect(() => encodeStakeAdminSetRiskThreshold(largeValue)).toThrow(/tag 7/i);
   });
 
-  it('encodeStakeAdminSetMaintenanceFee — tag 8 + u128 payload', () => {
-    const buf = encodeStakeAdminSetMaintenanceFee(77n);
-    expect(buf[0]).toBe(8);
-    expect(buf.length).toBe(1 + 16);
-    const lo = readU64LE(buf, 1);
-    const hi = readU64LE(buf, 9);
-    expect(lo + (hi << 64n)).toBe(77n);
+  it('encodeStakeAdminSetMaintenanceFee rejects removed tag 8', () => {
+    expect(() => encodeStakeAdminSetMaintenanceFee(77n)).toThrow(/tag 8/i);
   });
 
-  it('encodeStakeAdminResolveMarket — tag 9, 1 byte', () => {
-    const buf = encodeStakeAdminResolveMarket();
-    expect(buf.length).toBe(1);
-    expect(buf[0]).toBe(9);
+  it('encodeStakeAdminResolveMarket rejects removed tag 9', () => {
+    expect(() => encodeStakeAdminResolveMarket()).toThrow(/tag 9/i);
   });
 
-  it('encodeStakeAdminWithdrawInsurance — tag 10 + amount', () => {
+  it('encodeStakeAdminWithdrawInsurance aliases ReturnInsurance at tag 10', () => {
     const buf = encodeStakeAdminWithdrawInsurance(1234n);
     expect(buf[0]).toBe(10);
     expect(readU64LE(buf, 1)).toBe(1234n);
   });
 
-  it('encodeStakeAdminSetInsurancePolicy — tag 11 + pubkey + u64 + u16 + u64', () => {
+  it('encodeStakeReturnInsurance — tag 10 + amount', () => {
+    const buf = encodeStakeReturnInsurance(1234n);
+    expect(buf[0]).toBe(10);
+    expect(readU64LE(buf, 1)).toBe(1234n);
+  });
+
+  it('encodeStakeAdminSetInsurancePolicy rejects removed tag 11', () => {
     const auth = Keypair.generate().publicKey;
-    const buf = encodeStakeAdminSetInsurancePolicy(auth, 100n, 500, 200n);
-    expect(buf[0]).toBe(11);
-    expect(buf.length).toBe(1 + 32 + 8 + 2 + 8);
-    expect(new PublicKey(buf.subarray(1, 33)).equals(auth)).toBe(true);
-    expect(readU64LE(buf, 33)).toBe(100n);
-    expect(readU16LE(buf, 41)).toBe(500);
-    expect(readU64LE(buf, 43)).toBe(200n);
+    expect(() => encodeStakeAdminSetInsurancePolicy(auth, 100n, 500, 200n)).toThrow(/tag 11/i);
+  });
+
+  it('encodeStakeSetMarketResolved — tag 18', () => {
+    const buf = encodeStakeSetMarketResolved();
+    expect(buf.length).toBe(1);
+    expect(buf[0]).toBe(18);
   });
 
   it('encodeStakeDeposit accepts number', () => {
@@ -336,11 +324,11 @@ describe('negative value guards', () => {
   });
 
   it('encodeStakeAdminSetRiskThreshold rejects negative values', () => {
-    expect(() => encodeStakeAdminSetRiskThreshold(-1n)).toThrow('non-negative');
+    expect(() => encodeStakeAdminSetRiskThreshold(-1n)).toThrow(/tag 7/i);
   });
 
   it('encodeStakeAdminSetMaintenanceFee rejects negative values', () => {
-    expect(() => encodeStakeAdminSetMaintenanceFee(-1n)).toThrow('non-negative');
+    expect(() => encodeStakeAdminSetMaintenanceFee(-1n)).toThrow(/tag 8/i);
   });
 
   it('encodeStakeInitPool rejects negative cooldownSlots', () => {

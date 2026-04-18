@@ -317,12 +317,12 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeTopUpInsurance");
 }
 
-// Test SetRiskThreshold encoding (17 bytes: tag + u128)
+// Test SetRiskThreshold rejects removed tag 11
 {
-  const data = encodeSetRiskThreshold({ newThreshold: "1000000000000" });
-  assert(data.length === 17, "SetRiskThreshold length");
-  assert(data[0] === IX_TAG.SetRiskThreshold, "SetRiskThreshold tag byte");
-  console.log("✓ encodeSetRiskThreshold");
+  let threw = false;
+  try { encodeSetRiskThreshold({ newThreshold: "1000000000000" }); } catch { threw = true; }
+  assert(threw, "encodeSetRiskThreshold rejects removed tag");
+  console.log("✓ encodeSetRiskThreshold rejects removed tag");
 }
 
 // Test UpdateAdmin encoding (33 bytes: tag + pubkey)
@@ -402,100 +402,12 @@ console.log("\nTesting instruction encoders...\n");
 const TRADE_CPI_V2_TAG = 35;
 assert(IX_TAG.TradeCpiV2 === TRADE_CPI_V2_TAG, "TradeCpiV2 IX_TAG parity");
 
-// Test TradeCpiV2 encoding (22 bytes: tag + u16 + u16 + i128 + u8)
+// TradeCpiV2 was removed on-chain. Keep the tag constant for parity, but fail fast client-side.
 {
-  const data = encodeTradeCpiV2({ lpIdx: 2, userIdx: 3, size: "1000000", bump: 254 });
-  assert(data.length === 22, `TradeCpiV2 length: expected 22, got ${data.length}`);
-  assert(data[0] === TRADE_CPI_V2_TAG, "TradeCpiV2 tag byte (35)");
-  assertBuf(data.subarray(1, 3), [2, 0], "TradeCpiV2 lpIdx");
-  assertBuf(data.subarray(3, 5), [3, 0], "TradeCpiV2 userIdx");
-  // i128 LE of 1000000 = 0x0F4240
-  assertBuf(
-    data.subarray(5, 21),
-    [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "TradeCpiV2 size (1000000)"
-  );
-  assert(data[21] === 254, "TradeCpiV2 bump");
-  console.log("✓ encodeTradeCpiV2 (basic)");
-}
-
-// Test TradeCpiV2 with negative size
-{
-  const data = encodeTradeCpiV2({ lpIdx: 0, userIdx: 1, size: "-500", bump: 128 });
-  assert(data.length === 22, "TradeCpiV2 negative length");
-  assert(data[0] === TRADE_CPI_V2_TAG, "TradeCpiV2 negative tag");
-  // i128 LE of -500
-  assertBuf(
-    data.subarray(5, 21),
-    [12, 254, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255],
-    "TradeCpiV2 negative size (-500)"
-  );
-  assert(data[21] === 128, "TradeCpiV2 negative bump");
-  console.log("✓ encodeTradeCpiV2 (negative size)");
-}
-
-// Test TradeCpiV2 with zero bump
-{
-  const data = encodeTradeCpiV2({ lpIdx: 5, userIdx: 10, size: "0", bump: 0 });
-  assert(data.length === 22, "TradeCpiV2 zero-bump length");
-  assert(data[21] === 0, "TradeCpiV2 zero bump");
-  assertBuf(
-    data.subarray(5, 21),
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "TradeCpiV2 zero size"
-  );
-  console.log("✓ encodeTradeCpiV2 (zero bump, zero size)");
-}
-
-// Test TradeCpiV2 with max u64-range size and max bump (255)
-{
-  const maxU64 = (1n << 64n) - 1n; // 18446744073709551615
-  const data = encodeTradeCpiV2({ lpIdx: 0xFFFF, userIdx: 0xFFFF, size: maxU64, bump: 255 });
-  assert(data.length === 22, "TradeCpiV2 max length");
-  assertBuf(data.subarray(1, 3), [255, 255], "TradeCpiV2 max lpIdx");
-  assertBuf(data.subarray(3, 5), [255, 255], "TradeCpiV2 max userIdx");
-  // i128 LE of max u64: 8 bytes of 0xFF then 8 bytes of 0x00
-  assertBuf(
-    data.subarray(5, 21),
-    [255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0],
-    "TradeCpiV2 max-u64 size"
-  );
-  assert(data[21] === 255, "TradeCpiV2 max bump");
-  console.log("✓ encodeTradeCpiV2 (max values)");
-}
-
-// Test TradeCpiV2 round-trip: encode then manually decode and compare
-{
-  const args = { lpIdx: 42, userIdx: 99, size: "-123456789", bump: 200 };
-  const data = encodeTradeCpiV2(args);
-
-  // Decode manually
-  const tag = data[0];
-  const lpIdx = data[1] | (data[2] << 8);
-  const userIdx = data[3] | (data[4] << 8);
-  const bump = data[21];
-
-  const sizeVal = decI128Le(data, 5);
-
-  assert(tag === TRADE_CPI_V2_TAG, "round-trip tag");
-  assert(lpIdx === 42, "round-trip lpIdx");
-  assert(userIdx === 99, "round-trip userIdx");
-  assert(sizeVal === -123456789n, `round-trip size: expected -123456789, got ${sizeVal}`);
-  assert(bump === 200, "round-trip bump");
-  console.log("✓ encodeTradeCpiV2 (round-trip)");
-}
-
-// Test TradeCpiV2 with boundary leverage value (large i128)
-{
-  // Max positive i128 / 2 — a large leverage scenario
-  const largeSize = (1n << 126n);
-  const data = encodeTradeCpiV2({ lpIdx: 1, userIdx: 1, size: largeSize, bump: 1 });
-  assert(data.length === 22, "TradeCpiV2 large-leverage length");
-
-  // Decode back
-  const decoded = decI128Le(data, 5);
-  assert(decoded === largeSize, `TradeCpiV2 large size round-trip: expected ${largeSize}, got ${decoded}`);
-  console.log("✓ encodeTradeCpiV2 (boundary leverage)");
+  let threw = false;
+  try { encodeTradeCpiV2({ lpIdx: 2, userIdx: 3, size: "1000000", bump: 254 }); } catch { threw = true; }
+  assert(threw, "encodeTradeCpiV2 rejects removed tag");
+  console.log("✓ encodeTradeCpiV2 rejects removed tag");
 }
 
 // ── PERC-608 / PERC-8111: New instruction encoders ──────────────────────────

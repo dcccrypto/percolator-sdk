@@ -85,12 +85,21 @@ export const STAKE_IX = {
   Withdraw: 2,
   FlushToInsurance: 3,
   UpdateConfig: 4,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   TransferAdmin: 5,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetOracleAuthority: 6,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetRiskThreshold: 7,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetMaintenanceFee: 8,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminResolveMarket: 9,
+  /** Current on-chain tag 10: transfer withdrawn insurance back into the pool vault. */
+  ReturnInsurance: 10,
+  /** @deprecated Legacy alias for ReturnInsurance. */
   AdminWithdrawInsurance: 10,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetInsurancePolicy: 11,
   /** PERC-272: Accrue trading fees to LP vault */
   AccrueFees: 12,
@@ -102,6 +111,8 @@ export const STAKE_IX = {
   AdminSetTrancheConfig: 15,
   /** PERC-303: Deposit into junior (first-loss) tranche */
   DepositJunior: 16,
+  /** Mark the pool as resolved after the wrapper market has been resolved directly. */
+  SetMarketResolved: 18,
 } as const;
 
 // ═══════════════════════════════════════════════════════════════
@@ -208,46 +219,51 @@ export function encodeStakeUpdateConfig(
   );
 }
 
-/** Tag 5: TransferAdmin — transfer wrapper admin to pool PDA. */
+function removedStakeInstruction(name: string, tag: number): never {
+  throw new Error(
+    `${name} (stake tag ${tag}) was removed on-chain in percolator-stake v3 and must not be sent.`,
+  );
+}
+
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export function encodeStakeTransferAdmin(): Uint8Array {
-  return new Uint8Array([STAKE_IX.TransferAdmin]);
+  return removedStakeInstruction('encodeStakeTransferAdmin', STAKE_IX.TransferAdmin);
 }
 
-/** Tag 6: AdminSetOracleAuthority — forward to wrapper via CPI. */
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Uint8Array {
-  return concatBytes(
-    new Uint8Array([STAKE_IX.AdminSetOracleAuthority]),
-    newAuthority.toBytes(),
-  );
+  void newAuthority;
+  return removedStakeInstruction('encodeStakeAdminSetOracleAuthority', STAKE_IX.AdminSetOracleAuthority);
 }
 
-/** Tag 7: AdminSetRiskThreshold — forward to wrapper via CPI. */
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export function encodeStakeAdminSetRiskThreshold(newThreshold: bigint | number): Uint8Array {
-  return concatBytes(
-    new Uint8Array([STAKE_IX.AdminSetRiskThreshold]),
-    u128Le(newThreshold),
-  );
+  void newThreshold;
+  return removedStakeInstruction('encodeStakeAdminSetRiskThreshold', STAKE_IX.AdminSetRiskThreshold);
 }
 
-/** Tag 8: AdminSetMaintenanceFee — forward to wrapper via CPI. */
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export function encodeStakeAdminSetMaintenanceFee(newFee: bigint | number): Uint8Array {
-  return concatBytes(
-    new Uint8Array([STAKE_IX.AdminSetMaintenanceFee]),
-    u128Le(newFee),
-  );
+  void newFee;
+  return removedStakeInstruction('encodeStakeAdminSetMaintenanceFee', STAKE_IX.AdminSetMaintenanceFee);
 }
 
-/** Tag 9: AdminResolveMarket — forward to wrapper via CPI. */
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export function encodeStakeAdminResolveMarket(): Uint8Array {
-  return new Uint8Array([STAKE_IX.AdminResolveMarket]);
+  return removedStakeInstruction('encodeStakeAdminResolveMarket', STAKE_IX.AdminResolveMarket);
 }
 
-/** Tag 10: AdminWithdrawInsurance — withdraw insurance after market resolution. */
-export function encodeStakeAdminWithdrawInsurance(amount: bigint | number): Uint8Array {
+/** Tag 10: ReturnInsurance — transfer withdrawn insurance back into the stake pool vault. */
+export function encodeStakeReturnInsurance(amount: bigint | number): Uint8Array {
   return concatBytes(
-    new Uint8Array([STAKE_IX.AdminWithdrawInsurance]),
+    new Uint8Array([STAKE_IX.ReturnInsurance]),
     u64Le(amount),
   );
+}
+
+/** @deprecated Legacy alias for tag 10. Current on-chain semantics are ReturnInsurance. */
+export function encodeStakeAdminWithdrawInsurance(amount: bigint | number): Uint8Array {
+  return encodeStakeReturnInsurance(amount);
 }
 
 /** Tag 12: AccrueFees — permissionless: accrue trading fees to LP vault. */
@@ -289,20 +305,23 @@ export function encodeStakeDepositJunior(amount: bigint | number): Uint8Array {
   return concatBytes(new Uint8Array([STAKE_IX.DepositJunior]), u64Le(amount));
 }
 
-/** Tag 11: AdminSetInsurancePolicy — set withdrawal policy on wrapper. */
+/** Tag 18: SetMarketResolved — blocks new deposits after the wrapper market is resolved. */
+export function encodeStakeSetMarketResolved(): Uint8Array {
+  return new Uint8Array([STAKE_IX.SetMarketResolved]);
+}
+
+/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export function encodeStakeAdminSetInsurancePolicy(
   authority: PublicKey,
   minWithdrawBase: bigint | number,
   maxWithdrawBps: number,
   cooldownSlots: bigint | number,
 ): Uint8Array {
-  return concatBytes(
-    new Uint8Array([STAKE_IX.AdminSetInsurancePolicy]),
-    authority.toBytes(),
-    u64Le(minWithdrawBase),
-    u16Le(maxWithdrawBps),
-    u64Le(cooldownSlots),
-  );
+  void authority;
+  void minWithdrawBase;
+  void maxWithdrawBps;
+  void cooldownSlots;
+  return removedStakeInstruction('encodeStakeAdminSetInsurancePolicy', STAKE_IX.AdminSetInsurancePolicy);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -318,6 +337,7 @@ export interface StakePoolState {
   bump: number;
   vaultAuthorityBump: number;
   adminTransferred: boolean;
+  marketResolved: boolean;
 
   slab: PublicKey;
   admin: PublicKey;
@@ -344,11 +364,12 @@ export interface StakePoolState {
   // _reserved layout (64 bytes):
   // [0..8]   discriminator
   // [8]      version
-  // [9..32]  PERC-313 HWM
+  // [9]      market_resolved
+  // [10..32] PERC-313 HWM
   // [32..51] PERC-303 tranches
   // [51..64] free
 
-  // PERC-313: HWM fields (from _reserved[9..32])
+  // PERC-313: HWM fields (from _reserved[10..32])
   hwmEnabled: boolean;
   epochHighWaterTvl: bigint;
   hwmFloorBps: number;
@@ -403,13 +424,15 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   // _reserved (64 bytes) starts at off
   const reservedStart = off;
   // _reserved[8] = version (skipped)
-  // PERC-313: _reserved[9] = hwm_enabled, [10..26] = epoch_high_water_tvl (u128), [26..28] = hwm_floor_bps (u16)
-  const hwmEnabled = bytes[reservedStart + 9] === 1;
+  // _reserved[9] = market_resolved
+  // PERC-313: _reserved[10] = hwm_enabled, [11..27] = epoch_high_water_tvl (u128), [27..29] = hwm_floor_bps (u16)
+  const marketResolved = bytes[reservedStart + 9] === 1;
+  const hwmEnabled = bytes[reservedStart + 10] === 1;
   // Read u128 as two u64 parts
-  const hwmTvlLow = readU64LE(bytes, reservedStart + 10);
-  const hwmTvlHigh = readU64LE(bytes, reservedStart + 18);
+  const hwmTvlLow = readU64LE(bytes, reservedStart + 11);
+  const hwmTvlHigh = readU64LE(bytes, reservedStart + 19);
   const epochHighWaterTvl = hwmTvlLow | (hwmTvlHigh << 64n);
-  const hwmFloorBps = readU16LE(bytes, reservedStart + 26);
+  const hwmFloorBps = readU16LE(bytes, reservedStart + 27);
 
   // PERC-303: _reserved[32] = tranche_enabled, [33..41] = junior_balance, [41..49] = junior_total_lp, [49..51] = junior_fee_mult_bps
   const trancheEnabled = bytes[reservedStart + 32] === 1;
@@ -422,6 +445,7 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
     bump,
     vaultAuthorityBump,
     adminTransferred,
+    marketResolved,
     slab,
     admin,
     collateralMint,

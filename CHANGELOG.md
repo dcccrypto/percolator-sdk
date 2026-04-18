@@ -7,6 +7,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.0-beta.33] — 2026-04-19
+
+### Fixed
+
+- Corrected SDK drift against the live `percolator-stake`, `percolator-prog`, and `percolator-nft` programs.
+- Stake SDK now treats tombstoned admin proxy tags `5-9` and `11` as removed, keeps tag `10` aligned with `ReturnInsurance`, and adds live tag `18` for `SetMarketResolved`.
+- Standalone NFT parsing now decodes `positionOwner` from the current on-chain account layout.
+- Wrapper instruction encoders for removed or disabled paths now fail fast instead of serializing dead tags.
+- Added missing account-order specs for active wrapper handlers including permissionless resolve, resolved force-close, LP vault flows, dispute flows, LP collateral, offset pairs, and orphan recovery.
+
+### Changed
+
+- Tightened parity tests so they assert current on-chain behavior instead of accepting legacy instruction layouts.
+
 ## [1.0.0-beta.29] — 2026-04-17
 
 - **BREAKING**: Removed `encodeSetOracleAuthority` (IX 16) and `encodePushOraclePrice` (IX 17). The on-chain program no longer supports admin-pushed oracle prices; all live markets must use Pyth, Chainlink, or Hyperp DEX-fed oracles. Phase G of pre-audit hardening — see percolator-prog commit 5391dc4.

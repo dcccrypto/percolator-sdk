@@ -7,7 +7,11 @@ import {
   encodeLiquidateAtOracle, encodeCloseAccount,
   encodeTopUpInsurance, encodeSetRiskThreshold, encodeUpdateAdmin,
   encodeCloseSlab, encodeUpdateConfig, encodeSetMaintenanceFee,
-  encodeSetOraclePriceCap,
+  encodeSetOraclePriceCap, encodeUpdateRiskParams, encodeRenounceAdmin,
+  encodeSetPythOracle, encodeUpdateMarkPrice, encodeSetInsuranceIsolation,
+  encodeUnresolveMarket, encodeSlashCreationDeposit, encodeInitSharedVault,
+  encodeAllocateMarket, encodeQueueWithdrawalSV, encodeClaimEpochWithdrawal,
+  encodeAdvanceEpoch,
   encodeResolveMarket, encodeWithdrawInsurance,
   IX_TAG,
 } from "../src/abi/instructions.js";
@@ -109,10 +113,8 @@ describe("instruction encoders", () => {
     expect(data[0]).toBe(IX_TAG.TopUpInsurance);
   });
 
-  it("encodeSetRiskThreshold produces 17 bytes", () => {
-    const data = encodeSetRiskThreshold({ newThreshold: "1000000000000" });
-    expect(data.length).toBe(17);
-    expect(data[0]).toBe(IX_TAG.SetRiskThreshold);
+  it("encodeSetRiskThreshold rejects removed tag 11", () => {
+    expect(() => encodeSetRiskThreshold({ newThreshold: "1000000000000" })).toThrow(/tag 11/i);
   });
 
   it("encodeUpdateAdmin produces 33 bytes", () => {
@@ -198,6 +200,23 @@ describe("instruction encoders", () => {
   it("encodeWithdrawInsurance produces 1 byte", () => {
     expect(encodeWithdrawInsurance()[0]).toBe(IX_TAG.WithdrawInsurance);
   });
+
+  it("removed and disabled encoders throw instead of emitting dead bytes", () => {
+    expect(() => encodeTradeCpiV2({ lpIdx: 2, userIdx: 3, size: "1000000", bump: 254 })).toThrow(/tag 35/i);
+    expect(() => encodeUnresolveMarket({ confirmation: "1" })).toThrow(/tag 36/i);
+    expect(() => encodeSetMaintenanceFee({ newFee: "0" })).toThrow(/tag 15/i);
+    expect(() => encodeUpdateRiskParams({ initialMarginBps: "1", maintenanceMarginBps: "1" })).toThrow(/tag 22/i);
+    expect(() => encodeRenounceAdmin()).toThrow(/tag 23/i);
+    expect(() => encodeSetPythOracle({ feedId: new Uint8Array(32), maxStalenessSecs: 1n, confFilterBps: 1 })).toThrow(/tag 32/i);
+    expect(() => encodeUpdateMarkPrice()).toThrow(/tag 33/i);
+    expect(() => encodeSetInsuranceIsolation({ bps: 1 })).toThrow(/tag 42/i);
+    expect(() => encodeSlashCreationDeposit()).toThrow(/tag 58/i);
+    expect(() => encodeInitSharedVault({ epochDurationSlots: 1n, maxMarketExposureBps: 1 })).toThrow(/tag 59/i);
+    expect(() => encodeAllocateMarket({ amount: 1n })).toThrow(/tag 60/i);
+    expect(() => encodeQueueWithdrawalSV({ lpAmount: 1n })).toThrow(/tag 61/i);
+    expect(() => encodeClaimEpochWithdrawal()).toThrow(/tag 62/i);
+    expect(() => encodeAdvanceEpoch()).toThrow(/tag 63/i);
+  });
 });
 
 describe("truncated instruction payloads", () => {
@@ -242,11 +261,9 @@ describe("truncated instruction payloads", () => {
     ["KeeperCrank", () => encodeKeeperCrank({ callerIdx: 1 })],
     ["TradeNoCpi", () => encodeTradeNoCpi({ lpIdx: 0, userIdx: 1, size: "1000000" })],
     ["TradeCpi", () => encodeTradeCpi({ lpIdx: 2, userIdx: 3, size: "-500", limitPriceE6: "0" })],
-    ["TradeCpiV2", () => encodeTradeCpiV2({ lpIdx: 2, userIdx: 3, size: "1000000", bump: 254 })],
     ["LiquidateAtOracle", () => encodeLiquidateAtOracle({ targetIdx: 42 })],
     ["CloseAccount", () => encodeCloseAccount({ userIdx: 100 })],
     ["TopUpInsurance", () => encodeTopUpInsurance({ amount: "5000000" })],
-    ["SetRiskThreshold", () => encodeSetRiskThreshold({ newThreshold: "1000000000000" })],
     ["UpdateAdmin", () => encodeUpdateAdmin({ newAdmin: new PublicKey("11111111111111111111111111111111") })],
     ["InitLP", () =>
       encodeInitLP({
@@ -258,7 +275,6 @@ describe("truncated instruction payloads", () => {
     ["InitMarket", () => encodeInitMarket(initMarketArgs)],
     ["CloseSlab", () => encodeCloseSlab()],
     ["UpdateConfig", () => encodeUpdateConfig(updateConfigArgs)],
-    ["SetMaintenanceFee", () => encodeSetMaintenanceFee({ newFee: "0" })],
     ["SetOraclePriceCap", () => encodeSetOraclePriceCap({ maxChangeE2bps: "1000" })],
     ["ResolveMarket", () => encodeResolveMarket()],
     ["WithdrawInsurance", () => encodeWithdrawInsurance()],

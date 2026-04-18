@@ -20,12 +20,19 @@ import {
   encodeDepositCollateral,
   encodeWithdrawCollateral,
   encodeTradeNoCpi,
+  encodeTradeCpiV2,
+  encodeSetPythOracle,
 } from "../src/abi/instructions.js";
 import {
   STAKE_PROGRAM_ID,
   STAKE_PROGRAM_IDS,
   getStakeProgramId,
+  STAKE_IX,
+  encodeStakeTransferAdmin,
+  encodeStakeReturnInsurance,
+  encodeStakeSetMarketResolved,
 } from "../src/solana/stake.js";
+import { parsePositionNftAccount, POSITION_NFT_STATE_LEN } from "../src/abi/nft.js";
 import {
   detectSlabLayout,
   detectLayout,
@@ -341,6 +348,28 @@ describe.skip("encodeInitMarket — 352-byte layout (post-3-u128-fields bump)", 
     expect(readU128LE(d, 264)).toBe(0n);
     expect(readU128LE(d, 280)).toBe(0n);
     expect(readU128LE(d, 296)).toBe(0n);
+  });
+});
+
+describe("SDK drift guards", () => {
+  it("removed wrapper encoders fail fast instead of serializing dead tags", () => {
+    expect(() => encodeTradeCpiV2({ lpIdx: 1, userIdx: 2, size: "3", bump: 4 })).toThrow(/tag 35/i);
+    expect(() => encodeSetPythOracle({ feedId: new Uint8Array(32), maxStalenessSecs: 1n, confFilterBps: 1 })).toThrow(/tag 32/i);
+  });
+
+  it("stake tags reflect the current on-chain mapping", () => {
+    expect(STAKE_IX.ReturnInsurance).toBe(10);
+    expect(encodeStakeReturnInsurance(55n)[0]).toBe(10);
+    expect(encodeStakeSetMarketResolved()[0]).toBe(18);
+    expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
+  });
+
+  it("parses positionOwner from standalone NFT account bytes", () => {
+    const buf = new Uint8Array(POSITION_NFT_STATE_LEN);
+    const owner = PublicKey.unique();
+    buf.set(owner.toBytes(), 160);
+    const parsed = parsePositionNftAccount(buf);
+    expect(parsed.positionOwner.equals(owner)).toBe(true);
   });
 });
 

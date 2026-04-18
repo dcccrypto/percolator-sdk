@@ -238,6 +238,12 @@ var IX_TAG = {
   // 78: removed (keeper fund)
 };
 Object.freeze(IX_TAG);
+function removedInstruction(name, tag, replacement) {
+  const suffix = replacement ? ` Use ${replacement} instead.` : "";
+  throw new Error(
+    `${name} (tag ${tag}) is not accepted by the deployed wrapper program.${suffix}`
+  );
+}
 var HEX_RE = /^[0-9a-fA-F]{64}$/;
 function encodeFeedId(feedId) {
   const hex = feedId.startsWith("0x") ? feedId.slice(2) : feedId;
@@ -411,23 +417,14 @@ function encodeTradeCpi(args) {
     encU64(args.limitPriceE6)
   );
 }
-function encodeTradeCpiV2(args) {
-  return concatBytes(
-    encU8(IX_TAG.TradeCpiV2),
-    encU16(args.lpIdx),
-    encU16(args.userIdx),
-    encI128(args.size),
-    encU8(args.bump)
-  );
+function encodeTradeCpiV2(_args) {
+  return removedInstruction("TradeCpiV2", IX_TAG.TradeCpiV2, "encodeTradeCpi()");
 }
-function encodeUnresolveMarket(args) {
-  return concatBytes(encU8(IX_TAG.UnresolveMarket), encU64(args.confirmation));
+function encodeUnresolveMarket(_args) {
+  return removedInstruction("UnresolveMarket", IX_TAG.UnresolveMarket, "encodeResolveMarket()");
 }
-function encodeSetRiskThreshold(args) {
-  return concatBytes(
-    encU8(IX_TAG.SetRiskThreshold),
-    encU128(args.newThreshold)
-  );
+function encodeSetRiskThreshold(_args) {
+  return removedInstruction("SetRiskThreshold", IX_TAG.SetRiskThreshold, "encodeInitMarket()");
 }
 function encodeUpdateAdmin(args) {
   return concatBytes(encU8(IX_TAG.UpdateAdmin), encPubkey(args.newAdmin));
@@ -446,11 +443,8 @@ function encodeUpdateConfig(args) {
     // Rust: i64 (can be negative)
   );
 }
-function encodeSetMaintenanceFee(args) {
-  return concatBytes(
-    encU8(IX_TAG.SetMaintenanceFee),
-    encU128(args.newFee)
-  );
+function encodeSetMaintenanceFee(_args) {
+  return removedInstruction("SetMaintenanceFee", IX_TAG.SetMaintenanceFee, "encodeInitMarket()");
 }
 function encodeSetOraclePriceCap(args) {
   return concatBytes(
@@ -470,23 +464,20 @@ function encodeAdminForceClose(args) {
     encU16(args.targetIdx)
   );
 }
-function encodeUpdateRiskParams(args) {
-  const parts = [
-    encU8(IX_TAG.UpdateRiskParams),
-    encU64(args.initialMarginBps),
-    encU64(args.maintenanceMarginBps)
-  ];
-  if (args.tradingFeeBps !== void 0) {
-    parts.push(encU64(args.tradingFeeBps));
-  }
-  return concatBytes(...parts);
+function encodeUpdateRiskParams(_args) {
+  return removedInstruction(
+    "UpdateRiskParams",
+    IX_TAG.UpdateRiskParams,
+    "encodeSetInsuranceWithdrawPolicy()"
+  );
 }
 var RENOUNCE_ADMIN_CONFIRMATION = 0x52454E4F554E4345n;
 var UNRESOLVE_CONFIRMATION = 0xDEADBEEFCAFE1234n;
 function encodeRenounceAdmin() {
-  return concatBytes(
-    encU8(IX_TAG.RenounceAdmin),
-    encU64(RENOUNCE_ADMIN_CONFIRMATION)
+  return removedInstruction(
+    "RenounceAdmin",
+    IX_TAG.RenounceAdmin,
+    "encodeWithdrawInsuranceLimited()"
   );
 }
 function encodeLpVaultWithdraw(args) {
@@ -499,15 +490,8 @@ function encodeUnpauseMarket() {
   return encU8(IX_TAG.UnpauseMarket);
 }
 function encodeSetPythOracle(args) {
-  if (args.feedId.length !== 32) throw new Error("feedId must be 32 bytes");
-  if (args.maxStalenessSecs <= 0n) throw new Error("maxStalenessSecs must be > 0");
-  const buf = new Uint8Array(43);
-  const dv3 = new DataView(buf.buffer);
-  buf[0] = 32;
-  buf.set(args.feedId, 1);
-  dv3.setBigUint64(33, args.maxStalenessSecs, true);
-  dv3.setUint16(41, args.confFilterBps, true);
-  return buf;
+  void args;
+  return removedInstruction("SetPythOracle", IX_TAG.SetPythOracle, "encodeInitMarket()");
 }
 var PYTH_RECEIVER_PROGRAM_ID = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
 async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
@@ -521,7 +505,7 @@ async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
   return pda.toBase58();
 }
 function encodeUpdateMarkPrice() {
-  return new Uint8Array([33]);
+  return removedInstruction("UpdateMarkPrice", IX_TAG.UpdateMarkPrice, "encodeUpdateHyperpMark()");
 }
 var MARK_PRICE_EMA_WINDOW_SLOTS = 72000n;
 var MARK_PRICE_EMA_ALPHA_E6 = 2000000n / (MARK_PRICE_EMA_WINDOW_SLOTS + 1n);
@@ -547,7 +531,12 @@ function encodeFundMarketInsurance(args) {
   return concatBytes(encU8(IX_TAG.FundMarketInsurance), encU64(args.amount));
 }
 function encodeSetInsuranceIsolation(args) {
-  return concatBytes(encU8(IX_TAG.SetInsuranceIsolation), encU16(args.bps));
+  void args;
+  return removedInstruction(
+    "SetInsuranceIsolation",
+    IX_TAG.SetInsuranceIsolation,
+    "encodeFundMarketInsurance()"
+  );
 }
 function encodeQueueWithdrawal(args) {
   return concatBytes(encU8(IX_TAG.QueueWithdrawal), encU64(args.lpAmount));
@@ -628,26 +617,25 @@ function checkPhaseTransition(currentSlot, marketCreatedSlot, oraclePhase, cumul
   }
 }
 function encodeSlashCreationDeposit() {
-  return encU8(IX_TAG.SlashCreationDeposit);
+  return removedInstruction("SlashCreationDeposit", IX_TAG.SlashCreationDeposit);
 }
 function encodeInitSharedVault(args) {
-  return concatBytes(
-    encU8(IX_TAG.InitSharedVault),
-    encU64(args.epochDurationSlots),
-    encU16(args.maxMarketExposureBps)
-  );
+  void args;
+  return removedInstruction("InitSharedVault", IX_TAG.InitSharedVault);
 }
 function encodeAllocateMarket(args) {
-  return concatBytes(encU8(IX_TAG.AllocateMarket), encU128(args.amount));
+  void args;
+  return removedInstruction("AllocateMarket", IX_TAG.AllocateMarket);
 }
 function encodeQueueWithdrawalSV(args) {
-  return concatBytes(encU8(IX_TAG.QueueWithdrawalSV), encU64(args.lpAmount));
+  void args;
+  return removedInstruction("QueueWithdrawalSV", IX_TAG.QueueWithdrawalSV);
 }
 function encodeClaimEpochWithdrawal() {
-  return encU8(IX_TAG.ClaimEpochWithdrawal);
+  return removedInstruction("ClaimEpochWithdrawal", IX_TAG.ClaimEpochWithdrawal);
 }
 function encodeAdvanceEpoch() {
-  return encU8(IX_TAG.AdvanceEpoch);
+  return removedInstruction("AdvanceEpoch", IX_TAG.AdvanceEpoch);
 }
 function encodeSetOiImbalanceHardBlock(args) {
   if (args.thresholdBps < 0 || args.thresholdBps > 1e4) {
@@ -1069,6 +1057,30 @@ var ACCOUNTS_EXECUTE_ADL = [
   { name: "clock", signer: false, writable: false },
   { name: "oracle", signer: false, writable: false }
 ];
+var ACCOUNTS_RESOLVE_PERMISSIONLESS = [
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false }
+];
+var ACCOUNTS_FORCE_CLOSE_RESOLVED = [
+  { name: "slab", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "ownerAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false }
+];
+var ACCOUNTS_ADMIN_FORCE_CLOSE = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "ownerAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false }
+];
 var ACCOUNTS_CLOSE_STALE_SLABS = [
   { name: "dest", signer: true, writable: true },
   { name: "slab", signer: false, writable: true }
@@ -1083,7 +1095,105 @@ var ACCOUNTS_AUDIT_CRANK = [
 var ACCOUNTS_ADVANCE_ORACLE_PHASE = [
   { name: "slab", signer: false, writable: true }
 ];
+var ACCOUNTS_UPDATE_HYPERP_MARK = [
+  { name: "slab", signer: false, writable: true },
+  { name: "dexPool", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false }
+];
+var ACCOUNTS_CREATE_LP_VAULT = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "lpVaultState", signer: false, writable: true },
+  { name: "lpVaultMint", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "rent", signer: false, writable: false }
+];
+var ACCOUNTS_LP_VAULT_DEPOSIT = [
+  { name: "depositor", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "depositorAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpVaultMint", signer: false, writable: true },
+  { name: "depositorLpAta", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true }
+];
+var ACCOUNTS_LP_VAULT_CRANK_FEES = [
+  { name: "slab", signer: false, writable: true },
+  { name: "lpVaultState", signer: false, writable: true }
+];
+var ACCOUNTS_CHALLENGE_SETTLEMENT = [
+  { name: "challenger", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "dispute", signer: false, writable: true },
+  { name: "challengerAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false }
+];
+var ACCOUNTS_RESOLVE_DISPUTE = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "dispute", signer: false, writable: true },
+  { name: "challengerAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false }
+];
+var ACCOUNTS_DEPOSIT_LP_COLLATERAL = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "userLpAta", signer: false, writable: true },
+  { name: "lpVaultMint", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpEscrow", signer: false, writable: true }
+];
+var ACCOUNTS_WITHDRAW_LP_COLLATERAL = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "userLpAta", signer: false, writable: true },
+  { name: "lpVaultMint", signer: false, writable: false },
+  { name: "lpVaultState", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "lpEscrow", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false }
+];
+var ACCOUNTS_SET_OFFSET_PAIR = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slabA", signer: false, writable: true },
+  { name: "slabB", signer: false, writable: true },
+  { name: "pairPda", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false }
+];
+var ACCOUNTS_ATTEST_CROSS_MARGIN = [
+  { name: "payer", signer: true, writable: true },
+  { name: "slabA", signer: false, writable: true },
+  { name: "slabB", signer: false, writable: true },
+  { name: "attestation", signer: false, writable: true },
+  { name: "pairPda", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false }
+];
 var ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_SET_MAX_PNL_CAP = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_SET_OI_CAP_MULTIPLIER = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_SET_DISPUTE_PARAMS = [
+  { name: "admin", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_SET_LP_COLLATERAL_PARAMS = [
   { name: "admin", signer: true, writable: false },
   { name: "slab", signer: false, writable: true }
 ];
@@ -1128,9 +1238,27 @@ var ACCOUNTS_CLEAR_PENDING_SETTLEMENT = [
   { name: "slab", signer: false, writable: false },
   { name: "positionNftPda", signer: false, writable: true }
 ];
+var ACCOUNTS_TRANSFER_OWNERSHIP_CPI = [
+  { name: "caller", signer: true, writable: false },
+  { name: "slab", signer: false, writable: true },
+  { name: "nftProgram", signer: false, writable: false }
+];
 var ACCOUNTS_SET_WALLET_CAP = [
   { name: "admin", signer: true, writable: false },
   { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_RESCUE_ORPHAN_VAULT = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "adminAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "vaultPda", signer: false, writable: false }
+];
+var ACCOUNTS_CLOSE_ORPHAN_SLAB = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true }
 ];
 var ACCOUNTS_SET_DEX_POOL = [
   { name: "admin", signer: true, writable: false },
@@ -1627,6 +1755,7 @@ function parsePositionNftAccount(data) {
     slab: new PublicKey4(data.subarray(16, 48)),
     userIdx: view.getUint16(48, true),
     nftMint: new PublicKey4(data.subarray(56, 88)),
+    positionOwner: new PublicKey4(data.subarray(160, 192)),
     entryPriceE6: view.getBigUint64(88, true),
     positionSize: view.getBigUint64(96, true),
     isLong: data[104] === 1,
@@ -4799,12 +4928,21 @@ var STAKE_IX = {
   Withdraw: 2,
   FlushToInsurance: 3,
   UpdateConfig: 4,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   TransferAdmin: 5,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetOracleAuthority: 6,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetRiskThreshold: 7,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetMaintenanceFee: 8,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminResolveMarket: 9,
+  /** Current on-chain tag 10: transfer withdrawn insurance back into the pool vault. */
+  ReturnInsurance: 10,
+  /** @deprecated Legacy alias for ReturnInsurance. */
   AdminWithdrawInsurance: 10,
+  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetInsurancePolicy: 11,
   /** PERC-272: Accrue trading fees to LP vault */
   AccrueFees: 12,
@@ -4815,7 +4953,9 @@ var STAKE_IX = {
   /** PERC-303: Enable/configure senior-junior LP tranches */
   AdminSetTrancheConfig: 15,
   /** PERC-303: Deposit into junior (first-loss) tranche */
-  DepositJunior: 16
+  DepositJunior: 16,
+  /** Mark the pool as resolved after the wrapper market has been resolved directly. */
+  SetMarketResolved: 18
 };
 var TEXT2 = new TextEncoder();
 function deriveStakePool(slab, programId) {
@@ -4860,16 +5000,6 @@ function u64Le(v) {
   new DataView(arr.buffer).setBigUint64(0, big, true);
   return arr;
 }
-function u128Le(v) {
-  const big = BigInt(v);
-  if (big < 0n) throw new Error(`u128Le: value must be non-negative, got ${big}`);
-  if (big > (1n << 128n) - 1n) throw new Error(`u128Le: value exceeds u128 max`);
-  const arr = new Uint8Array(16);
-  const view = new DataView(arr.buffer);
-  view.setBigUint64(0, big & 0xFFFFFFFFFFFFFFFFn, true);
-  view.setBigUint64(8, big >> 64n, true);
-  return arr;
-}
 function u16Le(v) {
   if (v < 0 || v > 65535) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);
   const arr = new Uint8Array(2);
@@ -4901,35 +5031,37 @@ function encodeStakeUpdateConfig(newCooldownSlots, newDepositCap) {
     u64Le(newDepositCap ?? 0n)
   );
 }
+function removedStakeInstruction(name, tag) {
+  throw new Error(
+    `${name} (stake tag ${tag}) was removed on-chain in percolator-stake v3 and must not be sent.`
+  );
+}
 function encodeStakeTransferAdmin() {
-  return new Uint8Array([STAKE_IX.TransferAdmin]);
+  return removedStakeInstruction("encodeStakeTransferAdmin", STAKE_IX.TransferAdmin);
 }
 function encodeStakeAdminSetOracleAuthority(newAuthority) {
-  return concatBytes(
-    new Uint8Array([STAKE_IX.AdminSetOracleAuthority]),
-    newAuthority.toBytes()
-  );
+  void newAuthority;
+  return removedStakeInstruction("encodeStakeAdminSetOracleAuthority", STAKE_IX.AdminSetOracleAuthority);
 }
 function encodeStakeAdminSetRiskThreshold(newThreshold) {
-  return concatBytes(
-    new Uint8Array([STAKE_IX.AdminSetRiskThreshold]),
-    u128Le(newThreshold)
-  );
+  void newThreshold;
+  return removedStakeInstruction("encodeStakeAdminSetRiskThreshold", STAKE_IX.AdminSetRiskThreshold);
 }
 function encodeStakeAdminSetMaintenanceFee(newFee) {
-  return concatBytes(
-    new Uint8Array([STAKE_IX.AdminSetMaintenanceFee]),
-    u128Le(newFee)
-  );
+  void newFee;
+  return removedStakeInstruction("encodeStakeAdminSetMaintenanceFee", STAKE_IX.AdminSetMaintenanceFee);
 }
 function encodeStakeAdminResolveMarket() {
-  return new Uint8Array([STAKE_IX.AdminResolveMarket]);
+  return removedStakeInstruction("encodeStakeAdminResolveMarket", STAKE_IX.AdminResolveMarket);
 }
-function encodeStakeAdminWithdrawInsurance(amount) {
+function encodeStakeReturnInsurance(amount) {
   return concatBytes(
-    new Uint8Array([STAKE_IX.AdminWithdrawInsurance]),
+    new Uint8Array([STAKE_IX.ReturnInsurance]),
     u64Le(amount)
   );
+}
+function encodeStakeAdminWithdrawInsurance(amount) {
+  return encodeStakeReturnInsurance(amount);
 }
 function encodeStakeAccrueFees() {
   return new Uint8Array([STAKE_IX.AccrueFees]);
@@ -4957,14 +5089,15 @@ function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps) {
 function encodeStakeDepositJunior(amount) {
   return concatBytes(new Uint8Array([STAKE_IX.DepositJunior]), u64Le(amount));
 }
+function encodeStakeSetMarketResolved() {
+  return new Uint8Array([STAKE_IX.SetMarketResolved]);
+}
 function encodeStakeAdminSetInsurancePolicy(authority, minWithdrawBase, maxWithdrawBps, cooldownSlots) {
-  return concatBytes(
-    new Uint8Array([STAKE_IX.AdminSetInsurancePolicy]),
-    authority.toBytes(),
-    u64Le(minWithdrawBase),
-    u16Le(maxWithdrawBps),
-    u64Le(cooldownSlots)
-  );
+  void authority;
+  void minWithdrawBase;
+  void maxWithdrawBps;
+  void cooldownSlots;
+  return removedStakeInstruction("encodeStakeAdminSetInsurancePolicy", STAKE_IX.AdminSetInsurancePolicy);
 }
 var STAKE_POOL_SIZE = 352;
 function decodeStakePool(data) {
@@ -5018,11 +5151,12 @@ function decodeStakePool(data) {
   off += 1;
   off += 7;
   const reservedStart = off;
-  const hwmEnabled = bytes[reservedStart + 9] === 1;
-  const hwmTvlLow = readU64LE4(bytes, reservedStart + 10);
-  const hwmTvlHigh = readU64LE4(bytes, reservedStart + 18);
+  const marketResolved = bytes[reservedStart + 9] === 1;
+  const hwmEnabled = bytes[reservedStart + 10] === 1;
+  const hwmTvlLow = readU64LE4(bytes, reservedStart + 11);
+  const hwmTvlHigh = readU64LE4(bytes, reservedStart + 19);
   const epochHighWaterTvl = hwmTvlLow | hwmTvlHigh << 64n;
-  const hwmFloorBps = readU16LE3(bytes, reservedStart + 26);
+  const hwmFloorBps = readU16LE3(bytes, reservedStart + 27);
   const trancheEnabled = bytes[reservedStart + 32] === 1;
   const juniorBalance = readU64LE4(bytes, reservedStart + 33);
   const juniorTotalLp = readU64LE4(bytes, reservedStart + 41);
@@ -5032,6 +5166,7 @@ function decodeStakePool(data) {
     bump,
     vaultAuthorityBump,
     adminTransferred,
+    marketResolved,
     slab,
     admin,
     collateralMint,
@@ -6451,19 +6586,26 @@ async function resolvePrice(mint, signal, options) {
 }
 export {
   ACCOUNTS_ACCEPT_ADMIN,
+  ACCOUNTS_ADMIN_FORCE_CLOSE,
   ACCOUNTS_ADVANCE_ORACLE_PHASE,
+  ACCOUNTS_ATTEST_CROSS_MARGIN,
   ACCOUNTS_AUDIT_CRANK,
   ACCOUNTS_BURN_POSITION_NFT,
   ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL,
+  ACCOUNTS_CHALLENGE_SETTLEMENT,
   ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL,
   ACCOUNTS_CLEAR_PENDING_SETTLEMENT,
   ACCOUNTS_CLOSE_ACCOUNT,
+  ACCOUNTS_CLOSE_ORPHAN_SLAB,
   ACCOUNTS_CLOSE_SLAB,
   ACCOUNTS_CLOSE_STALE_SLABS,
   ACCOUNTS_CREATE_INSURANCE_MINT,
+  ACCOUNTS_CREATE_LP_VAULT,
   ACCOUNTS_DEPOSIT_COLLATERAL,
   ACCOUNTS_DEPOSIT_INSURANCE_LP,
+  ACCOUNTS_DEPOSIT_LP_COLLATERAL,
   ACCOUNTS_EXECUTE_ADL,
+  ACCOUNTS_FORCE_CLOSE_RESOLVED,
   ACCOUNTS_FUND_MARKET_INSURANCE,
   ACCOUNTS_INIT_LP,
   ACCOUNTS_INIT_MARKET,
@@ -6471,6 +6613,8 @@ export {
   ACCOUNTS_INIT_USER,
   ACCOUNTS_KEEPER_CRANK,
   ACCOUNTS_LIQUIDATE_AT_ORACLE,
+  ACCOUNTS_LP_VAULT_CRANK_FEES,
+  ACCOUNTS_LP_VAULT_DEPOSIT,
   ACCOUNTS_LP_VAULT_WITHDRAW,
   ACCOUNTS_MINT_POSITION_NFT,
   ACCOUNTS_NFT_BURN,
@@ -6479,10 +6623,18 @@ export {
   ACCOUNTS_PAUSE_MARKET,
   ACCOUNTS_QUEUE_WITHDRAWAL,
   ACCOUNTS_RECLAIM_SLAB_RENT,
+  ACCOUNTS_RESCUE_ORPHAN_VAULT,
+  ACCOUNTS_RESOLVE_DISPUTE,
   ACCOUNTS_RESOLVE_MARKET,
+  ACCOUNTS_RESOLVE_PERMISSIONLESS,
   ACCOUNTS_SET_DEX_POOL,
+  ACCOUNTS_SET_DISPUTE_PARAMS,
   ACCOUNTS_SET_INSURANCE_ISOLATION,
+  ACCOUNTS_SET_LP_COLLATERAL_PARAMS,
   ACCOUNTS_SET_MAINTENANCE_FEE,
+  ACCOUNTS_SET_MAX_PNL_CAP,
+  ACCOUNTS_SET_OFFSET_PAIR,
+  ACCOUNTS_SET_OI_CAP_MULTIPLIER,
   ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK,
   ACCOUNTS_SET_ORACLE_PRICE_CAP,
   ACCOUNTS_SET_PENDING_SETTLEMENT,
@@ -6491,15 +6643,18 @@ export {
   ACCOUNTS_TOPUP_INSURANCE,
   ACCOUNTS_TRADE_CPI,
   ACCOUNTS_TRADE_NOCPI,
+  ACCOUNTS_TRANSFER_OWNERSHIP_CPI,
   ACCOUNTS_TRANSFER_POSITION_OWNERSHIP,
   ACCOUNTS_UNPAUSE_MARKET,
   ACCOUNTS_UPDATE_ADMIN,
   ACCOUNTS_UPDATE_CONFIG,
+  ACCOUNTS_UPDATE_HYPERP_MARK,
   ACCOUNTS_WITHDRAW_COLLATERAL,
   ACCOUNTS_WITHDRAW_INSURANCE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
   ACCOUNTS_WITHDRAW_INSURANCE_LP,
+  ACCOUNTS_WITHDRAW_LP_COLLATERAL,
   AccountKind,
   CHAINLINK_ANSWER_OFFSET,
   CHAINLINK_DECIMALS_OFFSET,
@@ -6706,6 +6861,8 @@ export {
   encodeStakeFlushToInsurance,
   encodeStakeInitPool,
   encodeStakeInitTradingPool,
+  encodeStakeReturnInsurance,
+  encodeStakeSetMarketResolved,
   encodeStakeTransferAdmin,
   encodeStakeUpdateConfig,
   encodeStakeWithdraw,

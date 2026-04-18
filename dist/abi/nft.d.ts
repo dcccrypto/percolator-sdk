@@ -109,7 +109,8 @@ export declare function deriveMintAuthority(programId?: PublicKey): [PublicKey, 
  *   [128..144] last_funding_index_e18  i128
  *   [144..152] minted_at         i64
  *   [152..160] account_id        u64
- *   [160..208] _reserved
+ *   [160..192] position_owner    [u8; 32]
+ *   [192..208] _reserved
  */
 export declare const POSITION_NFT_STATE_LEN = 208;
 export interface PositionNftState {
@@ -118,6 +119,7 @@ export interface PositionNftState {
     slab: PublicKey;
     userIdx: number;
     nftMint: PublicKey;
+    positionOwner: PublicKey;
     entryPriceE6: bigint;
     positionSize: bigint;
     isLong: boolean;

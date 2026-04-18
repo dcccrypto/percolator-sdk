@@ -207,7 +207,8 @@ export function deriveMintAuthority(
  *   [128..144] last_funding_index_e18  i128
  *   [144..152] minted_at         i64
  *   [152..160] account_id        u64
- *   [160..208] _reserved
+ *   [160..192] position_owner    [u8; 32]
+ *   [192..208] _reserved
  */
 export const POSITION_NFT_STATE_LEN = 208;
 
@@ -217,6 +218,7 @@ export interface PositionNftState {
   slab: PublicKey;
   userIdx: number;
   nftMint: PublicKey;
+  positionOwner: PublicKey;
   entryPriceE6: bigint;
   positionSize: bigint;
   isLong: boolean;
@@ -274,6 +276,7 @@ export function parsePositionNftAccount(data: Uint8Array): PositionNftState {
     slab: new PublicKey(data.subarray(16, 48)),
     userIdx: view.getUint16(48, true),
     nftMint: new PublicKey(data.subarray(56, 88)),
+    positionOwner: new PublicKey(data.subarray(160, 192)),
     entryPriceE6: view.getBigUint64(88, true),
     positionSize: view.getBigUint64(96, true),
     isLong: data[104] === 1,

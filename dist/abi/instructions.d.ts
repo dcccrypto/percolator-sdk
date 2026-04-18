@@ -382,7 +382,7 @@ export interface TradeCpiV2Args {
     bump: number;
 }
 /** @deprecated Tag 35 removed in v12.17. Use encodeTradeCpi with limitPriceE6 instead. */
-export declare function encodeTradeCpiV2(args: TradeCpiV2Args): Uint8Array;
+export declare function encodeTradeCpiV2(_args: TradeCpiV2Args): Uint8Array;
 /**
  * @deprecated Tag 36 removed in v12.17. Will fail on-chain with InvalidInstructionData.
  */
@@ -390,7 +390,7 @@ export interface UnresolveMarketArgs {
     confirmation: bigint | string;
 }
 /** @deprecated Tag 36 removed in v12.17. Will fail on-chain. */
-export declare function encodeUnresolveMarket(args: UnresolveMarketArgs): Uint8Array;
+export declare function encodeUnresolveMarket(_args: UnresolveMarketArgs): Uint8Array;
 /**
  * @deprecated Tag 11 removed in v12.17. Insurance floor is now set at InitMarket.
  * Sending this instruction will fail with InvalidInstructionData.
@@ -399,7 +399,7 @@ export interface SetRiskThresholdArgs {
     newThreshold: bigint | string;
 }
 /** @deprecated Tag 11 removed in v12.17. Will fail on-chain. */
-export declare function encodeSetRiskThreshold(args: SetRiskThresholdArgs): Uint8Array;
+export declare function encodeSetRiskThreshold(_args: SetRiskThresholdArgs): Uint8Array;
 /**
  * UpdateAdmin instruction data (33 bytes)
  */
@@ -433,7 +433,7 @@ export interface SetMaintenanceFeeArgs {
     newFee: bigint | string;
 }
 /** @deprecated Tag 15 removed in v12.17. Will fail on-chain. */
-export declare function encodeSetMaintenanceFee(args: SetMaintenanceFeeArgs): Uint8Array;
+export declare function encodeSetMaintenanceFee(_args: SetMaintenanceFeeArgs): Uint8Array;
 /**
  * SetOraclePriceCap instruction data (9 bytes)
  * Set oracle price circuit breaker cap (admin only).
@@ -482,7 +482,7 @@ export interface UpdateRiskParamsArgs {
     tradingFeeBps?: bigint | string;
 }
 /** @deprecated Use encodeSetInsuranceWithdrawPolicy (tag 22). This sends wrong wire format. */
-export declare function encodeUpdateRiskParams(args: UpdateRiskParamsArgs): Uint8Array;
+export declare function encodeUpdateRiskParams(_args: UpdateRiskParamsArgs): Uint8Array;
 /**
  * On-chain confirmation code for RenounceAdmin (must match program constant).
  * ASCII "RENOUNCE" as u64 LE = 0x52454E4F554E4345.

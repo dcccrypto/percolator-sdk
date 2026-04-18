@@ -210,6 +210,9 @@ export declare const ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL: readonly AccountSpec[];
  * pass additional oracle accounts at accounts[4..].
  */
 export declare const ACCOUNTS_EXECUTE_ADL: readonly AccountSpec[];
+export declare const ACCOUNTS_RESOLVE_PERMISSIONLESS: readonly AccountSpec[];
+export declare const ACCOUNTS_FORCE_CLOSE_RESOLVED: readonly AccountSpec[];
+export declare const ACCOUNTS_ADMIN_FORCE_CLOSE: readonly AccountSpec[];
 /**
  * CloseStaleSlabs: 2 accounts (tag 51)
  * Admin closes a slab of an invalid/old layout and recovers rent SOL.
@@ -230,11 +233,25 @@ export declare const ACCOUNTS_AUDIT_CRANK: readonly AccountSpec[];
  * Permissionless — no signer required beyond fee payer.
  */
 export declare const ACCOUNTS_ADVANCE_ORACLE_PHASE: readonly AccountSpec[];
+export declare const ACCOUNTS_UPDATE_HYPERP_MARK: readonly AccountSpec[];
+export declare const ACCOUNTS_CREATE_LP_VAULT: readonly AccountSpec[];
+export declare const ACCOUNTS_LP_VAULT_DEPOSIT: readonly AccountSpec[];
+export declare const ACCOUNTS_LP_VAULT_CRANK_FEES: readonly AccountSpec[];
+export declare const ACCOUNTS_CHALLENGE_SETTLEMENT: readonly AccountSpec[];
+export declare const ACCOUNTS_RESOLVE_DISPUTE: readonly AccountSpec[];
+export declare const ACCOUNTS_DEPOSIT_LP_COLLATERAL: readonly AccountSpec[];
+export declare const ACCOUNTS_WITHDRAW_LP_COLLATERAL: readonly AccountSpec[];
+export declare const ACCOUNTS_SET_OFFSET_PAIR: readonly AccountSpec[];
+export declare const ACCOUNTS_ATTEST_CROSS_MARGIN: readonly AccountSpec[];
 /**
  * SetOiImbalanceHardBlock: 2 accounts
  * Sets the OI imbalance hard-block threshold (admin only)
  */
 export declare const ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK: readonly AccountSpec[];
+export declare const ACCOUNTS_SET_MAX_PNL_CAP: readonly AccountSpec[];
+export declare const ACCOUNTS_SET_OI_CAP_MULTIPLIER: readonly AccountSpec[];
+export declare const ACCOUNTS_SET_DISPUTE_PARAMS: readonly AccountSpec[];
+export declare const ACCOUNTS_SET_LP_COLLATERAL_PARAMS: readonly AccountSpec[];
 /**
  * MintPositionNft: 10 accounts
  * Creates a Token-2022 position NFT for an open position.
@@ -262,11 +279,14 @@ export declare const ACCOUNTS_SET_PENDING_SETTLEMENT: readonly AccountSpec[];
  * Protected by admin allowlist (GH#1475).
  */
 export declare const ACCOUNTS_CLEAR_PENDING_SETTLEMENT: readonly AccountSpec[];
+export declare const ACCOUNTS_TRANSFER_OWNERSHIP_CPI: readonly AccountSpec[];
 /**
  * SetWalletCap: 2 accounts
  * Sets the per-wallet position cap (admin only). capE6=0 disables.
  */
 export declare const ACCOUNTS_SET_WALLET_CAP: readonly AccountSpec[];
+export declare const ACCOUNTS_RESCUE_ORPHAN_VAULT: readonly AccountSpec[];
+export declare const ACCOUNTS_CLOSE_ORPHAN_SLAB: readonly AccountSpec[];
 /**
  * SetDexPool: 3 accounts
  * Admin pins the approved DEX pool address for a HYPERP market.
