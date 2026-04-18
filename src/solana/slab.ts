@@ -600,17 +600,25 @@ const V12_15_SIZES = new Map<number, number>();
 // RISK_BUF_OFF = ENGINE_OFF + ENGINE_LEN; RISK_BUF_LEN = 160.
 // On-chain (SBF) SLAB_LEN includes RISK_BUF; native test SLAB_LEN also includes it.
 
+// MarketConfig size — 512 bytes post Phase A/B/E (fork addition of 80 bytes:
+//   max_pnl_cap, last_audit_pause_slot, oi_cap_multiplier_bps, dispute_window_slots,
+//   dispute_bond_amount, lp_collateral_enabled, lp_collateral_ltv_bps,
+//   _new_fields_pad, pending_admin[32]).
+// Verified against percolator-prog/src/percolator.rs::MarketConfig via
+//   size_of::<MarketConfig>() = 512 (both native and SBF — u128 fields happen
+//   to land on 16-aligned offsets, so the u128 align=8 vs 16 rule is a no-op).
+
 // Native (i128 align=16)
-const V12_17_ENGINE_OFF           = 512;  // align_up(72 + 432, 16) — HEADER=72, CONFIG=432 (upstream 400 + dex_pool 32)
+const V12_17_ENGINE_OFF           = 592;  // align_up(72 + 512, 16) = 592
 const V12_17_ACCOUNT_SIZE         = 368;
-const V12_17_ENGINE_BITMAP_OFF    = 752;  // offset_of!(RiskEngine, used) on native
+const V12_17_ENGINE_BITMAP_OFF    = 752;  // offset_of!(RiskEngine, used) on native — relative, unchanged
 const V12_17_DEFAULT_MAX_ACCOUNTS = 4096;
 const V12_17_RISK_BUF_LEN         = 160;
 
 // SBF (i128 align=8)
-const V12_17_ENGINE_OFF_SBF       = 504;  // align_up(72 + 432, 8)
+const V12_17_ENGINE_OFF_SBF       = 584;  // align_up(72 + 512, 8) = 584
 const V12_17_ACCOUNT_SIZE_SBF     = 352;
-const V12_17_ENGINE_BITMAP_OFF_SBF = 712; // offset_of!(RiskEngine, used) on SBF
+const V12_17_ENGINE_BITMAP_OFF_SBF = 712; // offset_of!(RiskEngine, used) on SBF — relative, unchanged
 
 // V12_17 account field offsets (native — SBF offsets are 8 bytes less for fields after kind)
 const V12_17_ACCT_CAPITAL_OFF         = 0;    // U128=[u64;2]
