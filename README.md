@@ -67,10 +67,10 @@ const liqPrice = computeLiqPrice(entryPrice, capital, positionSize, 500n);
 Type-safe instruction builders matching the on-chain Rust layout byte-for-byte:
 
 ```typescript
-import { buildInitMarketIxData, buildTradeNoCpiIxData, IX_TAG } from "@percolator/sdk";
+import { encodeInitMarket, encodeTradeNoCpi, IX_TAG } from "@percolator/sdk";
 
 // Build InitMarket instruction data (256 bytes)
-const data = buildInitMarketIxData({
+const data = encodeInitMarket({
   admin: adminPubkey,
   collateralMint: mintPubkey,
   indexFeedId: pythFeedId,
@@ -82,7 +82,7 @@ const data = buildInitMarketIxData({
 });
 
 // Build trade instruction
-const tradeData = buildTradeNoCpiIxData({
+const tradeData = encodeTradeNoCpi({
   userIdx: 0,
   lpIdx: 0,
   requestedSize: 1_000_000n, // positive = long, negative = short
