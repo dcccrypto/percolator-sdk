@@ -164,6 +164,47 @@ Object.freeze(IX_TAG);
  * Note: indexFeedId is the Pyth Pull feed ID (32 bytes hex), NOT an oracle pubkey.
  * The program validates PriceUpdateV2 accounts against this feed ID at runtime.
  */
+/**
+ * Optional 66-byte extended tail for InitMarket (S-4).
+ *
+ * When present and any field is non-zero the encoder appends a 66-byte block
+ * in the exact order that the program reads it (percolator.rs:1516-1545):
+ *   insurance_withdraw_max_bps          u16  (2 bytes)
+ *   insurance_withdraw_cooldown_slots   u64  (8 bytes)
+ *   permissionless_resolve_stale_slots  u64  (8 bytes)
+ *   funding_horizon_slots               u64  (8 bytes)
+ *   funding_k_bps                       u64  (8 bytes)
+ *   funding_max_premium_bps             i64  (8 bytes)
+ *   funding_max_bps_per_slot            i64  (8 bytes)
+ *   mark_min_fee                        u64  (8 bytes)
+ *   force_close_delay_slots             u64  (8 bytes)
+ *   total = 2 + 8*8 = 66 bytes
+ *
+ * When absent (or all fields are zero) the encoder omits the tail and the
+ * program treats all extended fields as their default zero values. This
+ * preserves full backward compatibility with existing 344-byte payloads.
+ */
+export interface InitMarketExtendedTail {
+  /** Maximum percentage of insurance fund withdrawable per cooldown window (0–10 000 bps). */
+  insuranceWithdrawMaxBps: number;
+  /** Slots that must elapse between insurance withdrawals. Required when insuranceWithdrawMaxBps > 0. */
+  insuranceWithdrawCooldownSlots: bigint | string;
+  /** Slots after which an unresolved market may be permissionlessly resolved. */
+  permissionlessResolveStaleSlots: bigint | string;
+  /** Funding rate horizon in slots (custom_funding_k denominator). */
+  fundingHorizonSlots: bigint | string;
+  /** Funding rate K parameter in bps (0 = disabled). */
+  fundingKBps: bigint | string;
+  /** Maximum funding premium in bps (i64 — may be negative to flip direction). */
+  fundingMaxPremiumBps: bigint | string;
+  /** Maximum funding rate change per slot in bps (i64). */
+  fundingMaxBpsPerSlot: bigint | string;
+  /** Minimum fee charged per mark-price update (u64, in collateral base units). */
+  markMinFee: bigint | string;
+  /** Slots to delay forced close after trigger condition is met (0 = immediate). */
+  forceCloseDelaySlots: bigint | string;
+}
+
 export interface InitMarketArgs {
   admin: PublicKey | string;
   collateralMint: PublicKey | string;
@@ -202,6 +243,14 @@ export interface InitMarketArgs {
   minInitialDeposit: bigint | string;         // u128 — min deposit to open account
   minNonzeroMmReq: bigint | string;           // u128 — must be > 0, < minNonzeroImReq
   minNonzeroImReq: bigint | string;           // u128 — must be > minNonzeroMmReq, <= minInitialDeposit
+  /**
+   * Optional 66-byte extended tail (S-4).
+   * When present and any field is non-zero, appended after the 344-byte base payload.
+   * When absent (or all zeros), the base 344-byte payload is sent and the program
+   * uses default zero values for all extended fields.
+   * @see InitMarketExtendedTail
+   */
+  extendedTail?: InitMarketExtendedTail;
 }
 
 /**
@@ -235,14 +284,95 @@ function encodeFeedId(feedId: string): Uint8Array {
 //   insFloor(16) + hMax(8) + maxStale(8) + liqFee(8) + liqCap(16) + resolveDev(8) +
 //   minLiqAbs(16) + minDeposit(16) + minMm(16) + minIm(16)
 // = 1+32+32+32+8+2+1+4+8+16+16+8 + 8+8+8+8+8+16+16+8+8+8+16+8+16+16+16+16 = 344
-const INIT_MARKET_DATA_LEN = 344; // v12.17: removed hMax/maxStale padding (was v12.15 u128 compat shim)
+const INIT_MARKET_BASE_LEN = 344; // v12.17: removed hMax/maxStale padding (was v12.15 u128 compat shim)
 
+// Extended tail: u16(2) + u64*8(64) = 66 bytes (percolator.rs EXTENDED_TAIL_LEN = 2 + 8*8)
+const INIT_MARKET_EXTENDED_TAIL_LEN = 66;
+
+/**
+ * Returns true if the ExtendedTail contains at least one non-zero field.
+ * When all fields are zero the base 344-byte payload is sufficient — the
+ * program treats an empty rest as all-zero defaults.
+ */
+function extendedTailHasNonZero(t: InitMarketExtendedTail): boolean {
+  const toBigInt = (v: bigint | string): bigint =>
+    typeof v === "string" ? BigInt(v) : v;
+  return (
+    t.insuranceWithdrawMaxBps !== 0 ||
+    toBigInt(t.insuranceWithdrawCooldownSlots) !== 0n ||
+    toBigInt(t.permissionlessResolveStaleSlots) !== 0n ||
+    toBigInt(t.fundingHorizonSlots) !== 0n ||
+    toBigInt(t.fundingKBps) !== 0n ||
+    toBigInt(t.fundingMaxPremiumBps) !== 0n ||
+    toBigInt(t.fundingMaxBpsPerSlot) !== 0n ||
+    toBigInt(t.markMinFee) !== 0n ||
+    toBigInt(t.forceCloseDelaySlots) !== 0n
+  );
+}
+
+/**
+ * Encode the optional 66-byte extended tail for InitMarket (S-4).
+ *
+ * Field order matches percolator.rs:1532-1540 exactly:
+ *   iwm(u16) iwc(u64) prs(u64) fh(u64) fk(u64) fmp(i64) fms(i64) mmf(u64) fcd(u64)
+ *
+ * @param t Extended tail parameters
+ * @returns 66-byte Uint8Array
+ */
+function encodeExtendedTail(t: InitMarketExtendedTail): Uint8Array {
+  return concatBytes(
+    encU16(t.insuranceWithdrawMaxBps),
+    encU64(t.insuranceWithdrawCooldownSlots),
+    encU64(t.permissionlessResolveStaleSlots),
+    encU64(t.fundingHorizonSlots),
+    encU64(t.fundingKBps),
+    encI64(t.fundingMaxPremiumBps),
+    encI64(t.fundingMaxBpsPerSlot),
+    encU64(t.markMinFee),
+    encU64(t.forceCloseDelaySlots),
+  );
+}
+
+/**
+ * Encode InitMarket instruction data.
+ *
+ * Produces either a 344-byte base payload (no extended tail) or a 410-byte
+ * payload (344 + 66 extended tail) depending on whether `args.extendedTail`
+ * is provided and contains at least one non-zero field.
+ *
+ * The program (percolator.rs:1527-1545) treats an empty `rest` as all-zero
+ * defaults, so the 344-byte form is fully backward-compatible.
+ *
+ * @param args InitMarket arguments
+ * @returns Encoded instruction bytes
+ *
+ * @example
+ * ```ts
+ * const ix = encodeInitMarket({
+ *   admin: adminPk,
+ *   collateralMint: mintPk,
+ *   indexFeedId: "0000...0000",
+ *   // ... required fields ...
+ *   extendedTail: {
+ *     insuranceWithdrawMaxBps: 500,
+ *     insuranceWithdrawCooldownSlots: 216000n,
+ *     permissionlessResolveStaleSlots: 0n,
+ *     fundingHorizonSlots: 0n,
+ *     fundingKBps: 0n,
+ *     fundingMaxPremiumBps: 0n,
+ *     fundingMaxBpsPerSlot: 0n,
+ *     markMinFee: 0n,
+ *     forceCloseDelaySlots: 0n,
+ *   },
+ * });
+ * ```
+ */
 export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
   // Resolve hMin/hMax with fallback to warmupPeriodSlots for backwards compat
   const hMin = args.hMin ?? args.warmupPeriodSlots ?? 0n;
   const hMax = args.hMax ?? args.warmupPeriodSlots ?? 0n;
 
-  const data = concatBytes(
+  const base = concatBytes(
     encU8(IX_TAG.InitMarket),
     encPubkey(args.admin),
     encPubkey(args.collateralMint),
@@ -276,12 +406,27 @@ export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
     encU128(args.minNonzeroMmReq),
     encU128(args.minNonzeroImReq),
   );
-  if (data.length !== INIT_MARKET_DATA_LEN) {
+
+  if (base.length !== INIT_MARKET_BASE_LEN) {
     throw new Error(
-      `encodeInitMarket: expected ${INIT_MARKET_DATA_LEN} bytes, got ${data.length}`,
+      `encodeInitMarket: base payload expected ${INIT_MARKET_BASE_LEN} bytes, got ${base.length}`,
     );
   }
-  return data;
+
+  // Append extended tail only when present and at least one field is non-zero.
+  // Omitting the tail preserves current default behavior: program reads empty
+  // rest and uses all-zero defaults (percolator.rs:1527-1529).
+  if (args.extendedTail && extendedTailHasNonZero(args.extendedTail)) {
+    const tail = encodeExtendedTail(args.extendedTail);
+    if (tail.length !== INIT_MARKET_EXTENDED_TAIL_LEN) {
+      throw new Error(
+        `encodeInitMarket: extended tail expected ${INIT_MARKET_EXTENDED_TAIL_LEN} bytes, got ${tail.length}`,
+      );
+    }
+    return concatBytes(base, tail);
+  }
+
+  return base;
 }
 
 /**

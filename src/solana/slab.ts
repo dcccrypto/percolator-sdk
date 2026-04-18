@@ -1740,7 +1740,12 @@ function buildLayoutV12_17(maxAccounts: number, dataLen: number): SlabLayout {
     version: 2,
     headerLen: V0_HEADER_LEN,      // 72
     configOffset: V0_HEADER_LEN,   // 72
-    configLen: 432,                 // upstream 400 + dex_pool 32
+    // configLen = 512 (SBF-aligned MarketConfig size after Phase A/B/E).
+    // Verified field-by-field against percolator-prog/src/percolator.rs MarketConfig struct.
+    // Missing 80 bytes from prior value 432: max_pnl_cap, last_audit_pause_slot,
+    // oi_cap_multiplier_bps, dispute_window_slots, dispute_bond_amount,
+    // lp_collateral_enabled, lp_collateral_ltv_bps, _new_fields_pad, pending_admin.
+    configLen: 512,
     reservedOff: V1_RESERVED_OFF,  // 80
     engineOff,
     accountSize,
