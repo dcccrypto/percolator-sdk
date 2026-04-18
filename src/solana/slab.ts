@@ -2213,11 +2213,18 @@ export interface Account {
 
 export async function fetchSlab(
   connection: Connection,
-  slabPubkey: PublicKey
+  slabPubkey: PublicKey,
+  expectedOwner?: PublicKey,
 ): Promise<Uint8Array> {
   const info = await connection.getAccountInfo(slabPubkey);
   if (!info) {
     throw new Error(`Slab account not found: ${slabPubkey.toBase58()}`);
+  }
+  if (expectedOwner && !info.owner.equals(expectedOwner)) {
+    throw new Error(
+      `fetchSlab: account ${slabPubkey.toBase58()} owner mismatch — ` +
+      `expected ${expectedOwner.toBase58()}, got ${info.owner.toBase58()}`,
+    );
   }
   return new Uint8Array(info.data);
 }
