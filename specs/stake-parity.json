@@ -1,0 +1,88 @@
+{
+  "layout": {
+    "offsets": {
+      "epoch_high_water_tvl": 304,
+      "hwm_enabled": 298,
+      "hwm_floor_bps": 299,
+      "hwm_last_epoch": 312,
+      "junior_balance": 321,
+      "junior_fee_mult_bps": 337,
+      "junior_total_lp": 329,
+      "market_resolved": 297,
+      "tranche_enabled": 320
+    },
+    "reserved_start": 288
+  },
+  "live_tags": [
+    {
+      "name": "InitPool",
+      "tag": 0
+    },
+    {
+      "name": "Deposit",
+      "tag": 1
+    },
+    {
+      "name": "Withdraw",
+      "tag": 2
+    },
+    {
+      "name": "FlushToInsurance",
+      "tag": 3
+    },
+    {
+      "name": "UpdateConfig",
+      "tag": 4
+    },
+    {
+      "name": "ReturnInsurance",
+      "tag": 10
+    },
+    {
+      "name": "AccrueFees",
+      "tag": 12
+    },
+    {
+      "name": "InitTradingPool",
+      "tag": 13
+    },
+    {
+      "name": "AdminSetHwmConfig",
+      "tag": 14
+    },
+    {
+      "name": "AdminSetTrancheConfig",
+      "tag": 15
+    },
+    {
+      "name": "DepositJunior",
+      "tag": 16
+    },
+    {
+      "name": "SetMarketResolved",
+      "tag": 18
+    }
+  ],
+  "program": "percolator-stake",
+  "removed_tags": [
+    5,
+    6,
+    7,
+    8,
+    9,
+    11,
+    17
+  ],
+  "stake_deposit_size": 152,
+  "stake_pool_discriminator": [
+    83,
+    80,
+    79,
+    79,
+    76,
+    95,
+    86,
+    49
+  ],
+  "stake_pool_size": 352
+}

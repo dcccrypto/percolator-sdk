@@ -170,15 +170,16 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     const reservedStart = 288;
     buf[reservedStart + 9] = 1;
     buf[reservedStart + 10] = 1;
-    dv.setBigUint64(reservedStart + 11, 123n, true);
-    dv.setBigUint64(reservedStart + 19, 456n, true);
-    dv.setUint16(reservedStart + 27, 777, true);
+    dv.setUint16(reservedStart + 11, 777, true);
+    dv.setBigUint64(reservedStart + 16, 123n, true);
+    dv.setBigUint64(reservedStart + 24, 456n, true);
 
     const pool = decodeStakePool(buf);
     expect(pool.marketResolved).toBe(true);
     expect(pool.hwmEnabled).toBe(true);
-    expect(pool.epochHighWaterTvl).toBe((456n << 64n) | 123n);
+    expect(pool.epochHighWaterTvl).toBe(123n);
     expect(pool.hwmFloorBps).toBe(777);
+    expect(pool.hwmLastEpoch).toBe(456n);
   });
 });
 

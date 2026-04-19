@@ -1,0 +1,25 @@
+{
+  "offsets": {
+    "account_id": 152,
+    "bump": 9,
+    "entry_price_e6": 88,
+    "is_long": 104,
+    "last_funding_index_e18": 128,
+    "magic": 0,
+    "minted_at": 144,
+    "nft_mint": 56,
+    "position_basis_q": 112,
+    "position_owner": 160,
+    "position_size": 96,
+    "reserved": 192,
+    "slab": 16,
+    "user_idx": 48,
+    "version": 8
+  },
+  "position_nft_len": 208,
+  "program": "percolator-nft",
+  "seeds": {
+    "mint_authority": "mint_authority",
+    "position_nft": "position_nft"
+  }
+}

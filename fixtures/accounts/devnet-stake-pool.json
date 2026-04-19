@@ -1,0 +1,32 @@
+{
+  "source": "devnet",
+  "cluster_slot": 456513856,
+  "captured_at": "2026-04-19",
+  "program_id": "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k",
+  "account_address": "6ZTM2QuizB13k3meXbdRETQsHL2LcGBnTd6QyhY2g54Q",
+  "owner": "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k",
+  "lamports": 3340800,
+  "data_base64": "Af//AAAAAABedqDLF43y4N1sXe5yUMy20xtWLRCC7vrjtuRWToo6M/EW5T9hHvaoATUvB7JBFu0mC8vmBIrZJucJhx8BZL4ILeUN6Q2tEi2bx+XLztPSpvI5kL0FZw8psm54tqJCcX4mHMZembZmvbjlOu9ndPjg6RWrGz8Tx16lsw4b+cEZ6xs7y7OAyXcax20KCoGYj1rVxH5qmTlS6zeCKx6s+vC6QEIPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQEIPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+  "expected_decoded": {
+    "isInitialized": true,
+    "bump": 255,
+    "vaultAuthorityBump": 255,
+    "adminTransferred": false,
+    "slab": "7MkErbg12MdHkzZzL6GzvQ6fQgZbxnT25zxKxbdrRDvr",
+    "admin": "HE7WEeELz9LoKbse4WDAMmNjUcjGgqtuztZARHw4buR9",
+    "collateralMint": "469vYhbWceW3qCTY7Qho8ZvwxDdjWvYebxFBsyCS4Zzm",
+    "lpMint": "3Zmwb5h7iViC5ebwFjJJ8ty2CHRHYQPVrNJKnsWXcH1t",
+    "vault": "2qJthtqNuo47hokFuvALds5LKw8J6sy5uqyJDv3ywqM3",
+    "totalDeposited": "1000000",
+    "totalLpSupply": "0",
+    "cooldownSlots": "0",
+    "depositCap": "0",
+    "totalFlushed": "0",
+    "totalReturned": "0",
+    "totalWithdrawn": "1000000",
+    "poolMode": 0,
+    "marketResolved": false,
+    "hwmEnabled": false,
+    "hwmFloorBps": 0
+  }
+}

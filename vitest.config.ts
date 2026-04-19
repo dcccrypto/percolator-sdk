@@ -24,6 +24,8 @@ export default defineConfig({
       "test/lighthouse.test.ts",
       "test/rpc-pool.test.ts",
       "test/drift-check.test.ts",
+      "test/parity-fixtures.test.ts",
+      "test/account-decode.test.ts",
     ],
   },
 });

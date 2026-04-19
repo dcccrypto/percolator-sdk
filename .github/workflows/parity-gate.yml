@@ -1,0 +1,115 @@
+name: Parity Gate
+
+# Triggers:
+# 1. PRs to main that touch SDK ABI or spec files — catches SDK-side drift.
+# 2. Nightly cron — catches Rust-side drift that arrives via a push to a Rust
+#    repo without a simultaneous SDK PR.
+#
+# If the Rust repos ever gain repository_dispatch triggers on their CI, add:
+#   repository_dispatch:
+#     types: [rust-layout-changed]
+# and remove the cron, but the nightly is a safe default.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "specs/**"
+      - "src/abi/**"
+      - "src/solana/stake.ts"
+      - "src/abi/nft.ts"
+      - "src/abi/instructions.ts"
+  schedule:
+    # 03:00 UTC daily
+    - cron: "0 3 * * *"
+
+jobs:
+  parity-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------- SDK repo ----------
+      - name: Checkout percolator-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/percolator-sdk
+          path: percolator-sdk
+          # If the repo is private, uncomment the token line and add
+          # PERCOLATOR_READ_TOKEN as a repository secret on percolator-sdk:
+          #   Settings → Secrets and variables → Actions → New repository secret
+          #   Name: PERCOLATOR_READ_TOKEN
+          #   Value: a GitHub PAT (classic or fine-grained) with Contents: read
+          #          on percolator-prog, percolator-stake, percolator-nft, percolator-match.
+          # If all five repos are public, this token line is not needed.
+          # token: ${{ secrets.PERCOLATOR_READ_TOKEN }}
+
+      # ---------- Rust repos ----------
+      - name: Checkout percolator-prog
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/percolator-prog
+          path: percolator-prog
+          token: ${{ secrets.PERCOLATOR_READ_TOKEN }}
+
+      - name: Checkout percolator-stake
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/percolator-stake
+          path: percolator-stake
+          token: ${{ secrets.PERCOLATOR_READ_TOKEN }}
+
+      - name: Checkout percolator-nft
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/percolator-nft
+          path: percolator-nft
+          token: ${{ secrets.PERCOLATOR_READ_TOKEN }}
+
+      - name: Checkout percolator-match
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/percolator-match
+          path: percolator-match
+          token: ${{ secrets.PERCOLATOR_READ_TOKEN }}
+
+      # ---------- Rust toolchain ----------
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cache Cargo registry + build artifacts across runs.
+      # Key includes Cargo.lock hashes from all four Rust repos.
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            percolator-prog/target
+            percolator-stake/target
+            percolator-nft/target
+            percolator-match/target
+          key: ${{ runner.os }}-cargo-parity-${{ hashFiles('percolator-prog/Cargo.lock', 'percolator-stake/Cargo.lock', 'percolator-nft/Cargo.lock', 'percolator-match/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-parity-
+
+      # ---------- Node + pnpm ----------
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: percolator-sdk/pnpm-lock.yaml
+
+      - name: Install SDK dependencies
+        working-directory: percolator-sdk
+        run: pnpm install --frozen-lockfile
+
+      # ---------- Gate ----------
+      - name: Run parity check
+        working-directory: percolator-sdk
+        run: pnpm parity:check

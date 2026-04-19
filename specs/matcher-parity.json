@@ -1,0 +1,98 @@
+{
+  "call_field_offsets": {
+    "_pad": 43,
+    "lp_account_id": 11,
+    "lp_idx": 9,
+    "oracle_price_e6": 19,
+    "req_id": 1,
+    "req_size": 27,
+    "tag": 0
+  },
+  "constants": {
+    "MATCHER_ABI_VERSION": 2,
+    "MATCHER_KIND_PASSIVE": 0,
+    "MATCHER_KIND_VAMM": 1,
+    "MATCHER_MAGIC_hex": "0x504552434d415443",
+    "MATCHER_VERSION": 4
+  },
+  "ctx_field_offsets": {
+    "_new_pad": 156,
+    "_pad0": 13,
+    "_reserved": 168,
+    "base_spread_bps": 52,
+    "fee_to_insurance_bps": 152,
+    "impact_k_bps": 60,
+    "insurance_accrued_e6": 144,
+    "inventory_base": 96,
+    "kind": 12,
+    "last_exec_price_e6": 120,
+    "last_oracle_price_e6": 112,
+    "liquidity_notional_e6": 64,
+    "lp_account_id": 160,
+    "lp_pda": 16,
+    "magic": 0,
+    "max_fill_abs": 80,
+    "max_inventory_abs": 128,
+    "max_total_bps": 56,
+    "skew_spread_mult_bps": 154,
+    "trading_fee_bps": 48,
+    "version": 8
+  },
+  "flags": {
+    "FLAG_PARTIAL_OK": 2,
+    "FLAG_REJECTED": 4,
+    "FLAG_VALID": 1
+  },
+  "init_field_offsets": {
+    "base_spread_bps": 6,
+    "fee_to_insurance_bps": 66,
+    "impact_k_bps": 14,
+    "kind": 1,
+    "liquidity_notional_e6": 18,
+    "lp_account_id": 70,
+    "max_fill_abs": 34,
+    "max_inventory_abs": 50,
+    "max_total_bps": 10,
+    "skew_spread_mult_bps": 68,
+    "tag": 0,
+    "trading_fee_bps": 2
+  },
+  "program": "percolator-match",
+  "return_field_offsets": {
+    "abi_version": 0,
+    "exec_price_e6": 8,
+    "exec_size": 16,
+    "flags": 4,
+    "lp_account_id": 40,
+    "oracle_price_e6": 48,
+    "req_id": 32,
+    "reserved": 56
+  },
+  "self_checks": {
+    "init_ctx_len_eq_78": true,
+    "matcher_call_len_eq_67": true,
+    "matcher_ctx_size_eq_ctx_vamm_len": true,
+    "return_offset_plus_return_len_eq_vamm_offset": true,
+    "vamm_offset_plus_vamm_len_eq_context_len": true
+  },
+  "sizes": {
+    "CTX_RETURN_OFFSET": 0,
+    "CTX_VAMM_LEN": 256,
+    "CTX_VAMM_OFFSET": 64,
+    "INIT_CTX_LEN": 78,
+    "MATCHER_CALL_LEN": 67,
+    "MATCHER_CONTEXT_LEN": 320,
+    "MATCHER_RETURN_LEN": 64,
+    "MatcherCtx_size": 256
+  },
+  "tags": [
+    {
+      "name": "MatcherCall",
+      "tag": 0
+    },
+    {
+      "name": "InitMatcherCtx",
+      "tag": 2
+    }
+  ]
+}

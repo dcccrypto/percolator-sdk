@@ -614,6 +614,9 @@ const V12_17_ACCOUNT_SIZE         = 368;
 const V12_17_ENGINE_BITMAP_OFF    = 752;  // offset_of!(RiskEngine, used) on native — relative, unchanged
 const V12_17_DEFAULT_MAX_ACCOUNTS = 4096;
 const V12_17_RISK_BUF_LEN         = 160;
+// Per-account generation table appended after RISK_BUF in percolator-prog.
+// See percolator-prog/src/percolator.rs:87 — GEN_TABLE_LEN = MAX_ACCOUNTS * 8.
+const V12_17_GEN_TABLE_ENTRY      = 8;
 
 // SBF (i128 align=8)
 const V12_17_ENGINE_OFF_SBF       = 584;  // align_up(72 + 512, 8) = 584
@@ -867,13 +870,13 @@ for (const n of V12_17_TIERS) {
   // Native (i128 align=16, Account align=16)
   const preAccNative = V12_17_ENGINE_BITMAP_OFF + bitmapBytes + postBitmap + nextFreeBytes;
   const accountsOffNative = Math.ceil(preAccNative / 16) * 16; // align to Account alignment (16)
-  const nativeSize = V12_17_ENGINE_OFF + accountsOffNative + n * V12_17_ACCOUNT_SIZE + V12_17_RISK_BUF_LEN;
+  const nativeSize = V12_17_ENGINE_OFF + accountsOffNative + n * V12_17_ACCOUNT_SIZE + V12_17_RISK_BUF_LEN + n * V12_17_GEN_TABLE_ENTRY;
   V12_17_SIZES.set(nativeSize, n);
 
   // SBF (i128 align=8, Account align=8)
   const preAccSbf = V12_17_ENGINE_BITMAP_OFF_SBF + bitmapBytes + postBitmap + nextFreeBytes;
   const accountsOffSbf = Math.ceil(preAccSbf / 8) * 8;
-  const sbfSize = V12_17_ENGINE_OFF_SBF + accountsOffSbf + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN;
+  const sbfSize = V12_17_ENGINE_OFF_SBF + accountsOffSbf + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN + n * V12_17_GEN_TABLE_ENTRY;
   V12_17_SIZES.set(sbfSize, n);
 }
 
@@ -1426,7 +1429,7 @@ for (const [label, n] of [["Small", 256], ["Medium", 1024], ["Large", 4096]] as 
   const bitmapBytes = Math.ceil(n / 64) * 8;
   const preAcc = V12_17_ENGINE_BITMAP_OFF_SBF + bitmapBytes + 4 + n * 2;
   const accountsOff = Math.ceil(preAcc / 8) * 8;
-  const size = V12_17_ENGINE_OFF_SBF + accountsOff + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN;
+  const size = V12_17_ENGINE_OFF_SBF + accountsOff + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN + n * V12_17_GEN_TABLE_ENTRY;
   SLAB_TIERS_V12_17[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (v12.17)` };
 }
 
@@ -1729,7 +1732,7 @@ function buildLayoutV12_17(maxAccounts: number, dataLen: number): SlabLayout {
     const bitmapBytes = Math.ceil(maxAccounts / 64) * 8;
     const preAccNative = V12_17_ENGINE_BITMAP_OFF + bitmapBytes + 4 + maxAccounts * 2;
     const accountsOffNative = Math.ceil(preAccNative / 16) * 16;
-    const nativeSize = V12_17_ENGINE_OFF + accountsOffNative + maxAccounts * V12_17_ACCOUNT_SIZE + V12_17_RISK_BUF_LEN;
+    const nativeSize = V12_17_ENGINE_OFF + accountsOffNative + maxAccounts * V12_17_ACCOUNT_SIZE + V12_17_RISK_BUF_LEN + maxAccounts * V12_17_GEN_TABLE_ENTRY;
     return dataLen !== nativeSize;
   })();
 

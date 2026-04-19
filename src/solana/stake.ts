@@ -373,6 +373,7 @@ export interface StakePoolState {
   hwmEnabled: boolean;
   epochHighWaterTvl: bigint;
   hwmFloorBps: number;
+  hwmLastEpoch: bigint;
 
   // PERC-303: Tranche fields (from _reserved[32..51])
   trancheEnabled: boolean;
@@ -425,14 +426,13 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   const reservedStart = off;
   // _reserved[8] = version (skipped)
   // _reserved[9] = market_resolved
-  // PERC-313: _reserved[10] = hwm_enabled, [11..27] = epoch_high_water_tvl (u128), [27..29] = hwm_floor_bps (u16)
+  // PERC-313: _reserved[10] = hwm_enabled, [11..13] = hwm_floor_bps (u16),
+  // [16..24] = epoch_high_water_tvl (u64), [24..32] = hwm_last_epoch (u64)
   const marketResolved = bytes[reservedStart + 9] === 1;
   const hwmEnabled = bytes[reservedStart + 10] === 1;
-  // Read u128 as two u64 parts
-  const hwmTvlLow = readU64LE(bytes, reservedStart + 11);
-  const hwmTvlHigh = readU64LE(bytes, reservedStart + 19);
-  const epochHighWaterTvl = hwmTvlLow | (hwmTvlHigh << 64n);
-  const hwmFloorBps = readU16LE(bytes, reservedStart + 27);
+  const hwmFloorBps = readU16LE(bytes, reservedStart + 11);
+  const epochHighWaterTvl = readU64LE(bytes, reservedStart + 16);
+  const hwmLastEpoch = readU64LE(bytes, reservedStart + 24);
 
   // PERC-303: _reserved[32] = tranche_enabled, [33..41] = junior_balance, [41..49] = junior_total_lp, [49..51] = junior_fee_mult_bps
   const trancheEnabled = bytes[reservedStart + 32] === 1;
@@ -466,6 +466,7 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
     hwmEnabled,
     epochHighWaterTvl,
     hwmFloorBps,
+    hwmLastEpoch,
     trancheEnabled,
     juniorBalance,
     juniorTotalLp,

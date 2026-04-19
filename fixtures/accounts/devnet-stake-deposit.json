@@ -1,0 +1,18 @@
+{
+  "source": "devnet",
+  "cluster_slot": 456513856,
+  "captured_at": "2026-04-19",
+  "program_id": "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k",
+  "account_address": "YLnUn8c7X74BA1aJbMstvjUsAx5wPknJVK8aSCTjR2y",
+  "owner": "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k",
+  "lamports": 1948800,
+  "data_base64": "Af4AAAAAAABSms8m99dhetdpDJUSthQ4UBULdYsFXLffGyzddQgL3fEW5T9hHvaoATUvB7JBFu0mC8vmBIrZJucJhx8BZL4II05mGgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  "expected_decoded": {
+    "isInitialized": true,
+    "bump": 254,
+    "pool": "6ZTM2QuizB13k3meXbdRETQsHL2LcGBnTd6QyhY2g54Q",
+    "user": "HE7WEeELz9LoKbse4WDAMmNjUcjGgqtuztZARHw4buR9",
+    "lastDepositSlot": "442912291",
+    "lpAmount": "0"
+  }
+}

@@ -141,6 +141,7 @@ export interface StakePoolState {
     hwmEnabled: boolean;
     epochHighWaterTvl: bigint;
     hwmFloorBps: number;
+    hwmLastEpoch: bigint;
     trancheEnabled: boolean;
     juniorBalance: bigint;
     juniorTotalLp: bigint;

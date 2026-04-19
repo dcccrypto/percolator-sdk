@@ -1,6 +1,6 @@
 {
   "name": "@percolatorct/sdk",
-  "version": "1.0.0-beta.33",
+  "version": "1.0.0-beta.34",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
@@ -23,7 +23,9 @@
     "build": "tsup && tsc --emitDeclarationOnly --declaration --outDir dist",
     "test": "tsx test/abi.test.ts && tsx test/slab.test.ts && tsx test/validation.test.ts && tsx test/dex-oracle.test.ts && tsx test/trading.test.ts && tsx test/warmup-leverage-cap.test.ts && tsx test/dynamic-fees.test.ts && tsx test/oracle.test.ts && vitest run",
     "lint": "tsc --noEmit",
-    "verify-layout": "tsx scripts/verify-layout.ts"
+    "verify-layout": "tsx scripts/verify-layout.ts",
+    "update-parity-fixtures": "node scripts/update-parity-fixtures.mjs",
+    "parity:check": "node scripts/check-parity-fixtures.mjs"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",

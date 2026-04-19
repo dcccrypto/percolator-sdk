@@ -560,7 +560,14 @@ function encodeAuditCrank() {
   return encU8(IX_TAG.AuditCrank);
 }
 var VAMM_MAGIC = 0x504552434d415443n;
+var MATCHER_MAGIC = VAMM_MAGIC;
+var CTX_RETURN_OFFSET = 0;
+var MATCHER_RETURN_LEN = 64;
 var CTX_VAMM_OFFSET = 64;
+var CTX_VAMM_LEN = 256;
+var MATCHER_CONTEXT_LEN = 320;
+var MATCHER_CALL_LEN = 67;
+var INIT_CTX_LEN = 78;
 var BPS_DENOM = 10000n;
 function computeVammQuote(params, oraclePriceE6, tradeSize, isLong) {
   const absSize = tradeSize < 0n ? -tradeSize : tradeSize;
@@ -2078,6 +2085,7 @@ var V12_17_ENGINE_OFF = 592;
 var V12_17_ACCOUNT_SIZE = 368;
 var V12_17_ENGINE_BITMAP_OFF = 752;
 var V12_17_RISK_BUF_LEN = 160;
+var V12_17_GEN_TABLE_ENTRY = 8;
 var V12_17_ENGINE_OFF_SBF = 584;
 var V12_17_ACCOUNT_SIZE_SBF = 352;
 var V12_17_ENGINE_BITMAP_OFF_SBF = 712;
@@ -2213,11 +2221,11 @@ for (const n of V12_17_TIERS) {
   const nextFreeBytes = n * 2;
   const preAccNative = V12_17_ENGINE_BITMAP_OFF + bitmapBytes + postBitmap + nextFreeBytes;
   const accountsOffNative = Math.ceil(preAccNative / 16) * 16;
-  const nativeSize = V12_17_ENGINE_OFF + accountsOffNative + n * V12_17_ACCOUNT_SIZE + V12_17_RISK_BUF_LEN;
+  const nativeSize = V12_17_ENGINE_OFF + accountsOffNative + n * V12_17_ACCOUNT_SIZE + V12_17_RISK_BUF_LEN + n * V12_17_GEN_TABLE_ENTRY;
   V12_17_SIZES.set(nativeSize, n);
   const preAccSbf = V12_17_ENGINE_BITMAP_OFF_SBF + bitmapBytes + postBitmap + nextFreeBytes;
   const accountsOffSbf = Math.ceil(preAccSbf / 8) * 8;
-  const sbfSize = V12_17_ENGINE_OFF_SBF + accountsOffSbf + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN;
+  const sbfSize = V12_17_ENGINE_OFF_SBF + accountsOffSbf + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN + n * V12_17_GEN_TABLE_ENTRY;
   V12_17_SIZES.set(sbfSize, n);
 }
 var V12_1_SBF_ACCOUNT_SIZE = 280;
@@ -2712,7 +2720,7 @@ for (const [label, n] of [["Small", 256], ["Medium", 1024], ["Large", 4096]]) {
   const bitmapBytes = Math.ceil(n / 64) * 8;
   const preAcc = V12_17_ENGINE_BITMAP_OFF_SBF + bitmapBytes + 4 + n * 2;
   const accountsOff = Math.ceil(preAcc / 8) * 8;
-  const size = V12_17_ENGINE_OFF_SBF + accountsOff + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN;
+  const size = V12_17_ENGINE_OFF_SBF + accountsOff + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN + n * V12_17_GEN_TABLE_ENTRY;
   SLAB_TIERS_V12_17[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (v12.17)` };
 }
 function buildLayoutVSetDexPool(maxAccounts) {
@@ -3018,7 +3026,7 @@ function buildLayoutV12_17(maxAccounts, dataLen) {
     const bitmapBytes2 = Math.ceil(maxAccounts / 64) * 8;
     const preAccNative = V12_17_ENGINE_BITMAP_OFF + bitmapBytes2 + 4 + maxAccounts * 2;
     const accountsOffNative = Math.ceil(preAccNative / 16) * 16;
-    const nativeSize = V12_17_ENGINE_OFF + accountsOffNative + maxAccounts * V12_17_ACCOUNT_SIZE + V12_17_RISK_BUF_LEN;
+    const nativeSize = V12_17_ENGINE_OFF + accountsOffNative + maxAccounts * V12_17_ACCOUNT_SIZE + V12_17_RISK_BUF_LEN + maxAccounts * V12_17_GEN_TABLE_ENTRY;
     return dataLen !== nativeSize;
   })();
   const engineOff = isSbf ? V12_17_ENGINE_OFF_SBF : V12_17_ENGINE_OFF;
@@ -5153,10 +5161,9 @@ function decodeStakePool(data) {
   const reservedStart = off;
   const marketResolved = bytes[reservedStart + 9] === 1;
   const hwmEnabled = bytes[reservedStart + 10] === 1;
-  const hwmTvlLow = readU64LE4(bytes, reservedStart + 11);
-  const hwmTvlHigh = readU64LE4(bytes, reservedStart + 19);
-  const epochHighWaterTvl = hwmTvlLow | hwmTvlHigh << 64n;
-  const hwmFloorBps = readU16LE3(bytes, reservedStart + 27);
+  const hwmFloorBps = readU16LE3(bytes, reservedStart + 11);
+  const epochHighWaterTvl = readU64LE4(bytes, reservedStart + 16);
+  const hwmLastEpoch = readU64LE4(bytes, reservedStart + 24);
   const trancheEnabled = bytes[reservedStart + 32] === 1;
   const juniorBalance = readU64LE4(bytes, reservedStart + 33);
   const juniorTotalLp = readU64LE4(bytes, reservedStart + 41);
@@ -5187,6 +5194,7 @@ function decodeStakePool(data) {
     hwmEnabled,
     epochHighWaterTvl,
     hwmFloorBps,
+    hwmLastEpoch,
     trancheEnabled,
     juniorBalance,
     juniorTotalLp,
@@ -6660,10 +6668,13 @@ export {
   CHAINLINK_DECIMALS_OFFSET,
   CHAINLINK_MIN_SIZE,
   CREATOR_LOCK_SEED,
+  CTX_RETURN_OFFSET,
+  CTX_VAMM_LEN,
   CTX_VAMM_OFFSET,
   DEFAULT_OI_RAMP_SLOTS,
   ENGINE_MARK_PRICE_OFF,
   ENGINE_OFF,
+  INIT_CTX_LEN,
   IX_TAG,
   LIGHTHOUSE_CONSTRAINT_ADDRESS,
   LIGHTHOUSE_ERROR_CODES,
@@ -6673,6 +6684,10 @@ export {
   LiquidationPolicyTag,
   MARK_PRICE_EMA_ALPHA_E6,
   MARK_PRICE_EMA_WINDOW_SLOTS,
+  MATCHER_CALL_LEN,
+  MATCHER_CONTEXT_LEN,
+  MATCHER_MAGIC,
+  MATCHER_RETURN_LEN,
   MAX_DECIMALS,
   METEORA_DLMM_PROGRAM_ID,
   NFT_IX_TAG,

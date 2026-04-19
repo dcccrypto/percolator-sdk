@@ -1,0 +1,325 @@
+{
+  "gaps": [
+    31,
+    57
+  ],
+  "program": "percolator-prog",
+  "tags": [
+    {
+      "name": "InitMarket",
+      "tag": 0
+    },
+    {
+      "name": "InitUser",
+      "tag": 1
+    },
+    {
+      "name": "InitLP",
+      "tag": 2
+    },
+    {
+      "name": "DepositCollateral",
+      "tag": 3
+    },
+    {
+      "name": "WithdrawCollateral",
+      "tag": 4
+    },
+    {
+      "name": "KeeperCrank",
+      "tag": 5
+    },
+    {
+      "name": "TradeNoCpi",
+      "tag": 6
+    },
+    {
+      "name": "LiquidateAtOracle",
+      "tag": 7
+    },
+    {
+      "name": "CloseAccount",
+      "tag": 8
+    },
+    {
+      "name": "TopUpInsurance",
+      "tag": 9
+    },
+    {
+      "name": "TradeCpi",
+      "tag": 10
+    },
+    {
+      "name": "SetRiskThreshold",
+      "tag": 11
+    },
+    {
+      "name": "UpdateAdmin",
+      "tag": 12
+    },
+    {
+      "name": "CloseSlab",
+      "tag": 13
+    },
+    {
+      "name": "UpdateConfig",
+      "tag": 14
+    },
+    {
+      "name": "SetMaintenanceFee",
+      "tag": 15
+    },
+    {
+      "name": "SetOraclePriceCap",
+      "tag": 18
+    },
+    {
+      "name": "ResolveMarket",
+      "tag": 19
+    },
+    {
+      "name": "WithdrawInsurance",
+      "tag": 20
+    },
+    {
+      "name": "AdminForceClose",
+      "tag": 21
+    },
+    {
+      "name": "SetInsuranceWithdrawPolicy",
+      "tag": 22
+    },
+    {
+      "name": "WithdrawInsuranceLimited",
+      "tag": 23
+    },
+    {
+      "name": "QueryLpFees",
+      "tag": 24
+    },
+    {
+      "name": "ReclaimEmptyAccount",
+      "tag": 25
+    },
+    {
+      "name": "SettleAccount",
+      "tag": 26
+    },
+    {
+      "name": "DepositFeeCredits",
+      "tag": 27
+    },
+    {
+      "name": "ConvertReleasedPnl",
+      "tag": 28
+    },
+    {
+      "name": "ResolvePermissionless",
+      "tag": 29
+    },
+    {
+      "name": "ForceCloseResolved",
+      "tag": 30
+    },
+    {
+      "name": "SetPythOracle",
+      "tag": 32
+    },
+    {
+      "name": "UpdateMarkPrice",
+      "tag": 33
+    },
+    {
+      "name": "UpdateHyperpMark",
+      "tag": 34
+    },
+    {
+      "name": "TradeCpiV2",
+      "tag": 35
+    },
+    {
+      "name": "UnresolveMarket",
+      "tag": 36
+    },
+    {
+      "name": "CreateLpVault",
+      "tag": 37
+    },
+    {
+      "name": "LpVaultDeposit",
+      "tag": 38
+    },
+    {
+      "name": "LpVaultWithdraw",
+      "tag": 39
+    },
+    {
+      "name": "LpVaultCrankFees",
+      "tag": 40
+    },
+    {
+      "name": "FundMarketInsurance",
+      "tag": 41
+    },
+    {
+      "name": "SetInsuranceIsolation",
+      "tag": 42
+    },
+    {
+      "name": "ChallengeSettlement",
+      "tag": 43
+    },
+    {
+      "name": "ResolveDispute",
+      "tag": 44
+    },
+    {
+      "name": "DepositLpCollateral",
+      "tag": 45
+    },
+    {
+      "name": "WithdrawLpCollateral",
+      "tag": 46
+    },
+    {
+      "name": "QueueWithdrawal",
+      "tag": 47
+    },
+    {
+      "name": "ClaimQueuedWithdrawal",
+      "tag": 48
+    },
+    {
+      "name": "CancelQueuedWithdrawal",
+      "tag": 49
+    },
+    {
+      "name": "ExecuteAdl",
+      "tag": 50
+    },
+    {
+      "name": "CloseStaleSlabs",
+      "tag": 51
+    },
+    {
+      "name": "ReclaimSlabRent",
+      "tag": 52
+    },
+    {
+      "name": "AuditCrank",
+      "tag": 53
+    },
+    {
+      "name": "SetOffsetPair",
+      "tag": 54
+    },
+    {
+      "name": "AttestCrossMargin",
+      "tag": 55
+    },
+    {
+      "name": "AdvanceOraclePhase",
+      "tag": 56
+    },
+    {
+      "name": "SlashCreationDeposit",
+      "tag": 58
+    },
+    {
+      "name": "InitSharedVault",
+      "tag": 59
+    },
+    {
+      "name": "AllocateMarket",
+      "tag": 60
+    },
+    {
+      "name": "QueueWithdrawalSV",
+      "tag": 61
+    },
+    {
+      "name": "ClaimEpochWithdrawal",
+      "tag": 62
+    },
+    {
+      "name": "AdvanceEpoch",
+      "tag": 63
+    },
+    {
+      "name": "MintPositionNft",
+      "tag": 64
+    },
+    {
+      "name": "TransferPositionOwnership",
+      "tag": 65
+    },
+    {
+      "name": "BurnPositionNft",
+      "tag": 66
+    },
+    {
+      "name": "SetPendingSettlement",
+      "tag": 67
+    },
+    {
+      "name": "ClearPendingSettlement",
+      "tag": 68
+    },
+    {
+      "name": "TransferOwnershipCpi",
+      "tag": 69
+    },
+    {
+      "name": "SetWalletCap",
+      "tag": 70
+    },
+    {
+      "name": "SetOiImbalanceHardBlock",
+      "tag": 71
+    },
+    {
+      "name": "RescueOrphanVault",
+      "tag": 72
+    },
+    {
+      "name": "CloseOrphanSlab",
+      "tag": 73
+    },
+    {
+      "name": "SetDexPool",
+      "tag": 74
+    },
+    {
+      "name": "InitMatcherCtx",
+      "tag": 75
+    },
+    {
+      "name": "PauseMarket",
+      "tag": 76
+    },
+    {
+      "name": "UnpauseMarket",
+      "tag": 77
+    },
+    {
+      "name": "SetMaxPnlCap",
+      "tag": 78
+    },
+    {
+      "name": "SetOiCapMultiplier",
+      "tag": 79
+    },
+    {
+      "name": "SetDisputeParams",
+      "tag": 80
+    },
+    {
+      "name": "SetLpCollateralParams",
+      "tag": 81
+    },
+    {
+      "name": "AcceptAdmin",
+      "tag": 82
+    }
+  ]
+}

@@ -727,10 +727,30 @@ export interface VammMatcherParams {
     impactKBps: number;
     liquidityNotionalE6: bigint;
 }
-/** Magic bytes identifying a vAMM matcher context: "PERCMATC" as u64 LE */
+/** Magic bytes identifying a vAMM matcher context: "PERCMATC" as u64 LE = 0x504552434d415443 */
 export declare const VAMM_MAGIC = 5784119745439683651n;
-/** Offset into matcher context where vAMM params start */
+/** Alias matching the Rust constant name for parity tests */
+export declare const MATCHER_MAGIC = 5784119745439683651n;
+/** Offset where matcher return is written in the context account (always 0 per ABI) */
+export declare const CTX_RETURN_OFFSET = 0;
+/** Byte length of the MatcherReturn section of the context account */
+export declare const MATCHER_RETURN_LEN = 64;
+/** Offset into matcher context where vAMM params start (= MATCHER_RETURN_LEN) */
 export declare const CTX_VAMM_OFFSET = 64;
+/** Byte length of the MatcherCtx (vAMM state) section of the context account */
+export declare const CTX_VAMM_LEN = 256;
+/** Total matcher context account size: MATCHER_RETURN_LEN + CTX_VAMM_LEN */
+export declare const MATCHER_CONTEXT_LEN = 320;
+/** Byte length of a MatcherCall instruction (tag 0 CPI payload) */
+export declare const MATCHER_CALL_LEN = 67;
+/**
+ * Byte length of an InitMatcherCtx instruction payload sent to the matcher program.
+ * Layout: tag(1) + kind(1) + trading_fee_bps(4) + base_spread_bps(4) +
+ *   max_total_bps(4) + impact_k_bps(4) + liquidity_notional_e6(16) +
+ *   max_fill_abs(16) + max_inventory_abs(16) + fee_to_insurance_bps(2) +
+ *   skew_spread_mult_bps(2) + lp_account_id(8) = 78
+ */
+export declare const INIT_CTX_LEN = 78;
 /**
  * Compute execution price for a given LP quote.
  * For buys (isLong=true): price above oracle.
