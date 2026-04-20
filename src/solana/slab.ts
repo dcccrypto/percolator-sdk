@@ -656,9 +656,13 @@ const V12_17_ENGINE_RESOLVED_PRICE_OFF  = 240;  // u64
 const V12_17_ENGINE_RESOLVED_K_LONG_OFF = 304;  // i128
 const V12_17_ENGINE_RESOLVED_K_SHORT_OFF = 320; // i128
 const V12_17_ENGINE_RESOLVED_LIVE_PRICE_OFF = 336; // u64
+const V12_17_ENGINE_LAST_CRANK_SLOT_OFF = 344;  // u64 — verified via offset_of!(RiskEngine, last_crank_slot)
 const V12_17_ENGINE_C_TOT_OFF          = 352;  // U128
 const V12_17_ENGINE_PNL_POS_TOT_OFF    = 368;  // u128
 const V12_17_ENGINE_PNL_MATURED_POS_TOT_OFF = 384; // u128
+const V12_17_ENGINE_GC_CURSOR_OFF      = 400;  // u16
+const V12_17_ENGINE_OI_EFF_LONG_OFF    = 528;  // u128 — oi_eff_long_q
+const V12_17_ENGINE_OI_EFF_SHORT_OFF   = 544;  // u128 — oi_eff_short_q
 const V12_17_ENGINE_NEG_PNL_COUNT_OFF  = 648;  // u64
 const V12_17_ENGINE_LAST_ORACLE_PRICE_OFF = 656; // u64
 const V12_17_ENGINE_FUND_PX_LAST_OFF   = 664;  // u64
@@ -670,9 +674,13 @@ const V12_17_ENGINE_F_SHORT_NUM_OFF    = 704;  // i128
 // Additional differences accumulate from i128 alignment padding changes within the engine struct.
 const V12_17_SBF_ENGINE_CURRENT_SLOT_OFF = 216;
 const V12_17_SBF_ENGINE_MARKET_MODE_OFF  = 224;
+const V12_17_SBF_ENGINE_LAST_CRANK_SLOT_OFF = 328; // u64 — native 344 − 16 (resolved u128 pad)
 const V12_17_SBF_ENGINE_C_TOT_OFF       = 336;
 const V12_17_SBF_ENGINE_PNL_POS_TOT_OFF = 352;
 const V12_17_SBF_ENGINE_PNL_MATURED_POS_TOT_OFF = 368;
+const V12_17_SBF_ENGINE_GC_CURSOR_OFF   = 384;   // u16 — native 400 − 16
+const V12_17_SBF_ENGINE_OI_EFF_LONG_OFF = 504;   // u128 — native 528 − 24 (adl u128 pad)
+const V12_17_SBF_ENGINE_OI_EFF_SHORT_OFF = 520;  // u128 — native 544 − 24
 const V12_17_SBF_ENGINE_NEG_PNL_COUNT_OFF = 616;
 const V12_17_SBF_ENGINE_LAST_ORACLE_PRICE_OFF = 624;
 const V12_17_SBF_ENGINE_FUND_PX_LAST_OFF = 632;
@@ -1771,16 +1779,16 @@ function buildLayoutV12_17(maxAccounts: number, dataLen: number): SlabLayout {
     engineFundingIndexOff: -1,                 // replaced by per-side f_long_num/f_short_num
     engineLastFundingSlotOff: -1,
     engineFundingRateBpsOff: -1,               // no stored funding rate in v12.17
-    engineMarkPriceOff: -1,
-    engineLastCrankSlotOff: -1,
+    engineMarkPriceOff: -1,                    // v12.17 computes mark from state; no stored field
+    engineLastCrankSlotOff: isSbf ? V12_17_SBF_ENGINE_LAST_CRANK_SLOT_OFF : V12_17_ENGINE_LAST_CRANK_SLOT_OFF,
     engineMaxCrankStalenessOff: -1,
-    engineTotalOiOff: -1,
-    engineLongOiOff: -1,
-    engineShortOiOff: -1,
+    engineTotalOiOff: -1,                      // parseEngine sums long + short when total offset is -1
+    engineLongOiOff: isSbf ? V12_17_SBF_ENGINE_OI_EFF_LONG_OFF : V12_17_ENGINE_OI_EFF_LONG_OFF,
+    engineShortOiOff: isSbf ? V12_17_SBF_ENGINE_OI_EFF_SHORT_OFF : V12_17_ENGINE_OI_EFF_SHORT_OFF,
     engineCTotOff: isSbf ? V12_17_SBF_ENGINE_C_TOT_OFF : V12_17_ENGINE_C_TOT_OFF,
     enginePnlPosTotOff: isSbf ? V12_17_SBF_ENGINE_PNL_POS_TOT_OFF : V12_17_ENGINE_PNL_POS_TOT_OFF,
-    engineLiqCursorOff: -1,
-    engineGcCursorOff: -1,
+    engineLiqCursorOff: -1,                    // removed in v12.17
+    engineGcCursorOff: isSbf ? V12_17_SBF_ENGINE_GC_CURSOR_OFF : V12_17_ENGINE_GC_CURSOR_OFF,
     engineLastSweepStartOff: -1,
     engineLastSweepCompleteOff: -1,
     engineCrankCursorOff: -1,
@@ -2702,6 +2710,13 @@ export function parseEngine(data: Uint8Array): EngineState {
     const resolvedKLongOff = isSbf ? 288 : V12_17_ENGINE_RESOLVED_K_LONG_OFF;
     const resolvedKShortOff = isSbf ? 304 : V12_17_ENGINE_RESOLVED_K_SHORT_OFF;
     const resolvedLivePriceOff = isSbf ? 320 : V12_17_ENGINE_RESOLVED_LIVE_PRICE_OFF;
+    const lastCrankSlotOff = isSbf ? V12_17_SBF_ENGINE_LAST_CRANK_SLOT_OFF : V12_17_ENGINE_LAST_CRANK_SLOT_OFF;
+    const gcCursorOff = isSbf ? V12_17_SBF_ENGINE_GC_CURSOR_OFF : V12_17_ENGINE_GC_CURSOR_OFF;
+    const oiEffLongOff = isSbf ? V12_17_SBF_ENGINE_OI_EFF_LONG_OFF : V12_17_ENGINE_OI_EFF_LONG_OFF;
+    const oiEffShortOff = isSbf ? V12_17_SBF_ENGINE_OI_EFF_SHORT_OFF : V12_17_ENGINE_OI_EFF_SHORT_OFF;
+
+    const longOi = readU128LE(data, base + oiEffLongOff);
+    const shortOi = readU128LE(data, base + oiEffShortOff);
 
     // numUsedAccounts: at bitmap + bitmapBytes (postBitmap=4: num_used_accounts is first u16)
     const bitmapEnd = layout.engineBitmapOff + layout.bitmapWords * 8;
@@ -2720,16 +2735,16 @@ export function parseEngine(data: Uint8Array): EngineState {
       fundingRateBpsPerSlotLast: 0n,   // no stored funding rate in v12.17
       fundingRateE9: 0n,               // no stored funding rate in v12.17
       marketMode: readU8(data, base + marketModeOff) === 1 ? 1 : 0,
-      lastCrankSlot: 0n,
+      lastCrankSlot: readU64LE(data, base + lastCrankSlotOff),
       maxCrankStalenessSlots: 0n,
-      totalOpenInterest: 0n,
-      longOi: 0n,
-      shortOi: 0n,
+      totalOpenInterest: longOi + shortOi,
+      longOi,
+      shortOi,
       cTot: readU128LE(data, base + cTotOff),
       pnlPosTot: readU128LE(data, base + pnlPosTotOff),
       pnlMaturedPosTot: readU128LE(data, base + pnlMaturedOff),
       liqCursor: 0,
-      gcCursor: 0,
+      gcCursor: readU16LE(data, base + gcCursorOff),
       lastSweepStartSlot: 0n,
       lastSweepCompleteSlot: 0n,
       crankCursor: 0,

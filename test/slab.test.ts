@@ -654,3 +654,81 @@ console.log("\n✅ All slab tests passed!");
 
   console.log("✅ V12_1 slab layout tests passed!");
 }
+
+// ─── V12_17 engine field offsets ─────────────────────────────────────────────
+// Offsets verified against `cargo run --example detailed_offsets` in ~/percolator:
+//   last_crank_slot:344 gc_cursor:400 oi_eff_long_q:528 oi_eff_short_q:544
+// SBF offsets triangulated from known-good SBF anchors (c_tot=336, neg_pnl=616, f_long=648).
+{
+  console.log("\nTesting V12_17 engine field offsets...");
+
+  // SBF small tier: n=256
+  // size = 584 + ceil((712+32+4+512)/8)*8 + 256*352 + 160 + 256*8 = 94168
+  const V12_17_SBF_SMALL_SIZE = 94_168;
+  const layoutSbf = detectSlabLayout(V12_17_SBF_SMALL_SIZE);
+  assert(layoutSbf !== null, `detectSlabLayout(${V12_17_SBF_SMALL_SIZE}) must return non-null`);
+  assert(layoutSbf!.engineOff === 584, `V12_17 SBF engineOff should be 584, got ${layoutSbf!.engineOff}`);
+  assert(layoutSbf!.accountSize === 352, `V12_17 SBF accountSize should be 352, got ${layoutSbf!.accountSize}`);
+
+  assert(layoutSbf!.engineLastCrankSlotOff === 328,
+    `V12_17 SBF lastCrankSlotOff should be 328, got ${layoutSbf!.engineLastCrankSlotOff}`);
+  assert(layoutSbf!.engineGcCursorOff === 384,
+    `V12_17 SBF gcCursorOff should be 384, got ${layoutSbf!.engineGcCursorOff}`);
+  assert(layoutSbf!.engineLongOiOff === 504,
+    `V12_17 SBF longOiOff should be 504, got ${layoutSbf!.engineLongOiOff}`);
+  assert(layoutSbf!.engineShortOiOff === 520,
+    `V12_17 SBF shortOiOff should be 520, got ${layoutSbf!.engineShortOiOff}`);
+
+  // These fields don't exist in v12.17 — must stay -1.
+  assert(layoutSbf!.engineFundingIndexOff === -1, `V12_17 fundingIndexOff must stay -1`);
+  assert(layoutSbf!.engineMarkPriceOff === -1, `V12_17 markPriceOff must stay -1`);
+  assert(layoutSbf!.engineTotalOiOff === -1, `V12_17 totalOiOff stays -1 (computed from long+short)`);
+  assert(layoutSbf!.engineLiqCursorOff === -1, `V12_17 liqCursorOff must stay -1`);
+  console.log(`  ✓ V12_17 SBF small slab (${V12_17_SBF_SMALL_SIZE}, 256 accounts) offsets correct`);
+
+  // Native small tier: n=256
+  // size = 592 + ceil((752+32+4+512)/16)*16 + 256*368 + 160 + 256*8 = 98320
+  const V12_17_NATIVE_SMALL_SIZE = 98_320;
+  const layoutNative = detectSlabLayout(V12_17_NATIVE_SMALL_SIZE);
+  assert(layoutNative !== null, `detectSlabLayout(${V12_17_NATIVE_SMALL_SIZE}) must return non-null`);
+  assert(layoutNative!.engineOff === 592, `V12_17 native engineOff should be 592, got ${layoutNative!.engineOff}`);
+  assert(layoutNative!.accountSize === 368, `V12_17 native accountSize should be 368`);
+  assert(layoutNative!.engineLastCrankSlotOff === 344,
+    `V12_17 native lastCrankSlotOff should be 344, got ${layoutNative!.engineLastCrankSlotOff}`);
+  assert(layoutNative!.engineGcCursorOff === 400,
+    `V12_17 native gcCursorOff should be 400, got ${layoutNative!.engineGcCursorOff}`);
+  assert(layoutNative!.engineLongOiOff === 528,
+    `V12_17 native longOiOff should be 528, got ${layoutNative!.engineLongOiOff}`);
+  assert(layoutNative!.engineShortOiOff === 544,
+    `V12_17 native shortOiOff should be 544, got ${layoutNative!.engineShortOiOff}`);
+  console.log(`  ✓ V12_17 native small slab (${V12_17_NATIVE_SMALL_SIZE}, 256 accounts) offsets correct`);
+
+  // parseEngine round-trip: write known values into SBF slab at the four offsets,
+  // assert parseEngine reads them back.
+  const buf = Buffer.alloc(V12_17_SBF_SMALL_SIZE);
+  const engineBase = 584;
+
+  // last_crank_slot (u64) at engineBase + 328
+  buf.writeBigUInt64LE(123_456n, engineBase + 328);
+  // gc_cursor (u16) at engineBase + 384
+  buf.writeUInt16LE(77, engineBase + 384);
+  // oi_eff_long_q (u128, lower 8 bytes) at engineBase + 504
+  buf.writeBigUInt64LE(1_000_000n, engineBase + 504);
+  // oi_eff_short_q (u128, lower 8 bytes) at engineBase + 520
+  buf.writeBigUInt64LE(750_000n, engineBase + 520);
+  // current_slot at engineBase + 216 (so parseEngine has something to read)
+  buf.writeBigUInt64LE(500n, engineBase + 216);
+  // market_mode at engineBase + 224
+  buf.writeUInt8(1, engineBase + 224);
+
+  const eng = parseEngine(buf);
+  assert(eng.lastCrankSlot === 123_456n, `parseEngine.lastCrankSlot expected 123456, got ${eng.lastCrankSlot}`);
+  assert(eng.gcCursor === 77, `parseEngine.gcCursor expected 77, got ${eng.gcCursor}`);
+  assert(eng.longOi === 1_000_000n, `parseEngine.longOi expected 1000000, got ${eng.longOi}`);
+  assert(eng.shortOi === 750_000n, `parseEngine.shortOi expected 750000, got ${eng.shortOi}`);
+  assert(eng.totalOpenInterest === 1_750_000n,
+    `parseEngine.totalOpenInterest expected 1750000 (long+short), got ${eng.totalOpenInterest}`);
+  console.log("  ✓ parseEngine round-trips all four V12_17 engine fields");
+
+  console.log("✅ V12_17 engine offset tests passed!");
+}

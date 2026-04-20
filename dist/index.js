@@ -2118,9 +2118,13 @@ var V12_17_ENGINE_MARKET_MODE_OFF = 232;
 var V12_17_ENGINE_RESOLVED_K_LONG_OFF = 304;
 var V12_17_ENGINE_RESOLVED_K_SHORT_OFF = 320;
 var V12_17_ENGINE_RESOLVED_LIVE_PRICE_OFF = 336;
+var V12_17_ENGINE_LAST_CRANK_SLOT_OFF = 344;
 var V12_17_ENGINE_C_TOT_OFF = 352;
 var V12_17_ENGINE_PNL_POS_TOT_OFF = 368;
 var V12_17_ENGINE_PNL_MATURED_POS_TOT_OFF = 384;
+var V12_17_ENGINE_GC_CURSOR_OFF = 400;
+var V12_17_ENGINE_OI_EFF_LONG_OFF = 528;
+var V12_17_ENGINE_OI_EFF_SHORT_OFF = 544;
 var V12_17_ENGINE_NEG_PNL_COUNT_OFF = 648;
 var V12_17_ENGINE_LAST_ORACLE_PRICE_OFF = 656;
 var V12_17_ENGINE_FUND_PX_LAST_OFF = 664;
@@ -2128,9 +2132,13 @@ var V12_17_ENGINE_F_LONG_NUM_OFF = 688;
 var V12_17_ENGINE_F_SHORT_NUM_OFF = 704;
 var V12_17_SBF_ENGINE_CURRENT_SLOT_OFF = 216;
 var V12_17_SBF_ENGINE_MARKET_MODE_OFF = 224;
+var V12_17_SBF_ENGINE_LAST_CRANK_SLOT_OFF = 328;
 var V12_17_SBF_ENGINE_C_TOT_OFF = 336;
 var V12_17_SBF_ENGINE_PNL_POS_TOT_OFF = 352;
 var V12_17_SBF_ENGINE_PNL_MATURED_POS_TOT_OFF = 368;
+var V12_17_SBF_ENGINE_GC_CURSOR_OFF = 384;
+var V12_17_SBF_ENGINE_OI_EFF_LONG_OFF = 504;
+var V12_17_SBF_ENGINE_OI_EFF_SHORT_OFF = 520;
 var V12_17_SBF_ENGINE_NEG_PNL_COUNT_OFF = 616;
 var V12_17_SBF_ENGINE_LAST_ORACLE_PRICE_OFF = 624;
 var V12_17_SBF_ENGINE_FUND_PX_LAST_OFF = 632;
@@ -3069,15 +3077,18 @@ function buildLayoutV12_17(maxAccounts, dataLen) {
     engineFundingRateBpsOff: -1,
     // no stored funding rate in v12.17
     engineMarkPriceOff: -1,
-    engineLastCrankSlotOff: -1,
+    // v12.17 computes mark from state; no stored field
+    engineLastCrankSlotOff: isSbf ? V12_17_SBF_ENGINE_LAST_CRANK_SLOT_OFF : V12_17_ENGINE_LAST_CRANK_SLOT_OFF,
     engineMaxCrankStalenessOff: -1,
     engineTotalOiOff: -1,
-    engineLongOiOff: -1,
-    engineShortOiOff: -1,
+    // parseEngine sums long + short when total offset is -1
+    engineLongOiOff: isSbf ? V12_17_SBF_ENGINE_OI_EFF_LONG_OFF : V12_17_ENGINE_OI_EFF_LONG_OFF,
+    engineShortOiOff: isSbf ? V12_17_SBF_ENGINE_OI_EFF_SHORT_OFF : V12_17_ENGINE_OI_EFF_SHORT_OFF,
     engineCTotOff: isSbf ? V12_17_SBF_ENGINE_C_TOT_OFF : V12_17_ENGINE_C_TOT_OFF,
     enginePnlPosTotOff: isSbf ? V12_17_SBF_ENGINE_PNL_POS_TOT_OFF : V12_17_ENGINE_PNL_POS_TOT_OFF,
     engineLiqCursorOff: -1,
-    engineGcCursorOff: -1,
+    // removed in v12.17
+    engineGcCursorOff: isSbf ? V12_17_SBF_ENGINE_GC_CURSOR_OFF : V12_17_ENGINE_GC_CURSOR_OFF,
     engineLastSweepStartOff: -1,
     engineLastSweepCompleteOff: -1,
     engineCrankCursorOff: -1,
@@ -3499,6 +3510,12 @@ function parseEngine(data) {
     const resolvedKLongOff = isSbf ? 288 : V12_17_ENGINE_RESOLVED_K_LONG_OFF;
     const resolvedKShortOff = isSbf ? 304 : V12_17_ENGINE_RESOLVED_K_SHORT_OFF;
     const resolvedLivePriceOff = isSbf ? 320 : V12_17_ENGINE_RESOLVED_LIVE_PRICE_OFF;
+    const lastCrankSlotOff = isSbf ? V12_17_SBF_ENGINE_LAST_CRANK_SLOT_OFF : V12_17_ENGINE_LAST_CRANK_SLOT_OFF;
+    const gcCursorOff = isSbf ? V12_17_SBF_ENGINE_GC_CURSOR_OFF : V12_17_ENGINE_GC_CURSOR_OFF;
+    const oiEffLongOff = isSbf ? V12_17_SBF_ENGINE_OI_EFF_LONG_OFF : V12_17_ENGINE_OI_EFF_LONG_OFF;
+    const oiEffShortOff = isSbf ? V12_17_SBF_ENGINE_OI_EFF_SHORT_OFF : V12_17_ENGINE_OI_EFF_SHORT_OFF;
+    const longOi = readU128LE(data, base + oiEffLongOff);
+    const shortOi = readU128LE(data, base + oiEffShortOff);
     const bitmapEnd = layout.engineBitmapOff + layout.bitmapWords * 8;
     return {
       vault: readU128LE(data, base),
@@ -3517,16 +3534,16 @@ function parseEngine(data) {
       fundingRateE9: 0n,
       // no stored funding rate in v12.17
       marketMode: readU8(data, base + marketModeOff) === 1 ? 1 : 0,
-      lastCrankSlot: 0n,
+      lastCrankSlot: readU64LE(data, base + lastCrankSlotOff),
       maxCrankStalenessSlots: 0n,
-      totalOpenInterest: 0n,
-      longOi: 0n,
-      shortOi: 0n,
+      totalOpenInterest: longOi + shortOi,
+      longOi,
+      shortOi,
       cTot: readU128LE(data, base + cTotOff),
       pnlPosTot: readU128LE(data, base + pnlPosTotOff),
       pnlMaturedPosTot: readU128LE(data, base + pnlMaturedOff),
       liqCursor: 0,
-      gcCursor: 0,
+      gcCursor: readU16LE(data, base + gcCursorOff),
       lastSweepStartSlot: 0n,
       lastSweepCompleteSlot: 0n,
       crankCursor: 0,
