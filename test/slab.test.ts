@@ -732,3 +732,55 @@ console.log("\n✅ All slab tests passed!");
 
   console.log("✅ V12_17 engine offset tests passed!");
 }
+
+// ─── V12_17 parseConfig round-trip ───────────────────────────────────────────
+// Writes known values at the on-chain SBF MarketConfig offsets (see
+// parseConfigV12_17 header in src/solana/slab.ts) and confirms parseConfig
+// reads them back. Catches drift where the legacy pre-v12.17 parser would
+// read wrong bytes (the bug fixed alongside this test).
+{
+  console.log("\nTesting V12_17 parseConfig round-trip...");
+
+  const V12_17_SBF_SMALL_SIZE = 94_168;
+  const buf = Buffer.alloc(V12_17_SBF_SMALL_SIZE);
+  const configOff = 72;
+
+  // Minimum header setup so detectSlabLayout works
+  buf.writeBigUInt64LE(0x504552434f4c4154n, 0); // magic "PERCOLAT"
+  buf.writeUInt32LE(1, 8);                       // version
+  buf.writeUInt8(255, 12);                       // bump
+
+  // authority_price_e6 @ configOff + 176
+  buf.writeBigUInt64LE(1_000_000n, configOff + 176);
+  // oracle_price_cap_e2bps @ configOff + 192
+  buf.writeBigUInt64LE(10_000n, configOff + 192);
+  // last_effective_price_e6 @ configOff + 200
+  buf.writeBigUInt64LE(999_500n, configOff + 200);
+  // dex_pool @ configOff + 400 (non-zero byte triggers Non-null)
+  buf[configOff + 400] = 0xab;
+  buf[configOff + 401] = 0xcd;
+  // max_pnl_cap @ configOff + 432
+  buf.writeBigUInt64LE(500_000_000n, configOff + 432);
+
+  const cfg = parseConfig(buf);
+  assert(cfg.authorityPriceE6 === 1_000_000n,
+    `parseConfig.authorityPriceE6 expected 1000000 (at configOff+176), got ${cfg.authorityPriceE6}`);
+  assert(cfg.oraclePriceCapE2bps === 10_000n,
+    `parseConfig.oraclePriceCapE2bps expected 10000, got ${cfg.oraclePriceCapE2bps}`);
+  assert(cfg.lastEffectivePriceE6 === 999_500n,
+    `parseConfig.lastEffectivePriceE6 expected 999500, got ${cfg.lastEffectivePriceE6}`);
+  assert(cfg.dexPool !== null, `parseConfig.dexPool expected non-null (dex_pool at configOff+400)`);
+  assert(cfg.dexPool!.toBuffer()[0] === 0xab && cfg.dexPool!.toBuffer()[1] === 0xcd,
+    `parseConfig.dexPool first bytes expected 0xab 0xcd, got ${cfg.dexPool!.toBuffer()[0].toString(16)} ${cfg.dexPool!.toBuffer()[1].toString(16)}`);
+  assert(cfg.maxPnlCap === 500_000_000n,
+    `parseConfig.maxPnlCap expected 500000000, got ${cfg.maxPnlCap}`);
+
+  // Phantom (removed-in-v12.17) fields must be zeroed
+  assert(cfg.threshFloor === 0n, `V12_17 threshFloor must be 0`);
+  assert(cfg.fundingInvScaleNotionalE6 === 0n, `V12_17 fundingInvScaleNotionalE6 must be 0`);
+  assert(cfg.adaptiveFundingEnabled === false, `V12_17 adaptiveFundingEnabled must be false`);
+  console.log("  ✓ parseConfig reads authority_price_e6, oracle_cap, last_effective, dex_pool, max_pnl_cap from correct SBF offsets");
+  console.log("  ✓ Removed-in-v12.17 fields (threshFloor, fundingInvScale, adaptiveFunding) zeroed");
+
+  console.log("✅ V12_17 parseConfig round-trip passed!");
+}

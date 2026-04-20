@@ -3260,10 +3260,88 @@ function parseHeader(data) {
     lastThrUpdateSlot
   };
 }
+function parseConfigV12_17(data, configOff) {
+  const MIN_V12_17_BYTES = 512;
+  if (data.length < configOff + MIN_V12_17_BYTES) {
+    throw new Error(`Slab data too short for V12_17 config: ${data.length} < ${configOff + MIN_V12_17_BYTES}`);
+  }
+  const b = configOff;
+  const collateralMint = new PublicKey5(data.subarray(b + 0, b + 32));
+  const vaultPubkey = new PublicKey5(data.subarray(b + 32, b + 64));
+  const indexFeedId = new PublicKey5(data.subarray(b + 64, b + 96));
+  const maxStalenessSlots = readU64LE(data, b + 96);
+  const confFilterBps = readU16LE(data, b + 104);
+  const vaultAuthorityBump = readU8(data, b + 106);
+  const invert = readU8(data, b + 107);
+  const unitScale = readU32LE(data, b + 108);
+  const fundingHorizonSlots = readU64LE(data, b + 112);
+  const fundingKBps = readU64LE(data, b + 120);
+  const fundingMaxPremiumBps = readI64LE(data, b + 128);
+  const fundingMaxBpsPerSlot = readI64LE(data, b + 136);
+  const oracleAuthority = new PublicKey5(data.subarray(b + 144, b + 176));
+  const authorityPriceE6 = readU64LE(data, b + 176);
+  const authorityTimestamp = readI64LE(data, b + 184);
+  const oraclePriceCapE2bps = readU64LE(data, b + 192);
+  const lastEffectivePriceE6 = readU64LE(data, b + 200);
+  const dexPoolBytes = data.subarray(b + 400, b + 432);
+  const dexPool = dexPoolBytes.some((x) => x !== 0) ? new PublicKey5(dexPoolBytes) : null;
+  return {
+    collateralMint,
+    vaultPubkey,
+    indexFeedId,
+    maxStalenessSlots,
+    confFilterBps,
+    vaultAuthorityBump,
+    invert,
+    unitScale,
+    fundingHorizonSlots,
+    fundingKBps,
+    fundingInvScaleNotionalE6: 0n,
+    // removed in v12.17
+    fundingMaxPremiumBps,
+    fundingMaxBpsPerSlot,
+    fundingPremiumWeightBps: 0n,
+    fundingSettlementIntervalSlots: 0n,
+    fundingPremiumDampeningE6: 0n,
+    fundingPremiumMaxBpsPerSlot: 0n,
+    threshFloor: 0n,
+    // removed in v12.17
+    threshRiskBps: 0n,
+    threshUpdateIntervalSlots: 0n,
+    threshStepBps: 0n,
+    threshAlphaBps: 0n,
+    threshMin: 0n,
+    threshMax: 0n,
+    threshMinStep: 0n,
+    oracleAuthority,
+    authorityPriceE6,
+    authorityTimestamp,
+    oraclePriceCapE2bps,
+    lastEffectivePriceE6,
+    oiCapMultiplierBps: readU64LE(data, b + 448),
+    maxPnlCap: readU64LE(data, b + 432),
+    adaptiveFundingEnabled: false,
+    // removed in v12.17
+    adaptiveScaleBps: 0,
+    adaptiveMaxFundingBps: 0n,
+    marketCreatedSlot: 0n,
+    oiRampSlots: 0n,
+    resolvedSlot: 0n,
+    insuranceIsolationBps: 0,
+    oraclePhase: 0,
+    cumulativeVolumeE6: 0n,
+    phase2DeltaSlots: 0,
+    dexPool
+  };
+}
 function parseConfig(data, layoutHint) {
   const layout = layoutHint !== void 0 ? layoutHint : detectSlabLayout(data.length, data);
   const configOff = layout ? layout.configOffset : V0_HEADER_LEN;
   const configLen = layout ? layout.configLen : V0_CONFIG_LEN;
+  const isV12_17 = layout && (layout.accountSize === V12_17_ACCOUNT_SIZE || layout.accountSize === V12_17_ACCOUNT_SIZE_SBF);
+  if (isV12_17) {
+    return parseConfigV12_17(data, configOff);
+  }
   const MIN_CONFIG_BYTES = 376;
   const minLen = configOff + Math.min(configLen, MIN_CONFIG_BYTES);
   if (data.length < minLen) {

@@ -2341,10 +2341,145 @@ export function parseHeader(data: Uint8Array): SlabHeader {
  * @param data - Slab data (may be a partial slice for discovery; pass layoutHint in that case)
  * @param layoutHint - Pre-detected layout to use; if omitted, detected from data.length.
  */
+/**
+ * V12_17 MarketConfig parser. Struct definition: percolator-prog/src/percolator.rs:2194.
+ * SBF layout (u128 align=8, total size 512 bytes):
+ *   0   collateral_mint [32]
+ *   32  vault_pubkey [32]
+ *   64  index_feed_id [32]
+ *   96  max_staleness_secs u64
+ *   104 conf_filter_bps u16
+ *   106 vault_authority_bump u8
+ *   107 invert u8
+ *   108 unit_scale u32
+ *   112 funding_horizon_slots u64
+ *   120 funding_k_bps u64
+ *   128 funding_max_premium_bps i64
+ *   136 funding_max_bps_per_slot i64
+ *   144 oracle_authority [32]
+ *   176 authority_price_e6 u64
+ *   184 authority_timestamp i64
+ *   192 oracle_price_cap_e2bps u64
+ *   200 last_effective_price_e6 u64
+ *   208 max_insurance_floor u128
+ *   224 min_oracle_price_cap_e2bps u64
+ *   232 insurance_withdraw_max_bps u16 (+ 6 pad)
+ *   240 insurance_withdraw_cooldown_slots u64
+ *   248 _iw_padding2 [u64;2]
+ *   264 last_hyperp_index_slot u64
+ *   272 last_mark_push_slot u128
+ *   288 last_insurance_withdraw_slot u64 (+ 8 pad)
+ *   304 mark_ewma_e6 u64
+ *   312 mark_ewma_last_slot u64
+ *   320 mark_ewma_halflife_slots u64 (+ 8 pad)
+ *   336 permissionless_resolve_stale_slots u64
+ *   344 last_good_oracle_slot u64
+ *   352 maintenance_fee_per_slot u128
+ *   368 last_fee_charge_slot u64 (+ 8 pad)
+ *   384 mark_min_fee u64
+ *   392 force_close_delay_slots u64
+ *   400 dex_pool [32]
+ *   432 max_pnl_cap u64
+ *   440 last_audit_pause_slot u64
+ *   448 oi_cap_multiplier_bps u64
+ *   456 dispute_window_slots u64
+ *   464 dispute_bond_amount u64
+ *   472 lp_collateral_enabled u8
+ *   473 _pad u8
+ *   474 lp_collateral_ltv_bps u16 (+ 4 pad)
+ *   480 pending_admin [32]
+ *   512 end
+ */
+function parseConfigV12_17(data: Uint8Array, configOff: number): MarketConfig {
+  const MIN_V12_17_BYTES = 512;
+  if (data.length < configOff + MIN_V12_17_BYTES) {
+    throw new Error(`Slab data too short for V12_17 config: ${data.length} < ${configOff + MIN_V12_17_BYTES}`);
+  }
+
+  const b = configOff;
+  const collateralMint = new PublicKey(data.subarray(b + 0, b + 32));
+  const vaultPubkey = new PublicKey(data.subarray(b + 32, b + 64));
+  const indexFeedId = new PublicKey(data.subarray(b + 64, b + 96));
+  const maxStalenessSlots = readU64LE(data, b + 96);
+  const confFilterBps = readU16LE(data, b + 104);
+  const vaultAuthorityBump = readU8(data, b + 106);
+  const invert = readU8(data, b + 107);
+  const unitScale = readU32LE(data, b + 108);
+  const fundingHorizonSlots = readU64LE(data, b + 112);
+  const fundingKBps = readU64LE(data, b + 120);
+  const fundingMaxPremiumBps = readI64LE(data, b + 128);
+  const fundingMaxBpsPerSlot = readI64LE(data, b + 136);
+  const oracleAuthority = new PublicKey(data.subarray(b + 144, b + 176));
+  const authorityPriceE6 = readU64LE(data, b + 176);
+  const authorityTimestamp = readI64LE(data, b + 184);
+  const oraclePriceCapE2bps = readU64LE(data, b + 192);
+  const lastEffectivePriceE6 = readU64LE(data, b + 200);
+  // max_insurance_floor, min_oracle_price_cap, mark_ewma, dispute, etc. — not
+  // currently surfaced by the MarketConfig type; read them when/if callers
+  // need them. Only dex_pool is consumed downstream.
+
+  const dexPoolBytes = data.subarray(b + 400, b + 432);
+  const dexPool = dexPoolBytes.some(x => x !== 0) ? new PublicKey(dexPoolBytes) : null;
+
+  return {
+    collateralMint,
+    vaultPubkey,
+    indexFeedId,
+    maxStalenessSlots,
+    confFilterBps,
+    vaultAuthorityBump,
+    invert,
+    unitScale,
+    fundingHorizonSlots,
+    fundingKBps,
+    fundingInvScaleNotionalE6: 0n,        // removed in v12.17
+    fundingMaxPremiumBps,
+    fundingMaxBpsPerSlot,
+    fundingPremiumWeightBps: 0n,
+    fundingSettlementIntervalSlots: 0n,
+    fundingPremiumDampeningE6: 0n,
+    fundingPremiumMaxBpsPerSlot: 0n,
+    threshFloor: 0n,                      // removed in v12.17
+    threshRiskBps: 0n,
+    threshUpdateIntervalSlots: 0n,
+    threshStepBps: 0n,
+    threshAlphaBps: 0n,
+    threshMin: 0n,
+    threshMax: 0n,
+    threshMinStep: 0n,
+    oracleAuthority,
+    authorityPriceE6,
+    authorityTimestamp,
+    oraclePriceCapE2bps,
+    lastEffectivePriceE6,
+    oiCapMultiplierBps: readU64LE(data, b + 448),
+    maxPnlCap: readU64LE(data, b + 432),
+    adaptiveFundingEnabled: false,        // removed in v12.17
+    adaptiveScaleBps: 0,
+    adaptiveMaxFundingBps: 0n,
+    marketCreatedSlot: 0n,
+    oiRampSlots: 0n,
+    resolvedSlot: 0n,
+    insuranceIsolationBps: 0,
+    oraclePhase: 0,
+    cumulativeVolumeE6: 0n,
+    phase2DeltaSlots: 0,
+    dexPool,
+  };
+}
+
 export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): MarketConfig {
   const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length, data);
   const configOff = layout ? layout.configOffset : V0_HEADER_LEN;
   const configLen = layout ? layout.configLen : V0_CONFIG_LEN;
+
+  // V12_17 MarketConfig has a completely different layout — no funding_inv_scale,
+  // no thresh_* fields. Parse it via its own field-ordered reader. The legacy
+  // sequential code below covers pre-v12.17 layouts.
+  const isV12_17 = layout && (layout.accountSize === V12_17_ACCOUNT_SIZE || layout.accountSize === V12_17_ACCOUNT_SIZE_SBF);
+  if (isV12_17) {
+    return parseConfigV12_17(data, configOff);
+  }
 
   // Mandatory config fields (collateralMint..maxPnlCap) consume 376 bytes.
   // V1 extended fields are optional and guarded by their own `remaining` checks.
