@@ -52,6 +52,7 @@ export interface SlabLayout {
     hasInsuranceIsolation: boolean;
     engineInsuranceIsolatedOff: number;
     engineInsuranceIsolationBpsOff: number;
+    configMarkEwmaOff?: number;
 }
 export declare const ENGINE_OFF = 600;
 export declare const ENGINE_MARK_PRICE_OFF = 400;
@@ -434,14 +435,6 @@ export declare function readLastThrUpdateSlot(data: Uint8Array): bigint;
  * Parse slab header (first 72 bytes — layout-independent).
  */
 export declare function parseHeader(data: Uint8Array): SlabHeader;
-/**
- * Parse market config. Layout-version aware.
- * For V0 slabs, fields beyond the basic config are read if present in the data,
- * otherwise defaults are returned.
- *
- * @param data - Slab data (may be a partial slice for discovery; pass layoutHint in that case)
- * @param layoutHint - Pre-detected layout to use; if omitted, detected from data.length.
- */
 export declare function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): MarketConfig;
 /**
  * Parse RiskParams from engine data. Layout-version aware.

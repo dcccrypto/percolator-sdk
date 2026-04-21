@@ -3108,7 +3108,13 @@ function buildLayoutV12_17(maxAccounts, dataLen) {
     // SBF=192, native=200
     hasInsuranceIsolation: false,
     engineInsuranceIsolatedOff: -1,
-    engineInsuranceIsolationBpsOff: -1
+    engineInsuranceIsolationBpsOff: -1,
+    // v12.17 dropped the engine.mark_price field (see engineMarkPriceOff above).
+    // The EWMA-smoothed mark that the matcher actually quotes against lives in
+    // MarketConfig.mark_ewma_e6 at offset 304 within the config struct.
+    // Layout is identical on SBF and native. configOffset is V0_HEADER_LEN = 72,
+    // so absolute offset in the slab is 72 + 304 = 376.
+    configMarkEwmaOff: V0_HEADER_LEN + 304
   };
 }
 function detectSlabLayout(dataLen, data) {

@@ -142,6 +142,13 @@ export interface SlabLayout {
   hasInsuranceIsolation: boolean;
   engineInsuranceIsolatedOff: number;   // -1 if not present (V0)
   engineInsuranceIsolationBpsOff: number; // -1 if not present (V0)
+
+  // Optional fallback for engines without a stored mark_price field (v12.17+):
+  // absolute offset into the slab of `config.mark_ewma_e6` (u64 little-endian,
+  // scaled 1e6). Consumers that previously read `engine.mark_price` should
+  // check this when `engineMarkPriceOff < 0`. Undefined on layouts that
+  // predate v12.17 and already expose a real engine.mark_price.
+  configMarkEwmaOff?: number;
 }
 
 // ---- V0 layout constants (deployed devnet program) ----
@@ -1809,6 +1816,13 @@ function buildLayoutV12_17(maxAccounts: number, dataLen: number): SlabLayout {
     hasInsuranceIsolation: false,
     engineInsuranceIsolatedOff: -1,
     engineInsuranceIsolationBpsOff: -1,
+
+    // v12.17 dropped the engine.mark_price field (see engineMarkPriceOff above).
+    // The EWMA-smoothed mark that the matcher actually quotes against lives in
+    // MarketConfig.mark_ewma_e6 at offset 304 within the config struct.
+    // Layout is identical on SBF and native. configOffset is V0_HEADER_LEN = 72,
+    // so absolute offset in the slab is 72 + 304 = 376.
+    configMarkEwmaOff: V0_HEADER_LEN + 304,
   };
 }
 

@@ -605,4 +605,18 @@ describe("Layout verify: v12.17 configLen matches MarketConfig SBF size", () => 
     // lp_collateral_enabled, lp_collateral_ltv_bps, _new_fields_pad, pending_admin.
     expect(layout!.configLen).toBe(512);
   });
+
+  // v12.17 dropped the engine.mark_price field — trades used to let the indexer
+  // read engine.mark_price from the slab's post-state for fill-price recovery;
+  // now it's -1. The fallback is MarketConfig.mark_ewma_e6 at offset 304 within
+  // the config struct (= absolute slab offset 72 + 304 = 376). Without this
+  // the indexer writes price=0 for every v12.17 trade and the chart renders as
+  // a flat line at 0.
+  it("v12.17 exposes configMarkEwmaOff=376 for fill-price recovery", () => {
+    const tier = SLAB_TIERS_V12_17["small"];
+    const layout = detectSlabLayout(tier.dataSize);
+    expect(layout).not.toBeNull();
+    expect(layout!.engineMarkPriceOff).toBe(-1);
+    expect(layout!.configMarkEwmaOff).toBe(376);
+  });
 });
