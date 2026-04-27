@@ -1839,6 +1839,15 @@ function buildLayoutV12_17(maxAccounts: number, dataLen: number): SlabLayout {
  * @param data    - Optional raw slab data for version-field disambiguation
  */
 export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout | null {
+  // V12_19 LAYOUT NOTE (PR #271 wrapper d760fc4, ENGINE_OFF=600, +16 vs V12_17):
+  // V12_19 tier sizes (19_640 / 94_168 / 372_280 / 1_484_728) collide with
+  // V12_17 SBF tier sizes. Size-only detection cannot distinguish the two.
+  // The wrapper at d760fc4 is not deployed to mainnet yet, so this collision
+  // is theoretical pre-deploy. When v12.19 ships to ESa89R5..., add a
+  // version-field disambiguator here using the `data` parameter, plus a full
+  // buildLayoutV12_19 with engine field offsets verified against engine c32bc0b.
+  // Tracked as a known residual in audit-2026-04-28-v12.19/FINAL.md.
+
   // Check V12_17 sizes first (two-bucket warmup, per-side funding).
   // Unique account sizes (368 native / 352 SBF) + RISK_BUF — no collision with V12_15 (4400-byte accounts).
   const v1217n = V12_17_SIZES.get(dataLen);

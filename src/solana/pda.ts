@@ -17,15 +17,16 @@ export function deriveVaultAuthority(
 }
 
 /**
- * Derive insurance LP mint PDA.
- * Seeds: ["ins_lp", slab_key]
+ * Derive insurance LP mint PDA (a.k.a. LP vault mint PDA).
+ * Seeds: ["lp_vault_mint", slab_key]
+ * Wrapper anchor: src/percolator.rs:2543 derive_lp_vault_mint.
  */
 export function deriveInsuranceLpMint(
   programId: PublicKey,
   slab: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [textEncoder.encode("ins_lp"), slab.toBytes()],
+    [textEncoder.encode("lp_vault_mint"), slab.toBytes()],
     programId
   );
 }
