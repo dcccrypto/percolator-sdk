@@ -5,8 +5,9 @@ import { PublicKey } from "@solana/web3.js";
  */
 export declare function deriveVaultAuthority(programId: PublicKey, slab: PublicKey): [PublicKey, number];
 /**
- * Derive insurance LP mint PDA.
- * Seeds: ["ins_lp", slab_key]
+ * Derive insurance LP mint PDA (a.k.a. LP vault mint PDA).
+ * Seeds: ["lp_vault_mint", slab_key]
+ * Wrapper anchor: src/percolator.rs:2543 derive_lp_vault_mint.
  */
 export declare function deriveInsuranceLpMint(programId: PublicKey, slab: PublicKey): [PublicKey, number];
 /**

@@ -41,7 +41,9 @@ export declare const ACCOUNTS_WITHDRAW_COLLATERAL: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_KEEPER_CRANK: readonly AccountSpec[];
 /**
- * TradeNoCpi: 4 accounts (PERC-199: clock sysvar removed — uses Clock::get() syscall)
+ * TradeNoCpi: 5 accounts.
+ * v12.19 wrapper at src/percolator.rs:8484 calls accounts::expect_len(5).
+ * Layout: [user(s+w), lp(s+w), slab(w), clock, oracle].
  */
 export declare const ACCOUNTS_TRADE_NOCPI: readonly AccountSpec[];
 /**
@@ -54,7 +56,9 @@ export declare const ACCOUNTS_LIQUIDATE_AT_ORACLE: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_CLOSE_ACCOUNT: readonly AccountSpec[];
 /**
- * TopUpInsurance: 5 accounts
+ * TopUpInsurance: 6 accounts.
+ * v12.19 wrapper at src/percolator.rs:9256 calls accounts::expect_len(6).
+ * Layout: [user(s+w), slab(w), userAta(w), vault(w), tokenProgram, clock].
  */
 export declare const ACCOUNTS_TOPUP_INSURANCE: readonly AccountSpec[];
 /**
@@ -90,7 +94,12 @@ export declare const ACCOUNTS_ACCEPT_ADMIN: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_CLOSE_SLAB: readonly AccountSpec[];
 /**
- * UpdateConfig: 2 accounts
+ * UpdateConfig: 3 accounts (canonical) or 4 (with oracle).
+ * v12.19 wrapper at src/percolator.rs:9544 accepts either.
+ * 3-account form: [admin(s+w), slab(w), clock].
+ * 4-account form: [admin(s+w), slab(w), clock, oracle] (used when the wrapper
+ * needs to re-read price during config commit). Default to the 3-account form;
+ * callers that need oracle re-reads should append the oracle account themselves.
  */
 export declare const ACCOUNTS_UPDATE_CONFIG: readonly AccountSpec[];
 /**
@@ -98,13 +107,15 @@ export declare const ACCOUNTS_UPDATE_CONFIG: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_SET_MAINTENANCE_FEE: readonly AccountSpec[];
 /**
- * SetOraclePriceCap: 2 accounts
- * Set oracle price circuit breaker cap (admin only)
+ * SetOraclePriceCap: 3 accounts.
+ * v12.19 wrapper at src/percolator.rs:9654 calls accounts::expect_len(3).
+ * Layout: [admin(s+w), slab(w), clock].
  */
 export declare const ACCOUNTS_SET_ORACLE_PRICE_CAP: readonly AccountSpec[];
 /**
- * ResolveMarket: 2 accounts
- * Resolves a binary/premarket (admin only)
+ * ResolveMarket: 4 accounts.
+ * v12.19 wrapper at src/percolator.rs:9748 calls accounts::expect_len(4).
+ * Layout: [admin(s+w), slab(w), clock, oracle].
  */
 export declare const ACCOUNTS_RESOLVE_MARKET: readonly AccountSpec[];
 /**
@@ -129,6 +140,40 @@ export declare const ACCOUNTS_PAUSE_MARKET: readonly AccountSpec[];
  * UnpauseMarket: 2 accounts
  */
 export declare const ACCOUNTS_UNPAUSE_MARKET: readonly AccountSpec[];
+/**
+ * ReclaimEmptyAccount (tag 25): 2 accounts. Permissionless.
+ * Wrapper: src/percolator.rs:10470.
+ */
+export declare const ACCOUNTS_RECLAIM_EMPTY_ACCOUNT: readonly AccountSpec[];
+/**
+ * SettleAccount (tag 26): 3 accounts. Permissionless.
+ * Wrapper: src/percolator.rs:10503.
+ */
+export declare const ACCOUNTS_SETTLE_ACCOUNT: readonly AccountSpec[];
+/**
+ * DepositFeeCredits (tag 27): 6 accounts. Owner only.
+ * Wrapper: src/percolator.rs:10557. SPL transfer requires userAta + vault writable.
+ */
+export declare const ACCOUNTS_DEPOSIT_FEE_CREDITS: readonly AccountSpec[];
+/**
+ * ConvertReleasedPnl (tag 28): 4 accounts. Owner only.
+ * Wrapper: src/percolator.rs:10636.
+ */
+export declare const ACCOUNTS_CONVERT_RELEASED_PNL: readonly AccountSpec[];
+/**
+ * SetInsuranceWithdrawPolicy (tag 22): 2 accounts. Admin only.
+ * Wrapper: src/percolator.rs:9990.
+ */
+export declare const ACCOUNTS_SET_INSURANCE_WITHDRAW_POLICY: readonly AccountSpec[];
+/**
+ * UpdateAuthority (tag 83, v12.18.x 4-way split): 3 accounts.
+ * Wrapper: src/percolator.rs:6876.
+ *
+ * Both the current authority and the new authority must sign. For burn
+ * (`new_pubkey == default()`) the new account is still passed but does
+ * not need to sign per wrapper L7036 region.
+ */
+export declare const ACCOUNTS_UPDATE_AUTHORITY: readonly AccountSpec[];
 /**
  * Build AccountMeta array from spec and provided pubkeys.
  *

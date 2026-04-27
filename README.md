@@ -2,7 +2,7 @@
 
 TypeScript SDK for building clients, bots, and UIs on top of the [Percolator](https://github.com/dcccrypto/percolator) perpetual futures protocol on Solana.
 
-> **EXPERIMENTAL. NOT AUDITED.** `2.0.0-rc.1`. v12.19 single-target. Do NOT use with real funds.
+> **EXPERIMENTAL. NOT AUDITED.** `2.0.0-rc.1`. v12.19 single-target. 792 tests passing. Do NOT use with real funds.
 
 ## Target wrapper
 

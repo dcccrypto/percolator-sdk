@@ -234,7 +234,13 @@ var IX_TAG = {
   /** PERC-315: Set LP collateral params (enabled + ltv_bps, admin only). */
   SetLpCollateralParams: 81,
   /** Phase E (2026-04-17): Accept a pending admin transfer. Signer must match pending_admin. */
-  AcceptAdmin: 82
+  AcceptAdmin: 82,
+  /**
+   * v12.18.x 4-way authority split (added 2026-04-22, wrapper 86ea41f).
+   * Unified mutator for admin/hyperp_mark/insurance/insurance_operator.
+   * Wrapper handler: src/percolator.rs:6876.
+   */
+  UpdateAuthority: 83
   // 78: removed (keeper fund)
 };
 Object.freeze(IX_TAG);
@@ -264,7 +270,7 @@ function encodeFeedId(feedId) {
   }
   return bytes;
 }
-var INIT_MARKET_BASE_LEN = 344;
+var INIT_MARKET_BASE_LEN = 304;
 var INIT_MARKET_EXTENDED_TAIL_LEN = 66;
 function extendedTailHasNonZero(t) {
   const toBigInt = (v) => typeof v === "string" ? BigInt(v) : v;
@@ -286,7 +292,7 @@ function encodeExtendedTail(t) {
 function encodeInitMarket(args) {
   const hMin = args.hMin ?? args.warmupPeriodSlots ?? 0n;
   const hMax = args.hMax ?? args.warmupPeriodSlots ?? 0n;
-  const base = concatBytes(
+  const header = concatBytes(
     encU8(IX_TAG.InitMarket),
     encPubkey(args.admin),
     encPubkey(args.collateralMint),
@@ -296,13 +302,9 @@ function encodeInitMarket(args) {
     encU8(args.invert),
     encU32(args.unitScale),
     encU64(args.initialMarkPriceE6),
-    // 3 fields between header and RiskParams (immutable after init)
-    encU128(args.maxMaintenanceFeePerSlot ?? 0n),
-    encU128(args.maxInsuranceFloor ?? 0n),
-    encU64(args.minOraclePriceCap ?? 0n),
-    // RiskParams wire format — must match read_risk_params() in percolator.rs
-    // In v12.15: warmup_period_slots replaced by hMin/hMax. hMin is written first (same slot),
-    // hMax appended at end. liquidationBufferBps is read but discarded (kept for wire compat).
+    encU128(args.maxMaintenanceFeePerSlot ?? 0n)
+  );
+  const riskParamsCommon = concatBytes(
     encU64(hMin),
     encU64(args.maintenanceMarginBps),
     encU64(args.initialMarginBps),
@@ -310,20 +312,18 @@ function encodeInitMarket(args) {
     encU64(args.maxAccounts),
     encU128(args.newAccountFee),
     encU128(args.insuranceFloor ?? 0n),
-    // wire slot: old riskReductionThreshold → now insurance_floor
     encU64(hMax),
-    // h_max (u64)
     encU64(args.maxCrankStalenessSlots),
-    // v12.17: no padding between hMax and maxCrankStalenessSlots
     encU64(args.liquidationFeeBps),
     encU128(args.liquidationFeeCap),
     encU64(args.liquidationBufferBps ?? 0n),
-    // v12.17: read as resolve_price_deviation_bps by program
-    encU128(args.minLiquidationAbs),
-    encU128(args.minInitialDeposit),
+    encU128(args.minLiquidationAbs)
+  );
+  const riskParamsTail = concatBytes(
     encU128(args.minNonzeroMmReq),
     encU128(args.minNonzeroImReq)
   );
+  const base = concatBytes(header, riskParamsCommon, riskParamsTail);
   if (base.length !== INIT_MARKET_BASE_LEN) {
     throw new Error(
       `encodeInitMarket: base payload expected ${INIT_MARKET_BASE_LEN} bytes, got ${base.length}`
@@ -438,9 +438,8 @@ function encodeUpdateConfig(args) {
     encU64(args.fundingHorizonSlots),
     encU64(args.fundingKBps),
     encI64(args.fundingMaxPremiumBps),
-    // Rust: i64 (can be negative)
-    encI64(args.fundingMaxBpsPerSlot)
-    // Rust: i64 (can be negative)
+    encI64(args.fundingMaxBpsPerSlot),
+    encU16(args.tvlInsuranceCapMult ?? 0)
   );
 }
 function encodeSetMaintenanceFee(_args) {
@@ -627,22 +626,23 @@ function encodeSlashCreationDeposit() {
   return removedInstruction("SlashCreationDeposit", IX_TAG.SlashCreationDeposit);
 }
 function encodeInitSharedVault(args) {
-  void args;
-  return removedInstruction("InitSharedVault", IX_TAG.InitSharedVault);
+  return concatBytes(
+    encU8(IX_TAG.InitSharedVault),
+    encU64(args.epochDurationSlots),
+    encU16(args.maxMarketExposureBps)
+  );
 }
 function encodeAllocateMarket(args) {
-  void args;
-  return removedInstruction("AllocateMarket", IX_TAG.AllocateMarket);
+  return concatBytes(encU8(IX_TAG.AllocateMarket), encU128(args.amount));
 }
 function encodeQueueWithdrawalSV(args) {
-  void args;
-  return removedInstruction("QueueWithdrawalSV", IX_TAG.QueueWithdrawalSV);
+  return concatBytes(encU8(IX_TAG.QueueWithdrawalSV), encU64(args.lpAmount));
 }
 function encodeClaimEpochWithdrawal() {
-  return removedInstruction("ClaimEpochWithdrawal", IX_TAG.ClaimEpochWithdrawal);
+  return encU8(IX_TAG.ClaimEpochWithdrawal);
 }
 function encodeAdvanceEpoch() {
-  return removedInstruction("AdvanceEpoch", IX_TAG.AdvanceEpoch);
+  return encU8(IX_TAG.AdvanceEpoch);
 }
 function encodeSetOiImbalanceHardBlock(args) {
   if (args.thresholdBps < 0 || args.thresholdBps > 1e4) {
@@ -790,6 +790,40 @@ function encodeSetLpCollateralParams(args) {
 function encodeAcceptAdmin() {
   return encU8(IX_TAG.AcceptAdmin);
 }
+function encodeReclaimEmptyAccount(args) {
+  return concatBytes(encU8(IX_TAG.ReclaimEmptyAccount), encU16(args.userIdx));
+}
+function encodeSettleAccount(args) {
+  return concatBytes(encU8(IX_TAG.SettleAccount), encU16(args.userIdx));
+}
+function encodeDepositFeeCredits(args) {
+  return concatBytes(
+    encU8(IX_TAG.DepositFeeCredits),
+    encU16(args.userIdx),
+    encU64(args.amount)
+  );
+}
+function encodeConvertReleasedPnl(args) {
+  return concatBytes(
+    encU8(IX_TAG.ConvertReleasedPnl),
+    encU16(args.userIdx),
+    encU64(args.amount)
+  );
+}
+var AUTHORITY_KIND = {
+  Admin: 0,
+  HyperpMark: 1,
+  Insurance: 2,
+  InsuranceOperator: 4
+};
+Object.freeze(AUTHORITY_KIND);
+function encodeUpdateAuthority(args) {
+  return concatBytes(
+    encU8(IX_TAG.UpdateAuthority),
+    encU8(args.kind),
+    encPubkey(args.newPubkey)
+  );
+}
 
 // src/abi/accounts.ts
 import {
@@ -853,6 +887,7 @@ var ACCOUNTS_TRADE_NOCPI = [
   { name: "user", signer: true, writable: true },
   { name: "lp", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false },
   { name: "oracle", signer: false, writable: false }
 ];
 var ACCOUNTS_LIQUIDATE_AT_ORACLE = [
@@ -876,7 +911,8 @@ var ACCOUNTS_TOPUP_INSURANCE = [
   { name: "slab", signer: false, writable: true },
   { name: "userAta", signer: false, writable: true },
   { name: "vault", signer: false, writable: true },
-  { name: "tokenProgram", signer: false, writable: false }
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false }
 ];
 var ACCOUNTS_TRADE_CPI = [
   { name: "user", signer: true, writable: true },
@@ -911,7 +947,8 @@ var ACCOUNTS_CLOSE_SLAB = [
 ];
 var ACCOUNTS_UPDATE_CONFIG = [
   { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true }
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false }
 ];
 var ACCOUNTS_SET_MAINTENANCE_FEE = [
   { name: "admin", signer: true, writable: true },
@@ -919,11 +956,14 @@ var ACCOUNTS_SET_MAINTENANCE_FEE = [
 ];
 var ACCOUNTS_SET_ORACLE_PRICE_CAP = [
   { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true }
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false }
 ];
 var ACCOUNTS_RESOLVE_MARKET = [
   { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true }
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false }
 ];
 var ACCOUNTS_WITHDRAW_INSURANCE = [
   { name: "admin", signer: true, writable: true },
@@ -952,6 +992,38 @@ var ACCOUNTS_PAUSE_MARKET = [
 ];
 var ACCOUNTS_UNPAUSE_MARKET = [
   { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_RECLAIM_EMPTY_ACCOUNT = [
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false }
+];
+var ACCOUNTS_SETTLE_ACCOUNT = [
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false }
+];
+var ACCOUNTS_DEPOSIT_FEE_CREDITS = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "userAta", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "clock", signer: false, writable: false }
+];
+var ACCOUNTS_CONVERT_RELEASED_PNL = [
+  { name: "user", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "clock", signer: false, writable: false },
+  { name: "oracle", signer: false, writable: false }
+];
+var ACCOUNTS_SET_INSURANCE_WITHDRAW_POLICY = [
+  { name: "admin", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_UPDATE_AUTHORITY = [
+  { name: "currentAuthority", signer: true, writable: false },
+  { name: "newAuthority", signer: true, writable: false },
   { name: "slab", signer: false, writable: true }
 ];
 function buildAccountMetas(spec, keys) {
@@ -3962,7 +4034,7 @@ function deriveVaultAuthority(programId, slab) {
 }
 function deriveInsuranceLpMint(programId, slab) {
   return PublicKey6.findProgramAddressSync(
-    [textEncoder.encode("ins_lp"), slab.toBytes()],
+    [textEncoder.encode("lp_vault_mint"), slab.toBytes()],
     programId
   );
 }
@@ -6708,9 +6780,11 @@ export {
   ACCOUNTS_CLOSE_ORPHAN_SLAB,
   ACCOUNTS_CLOSE_SLAB,
   ACCOUNTS_CLOSE_STALE_SLABS,
+  ACCOUNTS_CONVERT_RELEASED_PNL,
   ACCOUNTS_CREATE_INSURANCE_MINT,
   ACCOUNTS_CREATE_LP_VAULT,
   ACCOUNTS_DEPOSIT_COLLATERAL,
+  ACCOUNTS_DEPOSIT_FEE_CREDITS,
   ACCOUNTS_DEPOSIT_INSURANCE_LP,
   ACCOUNTS_DEPOSIT_LP_COLLATERAL,
   ACCOUNTS_EXECUTE_ADL,
@@ -6731,14 +6805,17 @@ export {
   ACCOUNTS_NFT_MINT,
   ACCOUNTS_PAUSE_MARKET,
   ACCOUNTS_QUEUE_WITHDRAWAL,
+  ACCOUNTS_RECLAIM_EMPTY_ACCOUNT,
   ACCOUNTS_RECLAIM_SLAB_RENT,
   ACCOUNTS_RESCUE_ORPHAN_VAULT,
   ACCOUNTS_RESOLVE_DISPUTE,
   ACCOUNTS_RESOLVE_MARKET,
   ACCOUNTS_RESOLVE_PERMISSIONLESS,
+  ACCOUNTS_SETTLE_ACCOUNT,
   ACCOUNTS_SET_DEX_POOL,
   ACCOUNTS_SET_DISPUTE_PARAMS,
   ACCOUNTS_SET_INSURANCE_ISOLATION,
+  ACCOUNTS_SET_INSURANCE_WITHDRAW_POLICY,
   ACCOUNTS_SET_LP_COLLATERAL_PARAMS,
   ACCOUNTS_SET_MAINTENANCE_FEE,
   ACCOUNTS_SET_MAX_PNL_CAP,
@@ -6756,6 +6833,7 @@ export {
   ACCOUNTS_TRANSFER_POSITION_OWNERSHIP,
   ACCOUNTS_UNPAUSE_MARKET,
   ACCOUNTS_UPDATE_ADMIN,
+  ACCOUNTS_UPDATE_AUTHORITY,
   ACCOUNTS_UPDATE_CONFIG,
   ACCOUNTS_UPDATE_HYPERP_MARK,
   ACCOUNTS_WITHDRAW_COLLATERAL,
@@ -6764,6 +6842,7 @@ export {
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
   ACCOUNTS_WITHDRAW_INSURANCE_LP,
   ACCOUNTS_WITHDRAW_LP_COLLATERAL,
+  AUTHORITY_KIND,
   AccountKind,
   CHAINLINK_ANSWER_OFFSET,
   CHAINLINK_DECIMALS_OFFSET,
@@ -6915,9 +6994,11 @@ export {
   encodeCloseOrphanSlab,
   encodeCloseSlab,
   encodeCloseStaleSlabs,
+  encodeConvertReleasedPnl,
   encodeCreateInsuranceMint,
   encodeCreateLpVault,
   encodeDepositCollateral,
+  encodeDepositFeeCredits,
   encodeDepositInsuranceLP,
   encodeDepositLpCollateral,
   encodeExecuteAdl,
@@ -6941,6 +7022,7 @@ export {
   encodePauseMarket,
   encodeQueueWithdrawal,
   encodeQueueWithdrawalSV,
+  encodeReclaimEmptyAccount,
   encodeReclaimSlabRent,
   encodeRenounceAdmin,
   encodeRescueOrphanVault,
@@ -6962,6 +7044,7 @@ export {
   encodeSetPythOracle,
   encodeSetRiskThreshold,
   encodeSetWalletCap,
+  encodeSettleAccount,
   encodeSlashCreationDeposit,
   encodeStakeAccrueFees,
   encodeStakeAdminResolveMarket,
@@ -6991,6 +7074,7 @@ export {
   encodeUnpauseMarket,
   encodeUnresolveMarket,
   encodeUpdateAdmin,
+  encodeUpdateAuthority,
   encodeUpdateConfig,
   encodeUpdateHyperpMark,
   encodeUpdateMarkPrice,

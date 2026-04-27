@@ -125,6 +125,12 @@ export declare const IX_TAG: {
     readonly SetLpCollateralParams: 81;
     /** Phase E (2026-04-17): Accept a pending admin transfer. Signer must match pending_admin. */
     readonly AcceptAdmin: 82;
+    /**
+     * v12.18.x 4-way authority split (added 2026-04-22, wrapper 86ea41f).
+     * Unified mutator for admin/hyperp_mark/insurance/insurance_operator.
+     * Wrapper handler: src/percolator.rs:6876.
+     */
+    readonly UpdateAuthority: 83;
 };
 /**
  * InitMarket instruction data (256 bytes total)
@@ -185,7 +191,9 @@ export interface InitMarketArgs {
     unitScale: number;
     initialMarkPriceE6: bigint | string;
     maxMaintenanceFeePerSlot?: bigint | string;
+    /** @deprecated v12.17-only field. v12.19 wrapper does not read it. Kept for source-compat, value ignored. */
     maxInsuranceFloor?: bigint | string;
+    /** @deprecated v12.17-only field. v12.19 wrapper does not read it. Kept for source-compat, value ignored. */
     minOraclePriceCap?: bigint | string;
     /**
      * @deprecated Use hMin and hMax instead (v12.15+). Accepted as fallback for both hMin and hMax
@@ -208,7 +216,8 @@ export interface InitMarketArgs {
     liquidationFeeCap: bigint | string;
     liquidationBufferBps?: bigint | string;
     minLiquidationAbs: bigint | string;
-    minInitialDeposit: bigint | string;
+    /** @deprecated v12.17-only top-level field. v12.19 wrapper does not read a separate min_initial_deposit. Kept for source-compat, value ignored. */
+    minInitialDeposit?: bigint | string;
     minNonzeroMmReq: bigint | string;
     minNonzeroImReq: bigint | string;
     /**
@@ -412,17 +421,23 @@ export declare function encodeUpdateAdmin(args: UpdateAdminArgs): Uint8Array;
  */
 export declare function encodeCloseSlab(): Uint8Array;
 /**
- * UpdateConfig instruction data (33 bytes)
+ * UpdateConfig instruction data.
  *
- * v12.17: Only 4 funding parameters. Threshold/insurance parameters are set
- * at InitMarket and updated via dedicated instructions (SetRiskThreshold removed).
- * fundingInvScaleNotionalE6 removed (now computed on-chain from LP state).
+ * 35 bytes: tag(1) + funding_horizon_slots(8) + funding_k_bps(8) +
+ * funding_max_premium_bps(8) + funding_max_e9_per_slot(8) +
+ * tvl_insurance_cap_mult(2). Wire layout matches v12.19 wrapper at
+ * src/percolator.rs:2027-2041 (handle_update_config decode).
  */
 export interface UpdateConfigArgs {
     fundingHorizonSlots: bigint | string;
     fundingKBps: bigint | string;
     fundingMaxPremiumBps: bigint | string;
     fundingMaxBpsPerSlot: bigint | string;
+    /**
+     * u16 deposit cap multiplier. 0 disables the protocol-enforced cap.
+     * Wrapper field added at src/percolator.rs:2031.
+     */
+    tvlInsuranceCapMult?: number;
 }
 export declare function encodeUpdateConfig(args: UpdateConfigArgs): Uint8Array;
 /**
@@ -1285,3 +1300,91 @@ export declare function encodeSetLpCollateralParams(args: SetLpCollateralParamsA
  * Instruction data: tag(1) = 1 byte. No payload.
  */
 export declare function encodeAcceptAdmin(): Uint8Array;
+/**
+ * ReclaimEmptyAccount (Tag 25) — permissionless reclamation of empty/dust
+ * accounts (wrapper §2.6, §10.7).
+ *
+ * Wrapper decode: src/percolator.rs:2088. Wire: tag(1) + user_idx u16(2).
+ *
+ * Accounts: see ACCOUNTS_RECLAIM_EMPTY_ACCOUNT.
+ */
+export interface ReclaimEmptyAccountArgs {
+    userIdx: number;
+}
+export declare function encodeReclaimEmptyAccount(args: ReclaimEmptyAccountArgs): Uint8Array;
+/**
+ * SettleAccount (Tag 26) — standalone account settlement (wrapper §10.2).
+ * Permissionless.
+ *
+ * Wrapper decode: src/percolator.rs:2092. Wire: tag(1) + user_idx u16(2).
+ *
+ * Accounts: see ACCOUNTS_SETTLE_ACCOUNT.
+ */
+export interface SettleAccountArgs {
+    userIdx: number;
+}
+export declare function encodeSettleAccount(args: SettleAccountArgs): Uint8Array;
+/**
+ * DepositFeeCredits (Tag 27) — direct fee-debt repayment (wrapper §10.3.1).
+ * Owner only.
+ *
+ * Wrapper decode: src/percolator.rs:2097. Wire: tag(1) + user_idx u16(2)
+ * + amount u64(8).
+ *
+ * Accounts: see ACCOUNTS_DEPOSIT_FEE_CREDITS.
+ */
+export interface DepositFeeCreditsArgs {
+    userIdx: number;
+    amount: bigint | string;
+}
+export declare function encodeDepositFeeCredits(args: DepositFeeCreditsArgs): Uint8Array;
+/**
+ * ConvertReleasedPnl (Tag 28) — voluntary PnL conversion with open position
+ * (wrapper §10.4.1). Owner only.
+ *
+ * Wrapper decode: src/percolator.rs:2103. Wire: tag(1) + user_idx u16(2)
+ * + amount u64(8).
+ *
+ * Accounts: see ACCOUNTS_CONVERT_RELEASED_PNL.
+ */
+export interface ConvertReleasedPnlArgs {
+    userIdx: number;
+    amount: bigint | string;
+}
+export declare function encodeConvertReleasedPnl(args: ConvertReleasedPnlArgs): Uint8Array;
+/**
+ * Authority kind for UpdateAuthority (tag 83). Maps to wrapper constants
+ * AUTHORITY_ADMIN/HYPERP_MARK/INSURANCE/INSURANCE_OPERATOR at
+ * src/percolator.rs:6862-6868.
+ *
+ * Note: kind=3 is reserved (the v12.18.x split uses 0/1/2/4).
+ */
+export declare const AUTHORITY_KIND: {
+    readonly Admin: 0;
+    readonly HyperpMark: 1;
+    readonly Insurance: 2;
+    readonly InsuranceOperator: 4;
+};
+export type AuthorityKind = (typeof AUTHORITY_KIND)[keyof typeof AUTHORITY_KIND];
+/**
+ * UpdateAuthority (Tag 83) — unified mutator for the four authority slots
+ * (admin, hyperp_mark, insurance, insurance_operator).
+ *
+ * The instruction takes both the current authority and the new authority as
+ * signers. Setting `newPubkey` to the zero pubkey burns the authority slot;
+ * burning admin requires `permissionless_resolve_stale_slots > 0` AND
+ * `force_close_delay_slots > 0` per the R4-H1 liveness guard.
+ *
+ * H-NEW-1 (closed in wrapper d760fc4): atomic admin rotation through this
+ * tag now clears `config.pending_admin`, invalidating any stale tag-12
+ * proposal.
+ *
+ * Wire: tag(1) + kind u8(1) + new_pubkey Pubkey(32) = 34 bytes.
+ *
+ * Accounts: see ACCOUNTS_UPDATE_AUTHORITY.
+ */
+export interface UpdateAuthorityArgs {
+    kind: AuthorityKind;
+    newPubkey: PublicKey | string;
+}
+export declare function encodeUpdateAuthority(args: UpdateAuthorityArgs): Uint8Array;

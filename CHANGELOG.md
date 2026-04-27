@@ -7,6 +7,74 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.0-rc.1] — 2026-04-28
+
+Single-target SDK aligned to wrapper v12.19 (PR #271, branch
+sync/v12.19-wrapper, commit d760fc4). The dual v12.17/v12.19 target shape
+introduced in 2.0.0-rc.0 is removed because the stale mainnet program at
+ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv is being abandoned and the
+v12.19 deployment is the next mainnet upgrade.
+
+### Removed
+
+- `src/vanilla.ts` and the `@percolatorct/sdk/vanilla` subpath export.
+- `WrapperTarget` type and every `target?: 'v12.17' | 'v12.19'` parameter.
+- v12.17 default branches in `encodeInitMarket` and `encodeUpdateConfig`.
+- The throw-without-target gate on `encodeInitSharedVault`,
+  `encodeAllocateMarket`, `encodeQueueWithdrawalSV`,
+  `encodeClaimEpochWithdrawal`, `encodeAdvanceEpoch`.
+- `test/parity/v12.17-encoder-bytes.parity.test.ts` and
+  `fixtures/parity/v12.17-encoder-bytes.json`.
+- `test/vanilla.test.ts` and `VANILLA.md`.
+
+### Changed
+
+- `encodeInitMarket` always emits the 304-byte v12.19 base payload.
+  Previously defaulted to 344-byte v12.17 layout. Wrapper anchor:
+  `src/percolator.rs:1786` (handle_init_market decode in d760fc4).
+- `encodeUpdateConfig` always emits 35 bytes including
+  `tvl_insurance_cap_mult: u16`. Wrapper anchor:
+  `src/percolator.rs:2027-2041` (handle_update_config decode).
+- 5 PERC-628 shared-vault encoders (tags 59-63) emit valid v12.19 bytes
+  unconditionally.
+
+### Fixed
+
+- **H-1 ACCOUNTS_TRADE_NOCPI: 4 -> 5** accounts. Inserts clock at index 3.
+  Wrapper: `src/percolator.rs:8484` expect_len(5).
+- **H-2 ACCOUNTS_TOPUP_INSURANCE: 5 -> 6**. Appends clock at index 5.
+  Wrapper: `src/percolator.rs:9256` expect_len(6).
+- **H-3 ACCOUNTS_UPDATE_CONFIG: 2 -> 3**. Appends clock at index 2.
+  Wrapper: `src/percolator.rs:9544` accepts 3 OR 4 (canonical 3-form).
+- **H-4 ACCOUNTS_SET_ORACLE_PRICE_CAP: 2 -> 3**. Appends clock at index 2.
+  Wrapper: `src/percolator.rs:9654` expect_len(3).
+- **H-5 ACCOUNTS_RESOLVE_MARKET: 2 -> 4**. Appends clock + oracle.
+  Wrapper: `src/percolator.rs:9748` expect_len(4).
+- **H-7 deriveInsuranceLpMint** seed `"ins_lp"` -> `"lp_vault_mint"`.
+  Wrapper: `src/percolator.rs:2543` derive_lp_vault_mint.
+
+### Deferred
+
+- **B-9 V12_19 slab layout descriptor** — V12_19 tier sizes
+  (19_640 / 94_168 / 372_280 / 1_484_728) collide with V12_17 SBF tier
+  sizes. Disambiguator + buildLayoutV12_19 land post-mainnet-deploy when
+  a real v12.19 slab can be fingerprinted. Tracked in
+  `audit-2026-04-28-v12.19/FINAL.md`.
+- **W-1 wrapper sdk_parity_fixtures.rs** missing `UpdateAuthority` tag 83.
+  One-line wrapper patch deferred to user (see
+  `audit-2026-04-28-v12.19/phase-4-deferred.md`). `pnpm run parity:check`
+  remains red until that lands on PR #271.
+
+### Gates
+
+- `pnpm test`: 792 PASS / 31 SKIPPED (was 832 in rc.0, lost 40 from
+  dropped vanilla + v12.17 parity tests).
+- `pnpm lint`: clean.
+- `pnpm build`: clean. `dist/index.js` = 264 KB (no `dist/vanilla.js`).
+- `pnpm run parity:check`: red until W-1 wrapper patch lands.
+
+---
+
 ## [2.0.0-rc.0] — 2026-04-27
 
 Two-track package split. Adds `@percolatorct/sdk/vanilla` subpath with
