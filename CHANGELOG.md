@@ -7,6 +7,95 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.2] — 2026-04-28
+
+V12_19 SBF layout fix using authoritative probe-verified values. v2.0.1's
+V12_19 constants were speculative and turned out to be wrong on every
+value (engineOff, configLen, accountSize, slab tier sizes). v2.0.2
+replaces them with values extracted from `cargo build-sbf --features small`
+compile-error messages on deliberately-wrong const assertions in the
+wrapper. Every value below was confirmed against the same wrapper code
+that produced the deployed mainnet binary (sha256 `205c0e77...`).
+
+### Authoritative v12.19 SBF values (replacing v2.0.1's wrong ones)
+
+| constant | v2.0.1 (wrong) | v2.0.2 (probe-confirmed) |
+|---|---|---|
+| HEADER_LEN | 72 (V12_17 inheritance) | **136** |
+| CONFIG_LEN | 528 | **480** |
+| ENGINE_OFF | 600 | **616** |
+| ACCOUNT_SIZE | 352 (V12_17 inheritance) | **360** |
+| SLAB_LEN small | 94168 (cu_benchmark stale) | **96760** |
+
+V12_19 RiskEngine internal offsets (rel to engine start):
+
+| field | v2.0.1 | v2.0.2 |
+|---|---|---|
+| current_slot | 216 | **200** |
+| market_mode | 224 | **208** |
+| c_tot | 328 | **312** |
+| pnl_pos_tot | 344 | **328** |
+| pnl_matured_pos_tot | 360 | **344** |
+| oi_eff_long_q | 488 | **472** |
+| oi_eff_short_q | 504 | **488** |
+| neg_pnl_count | 608 | **584** |
+| rr_cursor_position | 616 | **592** |
+| last_oracle_price | 640 | **624** |
+| fund_px_last | 648 | **632** |
+| last_market_slot | 656 | **640** |
+| f_long_num | 664 | **648** |
+| f_short_num | 680 | **664** |
+
+Account size grew (352 -> 360) and accounts are now INLINE within
+RiskEngine struct (was separate in V12_17). For the small tier
+(MAX_ACCOUNTS=256), accounts start at engineOff + 1776.
+
+V12_19 MarketConfig SBF offsets newly added:
+- hyperp_authority +144
+- last_effective_price_e6 +192
+- tvl_insurance_cap_mult +202
+- oracle_price_cap_e2bps +216
+- min_oracle_price_cap_e2bps +224
+- maintenance_fee_per_slot +320
+- dex_pool +368
+- max_pnl_cap +400
+- oi_cap_multiplier_bps +416
+- pending_admin +448
+
+### Fixed
+
+- `V12_19_SIZES` now contains correct slab sizes
+  (26848/96760/376408/1495000) instead of stale cu_benchmark constants.
+- `buildLayoutV12_19` computes accountsOff dynamically per tier (accounts
+  are inline within RiskEngine starting after `prev_free` + 8-byte align).
+- `parseEngine` V12_19 detection switched from
+  `engineOff === V12_19_ENGINE_OFF_SBF` (which never matched anything in
+  v2.0.1) to `accountSize === V12_19_ACCOUNT_SIZE_SBF` (matches probe-
+  confirmed 360 byte v12.19 SBF Account).
+
+### Methodology
+
+Probe values were extracted by adding `#[cfg(target_arch = "sbf")] const _:
+[(); 0] = [(); offset_of!(...)]` blocks to the wrapper, running
+`cargo build-sbf --features small`, and reading the compile-error
+messages that revealed the actual SBF offsets. The wrapper was then
+reverted clean (no source changes shipped). Same source as deployed
+binary, so values match the deployed program byte-for-byte.
+
+### Gates
+
+- pnpm test 792 PASS / 31 SKIPPED.
+- pnpm lint clean.
+
+### Deprecations
+
+v2.0.0 and v2.0.1 are both incorrect for parsing v12.19 slabs. They are
+SAFE for transaction building (encoders, account specs, IX_TAGs are all
+still byte-correct). Run `npm deprecate @percolatorct/sdk@2.0.0
+"v12.19 layout incorrect, use 2.0.2+"` and same for 2.0.1.
+
+---
+
 ## [2.0.1] — 2026-04-28
 
 Correctness fix discovered during post-deploy further-verification. The

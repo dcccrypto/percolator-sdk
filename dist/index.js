@@ -2308,52 +2308,71 @@ for (const n of V12_17_TIERS) {
   const sbfSize = V12_17_ENGINE_OFF_SBF + accountsOffSbf + n * V12_17_ACCOUNT_SIZE_SBF + V12_17_RISK_BUF_LEN + n * V12_17_GEN_TABLE_ENTRY;
   V12_17_SIZES.set(sbfSize, n);
 }
-var V12_19_CONFIG_LEN = 528;
-var V12_19_ENGINE_OFF_SBF = 600;
-var V12_19_SBF_ENGINE_CURRENT_SLOT_OFF = 216;
-var V12_19_SBF_ENGINE_MARKET_MODE_OFF = 224;
-var V12_19_SBF_ENGINE_RESOLVED_LIVE_PRICE_OFF = 320;
-var V12_19_SBF_ENGINE_C_TOT_OFF = 328;
-var V12_19_SBF_ENGINE_PNL_POS_TOT_OFF = 344;
-var V12_19_SBF_ENGINE_PNL_MATURED_POS_TOT_OFF = 360;
-var V12_19_SBF_ENGINE_OI_EFF_LONG_OFF = 488;
-var V12_19_SBF_ENGINE_OI_EFF_SHORT_OFF = 504;
-var V12_19_SBF_ENGINE_NEG_PNL_COUNT_OFF = 608;
-var V12_19_SBF_ENGINE_RR_CURSOR_OFF = 616;
-var V12_19_SBF_ENGINE_LAST_ORACLE_PRICE_OFF = 640;
-var V12_19_SBF_ENGINE_FUND_PX_LAST_OFF = 648;
-var V12_19_SBF_ENGINE_LAST_MARKET_SLOT_OFF = 656;
-var V12_19_SBF_ENGINE_F_LONG_NUM_OFF = 664;
-var V12_19_SBF_ENGINE_F_SHORT_NUM_OFF = 680;
+var V12_19_HEADER_LEN_SBF = 136;
+var V12_19_CONFIG_LEN = 480;
+var V12_19_ENGINE_OFF_SBF = 616;
+var V12_19_ACCOUNT_SIZE_SBF = 360;
+var V12_19_SBF_ENGINE_BITMAP_OFF = 712;
+var V12_19_SBF_ENGINE_CURRENT_SLOT_OFF = 200;
+var V12_19_SBF_ENGINE_MARKET_MODE_OFF = 208;
+var V12_19_SBF_ENGINE_RESOLVED_LIVE_PRICE_OFF = 304;
+var V12_19_SBF_ENGINE_C_TOT_OFF = 312;
+var V12_19_SBF_ENGINE_PNL_POS_TOT_OFF = 328;
+var V12_19_SBF_ENGINE_PNL_MATURED_POS_TOT_OFF = 344;
+var V12_19_SBF_ENGINE_OI_EFF_LONG_OFF = 472;
+var V12_19_SBF_ENGINE_OI_EFF_SHORT_OFF = 488;
+var V12_19_SBF_ENGINE_NEG_PNL_COUNT_OFF = 584;
+var V12_19_SBF_ENGINE_RR_CURSOR_OFF = 592;
+var V12_19_SBF_ENGINE_LAST_ORACLE_PRICE_OFF = 624;
+var V12_19_SBF_ENGINE_FUND_PX_LAST_OFF = 632;
+var V12_19_SBF_ENGINE_LAST_MARKET_SLOT_OFF = 640;
+var V12_19_SBF_ENGINE_F_LONG_NUM_OFF = 648;
+var V12_19_SBF_ENGINE_F_SHORT_NUM_OFF = 664;
 var V12_19_SIZES = /* @__PURE__ */ new Map([
-  [19640, 64],
-  // --features micro
-  [94168, 256],
-  // --features small (deployed mainnet ESa89R5...)
-  [372280, 1024],
-  // --features medium
-  [1484728, 4096]
-  // default features (large)
+  [26848, 64],
+  // --features micro (derived)
+  [96760, 256],
+  // --features small (probe-confirmed; deployed mainnet ESa89R5...)
+  [376408, 1024],
+  // --features medium (derived)
+  [1495e3, 4096]
+  // default features / large (derived)
 ]);
-function buildLayoutV12_19(maxAccounts, dataLen) {
-  const base = buildLayoutV12_17(maxAccounts, dataLen);
+function buildLayoutV12_19(maxAccounts, _dataLen) {
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const numUsedOff = V12_19_SBF_ENGINE_BITMAP_OFF + bitmapBytes;
+  const freeHeadOff = numUsedOff + 2;
+  const nextFreeOff = freeHeadOff + 2;
+  const prevFreeOff = nextFreeOff + maxAccounts * 2;
+  const accountsRelEnd = prevFreeOff + maxAccounts * 2;
+  const accountsOffRel = Math.ceil(accountsRelEnd / 8) * 8;
+  const accountsOff = V12_19_ENGINE_OFF_SBF + accountsOffRel;
+  const base = buildLayoutV12_17(
+    maxAccounts,
+    /* synthetic V12_17 SBF size */
+    94168
+  );
   return {
     ...base,
+    headerLen: V12_19_HEADER_LEN_SBF,
     configLen: V12_19_CONFIG_LEN,
+    configOffset: V12_19_HEADER_LEN_SBF,
+    // header runs 0..136 in v12.19
     engineOff: V12_19_ENGINE_OFF_SBF,
-    accountsOff: V12_19_ENGINE_OFF_SBF + (base.accountsOff - base.engineOff),
-    // V12_19 engine field offsets (only the fields exposed in SlabLayout).
-    // Other engine fields (negPnlCount, fundPxLast, fLongNum, fShortNum,
-    // lastOraclePrice, marketMode, pnlMaturedPosTot) are read by parseEngine
-    // via its own version-aware switch keyed on engineOff === 600.
+    accountSize: V12_19_ACCOUNT_SIZE_SBF,
+    accountsOff,
+    bitmapWords,
+    engineBitmapOff: V12_19_SBF_ENGINE_BITMAP_OFF,
+    // V12_19-specific engine field offsets (probe-confirmed):
     engineCurrentSlotOff: V12_19_SBF_ENGINE_CURRENT_SLOT_OFF,
     engineCTotOff: V12_19_SBF_ENGINE_C_TOT_OFF,
     enginePnlPosTotOff: V12_19_SBF_ENGINE_PNL_POS_TOT_OFF,
     engineLongOiOff: V12_19_SBF_ENGINE_OI_EFF_LONG_OFF,
     engineShortOiOff: V12_19_SBF_ENGINE_OI_EFF_SHORT_OFF,
-    // V12_19 last_market_slot replaces V12_17 last_crank_slot semantics.
+    // last_market_slot replaces V12_17 last_crank_slot semantics.
     engineLastCrankSlotOff: V12_19_SBF_ENGINE_LAST_MARKET_SLOT_OFF,
-    // V12_19 rr_cursor_position replaces V12_17 gc_cursor semantics.
+    // rr_cursor_position replaces V12_17 gc_cursor semantics.
     engineGcCursorOff: V12_19_SBF_ENGINE_RR_CURSOR_OFF
   };
 }
@@ -3702,8 +3721,8 @@ function parseEngine(data) {
   const base = layout.engineOff;
   const isV12_17 = layout.accountSize === V12_17_ACCOUNT_SIZE || layout.accountSize === V12_17_ACCOUNT_SIZE_SBF;
   const isV12_15 = !isV12_17 && (layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL) && (layout.engineOff === V12_15_ENGINE_OFF || layout.engineOff === V12_15_ENGINE_OFF_SBF);
-  if (isV12_17) {
-    const isV12_19 = layout.engineOff === V12_19_ENGINE_OFF_SBF;
+  const isV12_19 = layout.accountSize === V12_19_ACCOUNT_SIZE_SBF;
+  if (isV12_17 || isV12_19) {
     const isSbf = layout.engineOff === V12_17_ENGINE_OFF_SBF || isV12_19;
     const currentSlotOff = isV12_19 ? V12_19_SBF_ENGINE_CURRENT_SLOT_OFF : isSbf ? V12_17_SBF_ENGINE_CURRENT_SLOT_OFF : V12_17_ENGINE_CURRENT_SLOT_OFF;
     const marketModeOff = isV12_19 ? V12_19_SBF_ENGINE_MARKET_MODE_OFF : isSbf ? V12_17_SBF_ENGINE_MARKET_MODE_OFF : V12_17_ENGINE_MARKET_MODE_OFF;

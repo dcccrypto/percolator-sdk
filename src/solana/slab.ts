@@ -895,91 +895,130 @@ for (const n of V12_17_TIERS) {
   V12_17_SIZES.set(sbfSize, n);
 }
 
-// ---- V12_19 layout constants (CONFIG_LEN = 528, ENGINE_OFFSET = 600) ----
-// Verified against /Users/khubair/perc-sync/work/percolator-prog tests/common/mod.rs:60-61
-// (`pub const ENGINE_OFFSET: usize = 600`) and tests/test_conservation.rs L4574, L4586
-// (PNL_POS_TOT_OFFSET = 600+344, C_TOT_OFFSET = 600+328) and tests/common/mod.rs:2185
-// (LAST_MARKET_SLOT_OFFSET = ENGINE_OFFSET+656).
+// ---- V12_19 layout constants ----
+// AUTHORITATIVE SBF VALUES extracted via deliberately-wrong const assertions
+// in the wrapper compiled with `cargo build-sbf --features small`. Every value
+// below comes from a Rust compile-error message that revealed the real SBF
+// offset. Source: 2026-04-28 SBF probe session, see audit notes.
 //
-// V12_19 RiskEngine struct is significantly different from V12_17 SBF:
-// - removed: last_crank_slot, gc_cursor, resolved_k_long/short (replaced by *_terminal_delta)
-// - added:   resolved_slot, resolved_payout_h_num/h_den/ready,
-//            adl_mult_long/short, adl_coeff_long/short, adl_epoch_*,
-//            adl_epoch_start_k_long/short, side_mode_long/short,
-//            stored_pos_count_*, stale_account_count_*, phantom_dust_bound_*,
-//            materialized_account_count, rr_cursor_position, sweep_generation,
-//            price_move_consumed_bps_this_generation, last_market_slot,
-//            f_epoch_start_long_num, f_epoch_start_short_num
-// Engine internal offsets must therefore be computed for V12_19 separately,
-// NOT inherited from V12_17 SBF.
-//
-// SBF (i128 align=8). Walked field-by-field against the v12.19 RiskEngine
-// definition at /Users/khubair/perc-sync/work/percolator/src/percolator.rs:581.
-const V12_19_CONFIG_LEN     = 528;  // V12_17 512 + 16
-const V12_19_ENGINE_OFF_SBF = 600;  // align_up(72 + 528, 8) = 600
+// V12_19 vs V12_17 SBF differences:
+// - HEADER_LEN: 72 -> 136 (header gained insurance_authority + insurance_operator)
+// - CONFIG_LEN: 512 -> 480 (dropped max_insurance_floor and _iw_padding2)
+// - ENGINE_OFF: 584 -> 616
+// - ACCOUNT_SIZE: 352 -> 360
+// - SLAB_LEN small: 94168 -> 96760 (cu_benchmark.rs constant is stale)
+// - RiskEngine grew substantially; accounts now inline within engine struct.
+const V12_19_HEADER_LEN_SBF      = 136;
+const V12_19_CONFIG_LEN          = 480;
+const V12_19_ENGINE_OFF_SBF      = 616;
+const V12_19_ACCOUNT_SIZE_SBF    = 360;
+const V12_19_SBF_RISK_BUF_LEN    = 160;
+const V12_19_SBF_GEN_TABLE_ENTRY = 8;
 
-// V12_19 SBF engine field offsets (relative to engine start).
-const V12_19_SBF_ENGINE_CURRENT_SLOT_OFF       = 216;  // after params(184)
-const V12_19_SBF_ENGINE_MARKET_MODE_OFF        = 224;
-const V12_19_SBF_ENGINE_RESOLVED_PRICE_OFF     = 232;
-const V12_19_SBF_ENGINE_RESOLVED_SLOT_OFF      = 240;
-const V12_19_SBF_ENGINE_RESOLVED_LIVE_PRICE_OFF = 320;
-const V12_19_SBF_ENGINE_C_TOT_OFF              = 328;  // probe-confirmed
-const V12_19_SBF_ENGINE_PNL_POS_TOT_OFF        = 344;  // probe-confirmed
-const V12_19_SBF_ENGINE_PNL_MATURED_POS_TOT_OFF = 360;
-const V12_19_SBF_ENGINE_OI_EFF_LONG_OFF        = 488;
-const V12_19_SBF_ENGINE_OI_EFF_SHORT_OFF       = 504;
-// V12_19 packs side_mode_long/short as adjacent u8 bytes (520, 521) with
-// 6 bytes padding before the next u64 at 528.
-const V12_19_SBF_ENGINE_NEG_PNL_COUNT_OFF      = 608;
-const V12_19_SBF_ENGINE_RR_CURSOR_OFF          = 616;
-const V12_19_SBF_ENGINE_LAST_ORACLE_PRICE_OFF  = 640;
-const V12_19_SBF_ENGINE_FUND_PX_LAST_OFF       = 648;
-const V12_19_SBF_ENGINE_LAST_MARKET_SLOT_OFF   = 656;  // probe-confirmed
-const V12_19_SBF_ENGINE_F_LONG_NUM_OFF         = 664;
-const V12_19_SBF_ENGINE_F_SHORT_NUM_OFF        = 680;
+// Within RiskEngine, relative to engine start (probe-confirmed for small tier).
+// Some bitmap-region offsets depend on MAX_ACCOUNTS; small (256) shown here.
+const V12_19_SBF_ENGINE_BITMAP_OFF        = 712;  // [u64; ceil(MAX/64)] starts here
+const V12_19_SBF_ENGINE_NUM_USED_OFF_S    = 744;  // small: bitmap is 32 bytes
+const V12_19_SBF_ENGINE_FREE_HEAD_OFF_S   = 746;
+const V12_19_SBF_ENGINE_NEXT_FREE_OFF_S   = 748;  // [u16; 256] for small
+const V12_19_SBF_ENGINE_PREV_FREE_OFF_S   = 1260; // small: after next_free 512 bytes
+const V12_19_SBF_ENGINE_ACCOUNTS_OFF_S    = 1776; // small: after prev_free + 4-byte align
 
-// V12_19 SLAB_LEN values verified against
-// /Users/khubair/perc-sync/work/percolator-prog/tests/cu_benchmark.rs:49-64
-// (each value is gated on a separate feature flag — micro/small/medium/large).
-// The 256-tier value 94168 collides with V12_17 SBF small. The deployed
-// program post-2026-04-28 upgrade only produces v12.19 slabs, so detect order
-// (V12_19 first) handles disambiguation in practice.
+// V12_19 SBF RiskEngine field offsets (rel to engine start, probe-confirmed):
+const V12_19_SBF_ENGINE_PARAMS_OFF              = 32;
+const V12_19_SBF_ENGINE_PARAMS_SIZE             = 168;  // current_slot at 200, params is 168 bytes
+const V12_19_SBF_ENGINE_CURRENT_SLOT_OFF        = 200;
+const V12_19_SBF_ENGINE_MARKET_MODE_OFF         = 208;
+const V12_19_SBF_ENGINE_RESOLVED_PRICE_OFF      = 216;
+const V12_19_SBF_ENGINE_RESOLVED_LIVE_PRICE_OFF = 304;
+const V12_19_SBF_ENGINE_C_TOT_OFF               = 312;
+const V12_19_SBF_ENGINE_PNL_POS_TOT_OFF         = 328;
+const V12_19_SBF_ENGINE_PNL_MATURED_POS_TOT_OFF = 344;
+const V12_19_SBF_ENGINE_OI_EFF_LONG_OFF         = 472;
+const V12_19_SBF_ENGINE_OI_EFF_SHORT_OFF        = 488;
+const V12_19_SBF_ENGINE_NEG_PNL_COUNT_OFF       = 584;
+const V12_19_SBF_ENGINE_RR_CURSOR_OFF           = 592;  // replaces V12_17 gc_cursor
+const V12_19_SBF_ENGINE_LAST_ORACLE_PRICE_OFF   = 624;
+const V12_19_SBF_ENGINE_FUND_PX_LAST_OFF        = 632;
+const V12_19_SBF_ENGINE_LAST_MARKET_SLOT_OFF    = 640;  // replaces V12_17 last_crank_slot
+const V12_19_SBF_ENGINE_F_LONG_NUM_OFF          = 648;
+const V12_19_SBF_ENGINE_F_SHORT_NUM_OFF         = 664;
+
+// V12_19 SBF MarketConfig field offsets (rel to config start, probe-confirmed):
+const V12_19_SBF_CONFIG_HYPERP_AUTH_OFF         = 144;
+const V12_19_SBF_CONFIG_LAST_EFFECTIVE_OFF      = 192;
+const V12_19_SBF_CONFIG_TVL_INSURANCE_CAP_OFF   = 202;
+const V12_19_SBF_CONFIG_ORACLE_PRICE_CAP_OFF    = 216;
+const V12_19_SBF_CONFIG_MIN_ORACLE_CAP_OFF      = 224;
+const V12_19_SBF_CONFIG_MAINTENANCE_FEE_OFF     = 320;
+const V12_19_SBF_CONFIG_DEX_POOL_OFF            = 368;
+const V12_19_SBF_CONFIG_MAX_PNL_CAP_OFF         = 400;
+const V12_19_SBF_CONFIG_OI_CAP_MULT_OFF         = 416;
+const V12_19_SBF_CONFIG_PENDING_ADMIN_OFF       = 448;
+
+// V12_19 SLAB_LEN values: probe-confirmed for small. Derived for other tiers
+// via the same formula: SLAB_LEN = ENGINE_OFF + ENGINE_LEN(N) + RISK_BUF_LEN
+//                     + GEN_TABLE_LEN(N), where ENGINE_LEN(N) = 712 + bitmap_bytes
+//                     + 4 (num_used + free_head) + 2N (next_free) + 2N (prev_free)
+//                     + (8-byte align pad) + N*360 (accounts).
+// Result: micro=26848, small=96760 (probe-confirmed), medium=376408, large=1495000.
+// NOTE: cu_benchmark.rs constants (19640/94168/372280/1484728) are STALE for v12.19.
 const V12_19_SIZES = new Map<number, number>([
-  [19640, 64],     // --features micro
-  [94168, 256],    // --features small (deployed mainnet ESa89R5...)
-  [372280, 1024],  // --features medium
-  [1484728, 4096], // default features (large)
+  [26848, 64],      // --features micro (derived)
+  [96760, 256],     // --features small (probe-confirmed; deployed mainnet ESa89R5...)
+  [376408, 1024],   // --features medium (derived)
+  [1495000, 4096],  // default features / large (derived)
 ]);
 
 /**
- * V12_19 slab layout. Engine struct grew vs V12_17 (added resolved_slot,
- * adl_mult/coeff/epoch_*, side_mode_*, stored_pos_count_*, stale_account_count_*,
- * phantom_dust_bound_*, rr_cursor_position, sweep_generation,
- * price_move_consumed_bps_this_generation, last_market_slot,
- * f_epoch_start_*; removed last_crank_slot, gc_cursor). Engine internal
- * offsets must be V12_19-specific. Account struct + bitmap layout are
- * unchanged, so those are inherited from V12_17 SBF.
+ * V12_19 slab layout. Probe-confirmed SBF values from compiled wrapper.
+ *
+ * Major structural difference vs V12_17 SBF: accounts array is INLINE within
+ * RiskEngine (was separate region in V12_17). Bitmap moved from rel-engine
+ * 712 area to same offset but the post-bitmap region now contains both
+ * `next_free` and `prev_free` arrays (v12.19 added prev_free), plus padding
+ * before the inline accounts.
+ *
+ * For the small tier (MAX_ACCOUNTS=256), accounts start at engineOff + 1776.
+ * For other tiers, the offset shifts because next_free/prev_free sizes scale
+ * linearly with MAX_ACCOUNTS.
  */
-function buildLayoutV12_19(maxAccounts: number, dataLen: number): SlabLayout {
-  const base = buildLayoutV12_17(maxAccounts, dataLen);
+function buildLayoutV12_19(maxAccounts: number, _dataLen: number): SlabLayout {
+  // Compute layout-dependent offsets for this tier.
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const numUsedOff = V12_19_SBF_ENGINE_BITMAP_OFF + bitmapBytes;        // bitmap end
+  const freeHeadOff = numUsedOff + 2;                                    // after num_used u16
+  const nextFreeOff = freeHeadOff + 2;                                   // after free_head u16
+  const prevFreeOff = nextFreeOff + maxAccounts * 2;                     // after next_free [u16; N]
+  const accountsRelEnd = prevFreeOff + maxAccounts * 2;                  // after prev_free [u16; N]
+  const accountsOffRel = Math.ceil(accountsRelEnd / 8) * 8;              // 8-align Account
+  const accountsOff = V12_19_ENGINE_OFF_SBF + accountsOffRel;            // absolute slab offset
+
+  // Inherit Account-internal field offsets from V12_17 (they're the same since
+  // the Account struct definition is identical between v12.17 and v12.19;
+  // the +8 byte size diff is from trailing padding, not field reordering).
+  const base = buildLayoutV12_17(maxAccounts, /* synthetic V12_17 SBF size */ 94168);
+
   return {
     ...base,
+    headerLen: V12_19_HEADER_LEN_SBF,
     configLen: V12_19_CONFIG_LEN,
+    configOffset: V12_19_HEADER_LEN_SBF,    // header runs 0..136 in v12.19
     engineOff: V12_19_ENGINE_OFF_SBF,
-    accountsOff: V12_19_ENGINE_OFF_SBF + (base.accountsOff - base.engineOff),
-    // V12_19 engine field offsets (only the fields exposed in SlabLayout).
-    // Other engine fields (negPnlCount, fundPxLast, fLongNum, fShortNum,
-    // lastOraclePrice, marketMode, pnlMaturedPosTot) are read by parseEngine
-    // via its own version-aware switch keyed on engineOff === 600.
+    accountSize: V12_19_ACCOUNT_SIZE_SBF,
+    accountsOff,
+    bitmapWords,
+    engineBitmapOff: V12_19_SBF_ENGINE_BITMAP_OFF,
+    // V12_19-specific engine field offsets (probe-confirmed):
     engineCurrentSlotOff: V12_19_SBF_ENGINE_CURRENT_SLOT_OFF,
     engineCTotOff: V12_19_SBF_ENGINE_C_TOT_OFF,
     enginePnlPosTotOff: V12_19_SBF_ENGINE_PNL_POS_TOT_OFF,
     engineLongOiOff: V12_19_SBF_ENGINE_OI_EFF_LONG_OFF,
     engineShortOiOff: V12_19_SBF_ENGINE_OI_EFF_SHORT_OFF,
-    // V12_19 last_market_slot replaces V12_17 last_crank_slot semantics.
+    // last_market_slot replaces V12_17 last_crank_slot semantics.
     engineLastCrankSlotOff: V12_19_SBF_ENGINE_LAST_MARKET_SLOT_OFF,
-    // V12_19 rr_cursor_position replaces V12_17 gc_cursor semantics.
+    // rr_cursor_position replaces V12_17 gc_cursor semantics.
     engineGcCursorOff: V12_19_SBF_ENGINE_RR_CURSOR_OFF,
   };
 }
@@ -2939,12 +2978,10 @@ export function parseEngine(data: Uint8Array): EngineState {
   const isV12_15 = !isV12_17 && (layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL) && (layout.engineOff === V12_15_ENGINE_OFF || layout.engineOff === V12_15_ENGINE_OFF_SBF);
 
   // V12_17: completely new engine layout — per-side funding, no stored funding_rate_e9.
-  // V12_19 has a substantially expanded RiskEngine struct (added resolved_slot,
-  // adl_*, side_mode_*, stored_pos_count_*, phantom_dust_bound_*, rr_cursor,
-  // sweep_generation, last_market_slot, etc.). Field offsets within the engine
-  // are NOT the same as V12_17 SBF.
-  if (isV12_17) {
-    const isV12_19 = layout.engineOff === V12_19_ENGINE_OFF_SBF;
+  // V12_19 SBF: probe-confirmed engineOff=616, ACCOUNT_SIZE=360, internal offsets
+  // shifted from V12_17 SBF. Detect via accountSize=360 (V12_19) vs 352 (V12_17 SBF).
+  const isV12_19 = layout.accountSize === V12_19_ACCOUNT_SIZE_SBF;
+  if (isV12_17 || isV12_19) {
     const isSbf = layout.engineOff === V12_17_ENGINE_OFF_SBF || isV12_19;
 
     const currentSlotOff = isV12_19 ? V12_19_SBF_ENGINE_CURRENT_SLOT_OFF

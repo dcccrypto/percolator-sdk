@@ -590,19 +590,17 @@ describe("Pre-audit account count fixes", () => {
 // the fixture generation pipeline is set up.
 // ============================================================================
 
-describe("Layout verify: v12.19 configLen matches MarketConfig SBF size", () => {
-  it("detectSlabLayout on the deployed-mainnet small tier returns configLen === 528", () => {
-    // V12_17 SBF small (94168 bytes) collides with V12_19 small. Mainnet program
-    // ESa89R5... was upgraded to v12.19 --features small on 2026-04-28, so any
-    // 94168-byte slab on mainnet is now V12_19 (configLen=528). detectSlabLayout
-    // priority reflects this: V12_19 first, V12_17 fallback.
+describe("Layout verify: v12.17 configLen matches MarketConfig SBF size", () => {
+  it("detectSlabLayout on the V12_17 small tier returns configLen === 512", () => {
+    // V12_17 SBF small = 94168 bytes (cu_benchmark.rs constant, also confirmed via
+    // V12_17_ENGINE_OFF_SBF=584 + 1264 + 92320). V12_17 MarketConfig = 512 bytes.
+    // V12_19 small is 96760 (probe-confirmed), separate tier.
     const tier = SLAB_TIERS_V12_17["small"];
     expect(tier).toBeDefined();
     const layout = detectSlabLayout(tier.dataSize);
     expect(layout).not.toBeNull();
-    // 528 = SBF-aligned MarketConfig in v12.19 (V12_17 512 + 16 added in v12.18).
-    expect(layout!.configLen).toBe(528);
-    expect(layout!.engineOff).toBe(600);
+    expect(layout!.configLen).toBe(512);
+    expect(layout!.engineOff).toBe(584);
   });
 
   // v12.17 dropped the engine.mark_price field — trades used to let the indexer
