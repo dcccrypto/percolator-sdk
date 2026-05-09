@@ -778,12 +778,36 @@ export function encodeSetOraclePriceCap(args: SetOraclePriceCapArgs): Uint8Array
 }
 
 /**
- * ResolveMarket instruction data (1 byte)
- * Resolves a binary/premarket - sets RESOLVED flag, positions force-closed via crank.
- * Requires admin oracle price (authority_price_e6) to be set first.
+ * ResolveMarket explicit-mode selector. Spec §9.8 distinguishes two
+ * settlement arms:
+ *
+ *   `Ordinary`   = 0 — live oracle accrual (the common path; oracle is
+ *                       healthy or about to be).
+ *   `Degenerate` = 1 — stale-matured fallback at engine.last_oracle_price
+ *                       with funding_rate = 0 (caller has confirmed the
+ *                       oracle is dead beyond `permissionless_resolve_stale_slots`).
  */
-export function encodeResolveMarket(): Uint8Array {
-  return encU8(IX_TAG.ResolveMarket);
+export const RESOLVE_MODE = {
+  Ordinary: 0,
+  Degenerate: 1,
+} as const;
+export type ResolveMode = (typeof RESOLVE_MODE)[keyof typeof RESOLVE_MODE];
+
+/**
+ * ResolveMarket instruction data (2 bytes: tag + mode).
+ *
+ * Resolves a binary/premarket. The post-audit wrapper strict-parses the
+ * `mode` byte; pre-audit deployments accepted either a 1-byte payload
+ * (legacy unwrap_or(0)) or 2 bytes. Always emits 2 bytes so this builder
+ * keeps working across the wire-format strictening planned for the
+ * matching wrapper bundle.
+ *
+ * `mode` defaults to `Ordinary` (the common path) so existing monorepo
+ * callsites stay source-compatible. Callers explicitly recovering from a
+ * dead oracle pass `RESOLVE_MODE.Degenerate`.
+ */
+export function encodeResolveMarket(mode: ResolveMode = RESOLVE_MODE.Ordinary): Uint8Array {
+  return concatBytes(encU8(IX_TAG.ResolveMarket), encU8(mode));
 }
 
 /**
