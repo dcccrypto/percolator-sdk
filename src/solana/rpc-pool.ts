@@ -159,6 +159,14 @@ export interface RpcPoolConfig {
    * @default true
    */
   verbose?: boolean;
+
+  /**
+   * Time in ms after which an unhealthy endpoint is given another chance.
+   * Prevents permanently blacklisting endpoints after transient outages.
+   * Set to 0 to disable periodic recovery.
+   * @default 60_000
+   */
+  recoveryAfterMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +366,8 @@ interface EndpointState {
   healthy: boolean;
   /** Last probe latency (ms), -1 if never probed. */
   lastLatencyMs: number;
+  /** Timestamp (ms) when this endpoint was first marked unhealthy. */
+  unhealthySince?: number;
 }
 
 /**
@@ -397,6 +407,7 @@ export class RpcPool {
   private readonly retryConfig: ResolvedRetryConfig | null;
   private readonly requestTimeoutMs: number;
   private readonly verbose: boolean;
+  private readonly recoveryAfterMs: number;
 
   /** Round-robin index tracker. */
   private rrIndex: number = 0;
@@ -416,6 +427,7 @@ export class RpcPool {
     this.retryConfig = resolveRetryConfig(config.retry);
     this.requestTimeoutMs = config.requestTimeoutMs ?? 30_000;
     this.verbose = config.verbose ?? true;
+    this.recoveryAfterMs = config.recoveryAfterMs ?? 60_000;
 
     const commitment = config.commitment ?? "confirmed";
 
@@ -485,6 +497,7 @@ export class RpcPool {
         timeout.cancel();
         ep.failures = 0;
         ep.healthy = true;
+        ep.unhealthySince = undefined;
         return result;
       } catch (err) {
         timeout.cancel();
@@ -493,6 +506,7 @@ export class RpcPool {
 
         if (ep.failures >= RpcPool.UNHEALTHY_THRESHOLD) {
           ep.healthy = false;
+          ep.unhealthySince = ep.unhealthySince ?? Date.now();
           if (this.verbose) {
             console.warn(
               `[RpcPool] Endpoint ${ep.label} marked unhealthy after ${ep.failures} consecutive failures`,
@@ -587,7 +601,7 @@ export class RpcPool {
         const result = await checkRpcHealth(ep.config.url, timeoutMs);
         ep.lastLatencyMs = result.latencyMs;
         ep.healthy = result.healthy;
-        if (result.healthy) ep.failures = 0;
+        if (result.healthy) { ep.failures = 0; ep.unhealthySince = undefined; }
         result.endpoint = redactUrl(result.endpoint);
         return result;
       }),
@@ -639,6 +653,21 @@ export class RpcPool {
    * Returns -1 if no endpoint is available.
    */
   private selectEndpoint(exclude?: Set<number>): number {
+    // Periodic recovery: give unhealthy endpoints another chance after cooldown
+    if (this.recoveryAfterMs > 0) {
+      const now = Date.now();
+      for (const ep of this.endpoints) {
+        if (!ep.healthy && ep.unhealthySince && (now - ep.unhealthySince) >= this.recoveryAfterMs) {
+          ep.healthy = true;
+          ep.failures = 0;
+          ep.unhealthySince = undefined;
+          if (this.verbose) {
+            console.warn(`[RpcPool] Endpoint ${ep.label} recovered after ${this.recoveryAfterMs}ms cooldown`);
+          }
+        }
+      }
+    }
+
     const healthy = this.endpoints
       .map((ep, i) => ({ ep, i }))
       .filter(({ ep, i }) => ep.healthy && !(exclude?.has(i)));
@@ -681,6 +710,7 @@ export class RpcPool {
       for (const ep of this.endpoints) {
         ep.healthy = true;
         ep.failures = 0;
+        ep.unhealthySince = undefined;
       }
     }
   }
