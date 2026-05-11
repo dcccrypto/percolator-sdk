@@ -180,6 +180,20 @@ export interface InitMarketExtendedTail {
     markMinFee: bigint | string;
     /** Slots to delay forced close after trigger condition is met (0 = immediate). */
     forceCloseDelaySlots: bigint | string;
+    /**
+     * Wave 9 (v2 tail): per-market `max_price_move_bps_per_slot` override.
+     *
+     * When omitted (or `undefined`), the encoder emits a 66-byte v1 tail and
+     * the wrapper applies its deployment default
+     * (`DEFAULT_MAX_PRICE_MOVE_BPS_PER_SLOT = 4`). When provided, the encoder
+     * emits a 74-byte v2 tail with this value appended after
+     * `forceCloseDelaySlots`. The wrapper rejects a zero v2 value with
+     * `InvalidConfigParam`; the engine then re-validates the solvency
+     * envelope at `init_in_place`.
+     *
+     * @since SDK 2.2.0 (Wave 9 InitMarket v2 wire-format)
+     */
+    maxPriceMoveBpsPerSlot?: bigint | string;
 }
 export interface InitMarketArgs {
     admin: PublicKey | string;

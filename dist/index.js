@@ -271,7 +271,8 @@ function encodeFeedId(feedId) {
   return bytes;
 }
 var INIT_MARKET_BASE_LEN = 304;
-var INIT_MARKET_EXTENDED_TAIL_LEN = 66;
+var INIT_MARKET_EXTENDED_TAIL_LEN_V1 = 66;
+var INIT_MARKET_EXTENDED_TAIL_LEN_V2 = INIT_MARKET_EXTENDED_TAIL_LEN_V1 + 8;
 var DEFAULT_EXTENDED_TAIL = {
   insuranceWithdrawMaxBps: 0,
   insuranceWithdrawCooldownSlots: 0n,
@@ -284,7 +285,7 @@ var DEFAULT_EXTENDED_TAIL = {
   forceCloseDelaySlots: 1n
 };
 function encodeExtendedTail(t) {
-  return concatBytes(
+  const v1 = concatBytes(
     encU16(t.insuranceWithdrawMaxBps),
     encU64(t.insuranceWithdrawCooldownSlots),
     encU64(t.permissionlessResolveStaleSlots),
@@ -295,6 +296,17 @@ function encodeExtendedTail(t) {
     encU64(t.markMinFee),
     encU64(t.forceCloseDelaySlots)
   );
+  if (t.maxPriceMoveBpsPerSlot === void 0) {
+    return v1;
+  }
+  const mpm = t.maxPriceMoveBpsPerSlot;
+  const mpmBigint = typeof mpm === "string" ? BigInt(mpm) : mpm;
+  if (mpmBigint === 0n) {
+    throw new Error(
+      "encodeInitMarket: maxPriceMoveBpsPerSlot must be > 0 (the wrapper rejects zero with InvalidConfigParam)"
+    );
+  }
+  return concatBytes(v1, encU64(mpmBigint));
 }
 function encodeInitMarket(args) {
   const hMin = args.hMin ?? args.warmupPeriodSlots ?? 0n;
@@ -337,9 +349,9 @@ function encodeInitMarket(args) {
     );
   }
   const tail = encodeExtendedTail(args.extendedTail ?? DEFAULT_EXTENDED_TAIL);
-  if (tail.length !== INIT_MARKET_EXTENDED_TAIL_LEN) {
+  if (tail.length !== INIT_MARKET_EXTENDED_TAIL_LEN_V1 && tail.length !== INIT_MARKET_EXTENDED_TAIL_LEN_V2) {
     throw new Error(
-      `encodeInitMarket: extended tail expected ${INIT_MARKET_EXTENDED_TAIL_LEN} bytes, got ${tail.length}`
+      `encodeInitMarket: extended tail expected ${INIT_MARKET_EXTENDED_TAIL_LEN_V1} or ${INIT_MARKET_EXTENDED_TAIL_LEN_V2} bytes, got ${tail.length}`
     );
   }
   return concatBytes(base, tail);
