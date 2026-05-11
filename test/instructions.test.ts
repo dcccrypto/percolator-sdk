@@ -188,6 +188,67 @@ describe("instruction encoders", () => {
     expect(data.length).toBe(370);
   });
 
+  // Wave 9: v2 extended tail with max_price_move_bps_per_slot override
+  it("encodeInitMarket emits 378-byte payload with v2 extended tail (max_price_move override)", () => {
+    const data = encodeInitMarket({
+      admin: PublicKey.unique(), collateralMint: PublicKey.unique(),
+      indexFeedId: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+      maxStalenessSecs: "60", confFilterBps: 50, invert: 0, unitScale: 0, initialMarkPriceE6: "0",
+      warmupPeriodSlots: "1000", maintenanceMarginBps: "500", initialMarginBps: "1000",
+      tradingFeeBps: "10", maxAccounts: "1000", newAccountFee: "1000000",
+      maintenanceFeePerSlot: "100",
+      maxCrankStalenessSlots: "50", liquidationFeeBps: "100", liquidationFeeCap: "10000000",
+      liquidationBufferBps: "50", minLiquidationAbs: "1000000",
+      minNonzeroMmReq: "1000", minNonzeroImReq: "2000",
+      extendedTail: {
+        insuranceWithdrawMaxBps: 0,
+        insuranceWithdrawCooldownSlots: 0n,
+        permissionlessResolveStaleSlots: 0n,
+        fundingHorizonSlots: 500n,
+        fundingKBps: 100n,
+        fundingMaxPremiumBps: 500n,
+        fundingMaxBpsPerSlot: 1000n,
+        markMinFee: 0n,
+        forceCloseDelaySlots: 1n,
+        maxPriceMoveBpsPerSlot: 7n,
+      },
+    });
+    // 304 base + 74 v2 tail = 378
+    expect(data.length).toBe(378);
+    // Last 8 bytes are max_price_move_bps_per_slot u64 LE = 7
+    const tailStart = data.length - 8;
+    const view = new DataView(data.buffer, data.byteOffset + tailStart, 8);
+    expect(view.getBigUint64(0, true)).toBe(7n);
+  });
+
+  it("encodeInitMarket rejects zero maxPriceMoveBpsPerSlot in v2 tail", () => {
+    expect(() =>
+      encodeInitMarket({
+        admin: PublicKey.unique(), collateralMint: PublicKey.unique(),
+        indexFeedId: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+        maxStalenessSecs: "60", confFilterBps: 50, invert: 0, unitScale: 0, initialMarkPriceE6: "0",
+        warmupPeriodSlots: "1000", maintenanceMarginBps: "500", initialMarginBps: "1000",
+        tradingFeeBps: "10", maxAccounts: "1000", newAccountFee: "1000000",
+        maintenanceFeePerSlot: "100",
+        maxCrankStalenessSlots: "50", liquidationFeeBps: "100", liquidationFeeCap: "10000000",
+        liquidationBufferBps: "50", minLiquidationAbs: "1000000",
+        minNonzeroMmReq: "1000", minNonzeroImReq: "2000",
+        extendedTail: {
+          insuranceWithdrawMaxBps: 0,
+          insuranceWithdrawCooldownSlots: 0n,
+          permissionlessResolveStaleSlots: 0n,
+          fundingHorizonSlots: 500n,
+          fundingKBps: 100n,
+          fundingMaxPremiumBps: 500n,
+          fundingMaxBpsPerSlot: 1000n,
+          markMinFee: 0n,
+          forceCloseDelaySlots: 1n,
+          maxPriceMoveBpsPerSlot: 0n,
+        },
+      }),
+    ).toThrow("must be > 0");
+  });
+
   it("encodeCloseSlab produces 1 byte", () => {
     expect(encodeCloseSlab().length).toBe(1);
     expect(encodeCloseSlab()[0]).toBe(IX_TAG.CloseSlab);

@@ -216,6 +216,20 @@ export interface InitMarketExtendedTail {
   markMinFee: bigint | string;
   /** Slots to delay forced close after trigger condition is met (0 = immediate). */
   forceCloseDelaySlots: bigint | string;
+  /**
+   * Wave 9 (v2 tail): per-market `max_price_move_bps_per_slot` override.
+   *
+   * When omitted (or `undefined`), the encoder emits a 66-byte v1 tail and
+   * the wrapper applies its deployment default
+   * (`DEFAULT_MAX_PRICE_MOVE_BPS_PER_SLOT = 4`). When provided, the encoder
+   * emits a 74-byte v2 tail with this value appended after
+   * `forceCloseDelaySlots`. The wrapper rejects a zero v2 value with
+   * `InvalidConfigParam`; the engine then re-validates the solvency
+   * envelope at `init_in_place`.
+   *
+   * @since SDK 2.2.0 (Wave 9 InitMarket v2 wire-format)
+   */
+  maxPriceMoveBpsPerSlot?: bigint | string;
 }
 
 export interface InitMarketArgs {
@@ -302,8 +316,12 @@ function encodeFeedId(feedId: string): Uint8Array {
 // = 1+32+32+32+8+2+1+4+8+16 + 8+8+8+8+8+16+16+8+8+8+16+8+16+16+16 = 304
 const INIT_MARKET_BASE_LEN = 304;
 
-// Extended tail: u16(2) + u64*8(64) = 66 bytes (percolator.rs EXTENDED_TAIL_LEN = 2 + 8*8)
-const INIT_MARKET_EXTENDED_TAIL_LEN = 66;
+// Extended tail v1: u16(2) + u64*8(64) = 66 bytes
+//   (matches percolator.rs EXTENDED_TAIL_LEN_V1 = 2 + 8*8)
+const INIT_MARKET_EXTENDED_TAIL_LEN_V1 = 66;
+// Extended tail v2 (Wave 9): v1 + max_price_move_bps_per_slot u64 = 74 bytes
+//   (matches percolator.rs EXTENDED_TAIL_LEN_V2 = EXTENDED_TAIL_LEN_V1 + 8)
+const INIT_MARKET_EXTENDED_TAIL_LEN_V2 = INIT_MARKET_EXTENDED_TAIL_LEN_V1 + 8;
 
 /**
  * Default extended-tail values matching the deployed wrapper's `unwrap_or(DEFAULT_*)`
@@ -337,16 +355,20 @@ const DEFAULT_EXTENDED_TAIL: InitMarketExtendedTail = {
 };
 
 /**
- * Encode the optional 66-byte extended tail for InitMarket (S-4).
+ * Encode the optional InitMarket extended tail.
  *
- * Field order matches percolator.rs:1532-1540 exactly:
- *   iwm(u16) iwc(u64) prs(u64) fh(u64) fk(u64) fmp(i64) fms(i64) mmf(u64) fcd(u64)
+ * Emits v1 (66 bytes) or v2 (74 bytes) depending on whether
+ * `maxPriceMoveBpsPerSlot` is provided. Field order matches the
+ * on-chain parser at percolator.rs:1946-2113:
+ *
+ *   v1: iwm(u16) iwc(u64) prs(u64) fh(u64) fk(u64) fmp(i64) fms(i64) mmf(u64) fcd(u64)
+ *   v2: v1 fields + max_price_move_bps_per_slot(u64)
  *
  * @param t Extended tail parameters
- * @returns 66-byte Uint8Array
+ * @returns 66 or 74 byte Uint8Array
  */
 function encodeExtendedTail(t: InitMarketExtendedTail): Uint8Array {
-  return concatBytes(
+  const v1 = concatBytes(
     encU16(t.insuranceWithdrawMaxBps),
     encU64(t.insuranceWithdrawCooldownSlots),
     encU64(t.permissionlessResolveStaleSlots),
@@ -357,6 +379,21 @@ function encodeExtendedTail(t: InitMarketExtendedTail): Uint8Array {
     encU64(t.markMinFee),
     encU64(t.forceCloseDelaySlots),
   );
+  if (t.maxPriceMoveBpsPerSlot === undefined) {
+    return v1;
+  }
+  // v2 tail: append max_price_move_bps_per_slot. The wrapper rejects
+  // a zero value with InvalidConfigParam (matches toly:2378-2380), so
+  // we surface that as an SDK-side throw before transmission.
+  const mpm = t.maxPriceMoveBpsPerSlot;
+  const mpmBigint = typeof mpm === "string" ? BigInt(mpm) : mpm;
+  if (mpmBigint === 0n) {
+    throw new Error(
+      "encodeInitMarket: maxPriceMoveBpsPerSlot must be > 0 (the wrapper " +
+        "rejects zero with InvalidConfigParam)",
+    );
+  }
+  return concatBytes(v1, encU64(mpmBigint));
 }
 
 /**
@@ -443,15 +480,23 @@ export function encodeInitMarket(args: InitMarketArgs): Uint8Array {
     );
   }
 
-  // ALWAYS append the 66-byte extended tail. The deployed v12.19 wrapper
-  // rejects base-only payloads via an inner read_risk_params length check
-  // (percolator.rs:2413) regardless of the outer "rest is empty → defaults"
-  // logic. See DEFAULT_EXTENDED_TAIL doc comment above for full context.
-  // Caller-provided tail wins; otherwise wrapper-matching defaults are used.
+  // ALWAYS append the extended tail. The deployed wrapper rejects base-only
+  // payloads via an inner read_risk_params length check
+  // (percolator.rs:2568-2570) regardless of the outer "rest is empty →
+  // defaults" logic. See DEFAULT_EXTENDED_TAIL doc comment above.
+  //
+  // The wrapper accepts both v1 (66 bytes) and v2 (74 bytes) tails. v1
+  // makes the wrapper use its deployment-default
+  // max_price_move_bps_per_slot (4); v2 overrides per-market. The
+  // encoder chooses based on whether the caller set
+  // extendedTail.maxPriceMoveBpsPerSlot.
   const tail = encodeExtendedTail(args.extendedTail ?? DEFAULT_EXTENDED_TAIL);
-  if (tail.length !== INIT_MARKET_EXTENDED_TAIL_LEN) {
+  if (
+    tail.length !== INIT_MARKET_EXTENDED_TAIL_LEN_V1 &&
+    tail.length !== INIT_MARKET_EXTENDED_TAIL_LEN_V2
+  ) {
     throw new Error(
-      `encodeInitMarket: extended tail expected ${INIT_MARKET_EXTENDED_TAIL_LEN} bytes, got ${tail.length}`,
+      `encodeInitMarket: extended tail expected ${INIT_MARKET_EXTENDED_TAIL_LEN_V1} or ${INIT_MARKET_EXTENDED_TAIL_LEN_V2} bytes, got ${tail.length}`,
     );
   }
   return concatBytes(base, tail);
