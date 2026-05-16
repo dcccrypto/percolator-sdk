@@ -2188,10 +2188,6 @@ export interface MarketConfig {
   fundingInvScaleNotionalE6: bigint;
   fundingMaxPremiumBps: bigint;
   fundingMaxBpsPerSlot: bigint;
-  /** @deprecated Removed in V12_1 — always 0 */ fundingPremiumWeightBps: bigint;
-  /** @deprecated Removed in V12_1 — always 0 */ fundingSettlementIntervalSlots: bigint;
-  /** @deprecated Removed in V12_1 — always 0 */ fundingPremiumDampeningE6: bigint;
-  /** @deprecated Removed in V12_1 — always 0 */ fundingPremiumMaxBpsPerSlot: bigint;
   threshFloor: bigint;
   threshRiskBps: bigint;
   threshUpdateIntervalSlots: bigint;
@@ -2987,10 +2983,6 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
     fundingInvScaleNotionalE6,
     fundingMaxPremiumBps,
     fundingMaxBpsPerSlot,
-    fundingPremiumWeightBps: 0n,
-    fundingSettlementIntervalSlots: 0n,
-    fundingPremiumDampeningE6: 0n,
-    fundingPremiumMaxBpsPerSlot: 0n,
     threshFloor,
     threshRiskBps,
     threshUpdateIntervalSlots,
