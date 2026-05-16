@@ -305,8 +305,11 @@ function computeDelay(attempt: number, config: ResolvedRetryConfig): number {
     config.baseDelayMs * Math.pow(2, attempt),
     config.maxDelayMs,
   );
-  const jitter = Math.floor(Math.random() * raw * config.jitterFactor);
-  return raw + jitter;
+  // Equal jitter: spread retries across [raw/2, raw] instead of [raw, raw*1.25].
+  // Prevents thundering herd after outages while maintaining a meaningful backoff floor.
+  if (config.jitterFactor === 0) return raw; // deterministic path for tests
+  const half = Math.floor(raw / 2);
+  return half + Math.floor(Math.random() * (raw - half + 1));
 }
 
 function rejectAfter<T>(ms: number, message: string): { promise: Promise<T>; cancel: () => void } {
