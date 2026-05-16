@@ -159,32 +159,44 @@ export function isLighthouseError(error: unknown): boolean {
 export function isLighthouseFailureInLogs(logs: string[]): boolean {
   if (!Array.isArray(logs)) return false;
 
-  let insideLighthouse = false;
+  // Track Lighthouse invocation depth so CPI sub-program failures are not
+  // misattributed.  When Lighthouse CPIs into another program (e.g. Pyth)
+  // and that sub-program fails, the log sequence is:
+  //
+  //   Program L2TExMF... invoke [1]      ← lighthouseDepth becomes 1
+  //   Program Pyth invoke [2]            ← sub-invoke, depth stays 1
+  //   Program Pyth failed: stale price   ← sub-program failure, NOT Lighthouse
+  //   Program L2TExMF... success         ← lighthouseDepth becomes 0
+  //
+  // With a boolean flag the "Pyth failed" line would false-positive because
+  // insideLighthouse was true. With depth tracking we only flag failures
+  // that name the Lighthouse program directly.
+  let lighthouseDepth = 0;
 
   for (const line of logs) {
     if (typeof line !== "string") continue;
 
-    // Track program invocation depth
+    // Lighthouse invoke — increment depth
     if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke`)) {
-      insideLighthouse = true;
+      lighthouseDepth++;
       continue;
     }
 
-    // Lighthouse program returned success — reset
+    // Lighthouse success — decrement depth
     if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} success`)) {
-      insideLighthouse = false;
+      lighthouseDepth = Math.max(0, lighthouseDepth - 1);
       continue;
     }
 
-    // Error while inside a Lighthouse invocation
-    if (insideLighthouse && /failed/i.test(line)) {
-      return true;
-    }
-
-    // Explicit Lighthouse failure log
+    // Explicit Lighthouse failure (the program ID is in the "failed" line)
     if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed`)) {
       return true;
     }
+
+    // Generic "failed" while at Lighthouse depth 1 could still be a
+    // sub-program failure. Only flag if the line names Lighthouse itself.
+    // (Removed: the old code flagged ANY "failed" line while insideLighthouse
+    // was true, causing false positives on CPI sub-program errors.)
   }
 
   return false;
