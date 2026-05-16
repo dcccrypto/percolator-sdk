@@ -450,7 +450,7 @@ const markets = await discoverMarkets(connection);
 | Stake | Mainnet | `DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F` |
 | NFT | Mainnet | `FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS` |
 | Percolator | Devnet | `FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD` |
-| Matcher | Devnet | `GTRgyTDfrMvBubALAqtHuQwT8tbGyXid7svXZKtWfC9k` |
+| Matcher | Devnet | `4HcGCsyjAqnFua5ccuXyt8KRRQzKFbGTJkVChpS7Yfzy` |
 
 > Use `PROGRAM_ID` / `MATCHER_PROGRAM_ID` env vars to override for local test validators.
 
