@@ -274,6 +274,10 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     hint: "ADL rejected — the target position is already closed (size == 0). Re-rank and pick a different target.",
   },
 };
+// Runtime immutability: prevent supply-chain attacks from suppressing
+// error messages (e.g., hiding undercollateralization errors).
+for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
+Object.freeze(PERCOLATOR_ERRORS);
 
 /**
  * Decode a custom program error code to its info.
