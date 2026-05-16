@@ -2787,6 +2787,10 @@ function parseConfigV12_19(data: Uint8Array, configOff: number): MarketConfig {
 }
 
 export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): MarketConfig {
+  // Validate magic — prevents silent garbage parsing of non-Percolator buffers.
+  if (data.length >= 8 && readU64LE(data, 0) !== MAGIC) {
+    throw new Error(`parseConfig: invalid slab magic (expected PERCOLAT)`);
+  }
   const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length, data);
   const configOff = layout ? layout.configOffset : V0_HEADER_LEN;
   const configLen = layout ? layout.configLen : V0_CONFIG_LEN;
@@ -3172,12 +3176,27 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
  * Parse RiskEngine state (excluding accounts array). Layout-version aware.
  */
 export function parseEngine(data: Uint8Array): EngineState {
+  // Validate magic — prevents silent garbage parsing of arbitrary buffers
+  // that happen to match a known slab size. adl.ts calls parseEngine directly
+  // without going through parseHeader which normally validates this.
+  if (data.length >= 8 && readU64LE(data, 0) !== MAGIC) {
+    throw new Error(`parseEngine: invalid slab magic (expected PERCOLAT)`);
+  }
   const layout = detectSlabLayout(data.length, data);
   if (!layout) {
     throw new Error(`Unrecognized slab data length: ${data.length}. Cannot determine layout version.`);
   }
 
   const base = layout.engineOff;
+  // Bounds check: ensure buffer covers through the engine section.
+  // Catches truncated RPC responses before they produce garbage BigInts
+  // or cryptic DataView RangeErrors.
+  if (data.length < layout.accountsOff) {
+    throw new Error(
+      `parseEngine: slab data too short — got ${data.length} bytes, ` +
+      `need at least ${layout.accountsOff} (engineOff=${base})`,
+    );
+  }
 
   // Detect layout versions
   const isV12_17 = layout.accountSize === V12_17_ACCOUNT_SIZE || layout.accountSize === V12_17_ACCOUNT_SIZE_SBF;
