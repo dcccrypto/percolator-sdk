@@ -624,12 +624,15 @@ export interface TradeNoCpiArgs {
 }
 
 export function encodeTradeNoCpi(args: TradeNoCpiArgs): Uint8Array {
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.TradeNoCpi),
     encU16(args.lpIdx),
     encU16(args.userIdx),
     encI128(args.size),
   );
+  // tag(1) + lpIdx(2) + userIdx(2) + size(16) = 21 bytes
+  if (data.length !== 21) throw new Error(`encodeTradeNoCpi: expected 21 bytes, got ${data.length}`);
+  return data;
 }
 
 /**
@@ -685,13 +688,16 @@ export interface TradeCpiArgs {
 }
 
 export function encodeTradeCpi(args: TradeCpiArgs): Uint8Array {
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.TradeCpi),
     encU16(args.lpIdx),
     encU16(args.userIdx),
     encI128(args.size),
     encU64(args.limitPriceE6),
   );
+  // tag(1) + lpIdx(2) + userIdx(2) + size(16) + limitPriceE6(8) = 29 bytes
+  if (data.length !== 29) throw new Error(`encodeTradeCpi: expected 29 bytes, got ${data.length}`);
+  return data;
 }
 
 /**
@@ -1213,7 +1219,10 @@ export interface ExecuteAdlArgs {
 }
 
 export function encodeExecuteAdl(args: ExecuteAdlArgs): Uint8Array {
-  return concatBytes(encU8(IX_TAG.ExecuteAdl), encU16(args.targetIdx));
+  const data = concatBytes(encU8(IX_TAG.ExecuteAdl), encU16(args.targetIdx));
+  // tag(1) + targetIdx(2) = 3 bytes
+  if (data.length !== 3) throw new Error(`encodeExecuteAdl: expected 3 bytes, got ${data.length}`);
+  return data;
 }
 
 // ============================================================================
