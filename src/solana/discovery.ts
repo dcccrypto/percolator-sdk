@@ -618,7 +618,12 @@ export async function discoverMarkets(
   // 2026-05-01 to ESa89R5...) produce 96784-byte (small) accounts that none of the older tiers
   // match. Without this entry, discoverMarkets on the upgraded program returns 0 markets via the
   // dataSize-filter path and falls through to memcmp with wrong layout hints.
-  const ALL_TIERS = [
+  // Deduplicate by dataSize — some tier families share identical sizes (e.g. V12.17 appears as
+  // both SLAB_TIERS and SLAB_TIERS_V12_17; V1D and V2 share small=65088). Two getProgramAccounts
+  // calls with the same dataSize filter return the same accounts. detectSlabLayout disambiguates
+  // the actual layout from the account data, so emitting duplicate tier queries is pure waste.
+  // Tie-break: keep the entry with the higher maxAccounts so the hint is conservative.
+  const ALL_TIERS_RAW = [
     ...Object.values(SLAB_TIERS),           // v12.17 (default)
     ...Object.values(SLAB_TIERS_V12_19),    // v12.19 (deployed mainnet)
     ...Object.values(SLAB_TIERS_V12_17),    // v12.17 (explicit)
@@ -633,6 +638,14 @@ export async function discoverMarkets(
     ...Object.values(SLAB_TIERS_V_ADL),
     ...Object.values(SLAB_TIERS_V_SETDEXPOOL),
   ];
+  const _tierBySize = new Map<number, { dataSize: number; maxAccounts: number }>();
+  for (const tier of ALL_TIERS_RAW) {
+    const existing = _tierBySize.get(tier.dataSize);
+    if (!existing || tier.maxAccounts > existing.maxAccounts) {
+      _tierBySize.set(tier.dataSize, { dataSize: tier.dataSize, maxAccounts: tier.maxAccounts });
+    }
+  }
+  const ALL_TIERS = [..._tierBySize.values()];
   type RawEntry = { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number; dataSize: number };
   let rawAccounts: RawEntry[] = [];
 
