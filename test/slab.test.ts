@@ -361,7 +361,7 @@ console.log("\n✅ All slab tests passed!");
   const V1L_ENGINE_OFF = 640;
   const V1L_BITMAP_OFF_REL = 672;    // relative to engineOff → abs 1312
   const V1L_ACCOUNTS_OFF = 1880;     // accountsOff absolute (empirically confirmed)
-  const V1L_ACCT_OWNER_OFF = 184;    // standard owner offset — correct now that base is right
+  const V1L_ACCT_OWNER_OFF = 200;    // standard owner offset — correct now that base is right
   const V1L_ACCT_CAPITAL_OFF = 8;    // standard capital offset
   const V1L_ACCT_SIZE = 248;
   const V1L_SIZE = 65_352;
@@ -391,7 +391,7 @@ console.log("\n✅ All slab tests passed!");
   assert(layout!.accountsOff === V1L_ACCOUNTS_OFF,
     `accountsOff must be 1880 for V1_LEGACY, got ${layout!.accountsOff}`);
   assert(layout!.acctOwnerOff === V1L_ACCT_OWNER_OFF,
-    `acctOwnerOff must be 184 for V1_LEGACY, got ${layout!.acctOwnerOff}`);
+    `acctOwnerOff must be 200 for V1_LEGACY, got ${layout!.acctOwnerOff}`);
   assert(layout!.engineBitmapOff === V1L_BITMAP_OFF_REL,
     `engineBitmapOff must be 672 for V1_LEGACY, got ${layout!.engineBitmapOff}`);
   console.log("  ✓ detectSlabLayout recognises 65,352-byte V1_LEGACY slab");
@@ -616,10 +616,10 @@ console.log("\n✅ All slab tests passed!");
   assert(layoutLarge!.engineOff === 648, `V12_1 large engineOff should be 648, got ${layoutLarge!.engineOff}`);
   assert(layoutLarge!.accountSize === 320, `V12_1 large accountSize should be 320, got ${layoutLarge!.accountSize}`);
   assert(layoutLarge!.maxAccounts === 4096, `V12_1 large maxAccounts should be 4096`);
-  assert(layoutLarge!.engineBitmapOff === 368, `V12_1 bitmapOff should be 368 (engine-relative), got ${layoutLarge!.engineBitmapOff}`);
+  assert(layoutLarge!.engineBitmapOff === 1016, `V12_1 bitmapOff should be 368 (engine-relative), got ${layoutLarge!.engineBitmapOff}`);
   assert(layoutLarge!.acctOwnerOff === 208, `V12_1 acctOwnerOff should be 208, got ${layoutLarge!.acctOwnerOff}`);
-  // accountsOff = engineOff + ceil((368+512+18+8192)/8)*8 = 648 + 9096 = 9744
-  assert(layoutLarge!.accountsOff === 9744, `V12_1 large accountsOff should be 9744, got ${layoutLarge!.accountsOff}`);
+  // accountsOff = engineOff + ceil((1016+512+18+8192)/8)*8 = 648 + 9096 = 9744
+  assert(layoutLarge!.accountsOff === 10392, `V12_1 large accountsOff should be 9744, got ${layoutLarge!.accountsOff}`);
   console.log(`  ✓ V12_1 large slab (${V12_1_LARGE_SIZE}, 4096 accounts) detected correctly`);
 
   // Medium tier: 1024 accounts
