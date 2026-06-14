@@ -554,6 +554,28 @@ export async function fetchAdlRankings(
     );
   }
 
-  const json = await res.json() as AdlApiResult;
-  return json;
+  const obj = await res.json() as Record<string, unknown>;
+
+  // Validate top-level fields — a schema mismatch from a compromised or
+  // updated API should throw, not silently produce undefined fields.
+  if (typeof obj.adlNeeded !== "boolean") {
+    throw new Error(`fetchAdlRankings: adlNeeded must be boolean, got ${typeof obj.adlNeeded}`);
+  }
+  if (typeof obj.capExceeded !== "boolean") {
+    throw new Error(`fetchAdlRankings: capExceeded must be boolean, got ${typeof obj.capExceeded}`);
+  }
+  if (typeof obj.slabAddress !== "string") {
+    throw new Error(`fetchAdlRankings: slabAddress must be string, got ${typeof obj.slabAddress}`);
+  }
+  if (typeof obj.pnlPosTot !== "string") {
+    throw new Error(`fetchAdlRankings: pnlPosTot must be string, got ${typeof obj.pnlPosTot}`);
+  }
+  if (typeof obj.maxPnlCap !== "string") {
+    throw new Error(`fetchAdlRankings: maxPnlCap must be string, got ${typeof obj.maxPnlCap}`);
+  }
+  if (!Array.isArray(obj.rankings)) {
+    throw new Error("fetchAdlRankings: API response missing rankings array");
+  }
+
+  return obj as unknown as AdlApiResult;
 }
