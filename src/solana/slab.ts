@@ -3349,7 +3349,10 @@ export function parseEngine(data: Uint8Array): EngineState {
     },
     currentSlot: readU64LE(data, base + layout.engineCurrentSlotOff),
     fundingIndexQpbE6: layout.engineFundingIndexOff >= 0
-      ? readI128LE(data, base + layout.engineFundingIndexOff) : 0n,
+      ? ((layout.engineLastFundingSlotOff - layout.engineFundingIndexOff) === 8
+          ? readI64LE(data, base + layout.engineFundingIndexOff)
+          : readI128LE(data, base + layout.engineFundingIndexOff))
+      : 0n,
     lastFundingSlot: layout.engineLastFundingSlotOff >= 0
       ? readU64LE(data, base + layout.engineLastFundingSlotOff) : 0n,
     fundingRateBpsPerSlotLast,
