@@ -2655,10 +2655,6 @@ function parseConfigV12_17(data: Uint8Array, configOff: number): MarketConfig {
     fundingInvScaleNotionalE6: 0n,        // removed in v12.17
     fundingMaxPremiumBps,
     fundingMaxBpsPerSlot,
-    fundingPremiumWeightBps: 0n,
-    fundingSettlementIntervalSlots: 0n,
-    fundingPremiumDampeningE6: 0n,
-    fundingPremiumMaxBpsPerSlot: 0n,
     threshFloor: 0n,                      // removed in v12.17
     threshRiskBps: 0n,
     threshUpdateIntervalSlots: 0n,
@@ -2785,10 +2781,6 @@ function parseConfigV12_19(data: Uint8Array, configOff: number): MarketConfig {
     fundingInvScaleNotionalE6: 0n,
     fundingMaxPremiumBps,
     fundingMaxBpsPerSlot,
-    fundingPremiumWeightBps: 0n,
-    fundingSettlementIntervalSlots: 0n,
-    fundingPremiumDampeningE6: 0n,
-    fundingPremiumMaxBpsPerSlot: 0n,
     threshFloor: 0n,
     threshRiskBps: 0n,
     threshUpdateIntervalSlots: 0n,
