@@ -308,7 +308,9 @@ export function buildAdlInstruction(
       `buildAdlInstruction: targetIdx must be a non-negative integer, got ${targetIdx}`,
     );
   }
-  const data = Buffer.from(encodeExecuteAdl({ targetIdx }));
+  // TransactionInstruction accepts Uint8Array at runtime; cast avoids Buffer.from()
+  // which crashes in browser environments where Node's Buffer is undefined.
+  const data = encodeExecuteAdl({ targetIdx }) as unknown as Buffer;
 
   const keys: AccountMeta[] = [
     { pubkey: caller, isSigner: true, isWritable: false },
