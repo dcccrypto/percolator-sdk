@@ -75,7 +75,7 @@ function buildV12_1SlabSmall(): Uint8Array {
   const ENGINE_OFF = 648;
   const BITMAP_OFF_REL = 1016;       // engine-relative (1016 - 648)
   const ACCOUNT_SIZE = 320;
-  const ACCOUNTS_OFF = 2232;        // absolute: 648 + ceil((1016+32+18+512)/8)*8 = 1584 + 2232
+  const ACCOUNTS_OFF = 2232;        // absolute: 648 + ceil((1016+32+18+512)/8)*8 = 648 + 1584 = 2232
 
   const buf = new Uint8Array(TOTAL);
   const dv = new DataView(buf.buffer);
