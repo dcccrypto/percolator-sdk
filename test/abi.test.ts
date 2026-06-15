@@ -50,6 +50,12 @@ import {
   encodeSetLpVaultPaused,
   encodeCloseLpVault,
   encodeKeeperCrank,
+  encodeConfigureHybridOracle,
+  encodeConfigureEwmaMark,
+  encodePushEwmaMark,
+  encodeConfigureAuthMark,
+  encodePushAuthMark,
+  encodeMatcherInitPassive,
   IX_TAG,
 } from "../src/abi/instructions.js";
 
@@ -399,13 +405,12 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeTradeCpi (v17 35-byte wire)");
 }
 
-// Test LiquidateAtOracle encoding (3 bytes: tag + u16)
+// Test LiquidateAtOracle (tag 7) — REMOVED in v17, must throw
 {
-  const data = encodeLiquidateAtOracle({ targetIdx: 42 });
-  assert(data.length === 3, "LiquidateAtOracle length");
-  assert(data[0] === IX_TAG.LiquidateAtOracle, "LiquidateAtOracle tag byte");
-  assertBuf(data.subarray(1, 3), [42, 0], "LiquidateAtOracle targetIdx");
-  console.log("✓ encodeLiquidateAtOracle");
+  let threw = false;
+  try { encodeLiquidateAtOracle({ targetIdx: 42 }); } catch { threw = true; }
+  assert(threw, "encodeLiquidateAtOracle rejects removed tag 7");
+  console.log("✓ encodeLiquidateAtOracle rejects removed tag 7 (v17)");
 }
 
 // Test CloseAccount encoding (1 byte: tag only, no userIdx in v17)
@@ -442,34 +447,25 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeSetRiskThreshold rejects removed tag");
 }
 
-// Test UpdateAdmin encoding (33 bytes: tag + pubkey)
+// Test UpdateAdmin (tag 12) — REMOVED in v17, must throw
 {
   const newAdmin = new PublicKey("11111111111111111111111111111111");
-  const data = encodeUpdateAdmin({ newAdmin });
-  assert(data.length === 33, "UpdateAdmin length");
-  assert(data[0] === IX_TAG.UpdateAdmin, "UpdateAdmin tag byte");
-  const adminBytes = newAdmin.toBytes();
-  const dataPk = data.subarray(1, 33);
-  assert(
-    dataPk.length === adminBytes.length && dataPk.every((v, i) => v === adminBytes[i]),
-    "UpdateAdmin pubkey"
-  );
-  console.log("✓ encodeUpdateAdmin");
+  let threw = false;
+  try { encodeUpdateAdmin({ newAdmin }); } catch { threw = true; }
+  assert(threw, "encodeUpdateAdmin rejects removed tag 12");
+  console.log("✓ encodeUpdateAdmin rejects removed tag 12 (v17)");
 }
 
-// Test InitLP encoding (73 bytes: tag + pubkey + pubkey + u64)
+// Test InitLP (tag 2) — REMOVED in v17, must throw
 {
-  // Use keypair-generated valid pubkeys
   const matcherProg = PublicKey.unique();
   const matcherCtx = PublicKey.unique();
-  const data = encodeInitLP({
-    matcherProgram: matcherProg,
-    matcherContext: matcherCtx,
-    feePayment: "1000000",
-  });
-  assert(data.length === 73, "InitLP length");
-  assert(data[0] === IX_TAG.InitLP, "InitLP tag byte");
-  console.log("✓ encodeInitLP");
+  let threw = false;
+  try {
+    encodeInitLP({ matcherProgram: matcherProg, matcherContext: matcherCtx, feePayment: "1000000" });
+  } catch { threw = true; }
+  assert(threw, "encodeInitLP rejects removed tag 2");
+  console.log("✓ encodeInitLP rejects removed tag 2 (v17)");
 }
 
 // Test InitMarket encoding (219 bytes total: v17 wire)
@@ -838,12 +834,152 @@ console.log("\nTesting instruction encoders...\n");
   assert(IX_TAG.SetLpVaultPaused === 79, "IX_TAG.SetLpVaultPaused=79");
   assert(IX_TAG.CloseLpVault === 80, "IX_TAG.CloseLpVault=80");
   assert(IX_TAG.WithdrawInsuranceAsset === 57, "IX_TAG.WithdrawInsuranceAsset=57");
+  assert(IX_TAG.ConfigureHybridOracle === 34, "IX_TAG.ConfigureHybridOracle=34");
+  assert(IX_TAG.ConfigureEwmaMark === 35, "IX_TAG.ConfigureEwmaMark=35");
+  assert(IX_TAG.PushEwmaMark === 36, "IX_TAG.PushEwmaMark=36");
+  assert(IX_TAG.ConfigureAuthMark === 62, "IX_TAG.ConfigureAuthMark=62");
+  assert(IX_TAG.PushAuthMark === 63, "IX_TAG.PushAuthMark=63");
   // Deprecated v12 aliases still have their collision-documented values
   assert(IX_TAG.MintPositionNft === 64, "IX_TAG.MintPositionNft=64 (deprecated, collides ForceCloseAbandonedAsset)");
   assert(IX_TAG.TransferPositionOwnership === 65, "IX_TAG.TransferPositionOwnership=65 (deprecated, collides UpdateAssetAuthority)");
   assert(IX_TAG.SetWalletCap === 70, "IX_TAG.SetWalletCap=70 (deprecated, not in v17)");
   assert(IX_TAG.SetOiImbalanceHardBlock === 71, "IX_TAG.SetOiImbalanceHardBlock=71 (deprecated, not in v17)");
   console.log("✓ v17 IX_TAG completeness (all new v17 tags present)");
+}
+
+// ── TASK A: oracle-config encoders (tags 34, 35, 36, 62, 63) ─────────────────
+
+// Test encodeConfigureHybridOracle — 156-byte wire
+// Wire: tag(1) + asset_index(u16=2bytes) + now_slot(u64=8) + now_unix_ts(i64=8) +
+//       oracle_leg_count(u8=1) + oracle_leg_flags(u8=1) + max_staleness_secs(u64=8) +
+//       hybrid_soft_stale_slots(u64=8) + mark_ewma_halflife_slots(u64=8) +
+//       mark_min_fee(u64=8) + invert(u8=1) + unit_scale(u32=4) + conf_filter_bps(u16=2) +
+//       oracle_leg_feeds[0..3](3×32=96) = 1+2+8+8+1+1+8+8+8+8+1+4+2+96 = 156 bytes
+{
+  const feed0 = PublicKey.unique();
+  const feed1 = PublicKey.default;
+  const feed2 = PublicKey.default;
+  const data = encodeConfigureHybridOracle({
+    assetIndex: 1,
+    nowSlot: 300_000_000n,
+    nowUnixTs: 1_700_000_000n,
+    oracleLegCount: 1,
+    oracleLegFlags: 0,
+    maxStalenessSecs: 60n,
+    hybridSoftStaleSlots: 100n,
+    markEwmaHalflifeSlots: 500n,
+    markMinFee: 0n,
+    invert: 0,
+    unitScale: 1_000_000,
+    confFilterBps: 200,
+    oracleLegFeeds: [feed0, feed1, feed2],
+  });
+  assert(data.length === 156, `encodeConfigureHybridOracle length: expected 156, got ${data.length}`);
+  assert(data[0] === IX_TAG.ConfigureHybridOracle, "ConfigureHybridOracle tag byte");
+  // asset_index=1 at [1..3] little-endian
+  assertBuf(data.subarray(1, 3), [1, 0], "ConfigureHybridOracle asset_index=1");
+  // oracle_leg_count=1 at [19]
+  assert(data[19] === 1, "ConfigureHybridOracle oracle_leg_count=1");
+  // feed0 starts at [60] (1+2+8+8+1+1+8+8+8+8+1+4+2=60)
+  const feedBytes = feed0.toBytes();
+  assert(data.slice(60, 92).every((v, i) => v === feedBytes[i]), "ConfigureHybridOracle feed0 bytes");
+  console.log("✓ encodeConfigureHybridOracle (156-byte wire)");
+}
+
+// Test encodeConfigureEwmaMark — 35-byte wire
+// Wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_mark_e6(u64) +
+//       mark_ewma_halflife_slots(u64) + mark_min_fee(u64) = 1+2+8+8+8+8 = 35 bytes
+{
+  const data = encodeConfigureEwmaMark({
+    assetIndex: 2,
+    nowSlot: 400_000_000n,
+    initialMarkE6: 50_000_000_000n,
+    markEwmaHalflifeSlots: 500n,
+    markMinFee: 0n,
+  });
+  assert(data.length === 35, `encodeConfigureEwmaMark length: expected 35, got ${data.length}`);
+  assert(data[0] === IX_TAG.ConfigureEwmaMark, "ConfigureEwmaMark tag byte");
+  assertBuf(data.subarray(1, 3), [2, 0], "ConfigureEwmaMark asset_index=2");
+  console.log("✓ encodeConfigureEwmaMark (35-byte wire)");
+}
+
+// Test encodePushEwmaMark — 19-byte wire
+// Wire: tag(1) + asset_index(u16) + now_slot(u64) + mark_e6(u64) = 1+2+8+8 = 19 bytes
+{
+  const data = encodePushEwmaMark({
+    assetIndex: 2,
+    nowSlot: 400_000_001n,
+    markE6: 50_100_000_000n,
+  });
+  assert(data.length === 19, `encodePushEwmaMark length: expected 19, got ${data.length}`);
+  assert(data[0] === IX_TAG.PushEwmaMark, "PushEwmaMark tag byte");
+  assertBuf(data.subarray(1, 3), [2, 0], "PushEwmaMark asset_index=2");
+  console.log("✓ encodePushEwmaMark (19-byte wire)");
+}
+
+// Test encodeConfigureAuthMark — 19-byte wire
+// Wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_mark_e6(u64) = 1+2+8+8 = 19 bytes
+{
+  const data = encodeConfigureAuthMark({
+    assetIndex: 3,
+    nowSlot: 300_000_000n,
+    initialMarkE6: 25_000_000_000n,
+  });
+  assert(data.length === 19, `encodeConfigureAuthMark length: expected 19, got ${data.length}`);
+  assert(data[0] === IX_TAG.ConfigureAuthMark, "ConfigureAuthMark tag byte");
+  assertBuf(data.subarray(1, 3), [3, 0], "ConfigureAuthMark asset_index=3");
+  console.log("✓ encodeConfigureAuthMark (19-byte wire)");
+}
+
+// Test encodePushAuthMark — 19-byte wire
+// Wire: tag(1) + asset_index(u16) + now_slot(u64) + mark_e6(u64) = 1+2+8+8 = 19 bytes
+{
+  const data = encodePushAuthMark({
+    assetIndex: 3,
+    nowSlot: 300_000_001n,
+    markE6: 25_050_000_000n,
+  });
+  assert(data.length === 19, `encodePushAuthMark length: expected 19, got ${data.length}`);
+  assert(data[0] === IX_TAG.PushAuthMark, "PushAuthMark tag byte");
+  assertBuf(data.subarray(1, 3), [3, 0], "PushAuthMark asset_index=3");
+  console.log("✓ encodePushAuthMark (19-byte wire)");
+}
+
+// ── TASK B: matcher passive-init payload ──────────────────────────────────────
+
+// Test encodeMatcherInitPassive — 66-byte wire to matcher program
+// Layout: [0]=2, [1]=0, [2..10]=0, [10..14]=100u32LE, [14..34]=0, [34..50]=max_fill_abs u128LE, [50..66]=0
+{
+  const maxFillAbs = 2n ** 128n - 1n; // u128::MAX
+  const data = encodeMatcherInitPassive({ maxFillAbs });
+  assert(data.length === 66, `encodeMatcherInitPassive length: expected 66, got ${data.length}`);
+  assert(data[0] === 2, "encodeMatcherInitPassive opcode=2");
+  assert(data[1] === 0, "encodeMatcherInitPassive reserved[1]=0");
+  // [10..14] = 100u32 LE
+  assertBuf(data.subarray(10, 14), [100, 0, 0, 0], "encodeMatcherInitPassive [10..14]=100u32");
+  // [34..50] = max_fill_abs = u128::MAX = all 0xFF bytes
+  assertBuf(
+    data.subarray(34, 50),
+    [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+    "encodeMatcherInitPassive max_fill_abs=u128::MAX"
+  );
+  // [50..66] = 0
+  assert(data.subarray(50, 66).every(v => v === 0), "encodeMatcherInitPassive [50..66]=0");
+  console.log("✓ encodeMatcherInitPassive (66-byte matcher payload)");
+}
+
+// Test encodeMatcherInitPassive with a finite max_fill_abs
+{
+  const maxFillAbs = 1_000_000_000_000_000_000n; // 1e18
+  const data = encodeMatcherInitPassive({ maxFillAbs });
+  assert(data.length === 66, "encodeMatcherInitPassive finite max_fill_abs length=66");
+  // [34..42] should encode 1e18 in LE (0x0DE0B6B3A7640000)
+  const lo = 1_000_000_000_000_000_000n & 0xffff_ffff_ffff_ffffn;
+  const expectedLo = new DataView(new ArrayBuffer(8));
+  expectedLo.setBigUint64(0, lo, true);
+  const loBytes = new Uint8Array(expectedLo.buffer);
+  assert(data.subarray(34, 42).every((v, i) => v === loBytes[i]), "encodeMatcherInitPassive finite max_fill_abs low bytes");
+  console.log("✓ encodeMatcherInitPassive finite max_fill_abs");
 }
 
 console.log("\n✅ All tests passed!");

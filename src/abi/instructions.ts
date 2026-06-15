@@ -2,7 +2,9 @@ import { PublicKey } from "@solana/web3.js";
 import {
   encU8,
   encU16,
+  encU32,
   encU64,
+  encI64,
   encU128,
   encI128,
   encPubkey,
@@ -150,7 +152,7 @@ export const IX_TAG = {
   /**
    * RestartAssetOracle (tag 69) — permissionless oracle restart after stale/stuck state.
    *
-   * Wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_price(u64) = 20 bytes.
+   * Wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_price(u64) = 19 bytes.
    */
   RestartAssetOracle: 69,
   // ── Fork NFT / B-3 (tags 72/73) — kept from v16 ─────────────────────────
@@ -170,7 +172,7 @@ export const IX_TAG = {
   /**
    * CreateLpVault (tag 74).
    * Wire: tag(1) + fee_share_bps(u16) + redemption_cooldown_slots(u64) +
-   *       oi_reservation_threshold_bps(u16) + domain(u16) = 14 bytes.
+   *       oi_reservation_threshold_bps(u16) + domain(u16) = 15 bytes.
    */
   CreateLpVault: 74,
   /**
@@ -357,7 +359,7 @@ function removedInstruction(name: string, tag: number, replacement?: string): ne
 /**
  * InitMarket instruction data — v17 wire format.
  *
- * v17 wire: tag(1) + market_params(226 bytes) = 227 bytes total.
+ * v17 wire: tag(1) + market_params(218 bytes) = 219 bytes total.
  *
  * BREAKING vs v12.x: admin, collateralMint, feedId, staleness, conf, invert,
  * and unitScale are NO LONGER encoded in instruction data. In v17 these are
@@ -785,7 +787,12 @@ export function encodeInitUser(_args?: InitUserArgs): Uint8Array {
 }
 
 /**
- * InitLP instruction data (73 bytes)
+ * InitLP (tag 2) — REMOVED in v17.
+ *
+ * Tag 2 has no decode arm in the v17 wrapper program. Calling this instruction
+ * results in ProgramError::InvalidInstructionData on-chain.
+ *
+ * @deprecated Use the LP Vault flow (CreateLpVault tag 74) instead.
  */
 export interface InitLPArgs {
   matcherProgram: PublicKey | string;
@@ -793,13 +800,8 @@ export interface InitLPArgs {
   feePayment: bigint | string;
 }
 
-export function encodeInitLP(args: InitLPArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.InitLP),
-    encPubkey(args.matcherProgram),
-    encPubkey(args.matcherContext),
-    encU64(args.feePayment),
-  );
+export function encodeInitLP(_args: InitLPArgs): Uint8Array {
+  return removedInstruction("InitLP", IX_TAG.InitLP, "CreateLpVault (tag 74)");
 }
 
 /**
@@ -993,16 +995,22 @@ export function encodeTradeNoCpi(args: TradeNoCpiArgs): Uint8Array {
 }
 
 /**
- * LiquidateAtOracle instruction data (3 bytes)
+ * LiquidateAtOracle (tag 7) — REMOVED in v17.
+ *
+ * Tag 7 has no decode arm in the v17 wrapper program. Sending this instruction
+ * results in ProgramError::InvalidInstructionData on-chain.
+ *
+ * @deprecated Liquidations are handled via PermissionlessCrank (tag 5) in v17.
  */
 export interface LiquidateAtOracleArgs {
   targetIdx: number;
 }
 
-export function encodeLiquidateAtOracle(args: LiquidateAtOracleArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.LiquidateAtOracle),
-    encU16(args.targetIdx),
+export function encodeLiquidateAtOracle(_args: LiquidateAtOracleArgs): Uint8Array {
+  return removedInstruction(
+    "LiquidateAtOracle",
+    IX_TAG.LiquidateAtOracle,
+    "PermissionlessCrank (tag 5)",
   );
 }
 
@@ -1145,14 +1153,24 @@ export function encodeSetRiskThreshold(_args: SetRiskThresholdArgs): Uint8Array 
 }
 
 /**
- * UpdateAdmin instruction data (33 bytes)
+ * UpdateAdmin (tag 12) — REMOVED in v17.
+ *
+ * Tag 12 has no decode arm in the v17 wrapper program. Calling this instruction
+ * results in ProgramError::InvalidInstructionData on-chain.
+ *
+ * @deprecated Use UpdateAuthority (tag 32) or UpdateAssetAuthority (tag 65) in v17.
  */
 export interface UpdateAdminArgs {
   newAdmin: PublicKey | string;
 }
 
-export function encodeUpdateAdmin(args: UpdateAdminArgs): Uint8Array {
-  return concatBytes(encU8(IX_TAG.UpdateAdmin), encPubkey(args.newAdmin));
+/** @deprecated Tag 12 removed in v17. Will fail on-chain. */
+export function encodeUpdateAdmin(_args: UpdateAdminArgs): Uint8Array {
+  return removedInstruction(
+    "UpdateAdmin",
+    IX_TAG.UpdateAdmin,
+    "UpdateAuthority (tag 32) or UpdateAssetAuthority (tag 65)",
+  );
 }
 
 /**
@@ -3115,4 +3133,311 @@ export function encodeSetNftProgramId(args: SetNftProgramIdArgs): Uint8Array {
     encU8(IX_TAG.SetNftProgramId),
     encPubkey(args.nftProgramId),
   );
+}
+
+// ============================================================================
+// TASK A — v17 oracle-config encoders (tags 34, 35, 36, 62, 63)
+// ============================================================================
+
+/**
+ * ConfigureHybridOracle (tag 34) — set Pyth/hybrid oracle config for a market asset.
+ *
+ * v17 wire: tag(1) + asset_index(u16) + now_slot(u64) + now_unix_ts(i64) +
+ *           oracle_leg_count(u8) + oracle_leg_flags(u8) + max_staleness_secs(u64) +
+ *           hybrid_soft_stale_slots(u64) + mark_ewma_halflife_slots(u64) +
+ *           mark_min_fee(u64) + invert(u8) + unit_scale(u32) + conf_filter_bps(u16) +
+ *           oracle_leg_feeds[0..3]([32] each) = 156 bytes total.
+ *
+ * Accounts: [0] oracle_authority (signer), [1] market (writable),
+ *           [2..2+oracle_leg_count] oracle feed accounts (read-only).
+ *
+ * Constraints (from v16_program.rs:10419-10435):
+ *   - oracle_leg_count ∈ [1, ORACLE_LEG_CAP=3]
+ *   - max_staleness_secs ∈ [1, MAX_ORACLE_STALENESS_SECS=86400]
+ *   - hybrid_soft_stale_slots > 0
+ *   - invert ∈ {0, 1}
+ *   - Caller must be the asset's oracle_authority
+ *
+ * @param assetIndex               Asset slot index (u16).
+ * @param nowSlot                  Current on-chain slot (u64).
+ * @param nowUnixTs                Current Unix timestamp in seconds (i64).
+ * @param oracleLegCount           Number of active oracle legs (1–3).
+ * @param oracleLegFlags           Bit-flags for oracle leg configuration.
+ * @param maxStalenessSecs         Maximum oracle staleness in seconds (1–86400).
+ * @param hybridSoftStaleSlots     Slots after which the hybrid oracle is considered soft-stale.
+ * @param markEwmaHalflifeSlots    EWMA half-life for mark price smoothing (slots).
+ * @param markMinFee               Minimum fee charged per mark-price update.
+ * @param invert                   0 = normal, 1 = invert price (e.g., for inverted pairs).
+ * @param unitScale                Unit scaling factor (u32).
+ * @param confFilterBps            Confidence filter in basis points (u16).
+ * @param oracleLegFeeds           Array of exactly 3 oracle leg feed pubkeys (unused slots = SystemProgram).
+ *
+ * @example
+ * ```ts
+ * const data = encodeConfigureHybridOracle({
+ *   assetIndex: 1,
+ *   nowSlot: 300000000n,
+ *   nowUnixTs: 1700000000n,
+ *   oracleLegCount: 1,
+ *   oracleLegFlags: 0,
+ *   maxStalenessSecs: 60n,
+ *   hybridSoftStaleSlots: 100n,
+ *   markEwmaHalflifeSlots: 500n,
+ *   markMinFee: 0n,
+ *   invert: 0,
+ *   unitScale: 1000000,
+ *   confFilterBps: 200,
+ *   oracleLegFeeds: [PYTH_FEED_KEY, PublicKey.default, PublicKey.default],
+ * });
+ * assert(data.length === 156);
+ * ```
+ */
+export interface ConfigureHybridOracleArgs {
+  assetIndex: number;
+  nowSlot: bigint | string;
+  nowUnixTs: bigint | string;
+  oracleLegCount: number;
+  oracleLegFlags: number;
+  maxStalenessSecs: bigint | string;
+  hybridSoftStaleSlots: bigint | string;
+  markEwmaHalflifeSlots: bigint | string;
+  markMinFee: bigint | string;
+  invert: number;
+  unitScale: number;
+  confFilterBps: number;
+  /** Exactly 3 entries — unused legs MUST be PublicKey.default (all zeros). */
+  oracleLegFeeds: [PublicKey | string, PublicKey | string, PublicKey | string];
+}
+
+export function encodeConfigureHybridOracle(args: ConfigureHybridOracleArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.ConfigureHybridOracle),
+    encU16(args.assetIndex),
+    encU64(args.nowSlot),
+    encI64(args.nowUnixTs),
+    encU8(args.oracleLegCount),
+    encU8(args.oracleLegFlags),
+    encU64(args.maxStalenessSecs),
+    encU64(args.hybridSoftStaleSlots),
+    encU64(args.markEwmaHalflifeSlots),
+    encU64(args.markMinFee),
+    encU8(args.invert),
+    encU32(args.unitScale),
+    encU16(args.confFilterBps),
+    encPubkey(args.oracleLegFeeds[0]),
+    encPubkey(args.oracleLegFeeds[1]),
+    encPubkey(args.oracleLegFeeds[2]),
+  );
+}
+
+/**
+ * ConfigureEwmaMark (tag 35) — set EWMA mark oracle config for a market asset.
+ *
+ * v17 wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_mark_e6(u64) +
+ *           mark_ewma_halflife_slots(u64) + mark_min_fee(u64) = 35 bytes total.
+ *
+ * Accounts: [0] oracle_authority (signer), [1] market (writable).
+ *
+ * Constraints (from v16_program.rs:10558-10563):
+ *   - initial_mark_e6 ∈ [1, MAX_ORACLE_PRICE]
+ *   - mark_ewma_halflife_slots > 0
+ *   - Caller must be the asset's oracle_authority
+ *
+ * @param assetIndex               Asset slot index (u16).
+ * @param nowSlot                  Current on-chain slot (u64).
+ * @param initialMarkE6            Initial mark price × 1e6 (u64, must be > 0).
+ * @param markEwmaHalflifeSlots    EWMA half-life for mark price smoothing (slots, must be > 0).
+ * @param markMinFee               Minimum fee charged per mark-price update (u64).
+ *
+ * @example
+ * ```ts
+ * const data = encodeConfigureEwmaMark({
+ *   assetIndex: 1,
+ *   nowSlot: 300000000n,
+ *   initialMarkE6: 50000000000n,
+ *   markEwmaHalflifeSlots: 500n,
+ *   markMinFee: 0n,
+ * });
+ * assert(data.length === 35);
+ * ```
+ */
+export interface ConfigureEwmaMarkArgs {
+  assetIndex: number;
+  nowSlot: bigint | string;
+  initialMarkE6: bigint | string;
+  markEwmaHalflifeSlots: bigint | string;
+  markMinFee: bigint | string;
+}
+
+export function encodeConfigureEwmaMark(args: ConfigureEwmaMarkArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.ConfigureEwmaMark),
+    encU16(args.assetIndex),
+    encU64(args.nowSlot),
+    encU64(args.initialMarkE6),
+    encU64(args.markEwmaHalflifeSlots),
+    encU64(args.markMinFee),
+  );
+}
+
+/**
+ * PushEwmaMark (tag 36) — push a new EWMA mark price observation.
+ *
+ * v17 wire: tag(1) + asset_index(u16) + now_slot(u64) + mark_e6(u64) = 19 bytes total.
+ *
+ * Accounts: [0] oracle_authority (signer), [1] market (writable).
+ *
+ * Constraints (from v16_program.rs:10771):
+ *   - mark_e6 ∈ [1, MAX_ORACLE_PRICE]
+ *   - Asset oracle mode must be ORACLE_MODE_EWMA_MARK
+ *   - Caller must be the asset's oracle_authority
+ *   - now_slot ≥ last EWMA slot and current market slot
+ *
+ * @param assetIndex    Asset slot index (u16).
+ * @param nowSlot       Current on-chain slot (u64).
+ * @param markE6        New mark price × 1e6 (u64, must be > 0).
+ *
+ * @example
+ * ```ts
+ * const data = encodePushEwmaMark({ assetIndex: 1, nowSlot: 300000001n, markE6: 50100000000n });
+ * assert(data.length === 19);
+ * ```
+ */
+export interface PushEwmaMarkArgs {
+  assetIndex: number;
+  nowSlot: bigint | string;
+  markE6: bigint | string;
+}
+
+export function encodePushEwmaMark(args: PushEwmaMarkArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.PushEwmaMark),
+    encU16(args.assetIndex),
+    encU64(args.nowSlot),
+    encU64(args.markE6),
+  );
+}
+
+/**
+ * ConfigureAuthMark (tag 62) — set auth-push mark oracle for a market asset.
+ *
+ * v17 wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_mark_e6(u64) = 19 bytes total.
+ *
+ * Accounts: [0] oracle_authority (signer), [1] market (writable).
+ *
+ * Constraints (from v16_program.rs:10665):
+ *   - initial_mark_e6 ∈ [1, MAX_ORACLE_PRICE]
+ *   - Caller must be the asset's oracle_authority
+ *
+ * @param assetIndex       Asset slot index (u16).
+ * @param nowSlot          Current on-chain slot (u64).
+ * @param initialMarkE6    Initial mark price × 1e6 (u64, must be > 0).
+ *
+ * @example
+ * ```ts
+ * const data = encodeConfigureAuthMark({ assetIndex: 1, nowSlot: 300000000n, initialMarkE6: 50000000000n });
+ * assert(data.length === 19);
+ * ```
+ */
+export interface ConfigureAuthMarkArgs {
+  assetIndex: number;
+  nowSlot: bigint | string;
+  initialMarkE6: bigint | string;
+}
+
+export function encodeConfigureAuthMark(args: ConfigureAuthMarkArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.ConfigureAuthMark),
+    encU16(args.assetIndex),
+    encU64(args.nowSlot),
+    encU64(args.initialMarkE6),
+  );
+}
+
+/**
+ * PushAuthMark (tag 63) — push a new auth-mark price observation.
+ *
+ * v17 wire: tag(1) + asset_index(u16) + now_slot(u64) + mark_e6(u64) = 19 bytes total.
+ *
+ * Accounts: [0] oracle_authority (signer), [1] market (writable).
+ *
+ * Constraints (from v16_program.rs:10847):
+ *   - mark_e6 ∈ [1, MAX_ORACLE_PRICE]
+ *   - Asset oracle mode must be ORACLE_MODE_AUTH_MARK
+ *   - Caller must be the asset's oracle_authority
+ *   - now_slot ≥ last EWMA slot and current market slot
+ *
+ * @param assetIndex    Asset slot index (u16).
+ * @param nowSlot       Current on-chain slot (u64).
+ * @param markE6        New mark price × 1e6 (u64, must be > 0).
+ *
+ * @example
+ * ```ts
+ * const data = encodePushAuthMark({ assetIndex: 1, nowSlot: 300000001n, markE6: 50100000000n });
+ * assert(data.length === 19);
+ * ```
+ */
+export interface PushAuthMarkArgs {
+  assetIndex: number;
+  nowSlot: bigint | string;
+  markE6: bigint | string;
+}
+
+export function encodePushAuthMark(args: PushAuthMarkArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.PushAuthMark),
+    encU16(args.assetIndex),
+    encU64(args.nowSlot),
+    encU64(args.markE6),
+  );
+}
+
+// ============================================================================
+// TASK B — Matcher passive-init payload (matcher program, not wrapper)
+// ============================================================================
+
+/**
+ * MatcherInitPassive — 66-byte payload sent to the MATCHER PROGRAM (not wrapper)
+ * to initialize a passive LP matcher context.
+ *
+ * This is NOT a wrapper instruction. Program = matcher program address.
+ * Accounts: [0] matcherDelegate (read-only PDA), [1] matcherCtx (writable).
+ *
+ * Wire layout (66 bytes, from percolator-prog/tests/v16_five_program_crosscut.rs:640-648):
+ *   [0]       = 2         (opcode: passive-LP init)
+ *   [1]       = 0         (reserved)
+ *   [2..10]   = 0         (8 bytes reserved)
+ *   [10..14]  = 100u32 LE (default max_inventory_abs slot)
+ *   [14..34]  = 0         (20 bytes reserved)
+ *   [34..50]  = max_fill_abs (u128 LE)
+ *   [50..66]  = 0         (16 bytes reserved)
+ *   Total = 66 bytes
+ *
+ * The matcher delegate PDA is derived via `deriveMatcherDelegate()` in pda.ts using
+ * seeds ["matcher", market, accountB, accountBOwner, matcherProg, matcherCtx].
+ *
+ * @param maxFillAbs  Maximum absolute fill size (u128). Pass BigInt.MaxUint128 (2^128-1) for no limit.
+ *
+ * @example
+ * ```ts
+ * const data = encodeMatcherInitPassive({ maxFillAbs: 2n ** 128n - 1n });
+ * assert(data.length === 66);
+ * // send to matcherProgram, accounts: [delegate(ro), ctx(w)]
+ * ```
+ */
+export interface MatcherInitPassiveArgs {
+  maxFillAbs: bigint | string;
+}
+
+export function encodeMatcherInitPassive(args: MatcherInitPassiveArgs): Uint8Array {
+  const buf = new Uint8Array(66);
+  buf[0] = 2;
+  buf[1] = 0;
+  // [10..14] = 100u32 LE (default max_inventory_abs / slot factor)
+  const u32Bytes = encU32(100);
+  buf.set(u32Bytes, 10);
+  // [34..50] = max_fill_abs u128 LE
+  const u128Bytes = encU128(args.maxFillAbs);
+  buf.set(u128Bytes, 34);
+  return buf;
 }

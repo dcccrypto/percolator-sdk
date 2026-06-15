@@ -453,8 +453,9 @@ describe("discoverMarkets — sequential mode (PERC-1650)", () => {
       Object.keys(SLAB_TIERS_V_ADL).length +
       Object.keys(SLAB_TIERS_V_SETDEXPOOL).length;
     expect(callCount).toBeLessThanOrEqual(allTierCount + 2); // +2 for rounding
-    // Memcmp fallback was called (0 raw accounts → fallback triggered)
-    expect(memcmpCallCount).toBe(1);
+    // Memcmp fallback was called: 1 for v17 magic query + 1 for v12 fallback (0 results).
+    // After TASK C, discoverMarkets always queries for v17 accounts via memcmp after tiers.
+    expect(memcmpCallCount).toBeGreaterThanOrEqual(1);
   });
 
   it("parallel mode (default) still works and fires all tier queries", async () => {

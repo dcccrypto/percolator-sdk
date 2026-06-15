@@ -4,6 +4,8 @@ import {
   parseConfig,
   parseParams,
   detectSlabLayout,
+  isV17Account,
+  parseWrapperConfigV17,
   SLAB_TIERS_V1M,
   SLAB_TIERS_V1M2,
   SLAB_TIERS_V2,
@@ -18,6 +20,7 @@ import {
   type EngineState,
   type RiskParams,
   type SlabLayout,
+  type WrapperConfigV17,
 } from "./slab.js";
 import { getStaticMarkets, type StaticMarketEntry } from "./static-markets.js";
 import { type Network } from "../config/program-ids.js";
@@ -34,14 +37,52 @@ export interface DiscoveredMarket {
   slabAddress: PublicKey;
   /** The program that owns this slab account */
   programId: PublicKey;
+  /**
+   * v12.x slab header. Present when the market is a v12 slab account (PERCOLAT magic).
+   * Absent (undefined) for v17 market group accounts (PERCV16\0 magic) — use configV17 instead.
+   */
   header: SlabHeader;
+  /**
+   * v12.x market config parsed from the slab CONFIG region (536 bytes at offset 104).
+   * Present for v12 slab accounts. Absent for v17 accounts — use configV17 instead.
+   */
   config: MarketConfig;
+  /**
+   * v12.x engine state (bitmap, account counts).
+   * Present for v12 slab accounts. Absent for v17 accounts.
+   */
   engine: EngineState;
+  /**
+   * v12.x risk parameters.
+   * Present for v12 slab accounts. Absent for v17 accounts.
+   */
   params: RiskParams;
+  /**
+   * v17 wrapper config (WrapperConfigV16 struct, 432 bytes at header offset 16).
+   * Present when the market is a v17 market group account (PERCV16\0 magic).
+   * Absent for v12 slab accounts.
+   *
+   * Use `isV17Market(m)` to narrow the type:
+   * ```ts
+   * if (m.configV17) {
+   *   console.log(m.configV17.collateralMint.toBase58());
+   * }
+   * ```
+   */
+  configV17?: WrapperConfigV17;
 }
 
-/** PERCOLAT magic bytes — stored little-endian on-chain as TALOCREP */
+/** PERCOLAT magic bytes (v12.x slabs) — stored little-endian on-chain as TALOCREP */
 const MAGIC_BYTES = new Uint8Array([0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x50]);
+
+/**
+ * v17 market group magic bytes — "PERCV16\0" as little-endian bytes.
+ * These are the first 8 bytes of every v17 percolator-owned market group account.
+ * The program writes MAGIC.to_le_bytes() (v16_program.rs:966), so the on-chain bytes
+ * are LITTLE-ENDIAN: 0x5045_5243_5631_3600 ("PERCV16\0") -> [0x00,0x36,0x31,0x56,0x43,0x52,0x45,0x50].
+ * A memcmp filter at offset 0 must use this exact LE order (isV17Account reads it via readU64LE).
+ */
+const V17_MAGIC_BYTES = new Uint8Array([0x00, 0x36, 0x31, 0x56, 0x43, 0x52, 0x45, 0x50]);
 
 /**
  * Slab tier definitions — V1 layout (all tiers upgraded as of 2026-03-13).
@@ -693,6 +734,30 @@ export async function discoverMarkets(
       }
     }
 
+    // TASK C: Fetch v17 market group accounts via memcmp on the v17 magic bytes.
+    // V17 accounts have dynamic sizes and do NOT appear in fixed dataSize tier filters.
+    // The memcmp bytes are derived in-code from V17_MAGIC_BYTES (the on-chain LE order) via
+    // base64 (web3.js >=1.87) so the filter cannot drift from / mis-order the magic constant.
+    try {
+      const v17Results = await connection.getProgramAccounts(programId, {
+        filters: [
+          {
+            memcmp: {
+              offset: 0,
+              bytes: Buffer.from(V17_MAGIC_BYTES).toString("base64"),
+              encoding: "base64",
+            },
+          },
+        ],
+        dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
+      });
+      for (const e of v17Results) {
+        rawAccounts.push({ ...e, maxAccounts: 0, dataSize: e.account.data.length } as RawEntry);
+      }
+    } catch {
+      // v17 memcmp query is best-effort — silently ignore failures (RPC may reject getProgramAccounts)
+    }
+
     // NOTE: hadRejection guard removed — dataSize filters silently return 0 when on-chain
     // account size changed; RPC returns no error, so we must fallback on empty results too.
     if (rawAccounts.length === 0) {
@@ -817,6 +882,32 @@ export async function discoverMarkets(
     if (seenPubkeys.has(pkStr)) continue;
     seenPubkeys.add(pkStr);
     const data = new Uint8Array(account.data);
+
+    // Check for v17 market group account (magic = "PERCV16\0").
+    // The data slice is HEADER_SLICE_LENGTH=1940 bytes, which exceeds the 448-byte
+    // minimum needed by parseWrapperConfigV17. V17 accounts have dynamic sizes and
+    // do NOT appear in the fixed-size tier queries; they reach this loop only via the
+    // memcmp fallback or if the account happens to match a tier size by coincidence.
+    if (isV17Account(data)) {
+      try {
+        const configV17 = parseWrapperConfigV17(data);
+        markets.push({
+          slabAddress: pubkey,
+          programId,
+          header: {} as SlabHeader,
+          config: {} as MarketConfig,
+          engine: {} as EngineState,
+          params: {} as RiskParams,
+          configV17,
+        });
+      } catch (err) {
+        console.warn(
+          `[discoverMarkets] Failed to parse v17 account ${pkStr}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+      continue;
+    }
 
     let valid = true;
     for (let i = 0; i < MAGIC_BYTES.length; i++) {
@@ -963,7 +1054,32 @@ export async function getMarketsByAddress(
     const { pubkey, data: rawData } = entry;
     const data = new Uint8Array(rawData);
 
-    // Validate magic bytes
+    // Gate: check for v17 account first, then fall through to v12 slab path.
+    if (isV17Account(data)) {
+      try {
+        const configV17 = parseWrapperConfigV17(data);
+        // v17 accounts have no slab header/config/engine/params; supply defaults so
+        // the DiscoveredMarket type is satisfied. Callers should check configV17 !== undefined
+        // to detect a v17 market.
+        markets.push({
+          slabAddress: pubkey,
+          programId,
+          header: {} as SlabHeader,
+          config: {} as MarketConfig,
+          engine: {} as EngineState,
+          params: {} as RiskParams,
+          configV17,
+        });
+      } catch (err) {
+        console.warn(
+          `[getMarketsByAddress] Failed to parse v17 account ${pubkey.toBase58()}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+      continue;
+    }
+
+    // Validate v12 magic bytes
     let valid = true;
     for (let i = 0; i < MAGIC_BYTES.length; i++) {
       if (data[i] !== MAGIC_BYTES[i]) {

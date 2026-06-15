@@ -223,7 +223,7 @@ export const ACCOUNTS_CLOSE_ACCOUNT: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * TopUpInsurance (tag 28): 5 fixed accounts + 1 optional.
+ * TopUpInsurance (tag 9): 5 fixed accounts + 1 optional.
  *
  * v17 wire account layout (v16_program.rs handle_top_up_insurance):
  *   [0] signer       signer, writable (insurance authority for asset 0)
@@ -1096,6 +1096,111 @@ export const ACCOUNTS_INIT_MATCHER_CTX: readonly AccountSpec[] = [
   { name: "matcherCtx", signer: false, writable: true },
   { name: "matcherProg", signer: false, writable: false },
   { name: "lpPda", signer: false, writable: false },
+] as const;
+
+// ============================================================================
+// TASK A — oracle-config account specs (tags 34, 35, 36, 62, 63)
+// ============================================================================
+
+/**
+ * ConfigureHybridOracle (tag 34): 2 fixed accounts + variable oracle feed accounts.
+ *
+ * Fixed accounts:
+ *   [0] oracleAuthority  signer (must be the asset's oracle_authority)
+ *   [1] market           writable (program-owned market account)
+ *
+ * Dynamic accounts [2..2+oracle_leg_count]:
+ *   oracle feed accounts (read-only). Pass 1-3 Pyth/on-chain price feed accounts
+ *   matching the oracleLegFeeds pubkeys encoded in the instruction data.
+ *
+ * (v16_program.rs handle_configure_hybrid_oracle lines 10414-10438)
+ */
+export const ACCOUNTS_CONFIGURE_HYBRID_ORACLE: readonly AccountSpec[] = [
+  { name: "oracleAuthority", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+  // [2..] oracle feed accounts appended by caller per oracle_leg_count
+] as const;
+
+/**
+ * ConfigureEwmaMark (tag 35): 2 accounts.
+ *
+ *   [0] oracleAuthority  signer (must be the asset's oracle_authority)
+ *   [1] market           writable (program-owned)
+ *
+ * No feed accounts needed — EWMA-mark is authority-pushed, not oracle-polled.
+ * (v16_program.rs handle_configure_ewma_mark lines 10553-10557)
+ */
+export const ACCOUNTS_CONFIGURE_EWMA_MARK: readonly AccountSpec[] = [
+  { name: "oracleAuthority", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+] as const;
+
+/**
+ * PushEwmaMark (tag 36): 2 accounts.
+ *
+ *   [0] oracleAuthority  signer (must be the asset's oracle_authority)
+ *   [1] market           writable (program-owned)
+ *
+ * (v16_program.rs handle_push_ewma_mark lines 10766-10770)
+ */
+export const ACCOUNTS_PUSH_EWMA_MARK: readonly AccountSpec[] = [
+  { name: "oracleAuthority", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+] as const;
+
+/**
+ * ConfigureAuthMark (tag 62): 2 accounts.
+ *
+ *   [0] oracleAuthority  signer (must be the asset's oracle_authority)
+ *   [1] market           writable (program-owned)
+ *
+ * (v16_program.rs handle_configure_auth_mark lines 10660-10664)
+ */
+export const ACCOUNTS_CONFIGURE_AUTH_MARK: readonly AccountSpec[] = [
+  { name: "oracleAuthority", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+] as const;
+
+/**
+ * PushAuthMark (tag 63): 2 accounts.
+ *
+ *   [0] oracleAuthority  signer (must be the asset's oracle_authority)
+ *   [1] market           writable (program-owned)
+ *
+ * (v16_program.rs handle_push_auth_mark lines 10842-10846)
+ */
+export const ACCOUNTS_PUSH_AUTH_MARK: readonly AccountSpec[] = [
+  { name: "oracleAuthority", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+] as const;
+
+// ============================================================================
+// TASK B — SetMatcherConfig account spec (tag 68)
+// ============================================================================
+
+/**
+ * SetMatcherConfig (tag 68): 3 accounts when disabling (enabled=0),
+ * 6 accounts when enabling (enabled=1).
+ *
+ *   [0] lpOwner          signer (portfolio owner)
+ *   [1] market           read-only (program-owned; owner-check only)
+ *   [2] lpPortfolio      writable (program-owned portfolio)
+ *   [3] matcherProg      read-only, executable (required when enabled=1 only)
+ *   [4] matcherCtx       read-only (matcher context; owned by matcherProg; required when enabled=1)
+ *   [5] matcherDelegate  read-only PDA (derived via deriveMatcherDelegate(); required when enabled=1)
+ *
+ * Note: accounts [3..5] are only validated by the on-chain handler when enabled=1.
+ * When disabling (enabled=0), pass only accounts [0..2] or include [3..5] as no-ops.
+ * (v16_program.rs handle_set_matcher_config lines 7516-7557)
+ */
+export const ACCOUNTS_SET_MATCHER_CONFIG: readonly AccountSpec[] = [
+  { name: "lpOwner", signer: true, writable: false },
+  { name: "market", signer: false, writable: false },
+  { name: "lpPortfolio", signer: false, writable: true },
+  // When enabled=1, also pass:
+  { name: "matcherProg", signer: false, writable: false },
+  { name: "matcherCtx", signer: false, writable: false },
+  { name: "matcherDelegate", signer: false, writable: false },
 ] as const;
 
 // ============================================================================

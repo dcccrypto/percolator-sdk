@@ -122,10 +122,8 @@ describe("instruction encoders", () => {
     expect(data[0]).toBe(IX_TAG.TradeCpi);
   });
 
-  it("encodeLiquidateAtOracle produces 3 bytes", () => {
-    const data = encodeLiquidateAtOracle({ targetIdx: 42 });
-    expect(data.length).toBe(3);
-    expect(data[0]).toBe(IX_TAG.LiquidateAtOracle);
+  it("encodeLiquidateAtOracle (tag 7) throws removedInstruction in v17", () => {
+    expect(() => encodeLiquidateAtOracle({ targetIdx: 42 })).toThrow(/tag 7/i);
   });
 
   it("encodeCloseAccount produces 1 byte (v17: tag only, userIdx removed)", () => {
@@ -144,16 +142,12 @@ describe("instruction encoders", () => {
     expect(() => encodeSetRiskThreshold({ newThreshold: "1000000000000" })).toThrow(/tag 11/i);
   });
 
-  it("encodeUpdateAdmin produces 33 bytes", () => {
-    const data = encodeUpdateAdmin({ newAdmin: new PublicKey("11111111111111111111111111111111") });
-    expect(data.length).toBe(33);
-    expect(data[0]).toBe(IX_TAG.UpdateAdmin);
+  it("encodeUpdateAdmin (tag 12) throws removedInstruction in v17", () => {
+    expect(() => encodeUpdateAdmin({ newAdmin: new PublicKey("11111111111111111111111111111111") })).toThrow(/tag 12/i);
   });
 
-  it("encodeInitLP produces 73 bytes", () => {
-    const data = encodeInitLP({ matcherProgram: PublicKey.unique(), matcherContext: PublicKey.unique(), feePayment: "1000000" });
-    expect(data.length).toBe(73);
-    expect(data[0]).toBe(IX_TAG.InitLP);
+  it("encodeInitLP (tag 2) throws removedInstruction in v17", () => {
+    expect(() => encodeInitLP({ matcherProgram: PublicKey.unique(), matcherContext: PublicKey.unique(), feePayment: "1000000" })).toThrow(/tag 2/i);
   });
 
   it("encodeInitMarket produces 219-byte payload (v17: INIT_MARKET_V17_LEN, no ext tail)", () => {
@@ -359,8 +353,9 @@ describe("truncated instruction payloads", () => {
     minNonzeroImReq: "2000",
   } as const;
 
-  // NOTE: encodeKeeperCrank, encodeUpdateConfig, encodeSetOraclePriceCap all throw in v17
-  // (removedInstruction). They are excluded from the truncated-payload test below.
+  // NOTE: encodeKeeperCrank, encodeUpdateConfig, encodeSetOraclePriceCap, encodeLiquidateAtOracle,
+  // encodeUpdateAdmin, encodeInitLP all throw removedInstruction in v17 and are excluded from
+  // the truncated-payload test below (which requires a non-throwing encoder to produce bytes).
   // TradeNoCpi/TradeCpi use v17 API (assetIndex/sizeQ/...) — not the old lpIdx/userIdx API.
   const cases: [string, () => Uint8Array][] = [
     ["InitUser", () => encodeInitUser({ feePayment: "1000000" })],
@@ -368,17 +363,8 @@ describe("truncated instruction payloads", () => {
     ["WithdrawCollateral", () => encodeWithdrawCollateral({ userIdx: 10, amount: "500000" })],
     ["TradeNoCpi", () => encodeTradeNoCpi({ assetIndex: 0, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 10n })],
     ["TradeCpi", () => encodeTradeCpi({ assetIndex: 2, sizeQ: -500n, feeBps: 10n, limitPrice: 0n })],
-    ["LiquidateAtOracle", () => encodeLiquidateAtOracle({ targetIdx: 42 })],
     ["CloseAccount", () => encodeCloseAccount({ userIdx: 100 })],
     ["TopUpInsurance", () => encodeTopUpInsurance({ amount: "5000000" })],
-    ["UpdateAdmin", () => encodeUpdateAdmin({ newAdmin: new PublicKey("11111111111111111111111111111111") })],
-    ["InitLP", () =>
-      encodeInitLP({
-        matcherProgram: PublicKey.unique(),
-        matcherContext: PublicKey.unique(),
-        feePayment: "1000000",
-      }),
-    ],
     ["InitMarket", () => encodeInitMarket(initMarketArgs)],
     ["CloseSlab", () => encodeCloseSlab()],
     ["ResolveMarket", () => encodeResolveMarket()],

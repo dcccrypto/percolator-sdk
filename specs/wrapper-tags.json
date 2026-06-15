@@ -1,5 +1,9 @@
 {
   "gaps": [
+    2,
+    7,
+    11,
+    12,
     14,
     15,
     16,
@@ -23,12 +27,10 @@
   "tags": [
     { "name": "InitMarket", "tag": 0 },
     { "name": "InitPortfolio", "tag": 1 },
-    { "name": "InitLP", "tag": 2 },
     { "name": "DepositCollateral", "tag": 3 },
     { "name": "WithdrawCollateral", "tag": 4 },
     { "name": "KeeperCrank", "tag": 5 },
     { "name": "TradeNoCpi", "tag": 6 },
-    { "name": "LiquidateAtOracle", "tag": 7 },
     { "name": "CloseAccount", "tag": 8 },
     { "name": "TopUpInsurance", "tag": 9 },
     { "name": "TradeCpi", "tag": 10 },
