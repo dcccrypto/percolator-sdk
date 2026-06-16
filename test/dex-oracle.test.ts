@@ -221,6 +221,18 @@ assertThrows(
   assert(price >= 15000n && price <= 16000n, `raydium micro-price ~15258, got ${price}`);
 }
 
+// Regression (#210): large decimal asymmetry (decimals0=18, decimals1=6). The old
+// code truncated priceE6Raw to an integer 0n BEFORE applying the 10^12 decimal scale,
+// silently returning 0n for memecoin-style assets. Must now return the scaled value.
+{
+  const sqrtPriceX64 = 1n << 50n;
+  const data = makeRaydiumClmmData(18, 6, sqrtPriceX64);
+  const price = computeDexSpotPriceE6("raydium-clmm", data);
+  // sqrt^2 * 1e6 * 10^12 >> 128 = 2^100 * 1e18 / 2^128 = 1e18 / 2^28 = 3725290298
+  assert(price > 0n, `raydium 18/6 memecoin price must be > 0 (was 0n pre-fix), got ${price}`);
+  assert(price === 3725290298n, `raydium 18/6 memecoin price exact, got ${price}`);
+}
+
 // Extreme: sqrt = 0 returns 0
 {
   const data = makeRaydiumClmmData(6, 6, 0n);
