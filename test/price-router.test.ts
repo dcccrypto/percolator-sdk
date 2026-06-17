@@ -161,6 +161,31 @@ describe("resolvePrice", () => {
     expect(result.resolvedAt).toBeTruthy();
   });
 
+  it("#222: skips a zero/invalid-price DEX pair so a valid Jupiter fallback wins bestSource", async () => {
+    const unknownMint = "UnknownMint222222222222222222222222222222222";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair-zero",
+          liquidity: { usd: 5_000_000 }, // high liquidity → would sort to the top
+          priceUsd: "0",                  // but the price is zero/invalid
+          baseToken: { symbol: "ZERO" },
+          quoteToken: { symbol: "SOL" },
+        },
+      ],
+      jupiterPrice: 1.23, // valid fallback
+    });
+
+    const result = await resolvePrice(unknownMint);
+
+    // The zero-price DEX pair must not appear as a source nor become bestSource.
+    expect(result.allSources.some((s) => s.type === "dex" && s.price <= 0)).toBe(false);
+    expect(result.bestSource).not.toBeNull();
+    expect(result.bestSource!.price).toBeGreaterThan(0);
+  });
+
   it("returns DEX source for unknown token (no Pyth)", async () => {
     const unknownMint = "UnknownMint111111111111111111111111111111111";
     mockApis({

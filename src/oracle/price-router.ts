@@ -99,6 +99,12 @@ function parseDexScreenerPairs(json: unknown): PriceSource[] {
         ? parseFloat(String(priceUsd)) || 0
         : 0;
 
+    // #222: a DEX pair with priceUsd "0" / non-numeric / missing parses to 0 here.
+    // Confidence is derived from liquidity, so a high-liquidity but zero-price pair
+    // would sort to the top and become bestSource with price 0 — outranking a valid
+    // Jupiter fallback. Skip any source without a usable positive price.
+    if (!(price > 0)) continue;
+
     let baseSym = "?";
     let quoteSym = "?";
     if (isRecord(pair.baseToken) && typeof pair.baseToken.symbol === "string") {
