@@ -204,10 +204,9 @@ describe("Signer / writable invariants", () => {
     expect(signers[0].name).toBe("user");
   });
 
-  it("LiquidateAtOracle account[0] is not signer and not writable (unused)", () => {
-    expect(ACCOUNTS_LIQUIDATE_AT_ORACLE[0].name).toBe("unused");
-    expect(ACCOUNTS_LIQUIDATE_AT_ORACLE[0].signer).toBe(false);
-    expect(ACCOUNTS_LIQUIDATE_AT_ORACLE[0].writable).toBe(false);
+  it("LiquidateAtOracle account[0] is the signing caller (on-chain expect_signer, CRIT-2)", () => {
+    expect(ACCOUNTS_LIQUIDATE_AT_ORACLE[0].name).toBe("caller");
+    expect(ACCOUNTS_LIQUIDATE_AT_ORACLE[0].signer).toBe(true);
   });
 
   it("slab is writable in all trading/state-changing instructions", () => {

@@ -120,10 +120,13 @@ export const ACCOUNTS_TRADE_NOCPI: readonly AccountSpec[] = [
 
 /**
  * LiquidateAtOracle: 4 accounts
- * Note: account[0] is unused but must be present
+ * Note: account[0] is the caller and MUST sign — the on-chain handler
+ * (handle_liquidate_at_oracle) calls expect_signer(&accounts[0]) (AUDIT CRIT-2 FIX).
+ * It was previously declared as an unsigned "unused" account, so every tx built from
+ * this spec was rejected on-chain with ExpectedSigner.
  */
 export const ACCOUNTS_LIQUIDATE_AT_ORACLE: readonly AccountSpec[] = [
-  { name: "unused", signer: false, writable: false },
+  { name: "caller", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
   { name: "clock", signer: false, writable: false },
   { name: "oracle", signer: false, writable: false },
