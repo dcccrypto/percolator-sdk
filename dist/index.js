@@ -5911,17 +5911,13 @@ function computeRaydiumClmmPriceE6(data) {
   }
   const sqrtPriceX64 = readU128LE3(dv3, 253);
   if (sqrtPriceX64 === 0n) return 0n;
-  const scaledSqrt = sqrtPriceX64 * 1000000n;
-  const term = scaledSqrt >> 64n;
-  const priceE6Raw = term * sqrtPriceX64 >> 64n;
+  const sq1e6 = sqrtPriceX64 * sqrtPriceX64 * 1000000n;
   const decimalDiff = 6 + decimals0 - decimals1;
   const adjustedDiff = decimalDiff - 6;
   if (adjustedDiff >= 0) {
-    const scale = 10n ** BigInt(adjustedDiff);
-    return priceE6Raw * scale;
+    return sq1e6 * 10n ** BigInt(adjustedDiff) >> 128n;
   } else {
-    const scale = 10n ** BigInt(-adjustedDiff);
-    return priceE6Raw / scale;
+    return sq1e6 / ((1n << 128n) * 10n ** BigInt(-adjustedDiff));
   }
 }
 var METEORA_DLMM_MIN_LEN = 145;
@@ -7637,6 +7633,7 @@ function parseDexScreenerPairs(json) {
     else if (liquidity > 1e3) confidence = 45;
     const priceUsd = pair.priceUsd;
     const price = typeof priceUsd === "string" || typeof priceUsd === "number" ? parseFloat(String(priceUsd)) || 0 : 0;
+    if (!(price > 0)) continue;
     let baseSym = "?";
     let quoteSym = "?";
     if (isRecord(pair.baseToken) && typeof pair.baseToken.symbol === "string") {
@@ -7797,11 +7794,21 @@ async function resolvePrice(mint, signal, options) {
   if (pythSource) {
     const dexPrice = dexSources[0]?.price ?? 0;
     const jupPrice = jupiterSource?.price ?? 0;
-    const refPrice = dexPrice > 0 ? dexPrice : jupPrice > 0 ? jupPrice : 0;
-    if (refPrice > 0) {
-      pythSource.price = refPrice;
-      const sourceCount = (dexPrice > 0 ? 1 : 0) + (jupPrice > 0 ? 1 : 0);
-      if (sourceCount === 1) {
+    let enrichedPrice = 0;
+    let singleSource = false;
+    if (dexPrice > 0 && jupPrice > 0) {
+      const mid = (dexPrice + jupPrice) / 2;
+      const deviation = Math.abs(dexPrice - jupPrice) / mid;
+      if (deviation <= 0.5) {
+        enrichedPrice = mid;
+      }
+    } else if (dexPrice > 0 || jupPrice > 0) {
+      enrichedPrice = dexPrice > 0 ? dexPrice : jupPrice;
+      singleSource = true;
+    }
+    if (enrichedPrice > 0) {
+      pythSource.price = enrichedPrice;
+      if (singleSource) {
         pythSource.confidence = Math.min(pythSource.confidence, 50);
       }
       allSources.push(pythSource);

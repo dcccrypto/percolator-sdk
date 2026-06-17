@@ -99,6 +99,12 @@ function parseDexScreenerPairs(json: unknown): PriceSource[] {
         ? parseFloat(String(priceUsd)) || 0
         : 0;
 
+    // #222: priceUsd of "0" / non-numeric / missing parses to 0. Confidence derives
+    // from liquidity, so a high-liquidity zero-price pair would sort to the top and
+    // become bestSource with price 0, outranking a valid Jupiter/Pyth fallback. Skip
+    // any source without a usable positive price.
+    if (!(price > 0)) continue;
+
     let baseSym = "?";
     let quoteSym = "?";
     if (isRecord(pair.baseToken) && typeof pair.baseToken.symbol === "string") {
@@ -304,14 +310,28 @@ export async function resolvePrice(
     // at crank time on devnet/mainnet.
     const dexPrice = dexSources[0]?.price ?? 0;
     const jupPrice = jupiterSource?.price ?? 0;
-    const refPrice = dexPrice > 0 ? dexPrice : jupPrice > 0 ? jupPrice : 0;
-    if (refPrice > 0) {
-      pythSource.price = refPrice;
-      // Single-source reduced-confidence cap: when exactly one external source
-      // (DEX or Jupiter, not both) is available, cap Pyth confidence at 50 to
-      // signal reduced certainty to downstream callers.
-      const sourceCount = (dexPrice > 0 ? 1 : 0) + (jupPrice > 0 ? 1 : 0);
-      if (sourceCount === 1) {
+    // #227: cross-validate the enrichment reference so a single manipulable DEX
+    // source cannot poison the Pyth price. When BOTH DEX and Jupiter are present,
+    // require agreement within 50% and use the mid; if they diverge, skip enrichment
+    // entirely (don't push a Pyth source). With exactly one source, use it at reduced
+    // confidence. Never push price=0 — encodePushOraclePrice throws on it at crank time.
+    let enrichedPrice = 0;
+    let singleSource = false;
+    if (dexPrice > 0 && jupPrice > 0) {
+      const mid = (dexPrice + jupPrice) / 2;
+      const deviation = Math.abs(dexPrice - jupPrice) / mid;
+      if (deviation <= 0.5) {
+        enrichedPrice = mid;
+      }
+      // deviation > 0.5: sources disagree → leave enrichedPrice = 0 (skip enrichment).
+      // DEX and Jupiter are still added below at their own confidence levels.
+    } else if (dexPrice > 0 || jupPrice > 0) {
+      enrichedPrice = dexPrice > 0 ? dexPrice : jupPrice;
+      singleSource = true;
+    }
+    if (enrichedPrice > 0) {
+      pythSource.price = enrichedPrice;
+      if (singleSource) {
         pythSource.confidence = Math.min(pythSource.confidence, 50);
       }
       allSources.push(pythSource);

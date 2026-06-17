@@ -191,19 +191,23 @@ function computeRaydiumClmmPriceE6(data: Uint8Array): bigint {
 
   if (sqrtPriceX64 === 0n) return 0n;
 
-  const scaledSqrt = sqrtPriceX64 * 1_000_000n;
-  const term = scaledSqrt >> 64n;
-  const priceE6Raw = (term * sqrtPriceX64) >> 64n;
+  // #210: defer truncation to a single shift at the very end. The previous form
+  // truncated twice (`>> 64` then `>> 64`) BEFORE applying the decimal scale, so for
+  // low-priced / large-decimal-asymmetry assets (e.g. decimals0=18, decimals1=6) the
+  // raw value truncated to 0n before being scaled up by 10^12 — silently returning 0n.
+  // Fold the decimal scale into the numerator/denominator and truncate exactly ONCE.
+  // BigInt is arbitrary-precision, so the squared term cannot overflow.
+  //   priceE6 = (sqrtPriceX64 / 2^64)^2 * 1e6 * 10^adjustedDiff
+  //           = sqrtPriceX64^2 * 1e6 * 10^adjustedDiff  >> 128
+  const sq1e6 = sqrtPriceX64 * sqrtPriceX64 * 1_000_000n;
 
   const decimalDiff = 6 + decimals0 - decimals1;
   const adjustedDiff = decimalDiff - 6;
 
   if (adjustedDiff >= 0) {
-    const scale = 10n ** BigInt(adjustedDiff);
-    return priceE6Raw * scale;
+    return (sq1e6 * 10n ** BigInt(adjustedDiff)) >> 128n;
   } else {
-    const scale = 10n ** BigInt(-adjustedDiff);
-    return priceE6Raw / scale;
+    return sq1e6 / ((1n << 128n) * 10n ** BigInt(-adjustedDiff));
   }
 }
 
