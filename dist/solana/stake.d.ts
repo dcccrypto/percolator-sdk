@@ -226,32 +226,43 @@ export interface StakeAccounts {
 /**
  * Build account keys for InitPool instruction.
  * Returns array of {pubkey, isSigner, isWritable} in the order the program expects.
+ *
+ * @param a - Account public keys.
+ * @param tokenProgramId - Token program to use. Defaults to `TOKEN_PROGRAM_ID`
+ *   (SPL Token). Pass `TOKEN_2022_PROGRAM_ID` if the collateral or LP mint is
+ *   owned by Token-2022.
  */
-export declare function initPoolAccounts(a: StakeAccounts['initPool']): {
+export declare function initPoolAccounts(a: StakeAccounts['initPool'], tokenProgramId?: PublicKey): {
     pubkey: PublicKey;
     isSigner: boolean;
     isWritable: boolean;
 }[];
 /**
  * Build account keys for Deposit instruction.
+ *
+ * @param tokenProgramId - Token program to use. Defaults to `TOKEN_PROGRAM_ID`.
  */
-export declare function depositAccounts(a: StakeAccounts['deposit']): {
+export declare function depositAccounts(a: StakeAccounts['deposit'], tokenProgramId?: PublicKey): {
     pubkey: PublicKey;
     isSigner: boolean;
     isWritable: boolean;
 }[];
 /**
  * Build account keys for Withdraw instruction.
+ *
+ * @param tokenProgramId - Token program to use. Defaults to `TOKEN_PROGRAM_ID`.
  */
-export declare function withdrawAccounts(a: StakeAccounts['withdraw']): {
+export declare function withdrawAccounts(a: StakeAccounts['withdraw'], tokenProgramId?: PublicKey): {
     pubkey: PublicKey;
     isSigner: boolean;
     isWritable: boolean;
 }[];
 /**
  * Build account keys for FlushToInsurance instruction.
+ *
+ * @param tokenProgramId - Token program to use. Defaults to `TOKEN_PROGRAM_ID`.
  */
-export declare function flushToInsuranceAccounts(a: StakeAccounts['flushToInsurance']): {
+export declare function flushToInsuranceAccounts(a: StakeAccounts['flushToInsurance'], tokenProgramId?: PublicKey): {
     pubkey: PublicKey;
     isSigner: boolean;
     isWritable: boolean;

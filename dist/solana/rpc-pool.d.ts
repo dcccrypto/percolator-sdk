@@ -135,6 +135,13 @@ export interface RpcPoolConfig {
      * @default true
      */
     verbose?: boolean;
+    /**
+     * Time in ms after which an unhealthy endpoint is given another chance.
+     * Prevents permanently blacklisting endpoints after transient outages.
+     * Set to 0 to disable periodic recovery.
+     * @default 60_000
+     */
+    recoveryAfterMs?: number;
 }
 /**
  * Result of an RPC health probe.
@@ -230,6 +237,7 @@ export declare class RpcPool {
     private readonly retryConfig;
     private readonly requestTimeoutMs;
     private readonly verbose;
+    private readonly recoveryAfterMs;
     /** Round-robin index tracker. */
     private rrIndex;
     /** Consecutive failure threshold before marking an endpoint unhealthy. */

@@ -175,18 +175,6 @@ export declare const SLAB_TIERS_V12_19: Record<string, {
     label: string;
     description: string;
 }>;
-/**
- * Detect the slab layout version from the raw account data length.
- * Returns the full SlabLayout descriptor, or null if the size is unrecognised.
- * Checks V12_15, V12_1_EP, V12_1, V_SETDEXPOOL, V1M2, V_ADL, V1M, V0, V1D, V1D-legacy, V1, and V1-legacy sizes.
- *
- * When `data` is provided and the size matches V1D, the version field at offset 8 is read
- * to disambiguate V2 slabs (which produce identical sizes to V1D with postBitmap=2).
- * V2 slabs have version===2 at offset 8 (u32 LE).
- *
- * @param dataLen - The slab account data length in bytes
- * @param data    - Optional raw slab data for version-field disambiguation
- */
 export declare function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout | null;
 /**
  * Legacy detectLayout for backward compat.
@@ -226,10 +214,6 @@ export interface MarketConfig {
     fundingInvScaleNotionalE6: bigint;
     fundingMaxPremiumBps: bigint;
     fundingMaxBpsPerSlot: bigint;
-    /** @deprecated Removed in V12_1 — always 0 */ fundingPremiumWeightBps: bigint;
-    /** @deprecated Removed in V12_1 — always 0 */ fundingSettlementIntervalSlots: bigint;
-    /** @deprecated Removed in V12_1 — always 0 */ fundingPremiumDampeningE6: bigint;
-    /** @deprecated Removed in V12_1 — always 0 */ fundingPremiumMaxBpsPerSlot: bigint;
     threshFloor: bigint;
     threshRiskBps: bigint;
     threshUpdateIntervalSlots: bigint;
@@ -250,6 +234,11 @@ export interface MarketConfig {
     adaptiveMaxFundingBps: bigint;
     marketCreatedSlot: bigint;
     oiRampSlots: bigint;
+    /**
+     * Slot at which the market was resolved. Currently always `0n` — the on-chain
+     * resolved state is tracked via the header's FLAG_RESOLVED bit, not the config.
+     * This field is reserved for future use; do not rely on it for resolution checks.
+     */
     resolvedSlot: bigint;
     insuranceIsolationBps: number;
     /** PERC-622: Oracle phase (0=Nascent, 1=Growing, 2=Mature) */
@@ -442,7 +431,7 @@ export interface Account {
     /** Creation slot for pending bucket. null on pre-v12.17. */
     pendingCreatedSlot: bigint | null;
 }
-export declare function fetchSlab(connection: Connection, slabPubkey: PublicKey): Promise<Uint8Array>;
+export declare function fetchSlab(connection: Connection, slabPubkey: PublicKey, expectedOwner?: PublicKey): Promise<Uint8Array>;
 export declare const RAMP_START_BPS = 1000n;
 export declare const DEFAULT_OI_RAMP_SLOTS = 432000n;
 export declare function computeEffectiveOiCapBps(config: MarketConfig, currentSlot: bigint): bigint;

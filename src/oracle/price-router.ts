@@ -317,14 +317,19 @@ export async function resolvePrice(
       if (deviation <= 0.5) {
         pythSource.price = mid;
         enriched = true;
+      } else {
+        // Sources diverge by >50% — probable manipulation of one feed.
+        // Use Jupiter (aggregated routing, harder to flash-loan) as price.
+        // Penalize confidence but keep Pyth in allSources so type-sort wins.
+        pythSource.price = jupPrice;
+        pythSource.confidence = 40;
+        enriched = true;
       }
-      // If deviation > 0.5: sources disagree — skip enrichment. The DEX and
-      // Jupiter sources are still available in allSources at their own
-      // confidence levels for callers that want them.
     } else if (dexPrice > 0 || jupPrice > 0) {
-      // Only one secondary source — use it with reduced confidence
+      // Only one secondary source — use it with reduced confidence.
+      // Capped to 70 (instead of 50) and type-priority sort ensures Pyth still wins.
       pythSource.price = dexPrice || jupPrice;
-      pythSource.confidence = Math.min(pythSource.confidence, 50);
+      pythSource.confidence = Math.min(pythSource.confidence, 70);
       enriched = true;
     }
 
@@ -341,8 +346,14 @@ export async function resolvePrice(
     allSources.push(jupiterSource);
   }
 
-  // Sort by confidence descending (already accounts for liquidity/reliability)
-  allSources.sort((a, b) => b.confidence - a.confidence);
+  // Pyth type takes priority over DEX/Jupiter regardless of confidence score.
+  // A token with a Pyth feed should never have a flash-loan-manipulable DEX
+  // spot as bestSource. Within the same type, confidence breaks the tie.
+  allSources.sort((a, b) => {
+    if (a.type === "pyth" && b.type !== "pyth") return -1;
+    if (b.type === "pyth" && a.type !== "pyth") return 1;
+    return b.confidence - a.confidence;
+  });
 
   return {
     mint,

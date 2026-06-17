@@ -444,4 +444,64 @@ describe("resolvePrice", () => {
     expect(dexIds).toContain("pumpswap");
     expect(dexIds).toContain("meteora");
   });
+
+  it("retains Pyth as bestSource with Jupiter price on DEX/Jupiter disagreement (>50%)", async () => {
+    const solMint = "So11111111111111111111111111111111111111112";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair1",
+          liquidity: { usd: 2_000_000 },
+          priceUsd: "100.0",
+          baseToken: { symbol: "SOL" },
+          quoteToken: { symbol: "USDC" },
+        },
+      ],
+      jupiterPrice: 200.0,
+    });
+
+    const result = await resolvePrice(solMint);
+
+    expect(result.bestSource).not.toBeNull();
+    expect(result.bestSource!.type).toBe("pyth");
+    expect(result.bestSource!.price).toBe(200.0);
+    expect(result.bestSource!.confidence).toBe(40);
+
+    expect(result.allSources[0].type).toBe("pyth");
+    const dexSource = result.allSources.find((s) => s.type === "dex");
+    expect(dexSource).toBeDefined();
+    expect(dexSource!.confidence).toBe(90);
+  });
+
+  it("retains Pyth as bestSource with single secondary source and confidence capped to 70", async () => {
+    const solMint = "So11111111111111111111111111111111111111112";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair1",
+          liquidity: { usd: 2_000_000 },
+          priceUsd: "150.0",
+          baseToken: { symbol: "SOL" },
+          quoteToken: { symbol: "USDC" },
+        },
+      ],
+      jupiterPrice: null,
+    });
+
+    const result = await resolvePrice(solMint);
+
+    expect(result.bestSource).not.toBeNull();
+    expect(result.bestSource!.type).toBe("pyth");
+    expect(result.bestSource!.price).toBe(150.0);
+    expect(result.bestSource!.confidence).toBe(70);
+
+    expect(result.allSources[0].type).toBe("pyth");
+    const dexSource = result.allSources.find((s) => s.type === "dex");
+    expect(dexSource).toBeDefined();
+    expect(dexSource!.confidence).toBe(90);
+  });
 });

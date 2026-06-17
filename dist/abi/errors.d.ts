@@ -2,7 +2,7 @@
  * Percolator program error definitions.
  * Each error includes a name and actionable guidance.
  */
-interface ErrorInfo {
+export interface ErrorInfo {
     name: string;
     hint: string;
 }
@@ -31,4 +31,3 @@ export declare function parseErrorFromLogs(logs: string[]): {
     name: string;
     hint?: string;
 } | null;
-export {};

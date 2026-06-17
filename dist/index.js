@@ -3,6 +3,15 @@ import { PublicKey } from "@solana/web3.js";
 var U8_MAX = 255;
 var U16_MAX = 65535;
 var U32_MAX = 4294967295;
+var DECIMAL_INT_RE = /^-?(0|[1-9]\d*)$/;
+function safeBigInt(val, caller) {
+  if (!DECIMAL_INT_RE.test(val)) {
+    throw new Error(
+      `${caller}: string must be a decimal integer (got ${JSON.stringify(val)}). Example valid inputs: "0", "123", "-456"`
+    );
+  }
+  return BigInt(val);
+}
 function encU8(val) {
   if (!Number.isInteger(val) || val < 0 || val > U8_MAX) {
     throw new Error(`encU8: value out of range (0..255), got ${val}`);
@@ -26,7 +35,7 @@ function encU32(val) {
   return buf;
 }
 function encU64(val) {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = typeof val === "string" ? safeBigInt(val, "encU64") : val;
   if (n < 0n) throw new Error("encU64: value must be non-negative");
   if (n > 0xffffffffffffffffn) throw new Error("encU64: value exceeds u64 max");
   const buf = new Uint8Array(8);
@@ -34,7 +43,7 @@ function encU64(val) {
   return buf;
 }
 function encI64(val) {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = typeof val === "string" ? safeBigInt(val, "encI64") : val;
   const min = -(1n << 63n);
   const max = (1n << 63n) - 1n;
   if (n < min || n > max) throw new Error("encI64: value out of range");
@@ -43,7 +52,7 @@ function encI64(val) {
   return buf;
 }
 function encU128(val) {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = typeof val === "string" ? safeBigInt(val, "encU128") : val;
   if (n < 0n) throw new Error("encU128: value must be non-negative");
   const max = (1n << 128n) - 1n;
   if (n > max) throw new Error("encU128: value exceeds u128 max");
@@ -56,7 +65,7 @@ function encU128(val) {
   return buf;
 }
 function encI128(val) {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = typeof val === "string" ? safeBigInt(val, "encI128") : val;
   const min = -(1n << 127n);
   const max = (1n << 127n) - 1n;
   if (n < min || n > max) throw new Error("encI128: value out of range");
@@ -405,12 +414,14 @@ function encodeKeeperCrank(args) {
   return concatBytes(...parts);
 }
 function encodeTradeNoCpi(args) {
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.TradeNoCpi),
     encU16(args.lpIdx),
     encU16(args.userIdx),
     encI128(args.size)
   );
+  if (data.length !== 21) throw new Error(`encodeTradeNoCpi: expected 21 bytes, got ${data.length}`);
+  return data;
 }
 function encodeLiquidateAtOracle(args) {
   return concatBytes(
@@ -425,13 +436,15 @@ function encodeTopUpInsurance(args) {
   return concatBytes(encU8(IX_TAG.TopUpInsurance), encU64(args.amount));
 }
 function encodeTradeCpi(args) {
-  return concatBytes(
+  const data = concatBytes(
     encU8(IX_TAG.TradeCpi),
     encU16(args.lpIdx),
     encU16(args.userIdx),
     encI128(args.size),
     encU64(args.limitPriceE6)
   );
+  if (data.length !== 29) throw new Error(`encodeTradeCpi: expected 29 bytes, got ${data.length}`);
+  return data;
 }
 function encodeTradeCpiV2(_args) {
   return removedInstruction("TradeCpiV2", IX_TAG.TradeCpiV2, "encodeTradeCpi()");
@@ -566,7 +579,9 @@ function encodeCancelQueuedWithdrawal() {
   return encU8(IX_TAG.CancelQueuedWithdrawal);
 }
 function encodeExecuteAdl(args) {
-  return concatBytes(encU8(IX_TAG.ExecuteAdl), encU16(args.targetIdx));
+  const data = concatBytes(encU8(IX_TAG.ExecuteAdl), encU16(args.targetIdx));
+  if (data.length !== 3) throw new Error(`encodeExecuteAdl: expected 3 bytes, got ${data.length}`);
+  return data;
 }
 function encodeCloseStaleSlabs() {
   return encU8(IX_TAG.CloseStaleSlabs);
@@ -1122,7 +1137,7 @@ var ACCOUNTS_FUND_MARKET_INSURANCE = [
   { name: "tokenProgram", signer: false, writable: false }
 ];
 var ACCOUNTS_SET_INSURANCE_ISOLATION = [
-  { name: "admin", signer: true, writable: false },
+  { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true }
 ];
 var ACCOUNTS_QUEUE_WITHDRAWAL = [
@@ -1276,7 +1291,7 @@ var ACCOUNTS_ATTEST_CROSS_MARGIN = [
   { name: "systemProgram", signer: false, writable: false }
 ];
 var ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK = [
-  { name: "admin", signer: true, writable: false },
+  { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true }
 ];
 var ACCOUNTS_SET_MAX_PNL_CAP = [
@@ -1342,7 +1357,7 @@ var ACCOUNTS_TRANSFER_OWNERSHIP_CPI = [
   { name: "nftProgram", signer: false, writable: false }
 ];
 var ACCOUNTS_SET_WALLET_CAP = [
-  { name: "admin", signer: true, writable: false },
+  { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true }
 ];
 var ACCOUNTS_RESCUE_ORPHAN_VAULT = [
@@ -1645,6 +1660,8 @@ var PERCOLATOR_ERRORS = {
     hint: "ADL rejected \u2014 the target position is already closed (size == 0). Re-rank and pick a different target."
   }
 };
+for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
+Object.freeze(PERCOLATOR_ERRORS);
 function decodeError(code) {
   return PERCOLATOR_ERRORS[code];
 }
@@ -1706,6 +1723,9 @@ var PROGRAM_IDS = {
     matcher: "GDK8wx38kpiSVSfGTVNiSdptX3Z5R4kQyqh6Q3QX6wmi"
   }
 };
+Object.freeze(PROGRAM_IDS.devnet);
+Object.freeze(PROGRAM_IDS.mainnet);
+Object.freeze(PROGRAM_IDS);
 function getProgramId(network) {
   const override = safeEnv("PROGRAM_ID");
   if (override) {
@@ -1971,6 +1991,7 @@ var V1_ENGINE_EMERGENCY_START_SLOT_OFF = 640;
 var V1_ENGINE_LAST_BREAKER_SLOT_OFF = 648;
 var V1_ENGINE_BITMAP_OFF = 656;
 var V1_LEGACY_ENGINE_BITMAP_OFF_ACTUAL = 672;
+var V1_LEGACY_ACCT_OWNER_OFF = 200;
 var V1D_CONFIG_LEN = 320;
 var V1D_ENGINE_OFF = 424;
 var V1D_ACCOUNT_SIZE = 248;
@@ -2424,16 +2445,22 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Lar
   const size = computeSlabSize(V1M_ENGINE_OFF, V1M_ENGINE_BITMAP_OFF, V1M_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V1M[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V1M mainnet)` };
 }
+for (const v of Object.values(SLAB_TIERS_V1M)) Object.freeze(v);
+Object.freeze(SLAB_TIERS_V1M);
 var SLAB_TIERS_V1M2 = {};
 for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]]) {
   const size = computeSlabSize(V1M2_ENGINE_OFF, V1M2_ENGINE_BITMAP_OFF, V1M2_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V1M2[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V1M2 mainnet upgraded)` };
 }
+for (const v of Object.values(SLAB_TIERS_V1M2)) Object.freeze(v);
+Object.freeze(SLAB_TIERS_V1M2);
 var SLAB_TIERS_V_ADL = {};
 for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]]) {
   const size = computeSlabSize(V_ADL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V_ADL[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V_ADL PERC-8270)` };
 }
+for (const v of Object.values(SLAB_TIERS_V_ADL)) Object.freeze(v);
+Object.freeze(SLAB_TIERS_V_ADL);
 function buildLayout(version, maxAccounts, engineOffOverride) {
   const isV0 = version === 0;
   const engineOff = engineOffOverride ?? (isV0 ? V0_ENGINE_OFF : V1_ENGINE_OFF);
@@ -2490,7 +2517,7 @@ function buildLayout(version, maxAccounts, engineOffOverride) {
     engineLastBreakerSlotOff: isV0 ? -1 : V1_ENGINE_LAST_BREAKER_SLOT_OFF,
     engineBitmapOff: actualBitmapOff,
     postBitmap: 18,
-    acctOwnerOff: ACCT_OWNER_OFF,
+    acctOwnerOff: isV1Legacy ? V1_LEGACY_ACCT_OWNER_OFF : ACCT_OWNER_OFF,
     hasInsuranceIsolation: !isV0,
     engineInsuranceIsolatedOff: isV0 ? -1 : 48,
     engineInsuranceIsolationBpsOff: isV0 ? -1 : 64
@@ -2874,11 +2901,15 @@ for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Lar
   const size = computeSlabSize(V_SETDEXPOOL_ENGINE_OFF, V_ADL_ENGINE_BITMAP_OFF, V_ADL_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V_SETDEXPOOL[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (V_SETDEXPOOL PERC-SetDexPool)` };
 }
+for (const v of Object.values(SLAB_TIERS_V_SETDEXPOOL)) Object.freeze(v);
+Object.freeze(SLAB_TIERS_V_SETDEXPOOL);
 var SLAB_TIERS_V12_1 = {};
 for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]]) {
   const size = computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, n, 18);
   SLAB_TIERS_V12_1[label.toLowerCase()] = { maxAccounts: n, dataSize: size, label, description: `${n} slots (v12.1)` };
 }
+for (const v of Object.values(SLAB_TIERS_V12_1)) Object.freeze(v);
+Object.freeze(SLAB_TIERS_V12_1);
 var SLAB_TIERS_V12_15 = {};
 for (const [label, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Medium2048", 2048], ["Large", 4096]]) {
   const size = computeSlabSize(V12_15_ENGINE_OFF, V12_15_ENGINE_BITMAP_OFF, V12_15_ACCOUNT_SIZE, n, 18);
@@ -2962,7 +2993,7 @@ function buildLayoutV12_1(maxAccounts, dataLen) {
   const hostSize = computeSlabSize(V12_1_ENGINE_OFF, V12_1_ENGINE_BITMAP_OFF, V12_1_ACCOUNT_SIZE, maxAccounts, 18);
   const isSbf = dataLen !== void 0 && dataLen !== hostSize;
   const engineOff = isSbf ? V12_1_SBF_ENGINE_OFF : V12_1_ENGINE_OFF;
-  const bitmapOff = isSbf ? V12_1_SBF_BITMAP_OFF : V12_1_ENGINE_BITMAP_OFF - V12_1_ENGINE_OFF;
+  const bitmapOff = isSbf ? V12_1_SBF_BITMAP_OFF : V12_1_ENGINE_BITMAP_OFF;
   const accountSize = isSbf ? V12_1_ACCOUNT_SIZE_SBF : V12_1_ACCOUNT_SIZE;
   const bitmapWords = Math.ceil(maxAccounts / 64);
   const bitmapBytes = bitmapWords * 8;
@@ -3284,6 +3315,18 @@ function buildLayoutV12_17(maxAccounts, dataLen) {
     configMarkEwmaOff: V0_HEADER_LEN + 304
   };
 }
+function validateLayout(l) {
+  if (l.accountsOff <= l.engineOff) {
+    throw new Error(`Layout invariant: accountsOff (${l.accountsOff}) must be > engineOff (${l.engineOff})`);
+  }
+  if (l.engineBitmapOff <= l.engineParamsOff) {
+    throw new Error(`Layout invariant: bitmapOff (${l.engineBitmapOff}) must be > paramsOff (${l.engineParamsOff})`);
+  }
+  if (l.maxAccounts < 1 || l.maxAccounts > 65536) {
+    throw new Error(`Layout invariant: maxAccounts (${l.maxAccounts}) out of range [1, 65536]`);
+  }
+  return l;
+}
 function detectSlabLayout(dataLen, data) {
   const v1219n = V12_19_SIZES.get(dataLen);
   if (v1219n !== void 0) return buildLayoutV12_19(v1219n, dataLen);
@@ -3294,31 +3337,31 @@ function detectSlabLayout(dataLen, data) {
   const v121epn = V12_1_EP_SIZES.get(dataLen);
   if (v121epn !== void 0) return buildLayoutV12_1EP(v121epn);
   const v121n = V12_1_SIZES.get(dataLen);
-  if (v121n !== void 0) return buildLayoutV12_1(v121n, dataLen);
+  if (v121n !== void 0) return validateLayout(buildLayoutV12_1(v121n, dataLen));
   const vsdpn = V_SETDEXPOOL_SIZES.get(dataLen);
-  if (vsdpn !== void 0) return buildLayoutVSetDexPool(vsdpn);
+  if (vsdpn !== void 0) return validateLayout(buildLayoutVSetDexPool(vsdpn));
   const v1m2n = V1M2_SIZES.get(dataLen);
-  if (v1m2n !== void 0) return buildLayoutV1M2(v1m2n);
+  if (v1m2n !== void 0) return validateLayout(buildLayoutV1M2(v1m2n));
   const vadln = V_ADL_SIZES.get(dataLen);
-  if (vadln !== void 0) return buildLayoutVADL(vadln);
+  if (vadln !== void 0) return validateLayout(buildLayoutVADL(vadln));
   const v1mn = V1M_SIZES.get(dataLen);
-  if (v1mn !== void 0) return buildLayoutV1M(v1mn);
+  if (v1mn !== void 0) return validateLayout(buildLayoutV1M(v1mn));
   const v0n = V0_SIZES.get(dataLen);
-  if (v0n !== void 0) return buildLayout(0, v0n);
+  if (v0n !== void 0) return validateLayout(buildLayout(0, v0n));
   const v1dn = V1D_SIZES.get(dataLen);
   if (v1dn !== void 0) {
     if (data && data.length >= 12) {
       const version = readU32LE(data, 8);
-      if (version === 2) return buildLayoutV2(v1dn);
+      if (version === 2) return validateLayout(buildLayoutV2(v1dn));
     }
-    return buildLayoutV1D(v1dn, 2);
+    return validateLayout(buildLayoutV1D(v1dn, 2));
   }
   const v1dln = V1D_SIZES_LEGACY.get(dataLen);
-  if (v1dln !== void 0) return buildLayoutV1D(v1dln, 18);
+  if (v1dln !== void 0) return validateLayout(buildLayoutV1D(v1dln, 18));
   const v1n = V1_SIZES.get(dataLen);
-  if (v1n !== void 0) return buildLayout(1, v1n);
+  if (v1n !== void 0) return validateLayout(buildLayout(1, v1n));
   const v1ln = V1_SIZES_LEGACY.get(dataLen);
-  if (v1ln !== void 0) return buildLayout(1, v1ln, V1_ENGINE_OFF_LEGACY);
+  if (v1ln !== void 0) return validateLayout(buildLayout(1, v1ln, V1_ENGINE_OFF_LEGACY));
   return null;
 }
 function detectLayout(dataLen) {
@@ -3381,10 +3424,15 @@ var AccountKind = /* @__PURE__ */ ((AccountKind2) => {
   AccountKind2[AccountKind2["LP"] = 1] = "LP";
   return AccountKind2;
 })(AccountKind || {});
-async function fetchSlab(connection, slabPubkey) {
+async function fetchSlab(connection, slabPubkey, expectedOwner) {
   const info = await connection.getAccountInfo(slabPubkey);
   if (!info) {
     throw new Error(`Slab account not found: ${slabPubkey.toBase58()}`);
+  }
+  if (expectedOwner && !info.owner.equals(expectedOwner)) {
+    throw new Error(
+      `fetchSlab: account ${slabPubkey.toBase58()} owner mismatch \u2014 expected ${expectedOwner.toBase58()}, got ${info.owner.toBase58()}`
+    );
   }
   return new Uint8Array(info.data);
 }
@@ -3488,10 +3536,6 @@ function parseConfigV12_17(data, configOff) {
     // removed in v12.17
     fundingMaxPremiumBps,
     fundingMaxBpsPerSlot,
-    fundingPremiumWeightBps: 0n,
-    fundingSettlementIntervalSlots: 0n,
-    fundingPremiumDampeningE6: 0n,
-    fundingPremiumMaxBpsPerSlot: 0n,
     threshFloor: 0n,
     // removed in v12.17
     threshRiskBps: 0n,
@@ -3561,10 +3605,6 @@ function parseConfigV12_19(data, configOff) {
     fundingInvScaleNotionalE6: 0n,
     fundingMaxPremiumBps,
     fundingMaxBpsPerSlot,
-    fundingPremiumWeightBps: 0n,
-    fundingSettlementIntervalSlots: 0n,
-    fundingPremiumDampeningE6: 0n,
-    fundingPremiumMaxBpsPerSlot: 0n,
     threshFloor: 0n,
     threshRiskBps: 0n,
     threshUpdateIntervalSlots: 0n,
@@ -3594,6 +3634,9 @@ function parseConfigV12_19(data, configOff) {
   };
 }
 function parseConfig(data, layoutHint) {
+  if (data.length >= 8 && readU64LE(data, 0) !== MAGIC) {
+    throw new Error(`parseConfig: invalid slab magic (expected PERCOLAT)`);
+  }
   const layout = layoutHint !== void 0 ? layoutHint : detectSlabLayout(data.length, data);
   const configOff = layout ? layout.configOffset : V0_HEADER_LEN;
   const configLen = layout ? layout.configLen : V0_CONFIG_LEN;
@@ -3723,10 +3766,6 @@ function parseConfig(data, layoutHint) {
     fundingInvScaleNotionalE6,
     fundingMaxPremiumBps,
     fundingMaxBpsPerSlot,
-    fundingPremiumWeightBps: 0n,
-    fundingSettlementIntervalSlots: 0n,
-    fundingPremiumDampeningE6: 0n,
-    fundingPremiumMaxBpsPerSlot: 0n,
     threshFloor,
     threshRiskBps,
     threshUpdateIntervalSlots,
@@ -3844,11 +3883,19 @@ function parseParams(data, layoutHint) {
   return result;
 }
 function parseEngine(data) {
+  if (data.length >= 8 && readU64LE(data, 0) !== MAGIC) {
+    throw new Error(`parseEngine: invalid slab magic (expected PERCOLAT)`);
+  }
   const layout = detectSlabLayout(data.length, data);
   if (!layout) {
     throw new Error(`Unrecognized slab data length: ${data.length}. Cannot determine layout version.`);
   }
   const base = layout.engineOff;
+  if (data.length < layout.accountsOff) {
+    throw new Error(
+      `parseEngine: slab data too short \u2014 got ${data.length} bytes, need at least ${layout.accountsOff} (engineOff=${base})`
+    );
+  }
   const isV12_17 = layout.accountSize === V12_17_ACCOUNT_SIZE || layout.accountSize === V12_17_ACCOUNT_SIZE_SBF;
   const isV12_15 = !isV12_17 && (layout.accountSize === V12_15_ACCOUNT_SIZE || layout.accountSize === V12_15_ACCOUNT_SIZE_SMALL) && (layout.engineOff === V12_15_ENGINE_OFF || layout.engineOff === V12_15_ENGINE_OFF_SBF);
   const isV12_19 = layout.accountSize === V12_19_ACCOUNT_SIZE_SBF;
@@ -3940,7 +3987,7 @@ function parseEngine(data) {
       isolationBps: layout.hasInsuranceIsolation ? readU16LE(data, base + layout.engineInsuranceIsolationBpsOff) : 0
     },
     currentSlot: readU64LE(data, base + layout.engineCurrentSlotOff),
-    fundingIndexQpbE6: layout.engineFundingIndexOff >= 0 ? readI128LE(data, base + layout.engineFundingIndexOff) : 0n,
+    fundingIndexQpbE6: layout.engineFundingIndexOff >= 0 ? layout.engineLastFundingSlotOff - layout.engineFundingIndexOff === 8 ? readI64LE(data, base + layout.engineFundingIndexOff) : readI128LE(data, base + layout.engineFundingIndexOff) : 0n,
     lastFundingSlot: layout.engineLastFundingSlotOff >= 0 ? readU64LE(data, base + layout.engineLastFundingSlotOff) : 0n,
     fundingRateBpsPerSlotLast,
     fundingRateE9: isV12_15 ? readI128LE(data, base + layout.engineFundingRateBpsOff) : 0n,
@@ -4583,26 +4630,25 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
     };
   }
-  const isVAdl = layout !== null && layout.engineOff === 624 && layout.accountSize === 312;
-  if (isVAdl) {
+  if (layout !== null) {
     const l = layout;
     return {
       vault: readU128LE2(data, base + 0),
       insuranceFund: {
         balance: readU128LE2(data, base + l.engineInsuranceOff),
-        feeRevenue: readU128LE2(data, base + l.engineInsuranceOff + 16),
-        isolatedBalance: readU128LE2(data, base + l.engineInsuranceIsolatedOff),
-        isolationBps: readU16LE2(data, base + l.engineInsuranceIsolationBpsOff)
+        feeRevenue: l.hasInsuranceIsolation ? readU128LE2(data, base + l.engineInsuranceOff + 16) : 0n,
+        isolatedBalance: l.engineInsuranceIsolatedOff >= 0 ? readU128LE2(data, base + l.engineInsuranceIsolatedOff) : 0n,
+        isolationBps: l.engineInsuranceIsolationBpsOff >= 0 ? readU16LE2(data, base + l.engineInsuranceIsolationBpsOff) : 0
       },
       currentSlot: readU64LE2(data, base + l.engineCurrentSlotOff),
-      fundingIndexQpbE6: readI128LE2(data, base + l.engineFundingIndexOff),
-      lastFundingSlot: readU64LE2(data, base + l.engineLastFundingSlotOff),
+      fundingIndexQpbE6: l.engineFundingIndexOff >= 0 ? readI128LE2(data, base + l.engineFundingIndexOff) : 0n,
+      lastFundingSlot: l.engineLastFundingSlotOff >= 0 ? readU64LE2(data, base + l.engineLastFundingSlotOff) : 0n,
       fundingRateBpsPerSlotLast: readI64LE2(data, base + l.engineFundingRateBpsOff),
       fundingRateE9: 0n,
       marketMode: null,
       lastCrankSlot: readU64LE2(data, base + l.engineLastCrankSlotOff),
       maxCrankStalenessSlots: readU64LE2(data, base + l.engineMaxCrankStalenessOff),
-      totalOpenInterest: readU128LE2(data, base + l.engineTotalOiOff),
+      totalOpenInterest: l.engineTotalOiOff >= 0 ? readU128LE2(data, base + l.engineTotalOiOff) : 0n,
       longOi: l.engineLongOiOff >= 0 ? readU128LE2(data, base + l.engineLongOiOff) : 0n,
       shortOi: l.engineShortOiOff >= 0 ? readU128LE2(data, base + l.engineShortOiOff) : 0n,
       cTot: readU128LE2(data, base + l.engineCTotOff),
@@ -4615,11 +4661,11 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       crankCursor: readU16LE2(data, base + l.engineCrankCursorOff),
       sweepStartIdx: readU16LE2(data, base + l.engineSweepStartIdxOff),
       lifetimeLiquidations: readU64LE2(data, base + l.engineLifetimeLiquidationsOff),
-      lifetimeForceCloses: readU64LE2(data, base + l.engineLifetimeForceClosesOff),
-      netLpPos: readI128LE2(data, base + l.engineNetLpPosOff),
-      lpSumAbs: readU128LE2(data, base + l.engineLpSumAbsOff),
-      lpMaxAbs: readU128LE2(data, base + l.engineLpMaxAbsOff),
-      lpMaxAbsSweep: readU128LE2(data, base + l.engineLpMaxAbsSweepOff),
+      lifetimeForceCloses: l.engineLifetimeForceClosesOff >= 0 ? readU64LE2(data, base + l.engineLifetimeForceClosesOff) : 0n,
+      netLpPos: l.engineNetLpPosOff >= 0 ? readI128LE2(data, base + l.engineNetLpPosOff) : 0n,
+      lpSumAbs: l.engineLpSumAbsOff >= 0 ? readU128LE2(data, base + l.engineLpSumAbsOff) : 0n,
+      lpMaxAbs: l.engineLpMaxAbsOff >= 0 ? readU128LE2(data, base + l.engineLpMaxAbsOff) : 0n,
+      lpMaxAbsSweep: l.engineLpMaxAbsSweepOff >= 0 ? readU128LE2(data, base + l.engineLpMaxAbsSweepOff) : 0n,
       emergencyOiMode: l.engineEmergencyOiModeOff >= 0 ? data[base + l.engineEmergencyOiModeOff] !== 0 : false,
       emergencyStartSlot: l.engineEmergencyStartSlotOff >= 0 ? readU64LE2(data, base + l.engineEmergencyStartSlotOff) : 0n,
       lastBreakerSlot: l.engineLastBreakerSlotOff >= 0 ? readU64LE2(data, base + l.engineLastBreakerSlotOff) : 0n,
@@ -4636,57 +4682,7 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
     };
   }
-  return {
-    vault: readU128LE2(data, base + 0),
-    insuranceFund: {
-      balance: readU128LE2(data, base + 16),
-      feeRevenue: readU128LE2(data, base + 32),
-      isolatedBalance: readU128LE2(data, base + 48),
-      isolationBps: readU16LE2(data, base + 64)
-    },
-    currentSlot: readU64LE2(data, base + 360),
-    // PERC-1094: params end at 72+288=360 (was 352)
-    fundingIndexQpbE6: readI128LE2(data, base + 368),
-    lastFundingSlot: readU64LE2(data, base + 384),
-    fundingRateBpsPerSlotLast: readI64LE2(data, base + 392),
-    fundingRateE9: 0n,
-    marketMode: null,
-    lastCrankSlot: readU64LE2(data, base + 424),
-    maxCrankStalenessSlots: readU64LE2(data, base + 408),
-    totalOpenInterest: readU128LE2(data, base + 416),
-    longOi: readU128LE2(data, base + 432),
-    shortOi: readU128LE2(data, base + 448),
-    cTot: readU128LE2(data, base + 464),
-    pnlPosTot: readU128LE2(data, base + 480),
-    pnlMaturedPosTot: 0n,
-    liqCursor: readU16LE2(data, base + 496),
-    gcCursor: readU16LE2(data, base + 498),
-    lastSweepStartSlot: readU64LE2(data, base + 504),
-    lastSweepCompleteSlot: readU64LE2(data, base + 512),
-    crankCursor: readU16LE2(data, base + 520),
-    sweepStartIdx: readU16LE2(data, base + 522),
-    lifetimeLiquidations: readU64LE2(data, base + 528),
-    lifetimeForceCloses: readU64LE2(data, base + 536),
-    netLpPos: readI128LE2(data, base + 544),
-    lpSumAbs: readU128LE2(data, base + 560),
-    lpMaxAbs: readU128LE2(data, base + 576),
-    lpMaxAbsSweep: readU128LE2(data, base + 592),
-    emergencyOiMode: data[base + 608] !== 0,
-    emergencyStartSlot: readU64LE2(data, base + 616),
-    lastBreakerSlot: readU64LE2(data, base + 624),
-    markPriceE6: readU64LE2(data, base + 400),
-    // PERC-1094: was 392
-    oraclePriceE6: 0n,
-    fLongNum: 0n,
-    fShortNum: 0n,
-    negPnlAccountCount: 0n,
-    fundPxLast: 0n,
-    resolvedKLongTerminalDelta: 0n,
-    resolvedKShortTerminalDelta: 0n,
-    resolvedLivePrice: 0n,
-    numUsedAccounts: canReadNumUsed ? readU16LE2(data, base + numUsedOff) : 0,
-    nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
-  };
+  throw new Error(`parseEngineLight: no layout descriptor available (dataSize=${data.length})`);
 }
 function isRateLimitError(err) {
   if (!err) return false;
@@ -4694,7 +4690,8 @@ function isRateLimitError(err) {
   return msg.includes("429") || msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("too many requests");
 }
 function withJitter(delayMs) {
-  return delayMs + Math.floor(Math.random() * delayMs * 0.25);
+  const half = Math.floor(delayMs / 2);
+  return half + Math.floor(Math.random() * (delayMs - half + 1));
 }
 async function discoverMarkets(connection, programId, options = {}) {
   const {
@@ -4703,7 +4700,7 @@ async function discoverMarkets(connection, programId, options = {}) {
     rateLimitBackoffMs = [1e3, 3e3, 9e3, 27e3],
     maxParallelTiers = 6
   } = options;
-  const ALL_TIERS = [
+  const ALL_TIERS_RAW = [
     ...Object.values(SLAB_TIERS),
     // v12.17 (default)
     ...Object.values(SLAB_TIERS_V12_19),
@@ -4723,6 +4720,14 @@ async function discoverMarkets(connection, programId, options = {}) {
     ...Object.values(SLAB_TIERS_V_ADL),
     ...Object.values(SLAB_TIERS_V_SETDEXPOOL)
   ];
+  const _tierBySize = /* @__PURE__ */ new Map();
+  for (const tier of ALL_TIERS_RAW) {
+    const existing = _tierBySize.get(tier.dataSize);
+    if (!existing || tier.maxAccounts > existing.maxAccounts) {
+      _tierBySize.set(tier.dataSize, { dataSize: tier.dataSize, maxAccounts: tier.maxAccounts });
+    }
+  }
+  const ALL_TIERS = [..._tierBySize.values()];
   let rawAccounts = [];
   async function fetchTierWithRetry(tier) {
     for (let attempt = 0; attempt <= rateLimitBackoffMs.length; attempt++) {
@@ -4804,10 +4809,17 @@ async function discoverMarkets(connection, programId, options = {}) {
               // base58 of TALOCREP (u64 LE magic)
             }
           }
-        ],
-        dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH }
+        ]
       });
-      rawAccounts = [...fallback].map((e) => ({ ...e, maxAccounts: 4096, dataSize: SLAB_TIERS.large.dataSize }));
+      rawAccounts = [...fallback].map((e) => {
+        const actualSize = e.account.data.length;
+        const layout = detectSlabLayout(actualSize, new Uint8Array(e.account.data));
+        return {
+          ...e,
+          maxAccounts: layout?.maxAccounts ?? 4096,
+          dataSize: actualSize
+        };
+      });
     }
   } catch (err) {
     console.warn(
@@ -4824,10 +4836,17 @@ async function discoverMarkets(connection, programId, options = {}) {
               // base58 of TALOCREP (u64 LE magic)
             }
           }
-        ],
-        dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH }
+        ]
       });
-      rawAccounts = [...fallback].map((e) => ({ ...e, maxAccounts: 4096, dataSize: SLAB_TIERS.large.dataSize }));
+      rawAccounts = [...fallback].map((e) => {
+        const actualSize = e.account.data.length;
+        const layout = detectSlabLayout(actualSize, new Uint8Array(e.account.data));
+        return {
+          ...e,
+          maxAccounts: layout?.maxAccounts ?? 4096,
+          dataSize: actualSize
+        };
+      });
     } catch (memcmpErr) {
       console.warn(
         "[discoverMarkets] memcmp fallback also failed:",
@@ -5284,13 +5303,16 @@ var STAKE_PROGRAM_IDS = {
   devnet: "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k",
   mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F"
 };
+Object.freeze(STAKE_PROGRAM_IDS);
 function getStakeProgramId(network) {
-  const override = safeEnv("STAKE_PROGRAM_ID");
-  if (override) {
-    console.warn(
-      `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
-    );
-    return new PublicKey11(override);
+  if (!network) {
+    const override = safeEnv("STAKE_PROGRAM_ID");
+    if (override) {
+      console.warn(
+        `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
+      );
+      return new PublicKey11(override);
+    }
   }
   const detectedNetwork = network ?? (() => {
     const n = safeEnv("NEXT_PUBLIC_DEFAULT_NETWORK")?.toLowerCase() ?? safeEnv("NETWORK")?.toLowerCase() ?? "";
@@ -5343,6 +5365,7 @@ var STAKE_IX = {
   /** Mark the pool as resolved after the wrapper market has been resolved directly. */
   SetMarketResolved: 18
 };
+Object.freeze(STAKE_IX);
 var TEXT2 = new TextEncoder();
 function deriveStakePool(slab, programId) {
   return PublicKey11.findProgramAddressSync(
@@ -5593,7 +5616,7 @@ function decodeDepositPda(data) {
     lpAmount: readU64LE4(data, 80)
   };
 }
-function initPoolAccounts(a) {
+function initPoolAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
   return [
     { pubkey: a.admin, isSigner: true, isWritable: true },
     { pubkey: a.slab, isSigner: false, isWritable: false },
@@ -5603,12 +5626,12 @@ function initPoolAccounts(a) {
     { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
     { pubkey: a.collateralMint, isSigner: false, isWritable: false },
     { pubkey: a.percolatorProgram, isSigner: false, isWritable: false },
-    { pubkey: TOKEN_PROGRAM_ID4, isSigner: false, isWritable: false },
+    { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: SystemProgram2.programId, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_RENT_PUBKEY2, isSigner: false, isWritable: false }
   ];
 }
-function depositAccounts(a) {
+function depositAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
   return [
     { pubkey: a.user, isSigner: true, isWritable: false },
     { pubkey: a.pool, isSigner: false, isWritable: true },
@@ -5618,12 +5641,12 @@ function depositAccounts(a) {
     { pubkey: a.userLpAta, isSigner: false, isWritable: true },
     { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
     { pubkey: a.depositPda, isSigner: false, isWritable: true },
-    { pubkey: TOKEN_PROGRAM_ID4, isSigner: false, isWritable: false },
+    { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_CLOCK_PUBKEY2, isSigner: false, isWritable: false },
     { pubkey: SystemProgram2.programId, isSigner: false, isWritable: false }
   ];
 }
-function withdrawAccounts(a) {
+function withdrawAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
   return [
     { pubkey: a.user, isSigner: true, isWritable: false },
     { pubkey: a.pool, isSigner: false, isWritable: true },
@@ -5633,11 +5656,11 @@ function withdrawAccounts(a) {
     { pubkey: a.userCollateralAta, isSigner: false, isWritable: true },
     { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
     { pubkey: a.depositPda, isSigner: false, isWritable: true },
-    { pubkey: TOKEN_PROGRAM_ID4, isSigner: false, isWritable: false },
+    { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_CLOCK_PUBKEY2, isSigner: false, isWritable: false }
   ];
 }
-function flushToInsuranceAccounts(a) {
+function flushToInsuranceAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
   return [
     { pubkey: a.caller, isSigner: true, isWritable: false },
     { pubkey: a.pool, isSigner: false, isWritable: true },
@@ -5646,7 +5669,7 @@ function flushToInsuranceAccounts(a) {
     { pubkey: a.slab, isSigner: false, isWritable: true },
     { pubkey: a.wrapperVault, isSigner: false, isWritable: true },
     { pubkey: a.percolatorProgram, isSigner: false, isWritable: false },
-    { pubkey: TOKEN_PROGRAM_ID4, isSigner: false, isWritable: false }
+    { pubkey: tokenProgramId, isSigner: false, isWritable: false }
   ];
 }
 
@@ -5660,7 +5683,7 @@ function computePnlPct(pnl, capital) {
   return pnl * 10000n / capital;
 }
 function isAdlTriggered(slabData) {
-  const layout = detectSlabLayout(slabData.length);
+  const layout = detectSlabLayout(slabData.length, slabData);
   if (!layout) return false;
   try {
     const engine = parseEngine(slabData);
@@ -5677,7 +5700,7 @@ async function fetchAdlRankedPositions(connection, slab) {
   return rankAdlPositions(data);
 }
 function rankAdlPositions(slabData) {
-  const layout = detectSlabLayout(slabData.length);
+  const layout = detectSlabLayout(slabData.length, slabData);
   let pnlPosTot = 0n;
   try {
     const engine = parseEngine(slabData);
@@ -5736,7 +5759,7 @@ function buildAdlInstruction(caller, slab, oracle, programId, targetIdx, backupO
       `buildAdlInstruction: targetIdx must be a non-negative integer, got ${targetIdx}`
     );
   }
-  const data = Buffer.from(encodeExecuteAdl({ targetIdx }));
+  const data = encodeExecuteAdl({ targetIdx });
   const keys = [
     { pubkey: caller, isSigner: true, isWritable: false },
     { pubkey: slab, isSigner: false, isWritable: true },
@@ -5803,8 +5826,26 @@ async function fetchAdlRankings(apiBase, slab, fetchFn = fetch) {
       `fetchAdlRankings: HTTP ${res.status} from ${url}${body ? ` \u2014 ${body}` : ""}`
     );
   }
-  const json = await res.json();
-  return json;
+  const obj = await res.json();
+  if (typeof obj.adlNeeded !== "boolean") {
+    throw new Error(`fetchAdlRankings: adlNeeded must be boolean, got ${typeof obj.adlNeeded}`);
+  }
+  if (typeof obj.capExceeded !== "boolean") {
+    throw new Error(`fetchAdlRankings: capExceeded must be boolean, got ${typeof obj.capExceeded}`);
+  }
+  if (typeof obj.slabAddress !== "string") {
+    throw new Error(`fetchAdlRankings: slabAddress must be string, got ${typeof obj.slabAddress}`);
+  }
+  if (typeof obj.pnlPosTot !== "string") {
+    throw new Error(`fetchAdlRankings: pnlPosTot must be string, got ${typeof obj.pnlPosTot}`);
+  }
+  if (typeof obj.maxPnlCap !== "string") {
+    throw new Error(`fetchAdlRankings: maxPnlCap must be string, got ${typeof obj.maxPnlCap}`);
+  }
+  if (!Array.isArray(obj.rankings)) {
+    throw new Error("fetchAdlRankings: API response missing rankings array");
+  }
+  return obj;
 }
 
 // src/solana/rpc-pool.ts
@@ -5862,9 +5903,11 @@ function isRetryable(err, codes) {
   if (!err) return false;
   const msg = err instanceof Error ? err.message : String(err);
   for (const code of codes) {
-    if (msg.includes(String(code))) return true;
+    const pattern = new RegExp(`(?<![0-9])${code}(?![0-9])`);
+    if (pattern.test(msg)) return true;
   }
-  if (msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("too many requests") || msg.toLowerCase().includes("econnreset") || msg.toLowerCase().includes("econnrefused") || msg.toLowerCase().includes("socket hang up") || msg.toLowerCase().includes("network") || msg.toLowerCase().includes("timeout") || msg.toLowerCase().includes("abort")) {
+  const lower = msg.toLowerCase();
+  if (lower.includes("rate limit") || lower.includes("too many requests") || lower.includes("bad gateway") || lower.includes("service unavailable") || lower.includes("econnreset") || lower.includes("econnrefused") || lower.includes("socket hang up") || lower.includes("network") || lower.includes("timeout") || lower.includes("abort")) {
     return true;
   }
   return false;
@@ -5874,8 +5917,9 @@ function computeDelay(attempt, config) {
     config.baseDelayMs * Math.pow(2, attempt),
     config.maxDelayMs
   );
-  const jitter = Math.floor(Math.random() * raw * config.jitterFactor);
-  return raw + jitter;
+  if (config.jitterFactor === 0) return raw;
+  const half = Math.floor(raw / 2);
+  return half + Math.floor(Math.random() * (raw - half + 1));
 }
 function rejectAfter(ms, message) {
   let timer;
@@ -5907,6 +5951,7 @@ var RpcPool = class _RpcPool {
   retryConfig;
   requestTimeoutMs;
   verbose;
+  recoveryAfterMs;
   /** Round-robin index tracker. */
   rrIndex = 0;
   /** Consecutive failure threshold before marking an endpoint unhealthy. */
@@ -5921,6 +5966,7 @@ var RpcPool = class _RpcPool {
     this.retryConfig = resolveRetryConfig(config.retry);
     this.requestTimeoutMs = config.requestTimeoutMs ?? 3e4;
     this.verbose = config.verbose ?? true;
+    this.recoveryAfterMs = config.recoveryAfterMs ?? 6e4;
     const commitment = config.commitment ?? "confirmed";
     this.endpoints = config.endpoints.map((raw) => {
       const ep = normalizeEndpoint(raw);
@@ -5975,16 +6021,16 @@ var RpcPool = class _RpcPool {
           fn(ep.connection),
           timeout.promise
         ]);
-        timeout.cancel();
         ep.failures = 0;
         ep.healthy = true;
+        ep.unhealthySince = void 0;
         return result;
       } catch (err) {
-        timeout.cancel();
         lastError = err;
         ep.failures++;
         if (ep.failures >= _RpcPool.UNHEALTHY_THRESHOLD) {
           ep.healthy = false;
+          ep.unhealthySince = ep.unhealthySince ?? Date.now();
           if (this.verbose) {
             console.warn(
               `[RpcPool] Endpoint ${ep.label} marked unhealthy after ${ep.failures} consecutive failures`
@@ -6014,6 +6060,8 @@ var RpcPool = class _RpcPool {
           const delay = computeDelay(attempt, this.retryConfig);
           await sleep(delay);
         }
+      } finally {
+        timeout.cancel();
       }
     }
     this.maybeRecoverEndpoints();
@@ -6061,7 +6109,10 @@ var RpcPool = class _RpcPool {
         const result = await checkRpcHealth(ep.config.url, timeoutMs);
         ep.lastLatencyMs = result.latencyMs;
         ep.healthy = result.healthy;
-        if (result.healthy) ep.failures = 0;
+        if (result.healthy) {
+          ep.failures = 0;
+          ep.unhealthySince = void 0;
+        }
         result.endpoint = redactUrl(result.endpoint);
         return result;
       })
@@ -6102,6 +6153,19 @@ var RpcPool = class _RpcPool {
    * Returns -1 if no endpoint is available.
    */
   selectEndpoint(exclude) {
+    if (this.recoveryAfterMs > 0) {
+      const now = Date.now();
+      for (const ep of this.endpoints) {
+        if (!ep.healthy && ep.unhealthySince && now - ep.unhealthySince >= this.recoveryAfterMs) {
+          ep.healthy = true;
+          ep.failures = 0;
+          ep.unhealthySince = void 0;
+          if (this.verbose) {
+            console.warn(`[RpcPool] Endpoint ${ep.label} recovered after ${this.recoveryAfterMs}ms cooldown`);
+          }
+        }
+      }
+    }
     const healthy = this.endpoints.map((ep, i) => ({ ep, i })).filter(({ ep, i }) => ep.healthy && !exclude?.has(i));
     if (healthy.length === 0) {
       const remaining = this.endpoints.map((_, i) => i).filter((i) => !exclude?.has(i));
@@ -6131,6 +6195,7 @@ var RpcPool = class _RpcPool {
       for (const ep of this.endpoints) {
         ep.healthy = true;
         ep.failures = 0;
+        ep.unhealthySince = void 0;
       }
     }
   }
@@ -6378,19 +6443,16 @@ function isLighthouseError(error) {
 }
 function isLighthouseFailureInLogs(logs) {
   if (!Array.isArray(logs)) return false;
-  let insideLighthouse = false;
+  let lighthouseDepth = 0;
   for (const line of logs) {
     if (typeof line !== "string") continue;
     if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke`)) {
-      insideLighthouse = true;
+      lighthouseDepth++;
       continue;
     }
     if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} success`)) {
-      insideLighthouse = false;
+      lighthouseDepth = Math.max(0, lighthouseDepth - 1);
       continue;
-    }
-    if (insideLighthouse && /failed/i.test(line)) {
-      return true;
     }
     if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed`)) {
       return true;
@@ -6877,6 +6939,8 @@ var PYTH_SOLANA_FEEDS = {
   // IOT
   "8bdd20f0c68bf7370a19389bbb3d17c1db7956c38efa08b2f3dd0e5db9b8c1ef": { symbol: "IOT", mint: "iotEVVZLEywoTn1QdwNPddxPWszn3zFhEot3MfL9fns" }
 };
+for (const v of Object.values(PYTH_SOLANA_FEEDS)) Object.freeze(v);
+Object.freeze(PYTH_SOLANA_FEEDS);
 var MINT_TO_PYTH_FEED = /* @__PURE__ */ new Map();
 for (const [feedId, info] of Object.entries(PYTH_SOLANA_FEEDS)) {
   MINT_TO_PYTH_FEED.set(info.mint, { feedId, symbol: info.symbol });
@@ -6954,15 +7018,38 @@ async function resolvePrice(mint, signal, options) {
   const pythSource = lookupPythSource(mint);
   const allSources = [];
   if (pythSource) {
-    const refPrice = dexSources[0]?.price || jupiterSource?.price || 0;
-    pythSource.price = refPrice;
-    allSources.push(pythSource);
+    const dexPrice = dexSources[0]?.price ?? 0;
+    const jupPrice = jupiterSource?.price ?? 0;
+    let enriched = false;
+    if (dexPrice > 0 && jupPrice > 0) {
+      const mid = (dexPrice + jupPrice) / 2;
+      const deviation = Math.abs(dexPrice - jupPrice) / mid;
+      if (deviation <= 0.5) {
+        pythSource.price = mid;
+        enriched = true;
+      } else {
+        pythSource.price = jupPrice;
+        pythSource.confidence = 40;
+        enriched = true;
+      }
+    } else if (dexPrice > 0 || jupPrice > 0) {
+      pythSource.price = dexPrice || jupPrice;
+      pythSource.confidence = Math.min(pythSource.confidence, 70);
+      enriched = true;
+    }
+    if (enriched) {
+      allSources.push(pythSource);
+    }
   }
   allSources.push(...dexSources);
   if (jupiterSource) {
     allSources.push(jupiterSource);
   }
-  allSources.sort((a, b) => b.confidence - a.confidence);
+  allSources.sort((a, b) => {
+    if (a.type === "pyth" && b.type !== "pyth") return -1;
+    if (b.type === "pyth" && a.type !== "pyth") return 1;
+    return b.confidence - a.confidence;
+  });
   return {
     mint,
     bestSource: allSources[0] || null,
