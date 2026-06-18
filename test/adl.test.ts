@@ -26,14 +26,13 @@ const CALLER = new PublicKey("SysvarC1ock11111111111111111111111111111111");
 // ---------------------------------------------------------------------------
 
 describe("buildAdlInstruction", () => {
-  // NOTE: In v17, ExecuteAdl (tag 101) was removed from the wrapper.
-  // buildAdlInstruction() calls encodeExecuteAdl() which now throws removedInstruction().
-  // These tests verify the throw behavior — not v12 byte encoding.
+  // NOTE: In v17, ExecuteAdl transaction building is unsupported.
+  // These tests verify the explicit throw behavior — not v12 byte encoding.
 
   it("throws because ExecuteAdl is removed in v17 wrapper", () => {
     expect(() =>
       buildAdlInstruction(CALLER, SLAB_KEY, ORACLE_KEY, PROGRAM_ID, 7)
-    ).toThrow("not in v17");
+    ).toThrow("not supported by the v17 SDK");
   });
 
   it("throws even with valid programId (v17 removal)", () => {
@@ -81,7 +80,7 @@ describe("buildAdlInstruction", () => {
     // In v12: would have encoded [50, 0, 1] (tag + u16 LE). In v17: always throws.
     expect(() =>
       buildAdlInstruction(CALLER, SLAB_KEY, ORACLE_KEY, PROGRAM_ID, 256)
-    ).toThrow("not in v17");
+    ).toThrow("not supported by the v17 SDK");
   });
 });
 
@@ -277,8 +276,8 @@ describe("buildAdlInstruction validation", () => {
 
   it("valid targetIdx still throws removedInstruction (ExecuteAdl removed in v17)", () => {
     const key = PublicKey.default;
-    // ExecuteAdl was removed from v17 wrapper; buildAdlInstruction propagates the throw
-    expect(() => buildAdlInstruction(key, key, key, key, 0)).toThrow("not in v17");
-    expect(() => buildAdlInstruction(key, key, key, key, 255)).toThrow("not in v17");
+    // ExecuteAdl was removed from v17 wrapper; buildAdlInstruction throws explicitly.
+    expect(() => buildAdlInstruction(key, key, key, key, 0)).toThrow("not supported by the v17 SDK");
+    expect(() => buildAdlInstruction(key, key, key, key, 255)).toThrow("not supported by the v17 SDK");
   });
 });

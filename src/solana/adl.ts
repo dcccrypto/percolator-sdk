@@ -14,8 +14,8 @@
  *  - fetchAdlRankedPositions() — fetch slab + rank all open positions by PnL%
  *  - rankAdlPositions()        — pure (no-RPC) variant for already-fetched slab bytes
  *  - isAdlTriggered()          — check if slab's pnl_pos_tot exceeds max_pnl_cap
- *  - buildAdlInstruction()     — build a single ExecuteAdl TransactionInstruction
- *  - buildAdlTransaction()     — fetch + rank + pick top target + return instruction
+ *  - buildAdlInstruction()     — unsupported in v17; throws a clear error
+ *  - buildAdlTransaction()     — unsupported in v17 when an ADL target exists
  *  - parseAdlEvent()           — decode AdlEvent from transaction log lines
  *  - fetchAdlRankings()        — call /api/adl/rankings HTTP endpoint
  *  - AdlRankedPosition         — position record with adl_rank and computed pnlPct
@@ -30,8 +30,6 @@ import {
   Connection,
   PublicKey,
   TransactionInstruction,
-  AccountMeta,
-  SYSVAR_CLOCK_PUBKEY,
 } from "@solana/web3.js";
 import {
   fetchSlab,
@@ -43,7 +41,6 @@ import {
   Account,
   SlabLayout,
 } from "./slab.js";
-import { encodeExecuteAdl } from "../abi/instructions.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +48,9 @@ import { encodeExecuteAdl } from "../abi/instructions.js";
 
 /** Position side derived from positionSize sign. */
 export type AdlSide = "long" | "short";
+
+const V17_ADL_UNSUPPORTED_MESSAGE =
+  "buildAdlInstruction: ExecuteAdl transaction building is not supported by the v17 SDK because ExecuteAdl is not accepted by the v17 wrapper. Use ranking/API helpers only, or use a version-specific SDK for deployed legacy ADL.";
 
 /**
  * A ranked open position for ADL purposes.
@@ -266,14 +266,12 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
 }
 
 /**
- * Build a single `ExecuteAdl` TransactionInstruction (tag 50, PERC-305).
+ * Unsupported in v17: `ExecuteAdl` transaction building is not available in
+ * the v17 wrapper path. The ranking, trigger-check, HTTP API, and event parser
+ * utilities remain available.
  *
- * Does NOT fetch the slab or check trigger status — use `fetchAdlRankedPositions`
- * first to determine the correct `targetIdx`.
- *
- * **Caller requirement:** The on-chain handler requires the caller to be the market
- * admin/keeper authority (`header.admin`). Passing any other signer will result in
- * `EngineUnauthorized`.
+ * This function is kept as a deprecated compatibility stub so consumers get a
+ * deterministic error instead of a lower-level removed-instruction throw.
  *
  * @param caller     - Signer — must be the market keeper/admin authority.
  * @param slab       - Slab (market) public key.
@@ -281,44 +279,22 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
  * @param programId  - Percolator program ID.
  * @param targetIdx  - Account index to deleverage (from `AdlRankedPosition.idx`).
  * @param backupOracles - Optional additional oracle accounts (non-Hyperp markets).
- *
- * @example
- * ```ts
- * import { fetchAdlRankedPositions, buildAdlInstruction } from "@percolator/sdk";
- *
- * const { longs, isTriggered } = await fetchAdlRankedPositions(connection, slabKey);
- * if (isTriggered && longs.length > 0) {
- *   const ix = buildAdlInstruction(
- *     caller.publicKey, slabKey, oracleKey, PROGRAM_ID, longs[0].idx
- *   );
- *   await sendAndConfirmTransaction(connection, new Transaction().add(ix), [caller]);
- * }
- * ```
+ * @deprecated ExecuteAdl transaction building is not supported in the v17 SDK.
  */
 export function buildAdlInstruction(
-  caller: PublicKey,
-  slab: PublicKey,
-  oracle: PublicKey,
-  programId: PublicKey,
+  _caller: PublicKey,
+  _slab: PublicKey,
+  _oracle: PublicKey,
+  _programId: PublicKey,
   targetIdx: number,
-  backupOracles: PublicKey[] = []
+  _backupOracles: PublicKey[] = []
 ): TransactionInstruction {
   if (!Number.isInteger(targetIdx) || targetIdx < 0) {
     throw new Error(
       `buildAdlInstruction: targetIdx must be a non-negative integer, got ${targetIdx}`,
     );
   }
-  const data = Buffer.from(encodeExecuteAdl({ targetIdx }));
-
-  const keys: AccountMeta[] = [
-    { pubkey: caller, isSigner: true, isWritable: false },
-    { pubkey: slab, isSigner: false, isWritable: true },
-    { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
-    { pubkey: oracle, isSigner: false, isWritable: false },
-    ...backupOracles.map(k => ({ pubkey: k, isSigner: false, isWritable: false })),
-  ];
-
-  return new TransactionInstruction({ keys, programId, data });
+  throw new Error(V17_ADL_UNSUPPORTED_MESSAGE);
 }
 
 /**

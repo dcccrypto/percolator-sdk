@@ -696,12 +696,12 @@ function encodeSetPythOracle(args) {
 }
 var PYTH_RECEIVER_PROGRAM_ID = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
 async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
-  const { PublicKey: PublicKey16 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey15 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey16.findProgramAddressSync(
+  const [pda] = PublicKey15.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey16(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey15(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -6443,10 +6443,7 @@ function flushToInsuranceAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
 }
 
 // src/solana/adl.ts
-import {
-  TransactionInstruction,
-  SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY3
-} from "@solana/web3.js";
+var V17_ADL_UNSUPPORTED_MESSAGE = "buildAdlInstruction: ExecuteAdl transaction building is not supported by the v17 SDK because ExecuteAdl is not accepted by the v17 wrapper. Use ranking/API helpers only, or use a version-specific SDK for deployed legacy ADL.";
 function computePnlPct(pnl, capital) {
   if (capital === 0n) return 0n;
   return pnl * 10000n / capital;
@@ -6522,21 +6519,13 @@ function rankAdlPositions(slabData) {
   );
   return { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap };
 }
-function buildAdlInstruction(caller, slab, oracle, programId, targetIdx, backupOracles = []) {
+function buildAdlInstruction(_caller, _slab, _oracle, _programId, targetIdx, _backupOracles = []) {
   if (!Number.isInteger(targetIdx) || targetIdx < 0) {
     throw new Error(
       `buildAdlInstruction: targetIdx must be a non-negative integer, got ${targetIdx}`
     );
   }
-  const data = Buffer.from(encodeExecuteAdl({ targetIdx }));
-  const keys = [
-    { pubkey: caller, isSigner: true, isWritable: false },
-    { pubkey: slab, isSigner: false, isWritable: true },
-    { pubkey: SYSVAR_CLOCK_PUBKEY3, isSigner: false, isWritable: false },
-    { pubkey: oracle, isSigner: false, isWritable: false },
-    ...backupOracles.map((k) => ({ pubkey: k, isSigner: false, isWritable: false }))
-  ];
-  return new TransactionInstruction({ keys, programId, data });
+  throw new Error(V17_ADL_UNSUPPORTED_MESSAGE);
 }
 async function buildAdlTransaction(connection, caller, slab, oracle, programId, preferSide, backupOracles = []) {
   const ranking = await fetchAdlRankedPositions(connection, slab);
@@ -6632,7 +6621,7 @@ async function fetchAdlRankings(apiBase, slab, fetchFn = fetch) {
 
 // src/solana/rpc-pool.ts
 import {
-  Connection as Connection5
+  Connection as Connection4
 } from "@solana/web3.js";
 async function checkRpcHealth(endpoint, timeoutMs = 5e3) {
   const start = performance.now();
@@ -6780,7 +6769,7 @@ var RpcPool = class _RpcPool {
       };
       return {
         config: ep,
-        connection: new Connection5(ep.url, connConfig),
+        connection: new Connection4(ep.url, connConfig),
         label: endpointLabel(ep),
         weight: Math.max(1, ep.weight ?? 1),
         failures: 0,
@@ -7040,12 +7029,12 @@ var _internal = {
 
 // src/runtime/tx.ts
 import {
-  TransactionInstruction as TransactionInstruction2,
+  TransactionInstruction,
   Transaction,
   ComputeBudgetProgram
 } from "@solana/web3.js";
 function buildIx(params) {
-  return new TransactionInstruction2({
+  return new TransactionInstruction({
     programId: params.programId,
     keys: params.keys,
     // TransactionInstruction types expect Buffer, but Uint8Array works at runtime.
@@ -7193,8 +7182,8 @@ function formatResult(result, jsonMode) {
 }
 
 // src/runtime/lighthouse.ts
-import { PublicKey as PublicKey14, Transaction as Transaction2 } from "@solana/web3.js";
-var LIGHTHOUSE_PROGRAM_ID = new PublicKey14(
+import { PublicKey as PublicKey13, Transaction as Transaction2 } from "@solana/web3.js";
+var LIGHTHOUSE_PROGRAM_ID = new PublicKey13(
   "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"
 );
 var LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
@@ -7453,7 +7442,7 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey15 } from "@solana/web3.js";
+import { PublicKey as PublicKey14 } from "@solana/web3.js";
 var U16_MAX2 = 65535;
 var U64_MAX = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
@@ -7494,7 +7483,7 @@ function safeBigInt(val, caller) {
 }
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey15(value);
+    return new PublicKey14(value);
   } catch {
     throw new ValidationError(
       field,

@@ -422,9 +422,8 @@ describe("buildAdlTransaction — mocked RPC (PERC-8339)", () => {
     expect(ix).toBeNull();
   });
 
-  // NOTE: In v17, ExecuteAdl (tag 101) was removed from the wrapper. buildAdlTransaction()
-  // calls buildAdlInstruction() which calls encodeExecuteAdl() which throws removedInstruction().
-  // When ADL is triggered and positions exist, the function now throws rather than returning an ix.
+  // NOTE: In v17, ExecuteAdl transaction building is unsupported. When ADL is
+  // triggered and positions exist, the function throws rather than returning an ix.
 
   it("throws when ADL is triggered and positions exist (ExecuteAdl removed in v17)", async () => {
     const slabData = buildV1SmallSlab({
@@ -439,7 +438,7 @@ describe("buildAdlTransaction — mocked RPC (PERC-8339)", () => {
 
     await expect(
       buildAdlTransaction(conn, CALLER, SLAB_KEY, ORACLE_KEY, PROGRAM_ID)
-    ).rejects.toThrow("not in v17");
+    ).rejects.toThrow("not supported by the v17 SDK");
   });
 
   it("throws for highest pnlPct long path too (ExecuteAdl removed in v17)", async () => {
@@ -456,7 +455,7 @@ describe("buildAdlTransaction — mocked RPC (PERC-8339)", () => {
 
     await expect(
       buildAdlTransaction(conn, CALLER, SLAB_KEY, ORACLE_KEY, PROGRAM_ID)
-    ).rejects.toThrow("not in v17");
+    ).rejects.toThrow("not supported by the v17 SDK");
   });
 
   it("throws for preferSide=long path too (ExecuteAdl removed in v17)", async () => {
@@ -473,7 +472,7 @@ describe("buildAdlTransaction — mocked RPC (PERC-8339)", () => {
 
     await expect(
       buildAdlTransaction(conn, CALLER, SLAB_KEY, ORACLE_KEY, PROGRAM_ID, "long")
-    ).rejects.toThrow("not in v17");
+    ).rejects.toThrow("not supported by the v17 SDK");
   });
 
   it("throws for large targetIdx too (ExecuteAdl removed in v17)", async () => {
@@ -491,7 +490,7 @@ describe("buildAdlTransaction — mocked RPC (PERC-8339)", () => {
 
     await expect(
       buildAdlTransaction(conn, CALLER, SLAB_KEY, ORACLE_KEY, PROGRAM_ID)
-    ).rejects.toThrow("not in v17");
+    ).rejects.toThrow("not supported by the v17 SDK");
   });
 });
 
