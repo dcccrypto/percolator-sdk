@@ -225,18 +225,38 @@ export async function checkRpcHealth(
   endpoint: string,
   timeoutMs: number = 5_000,
 ): Promise<RpcHealthResult> {
-  const conn = new Connection(endpoint, { commitment: "processed" });
+  // #252: probe via a raw JSON-RPC fetch instead of `new Connection(endpoint)`. Each
+  // Connection instantiates a WebSocket RPC client; creating one per health probe (e.g.
+  // in a polling loop) accumulated WS clients/sockets → file-descriptor exhaustion. A
+  // plain fetch holds no persistent resources and is auto-aborted by AbortSignal.timeout.
   const start = performance.now();
-
-  const timeout = rejectAfter<number>(timeoutMs, `Health probe timed out after ${timeoutMs}ms`);
   try {
-    const slot = await Promise.race([
-      conn.getSlot("processed"),
-      timeout.promise,
-    ]);
-
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getSlot",
+        params: [{ commitment: "processed" }],
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
     const latencyMs = Math.round(performance.now() - start);
-    return { endpoint, healthy: true, latencyMs, slot };
+    if (!res.ok) {
+      return { endpoint, healthy: false, latencyMs, slot: 0, error: `HTTP ${res.status}` };
+    }
+    const json = (await res.json()) as { result?: unknown; error?: { message?: string } };
+    if (json?.error || typeof json?.result !== "number") {
+      return {
+        endpoint,
+        healthy: false,
+        latencyMs,
+        slot: 0,
+        error: json?.error?.message ?? "invalid getSlot response",
+      };
+    }
+    return { endpoint, healthy: true, latencyMs, slot: json.result };
   } catch (err) {
     const latencyMs = Math.round(performance.now() - start);
     return {
@@ -246,8 +266,6 @@ export async function checkRpcHealth(
       slot: 0,
       error: err instanceof Error ? err.message : String(err),
     };
-  } finally {
-    timeout.cancel();
   }
 }
 
@@ -292,6 +310,12 @@ function endpointLabel(ep: RpcEndpointConfig): string {
 
 function isRetryable(err: unknown, codes: number[]): boolean {
   if (!err) return false;
+  // #248: a deliberately-aborted request (AbortSignal — caller cancellation OR a timeout
+  // attached via AbortSignal.timeout) must NOT be retried; retrying ignores the
+  // cancellation/timeout and can spin into an infinite retry loop. Detect the abort/timeout
+  // error shapes by name BEFORE any substring match below.
+  const errName = (err as { name?: unknown })?.name;
+  if (errName === "AbortError" || errName === "TimeoutError") return false;
   const msg = err instanceof Error ? err.message : String(err);
   for (const code of codes) {
     const pattern = new RegExp(`(?<![0-9])${code}(?![0-9])`);
@@ -309,7 +333,10 @@ function isRetryable(err: unknown, codes: number[]): boolean {
     lower.includes("socket hang up") ||
     lower.includes("network") ||
     lower.includes("timeout") ||
-    lower.includes("abort")
+    // #248: only a genuine connection-abort network error (ECONNABORTED) is retryable.
+    // The broad "abort" substring previously also matched deliberate AbortSignal/timeout
+    // cancellations (handled by the name check above) → infinite retry.
+    lower.includes("econnaborted")
   ) {
     return true;
   }

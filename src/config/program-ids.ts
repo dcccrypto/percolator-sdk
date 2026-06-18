@@ -66,12 +66,18 @@ export type Network = "devnet" | "mainnet";
  * 3. Devnet default (safest fallback — bug bounty PERC-697)
  */
 export function getProgramId(network?: Network): PublicKey {
-  const override = safeEnv("PROGRAM_ID");
-  if (override) {
-    console.warn(
-      `[percolator-sdk] PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
-    );
-    return new PublicKey(override);
+  // #249: an explicit `network` argument is authoritative and must NOT be silently
+  // overridden by the PROGRAM_ID env var. The env override applies ONLY when the caller
+  // did not specify a network (ambient/default resolution) — so e.g. getProgramId("mainnet")
+  // always returns the canonical mainnet id regardless of a stale PROGRAM_ID env.
+  if (network === undefined) {
+    const override = safeEnv("PROGRAM_ID");
+    if (override) {
+      console.warn(
+        `[percolator-sdk] PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
+      );
+      return new PublicKey(override);
+    }
   }
 
   // Use provided network or detect from env — default to devnet (never mainnet silently)
@@ -86,12 +92,15 @@ export function getProgramId(network?: Network): PublicKey {
  * Get the Matcher program ID for the current network
  */
 export function getMatcherProgramId(network?: Network): PublicKey {
-  const override = safeEnv("MATCHER_PROGRAM_ID");
-  if (override) {
-    console.warn(
-      `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
-    );
-    return new PublicKey(override);
+  // #249: explicit `network` is authoritative — env override applies only when unspecified.
+  if (network === undefined) {
+    const override = safeEnv("MATCHER_PROGRAM_ID");
+    if (override) {
+      console.warn(
+        `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
+      );
+      return new PublicKey(override);
+    }
   }
 
   // Use provided network or detect from env — default to devnet (never mainnet silently)

@@ -2041,12 +2041,14 @@ var PROGRAM_IDS_V17 = {
 Object.freeze(PROGRAM_IDS_V17);
 var PROGRAM_ID_V17 = new PublicKey3(PROGRAM_IDS_V17.percolator);
 function getProgramId(network) {
-  const override = safeEnv("PROGRAM_ID");
-  if (override) {
-    console.warn(
-      `[percolator-sdk] PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
-    );
-    return new PublicKey3(override);
+  if (network === void 0) {
+    const override = safeEnv("PROGRAM_ID");
+    if (override) {
+      console.warn(
+        `[percolator-sdk] PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
+      );
+      return new PublicKey3(override);
+    }
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
@@ -2054,12 +2056,14 @@ function getProgramId(network) {
   return new PublicKey3(programId);
 }
 function getMatcherProgramId(network) {
-  const override = safeEnv("MATCHER_PROGRAM_ID");
-  if (override) {
-    console.warn(
-      `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
-    );
-    return new PublicKey3(override);
+  if (network === void 0) {
+    const override = safeEnv("MATCHER_PROGRAM_ID");
+    if (override) {
+      console.warn(
+        `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
+      );
+      return new PublicKey3(override);
+    }
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
@@ -6615,16 +6619,34 @@ import {
   Connection as Connection5
 } from "@solana/web3.js";
 async function checkRpcHealth(endpoint, timeoutMs = 5e3) {
-  const conn = new Connection5(endpoint, { commitment: "processed" });
   const start = performance.now();
-  const timeout = rejectAfter(timeoutMs, `Health probe timed out after ${timeoutMs}ms`);
   try {
-    const slot = await Promise.race([
-      conn.getSlot("processed"),
-      timeout.promise
-    ]);
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getSlot",
+        params: [{ commitment: "processed" }]
+      }),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
     const latencyMs = Math.round(performance.now() - start);
-    return { endpoint, healthy: true, latencyMs, slot };
+    if (!res.ok) {
+      return { endpoint, healthy: false, latencyMs, slot: 0, error: `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    if (json?.error || typeof json?.result !== "number") {
+      return {
+        endpoint,
+        healthy: false,
+        latencyMs,
+        slot: 0,
+        error: json?.error?.message ?? "invalid getSlot response"
+      };
+    }
+    return { endpoint, healthy: true, latencyMs, slot: json.result };
   } catch (err) {
     const latencyMs = Math.round(performance.now() - start);
     return {
@@ -6634,8 +6656,6 @@ async function checkRpcHealth(endpoint, timeoutMs = 5e3) {
       slot: 0,
       error: err instanceof Error ? err.message : String(err)
     };
-  } finally {
-    timeout.cancel();
   }
 }
 function resolveRetryConfig(cfg) {
@@ -6663,13 +6683,18 @@ function endpointLabel(ep) {
 }
 function isRetryable(err, codes) {
   if (!err) return false;
+  const errName = err?.name;
+  if (errName === "AbortError" || errName === "TimeoutError") return false;
   const msg = err instanceof Error ? err.message : String(err);
   for (const code of codes) {
     const pattern = new RegExp(`(?<![0-9])${code}(?![0-9])`);
     if (pattern.test(msg)) return true;
   }
   const lower = msg.toLowerCase();
-  if (lower.includes("rate limit") || lower.includes("too many requests") || lower.includes("bad gateway") || lower.includes("service unavailable") || lower.includes("econnreset") || lower.includes("econnrefused") || lower.includes("socket hang up") || lower.includes("network") || lower.includes("timeout") || lower.includes("abort")) {
+  if (lower.includes("rate limit") || lower.includes("too many requests") || lower.includes("bad gateway") || lower.includes("service unavailable") || lower.includes("econnreset") || lower.includes("econnrefused") || lower.includes("socket hang up") || lower.includes("network") || lower.includes("timeout") || // #248: only a genuine connection-abort network error (ECONNABORTED) is retryable.
+  // The broad "abort" substring previously also matched deliberate AbortSignal/timeout
+  // cancellations (handled by the name check above) → infinite retry.
+  lower.includes("econnaborted")) {
     return true;
   }
   return false;
