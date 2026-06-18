@@ -131,7 +131,7 @@ const keys = buildAccountMetas(ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK, [
 ]);
 const ix = buildIx({ programId, keys, data });
 
-const result = await simulateOrSend({ connection, ix, signers: [admin] });
+const result = await simulateOrSend({ connection, ix, signers: [admin], simulate: true });
 console.log("signature:", result.signature);
 ```
 
@@ -158,7 +158,7 @@ const keys = buildAccountMetas(ACCOUNTS_SET_ORACLE_AUTHORITY, [
 ]);
 const ix = buildIx({ programId, keys, data });
 
-await simulateOrSend({ connection, ix, signers: [admin] });
+await simulateOrSend({ connection, ix, signers: [admin], simulate: true });
 
 // Revoke — fall back to Pyth/Chainlink
 const revokeData = encodeSetOracleAuthority({ newAuthority: PublicKey.default });
