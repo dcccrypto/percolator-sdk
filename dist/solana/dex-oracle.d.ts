@@ -46,4 +46,7 @@ export declare function parseDexPool(dexType: DexType, poolAddress: PublicKey, d
 export declare function computeDexSpotPriceE6(dexType: DexType, data: Uint8Array, vaultData?: {
     base: Uint8Array;
     quote: Uint8Array;
+}, decimals?: {
+    base: number;
+    quote: number;
 }): bigint;

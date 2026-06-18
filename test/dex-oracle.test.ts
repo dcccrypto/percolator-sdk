@@ -311,14 +311,14 @@ assertThrows(
 // active_id = 0 → price = 1.0 → price_e6 = 1_000_000
 {
   const data = makeMeteoraData(10, 0);
-  const price = computeDexSpotPriceE6("meteora-dlmm", data);
+  const price = computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: 6 });
   assert(price === 1_000_000n, `meteora activeId=0: expected 1000000, got ${price}`);
 }
 
 // Positive active_id: price = (1 + 10/10000)^100 = 1.001^100 ≈ 1.10511
 {
   const data = makeMeteoraData(10, 100);
-  const price = computeDexSpotPriceE6("meteora-dlmm", data);
+  const price = computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: 6 });
   // Should be approximately 1_105_116 (1.105116 * 1e6)
   assert(price >= 1_100_000n && price <= 1_110_000n, `meteora positive activeId ~1105116, got ${price}`);
 }
@@ -326,57 +326,80 @@ assertThrows(
 // Negative active_id: price = 1 / (1.001^100) ≈ 0.90484
 {
   const data = makeMeteoraData(10, -100);
-  const price = computeDexSpotPriceE6("meteora-dlmm", data);
+  const price = computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: 6 });
   assert(price >= 900_000n && price <= 910_000n, `meteora negative activeId ~904837, got ${price}`);
 }
 
 // Zero bin_step returns 0
 {
   const data = makeMeteoraData(0, 100);
-  const price = computeDexSpotPriceE6("meteora-dlmm", data);
+  const price = computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: 6 });
   assert(price === 0n, "meteora zero bin_step returns 0");
 }
 
 // Large positive exponent
 {
   const data = makeMeteoraData(1, 10000);
-  const price = computeDexSpotPriceE6("meteora-dlmm", data);
+  const price = computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: 6 });
   // (1 + 1/10000)^10000 ≈ e ≈ 2.718 → price_e6 ≈ 2_718_281
   assert(price >= 2_700_000n && price <= 2_730_000n, `meteora large exp ~2718281, got ${price}`);
 }
 
 // Data too short
 assertThrows(
-  () => computeDexSpotPriceE6("meteora-dlmm", new Uint8Array(50)),
+  () => computeDexSpotPriceE6("meteora-dlmm", new Uint8Array(50), undefined, { base: 6, quote: 6 }),
   "too short",
   "meteora data too short"
 );
 
+// #226: token-decimal adjustment — asymmetric decimals scale by 10^(decBase-decQuote).
+{
+  // activeId=0 → atomic price 1.0; base=9, quote=6 → diff +3 → price_e6 = 1e6 * 10^3.
+  const data = makeMeteoraData(10, 0);
+  const up = computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 9, quote: 6 });
+  assert(up === 1_000_000_000n, `meteora decimals +3: expected 1000000000, got ${up}`);
+  // base=6, quote=9 → diff -3 → price_e6 = 1e6 / 10^3 = 1000.
+  const down = computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: 9 });
+  assert(down === 1_000n, `meteora decimals -3: expected 1000, got ${down}`);
+  // decimals out of range rejected.
+  assertThrows(
+    () => computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 99, quote: 6 }),
+    "out of range",
+    "meteora decimals out of range"
+  );
+  // missing decimals rejected.
+  assertThrows(
+    () => computeDexSpotPriceE6("meteora-dlmm", data),
+    "requires decimals",
+    "meteora requires decimals"
+  );
+}
+
 // Reject binStep > 10000 (resource exhaustion prevention)
 assertThrows(
-  () => computeDexSpotPriceE6("meteora-dlmm", makeMeteoraData(10001, 100)),
+  () => computeDexSpotPriceE6("meteora-dlmm", makeMeteoraData(10001, 100), undefined, { base: 6, quote: 6 }),
   "binStep",
   "meteora reject binStep=10001"
 );
 assertThrows(
-  () => computeDexSpotPriceE6("meteora-dlmm", makeMeteoraData(65535, 100)),
+  () => computeDexSpotPriceE6("meteora-dlmm", makeMeteoraData(65535, 100), undefined, { base: 6, quote: 6 }),
   "binStep",
   "meteora reject binStep=65535"
 );
 
 // Reject |activeId| > 500000 (resource exhaustion prevention)
 assertThrows(
-  () => computeDexSpotPriceE6("meteora-dlmm", makeMeteoraData(10, 500001)),
+  () => computeDexSpotPriceE6("meteora-dlmm", makeMeteoraData(10, 500001), undefined, { base: 6, quote: 6 }),
   "activeId",
   "meteora reject activeId=500001"
 );
 assertThrows(
-  () => computeDexSpotPriceE6("meteora-dlmm", makeMeteoraData(10, -500001)),
+  () => computeDexSpotPriceE6("meteora-dlmm", makeMeteoraData(10, -500001), undefined, { base: 6, quote: 6 }),
   "activeId",
   "meteora reject activeId=-500001"
 );
 assertThrows(
-  () => computeDexSpotPriceE6("meteora-dlmm", makeMeteoraData(10, 2_000_000_000)),
+  () => computeDexSpotPriceE6("meteora-dlmm", makeMeteoraData(10, 2_000_000_000), undefined, { base: 6, quote: 6 }),
   "activeId",
   "meteora reject activeId=2B"
 );
@@ -384,7 +407,7 @@ assertThrows(
 // Accept boundary values
 {
   const data = makeMeteoraData(10000, 0);
-  const price = computeDexSpotPriceE6("meteora-dlmm", data);
+  const price = computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: 6 });
   assert(price === 1_000_000n, `meteora binStep=10000 activeId=0 should work, got ${price}`);
 }
 

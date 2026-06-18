@@ -75,6 +75,7 @@ export function computeDexSpotPriceE6(
   dexType: DexType,
   data: Uint8Array,
   vaultData?: { base: Uint8Array; quote: Uint8Array },
+  decimals?: { base: number; quote: number },
 ): bigint {
   switch (dexType) {
     case "pumpswap":
@@ -83,7 +84,13 @@ export function computeDexSpotPriceE6(
     case "raydium-clmm":
       return computeRaydiumClmmPriceE6(data);
     case "meteora-dlmm":
-      return computeMeteoraDlmmPriceE6(data);
+      // #226: Meteora's LbPair does not store token decimals inline, so the caller MUST
+      // supply them (fetched from the base/quote mints). Without the decimal adjustment
+      // the mark price is wrong by 10^(decBase-decQuote) → mass mispricing/liquidations.
+      if (!decimals) {
+        throw new Error("Meteora DLMM requires decimals { base, quote } (mint decimals)");
+      }
+      return computeMeteoraDlmmPriceE6(data, decimals.base, decimals.quote);
   }
 }
 
@@ -246,9 +253,18 @@ function parseMeteoraPool(poolAddress: PublicKey, data: Uint8Array): DexPoolInfo
 const MAX_BIN_STEP = 10_000;
 const MAX_ACTIVE_ID_ABS = 500_000;
 
-function computeMeteoraDlmmPriceE6(data: Uint8Array): bigint {
+function computeMeteoraDlmmPriceE6(
+  data: Uint8Array,
+  decimalsBase: number,
+  decimalsQuote: number,
+): bigint {
   if (data.length < METEORA_DLMM_MIN_LEN) {
     throw new Error(`Meteora DLMM data too short: ${data.length} < ${METEORA_DLMM_MIN_LEN}`);
+  }
+  if (decimalsBase > MAX_TOKEN_DECIMALS || decimalsQuote > MAX_TOKEN_DECIMALS) {
+    throw new Error(
+      `Meteora DLMM: decimals out of range (${decimalsBase}, ${decimalsQuote}); max ${MAX_TOKEN_DECIMALS}`,
+    );
   }
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
@@ -284,11 +300,29 @@ function computeMeteoraDlmmPriceE6(data: Uint8Array): bigint {
     }
   }
 
+  // #226: the bin formula yields the price of ONE ATOMIC base unit in ATOMIC quote
+  // units (lamport-per-lamport), exactly like Raydium's sqrt_price. Convert to a
+  // human/E6 price by multiplying by 10^(decimalsBase - decimalsQuote) — without this
+  // the mark price is wrong by that factor for any pair with asymmetric decimals.
+  // Apply the decimal scale and divide ONCE at the end (deferred truncation, like the
+  // Raydium #210 fix) so sub-1e-6 micro-prices aren't truncated to 0n. BigInt is
+  // arbitrary-precision, so the intermediate products cannot overflow.
+  const diff = decimalsBase - decimalsQuote;
+
   if (isNeg) {
     if (result === 0n) return 0n;
-    return (SCALE * 1_000_000n) / result;
+    // price_e6 = (1e24 / result) * 10^diff   [1e24 = 1e18 (inverse) * 1e6 (e6 scale)]
+    const num = 1_000_000_000_000_000_000_000_000n; // 1e24
+    if (diff >= 0) {
+      return (num * 10n ** BigInt(diff)) / result;
+    }
+    return num / (result * 10n ** BigInt(-diff));
   } else {
-    return result / 1_000_000_000_000n; // 1e18 → 1e6
+    // price_e6 = (result / 1e12) * 10^diff
+    if (diff >= 0) {
+      return (result * 10n ** BigInt(diff)) / 1_000_000_000_000n;
+    }
+    return result / (1_000_000_000_000n * 10n ** BigInt(-diff));
   }
 }
 
