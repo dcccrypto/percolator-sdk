@@ -52,6 +52,9 @@ export const PROGRAM_IDS_V17 = {
 } as const;
 Object.freeze(PROGRAM_IDS_V17);
 
+/** True only after canonical v17 wrapper IDs have replaced the placeholders above. */
+export const V17_PROGRAMS_DEPLOYED = false;
+
 /** The v17 wrapper placeholder PublicKey. Use only before mainnet cutover. */
 export const PROGRAM_ID_V17 = new PublicKey(PROGRAM_IDS_V17.percolator);
 
@@ -83,6 +86,11 @@ export function getProgramId(network?: Network): PublicKey {
   // Use provided network or detect from env — default to devnet (never mainnet silently)
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
+  if (!V17_PROGRAMS_DEPLOYED) {
+    throw new Error(
+      `Percolator v17 program is not deployed for ${targetNetwork}; refusing to return a legacy program ID for v17 SDK encoders. Set PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`,
+    );
+  }
   const programId = PROGRAM_IDS[targetNetwork].percolator;
 
   return new PublicKey(programId);
@@ -106,6 +114,11 @@ export function getMatcherProgramId(network?: Network): PublicKey {
   // Use provided network or detect from env — default to devnet (never mainnet silently)
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
+  if (!V17_PROGRAMS_DEPLOYED) {
+    throw new Error(
+      `Percolator v17 matcher program is not deployed for ${targetNetwork}; refusing to return a legacy matcher program ID for v17 SDK encoders. Set MATCHER_PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`,
+    );
+  }
   const programId = PROGRAM_IDS[targetNetwork].matcher;
 
   if (!programId) {

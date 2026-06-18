@@ -35,6 +35,8 @@ export declare const PROGRAM_IDS_V17: {
     /** v17 stake placeholder. */
     readonly stake: "Per5taTe111111111111111111111111111111111111";
 };
+/** True only after canonical v17 wrapper IDs have replaced the placeholders above. */
+export declare const V17_PROGRAMS_DEPLOYED = false;
 /** The v17 wrapper placeholder PublicKey. Use only before mainnet cutover. */
 export declare const PROGRAM_ID_V17: PublicKey;
 export type Network = "devnet" | "mainnet";

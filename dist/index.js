@@ -2039,6 +2039,7 @@ var PROGRAM_IDS_V17 = {
   stake: "Per5taTe111111111111111111111111111111111111"
 };
 Object.freeze(PROGRAM_IDS_V17);
+var V17_PROGRAMS_DEPLOYED = false;
 var PROGRAM_ID_V17 = new PublicKey3(PROGRAM_IDS_V17.percolator);
 function getProgramId(network) {
   if (network === void 0) {
@@ -2052,6 +2053,11 @@ function getProgramId(network) {
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
+  if (!V17_PROGRAMS_DEPLOYED) {
+    throw new Error(
+      `Percolator v17 program is not deployed for ${targetNetwork}; refusing to return a legacy program ID for v17 SDK encoders. Set PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`
+    );
+  }
   const programId = PROGRAM_IDS[targetNetwork].percolator;
   return new PublicKey3(programId);
 }
@@ -2067,6 +2073,11 @@ function getMatcherProgramId(network) {
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
+  if (!V17_PROGRAMS_DEPLOYED) {
+    throw new Error(
+      `Percolator v17 matcher program is not deployed for ${targetNetwork}; refusing to return a legacy matcher program ID for v17 SDK encoders. Set MATCHER_PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`
+    );
+  }
   const programId = PROGRAM_IDS[targetNetwork].matcher;
   if (!programId) {
     throw new Error(`Matcher program not deployed on ${targetNetwork}`);
@@ -8040,6 +8051,7 @@ export {
   V17_MARKET_GROUP_LEN,
   V17_MARKET_GROUP_OFF,
   V17_PORTFOLIO_ACCOUNT_LEN,
+  V17_PROGRAMS_DEPLOYED,
   V17_SLAB_MAGIC,
   V17_WRAPPER_CONFIG_LEN,
   VAMM_MAGIC,

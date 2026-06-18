@@ -1,11 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { PublicKey } from "@solana/web3.js";
 import {
   safeEnv,
   getProgramId,
   getMatcherProgramId,
   getCurrentNetwork,
-  PROGRAM_IDS,
 } from "../src/config/program-ids.js";
 
 describe("safeEnv", () => {
@@ -21,29 +20,64 @@ describe("safeEnv", () => {
 });
 
 describe("getProgramId", () => {
-  it("returns a valid PublicKey for devnet", () => {
-    const pk = getProgramId("devnet");
-    expect(pk).toBeInstanceOf(PublicKey);
-    expect(pk.toBase58()).toBe(PROGRAM_IDS.devnet.percolator);
+  it("fails closed for devnet while v17 program ids are placeholders", () => {
+    expect(() => getProgramId("devnet")).toThrow(/v17 program is not deployed/i);
   });
 
-  it("returns a valid PublicKey for mainnet", () => {
-    const pk = getProgramId("mainnet");
-    expect(pk).toBeInstanceOf(PublicKey);
-    expect(pk.toBase58()).toBe(PROGRAM_IDS.mainnet.percolator);
+  it("fails closed for mainnet while v17 program ids are placeholders", () => {
+    expect(() => getProgramId("mainnet")).toThrow(/v17 program is not deployed/i);
   });
 
-  it("defaults to devnet when no network is specified", () => {
-    const pk = getProgramId();
-    expect(pk.toBase58()).toBe(PROGRAM_IDS.devnet.percolator);
+  it("defaults to devnet but refuses to return a legacy program id", () => {
+    const saved = process.env.NETWORK;
+    delete process.env.NETWORK;
+    try {
+      expect(() => getProgramId()).toThrow(/devnet/);
+    } finally {
+      if (saved !== undefined) process.env.NETWORK = saved;
+    }
+  });
+
+  it("allows an explicit PROGRAM_ID override for trusted v17 deployments", () => {
+    const saved = process.env.PROGRAM_ID;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const override = PublicKey.unique().toBase58();
+    process.env.PROGRAM_ID = override;
+    try {
+      const pk = getProgramId();
+      expect(pk).toBeInstanceOf(PublicKey);
+      expect(pk.toBase58()).toBe(override);
+    } finally {
+      warn.mockRestore();
+      if (saved === undefined) delete process.env.PROGRAM_ID;
+      else process.env.PROGRAM_ID = saved;
+    }
   });
 });
 
 describe("getMatcherProgramId", () => {
-  it("returns a valid PublicKey for devnet", () => {
-    const pk = getMatcherProgramId("devnet");
-    expect(pk).toBeInstanceOf(PublicKey);
-    expect(pk.toBase58()).toBe(PROGRAM_IDS.devnet.matcher);
+  it("fails closed for devnet while v17 matcher program ids are placeholders", () => {
+    expect(() => getMatcherProgramId("devnet")).toThrow(/v17 matcher program is not deployed/i);
+  });
+
+  it("fails closed for mainnet while v17 matcher program ids are placeholders", () => {
+    expect(() => getMatcherProgramId("mainnet")).toThrow(/v17 matcher program is not deployed/i);
+  });
+
+  it("allows an explicit MATCHER_PROGRAM_ID override for trusted v17 deployments", () => {
+    const saved = process.env.MATCHER_PROGRAM_ID;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const override = PublicKey.unique().toBase58();
+    process.env.MATCHER_PROGRAM_ID = override;
+    try {
+      const pk = getMatcherProgramId();
+      expect(pk).toBeInstanceOf(PublicKey);
+      expect(pk.toBase58()).toBe(override);
+    } finally {
+      warn.mockRestore();
+      if (saved === undefined) delete process.env.MATCHER_PROGRAM_ID;
+      else process.env.MATCHER_PROGRAM_ID = saved;
+    }
   });
 });
 
