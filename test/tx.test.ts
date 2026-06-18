@@ -72,6 +72,21 @@ describe("simulateOrSend", () => {
     expect(result.logs).toEqual([]);
   });
 
+  it("requires callers to explicitly choose simulate or send mode", async () => {
+    const conn = makeMockConnection();
+    await expect(
+      simulateOrSend({
+        connection: conn,
+        ix: dummyIx,
+        signers: [Keypair.generate()],
+      } as Parameters<typeof simulateOrSend>[0]),
+    ).rejects.toThrow("simulate must be explicitly set");
+
+    expect(conn.getLatestBlockhash).not.toHaveBeenCalled();
+    expect(conn.simulateTransaction).not.toHaveBeenCalled();
+    expect(conn.sendTransaction).not.toHaveBeenCalled();
+  });
+
   it("parses on-chain error from simulation logs", async () => {
     const conn = makeMockConnection({
       simulateTransaction: vi.fn().mockResolvedValue({

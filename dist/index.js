@@ -7056,6 +7056,9 @@ function buildIx(params) {
 var MAX_COMPUTE_UNIT_LIMIT = 14e5;
 async function simulateOrSend(params) {
   const { connection, ix, signers, simulate, commitment = "confirmed", computeUnitLimit } = params;
+  if (typeof simulate !== "boolean") {
+    throw new Error("simulateOrSend: simulate must be explicitly set to true or false");
+  }
   if (!signers.length) {
     throw new Error("simulateOrSend: at least one signer is required");
   }
