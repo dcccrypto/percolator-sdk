@@ -5848,7 +5848,7 @@ function parseDexPool(dexType, poolAddress, data) {
       return parseMeteoraPool(poolAddress, data);
   }
 }
-function computeDexSpotPriceE6(dexType, data, vaultData) {
+function computeDexSpotPriceE6(dexType, data, vaultData, decimals) {
   switch (dexType) {
     case "pumpswap":
       if (!vaultData) throw new Error("PumpSwap requires vaultData (base and quote vault accounts)");
@@ -5856,7 +5856,10 @@ function computeDexSpotPriceE6(dexType, data, vaultData) {
     case "raydium-clmm":
       return computeRaydiumClmmPriceE6(data);
     case "meteora-dlmm":
-      return computeMeteoraDlmmPriceE6(data);
+      if (!decimals) {
+        throw new Error("Meteora DLMM requires decimals { base, quote } (mint decimals)");
+      }
+      return computeMeteoraDlmmPriceE6(data, decimals.base, decimals.quote);
   }
 }
 var PUMPSWAP_MIN_LEN = 195;
@@ -5938,9 +5941,14 @@ function parseMeteoraPool(poolAddress, data) {
 }
 var MAX_BIN_STEP = 1e4;
 var MAX_ACTIVE_ID_ABS = 5e5;
-function computeMeteoraDlmmPriceE6(data) {
+function computeMeteoraDlmmPriceE6(data, decimalsBase, decimalsQuote) {
   if (data.length < METEORA_DLMM_MIN_LEN) {
     throw new Error(`Meteora DLMM data too short: ${data.length} < ${METEORA_DLMM_MIN_LEN}`);
+  }
+  if (decimalsBase > MAX_TOKEN_DECIMALS || decimalsQuote > MAX_TOKEN_DECIMALS) {
+    throw new Error(
+      `Meteora DLMM: decimals out of range (${decimalsBase}, ${decimalsQuote}); max ${MAX_TOKEN_DECIMALS}`
+    );
   }
   const dv3 = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const binStep = dv3.getUint16(73, true);
@@ -5969,11 +5977,19 @@ function computeMeteoraDlmmPriceE6(data) {
       b = b * b / SCALE;
     }
   }
+  const diff = decimalsBase - decimalsQuote;
   if (isNeg) {
     if (result === 0n) return 0n;
-    return SCALE * 1000000n / result;
+    const num = 1000000000000000000000000n;
+    if (diff >= 0) {
+      return num * 10n ** BigInt(diff) / result;
+    }
+    return num / (result * 10n ** BigInt(-diff));
   } else {
-    return result / 1000000000000n;
+    if (diff >= 0) {
+      return result * 10n ** BigInt(diff) / 1000000000000n;
+    }
+    return result / (1000000000000n * 10n ** BigInt(-diff));
   }
 }
 function readU64LE3(dv3, offset) {
