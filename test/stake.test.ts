@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
 import {
-  STAKE_IX,  encodeStakeInitPool,
+  STAKE_IX,
+  encodeStakeInitPool,
   encodeStakeDeposit,
   encodeStakeWithdraw,
   encodeStakeFlushToInsurance,
@@ -21,11 +22,29 @@ import {
   encodeStakeAdminSetInsurancePolicy,
   encodeStakeSetMarketResolved,
   decodeStakePool,
+  decodeDepositPda,
   deriveStakePool,
   deriveStakeVaultAuth,
   deriveDepositPda,
   STAKE_PROGRAM_ID,
+  STAKE_POOL_DISCRIMINATOR,
+  STAKE_POOL_CURRENT_VERSION,
+  STAKE_DEPOSIT_DISCRIMINATOR,
 } from "../src/solana/stake.js";
+
+const STAKE_POOL_RESERVED_OFFSET = 320;
+const STAKE_DEPOSIT_RESERVED_OFFSET = 88;
+const TEST_POOL = new PublicKey("FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD");
+const TEST_USER = new PublicKey("GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24");
+
+function stampStakePoolIdentity(buf: Uint8Array): void {
+  buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET);
+  buf[STAKE_POOL_RESERVED_OFFSET + 8] = STAKE_POOL_CURRENT_VERSION;
+}
+
+function stampStakeDepositIdentity(buf: Uint8Array): void {
+  buf.set(STAKE_DEPOSIT_DISCRIMINATOR, STAKE_DEPOSIT_RESERVED_OFFSET);
+}
 
 describe("stake encoders return Uint8Array (not Buffer)", () => {
   it("encodeStakeInitPool", () => {
@@ -174,6 +193,7 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     // pending_admin [u8;32] @ 288..320 (new in v2; zeros = no pending proposal)
     // _reserved (64 bytes) starts at 320 in v2 (was 288 in v1)
     const reservedStart = 320;
+    stampStakePoolIdentity(buf);
     buf[reservedStart + 9] = 1;   // market_resolved = true
     buf[reservedStart + 10] = 1;  // hwm_enabled = true
     dv.setUint16(reservedStart + 11, 777, true);   // hwm_floor_bps
@@ -186,6 +206,43 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(pool.epochHighWaterTvl).toBe(123n);
     expect(pool.hwmFloorBps).toBe(777);
     expect(pool.hwmLastEpoch).toBe(456n);
+  });
+
+  it("rejects stake-pool-shaped bytes with a missing discriminator", () => {
+    const buf = new Uint8Array(384);
+    expect(() => decodeStakePool(buf)).toThrow(/StakePool invalid discriminator/);
+  });
+
+  it("rejects stake pools with a stale or unsupported version byte", () => {
+    const buf = new Uint8Array(384);
+    stampStakePoolIdentity(buf);
+    buf[STAKE_POOL_RESERVED_OFFSET + 8] = STAKE_POOL_CURRENT_VERSION - 1;
+    expect(() => decodeStakePool(buf)).toThrow(/StakePool unsupported version/);
+  });
+
+  it("rejects stake-deposit-shaped bytes with a missing discriminator", () => {
+    const buf = new Uint8Array(152);
+    expect(() => decodeDepositPda(buf)).toThrow(/StakeDeposit invalid discriminator/);
+  });
+
+  it("decodes a current StakeDeposit buffer once the discriminator is present", () => {
+    const buf = new Uint8Array(152);
+    const dv = new DataView(buf.buffer);
+    buf[0] = 1;
+    buf[1] = 254;
+    buf.set(TEST_POOL.toBytes(), 8);
+    buf.set(TEST_USER.toBytes(), 40);
+    dv.setBigUint64(72, 123n, true);
+    dv.setBigUint64(80, 456n, true);
+    stampStakeDepositIdentity(buf);
+
+    const deposit = decodeDepositPda(buf);
+    expect(deposit.isInitialized).toBe(true);
+    expect(deposit.bump).toBe(254);
+    expect(deposit.pool.toBase58()).toBe(TEST_POOL.toBase58());
+    expect(deposit.user.toBase58()).toBe(TEST_USER.toBase58());
+    expect(deposit.lastDepositSlot).toBe(123n);
+    expect(deposit.lpAmount).toBe(456n);
   });
 });
 

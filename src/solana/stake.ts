@@ -162,6 +162,19 @@ function readU16LE(data: Uint8Array, off: number): number {
   return view.getUint16(off, /* littleEndian= */ true);
 }
 
+function requireDiscriminator(
+  accountName: string,
+  data: Uint8Array,
+  offset: number,
+  expected: Uint8Array,
+): void {
+  for (let i = 0; i < expected.length; i += 1) {
+    if (data[offset + i] !== expected[i]) {
+      throw new Error(`${accountName} invalid discriminator`);
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Instruction Encoders
 // ═══════════════════════════════════════════════════════════════
@@ -404,6 +417,9 @@ export interface StakePoolState {
  * v2: 384 (stake v1 was 352; `pending_admin: [u8;32]` added at offset 288).
  */
 export const STAKE_POOL_SIZE = 384;
+export const STAKE_POOL_DISCRIMINATOR = new Uint8Array([0x53, 0x50, 0x4f, 0x4f, 0x4c, 0x5f, 0x56, 0x31]);
+export const STAKE_POOL_CURRENT_VERSION = 2;
+const STAKE_POOL_RESERVED_OFFSET = 320;
 
 /**
  * Decode a StakePool account from raw data buffer. * Uses DataView for all u64/u16 reads — browser-safe.
@@ -411,6 +427,11 @@ export const STAKE_POOL_SIZE = 384;
 export function decodeStakePool(data: Uint8Array): StakePoolState {
   if (data.length < STAKE_POOL_SIZE) {
     throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE}`);
+  }
+  requireDiscriminator("StakePool", data, STAKE_POOL_RESERVED_OFFSET, STAKE_POOL_DISCRIMINATOR);
+  const version = data[STAKE_POOL_RESERVED_OFFSET + 8];
+  if (version !== STAKE_POOL_CURRENT_VERSION) {
+    throw new Error(`StakePool unsupported version: ${version} !== ${STAKE_POOL_CURRENT_VERSION}`);
   }
   const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);  let off = 0;
   const isInitialized = bytes[off] === 1; off += 1;
@@ -508,6 +529,8 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
 
 /** Size of StakeDeposit on-chain (bytes). */
 export const STAKE_DEPOSIT_SIZE = 152;
+export const STAKE_DEPOSIT_DISCRIMINATOR = new Uint8Array([0x53, 0x44, 0x45, 0x50, 0x5f, 0x56, 0x31, 0x00]);
+const STAKE_DEPOSIT_RESERVED_OFFSET = 88;
 
 /** Decoded StakeDeposit PDA state. */
 export interface StakeDepositState {
@@ -536,6 +559,7 @@ export function decodeDepositPda(data: Uint8Array): StakeDepositState {
   if (data.length < STAKE_DEPOSIT_SIZE) {
     throw new Error(`StakeDeposit data too short: ${data.length} < ${STAKE_DEPOSIT_SIZE}`);
   }
+  requireDiscriminator("StakeDeposit", data, STAKE_DEPOSIT_RESERVED_OFFSET, STAKE_DEPOSIT_DISCRIMINATOR);
   return {
     isInitialized: data[0] === 1,
     bump: data[1],
