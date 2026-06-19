@@ -121,24 +121,20 @@ export function validateIndex(value: string, field: string): number {
  * Validate a non-negative amount (u64 range).
  */
 export function validateAmount(value: string, field: string): bigint {
-  let num: bigint;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
+
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
+
   if (num > U64_MAX) {
     throw new ValidationError(
       field,
       `must be <= ${U64_MAX} (u64 max), got ${num}`
     );
   }
+
   return num;
 }
 
@@ -146,24 +142,20 @@ export function validateAmount(value: string, field: string): bigint {
  * Validate a u128 value.
  */
 export function validateU128(value: string, field: string): bigint {
-  let num: bigint;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
+
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
+
   if (num > U128_MAX) {
     throw new ValidationError(
       field,
       `must be <= ${U128_MAX} (u128 max), got ${num}`
     );
   }
+
   return num;
 }
 
@@ -172,26 +164,30 @@ export function validateU128(value: string, field: string): bigint {
  */
 export function validateI64(value: string, field: string): bigint {
   let num: bigint;
+
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,
       `"${value}" is not a valid number. Use decimal digits only, with optional leading minus.`
     );
   }
+
   if (num < I64_MIN) {
     throw new ValidationError(
       field,
       `must be >= ${I64_MIN} (i64 min), got ${num}`
     );
   }
+
   if (num > I64_MAX) {
     throw new ValidationError(
       field,
       `must be <= ${I64_MAX} (i64 max), got ${num}`
     );
   }
+
   return num;
 }
 
@@ -200,26 +196,30 @@ export function validateI64(value: string, field: string): bigint {
  */
 export function validateI128(value: string, field: string): bigint {
   let num: bigint;
+
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,
       `"${value}" is not a valid number. Use decimal digits only, with optional leading minus.`
     );
   }
+
   if (num < I128_MIN) {
     throw new ValidationError(
       field,
       `must be >= ${I128_MIN} (i128 min), got ${num}`
     );
   }
+
   if (num > I128_MAX) {
     throw new ValidationError(
       field,
       `must be <= ${I128_MAX} (i128 max), got ${num}`
     );
   }
+
   return num;
 }
 

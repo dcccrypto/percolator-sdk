@@ -93,6 +93,13 @@ console.log("Testing validation functions...\n");
   assertThrows(() => validateAmount("-100", "--amt"), "non-negative", "rejects negative");
   assertThrows(() => validateAmount("18446744073709551616", "--amt"), "u64 max", "rejects above max");
   assertThrows(() => validateAmount("abc", "--amt"), "decimal digits only", "rejects non-numeric");
+for (const bad of ["", "   ", "0x10", "0o10", "0b10", "+1", "001"]) {
+  assertThrows(
+    () => validateAmount(bad, "--amt"),
+    "valid",
+    `rejects non-decimal amount ${JSON.stringify(bad)}`
+  );
+}
 
   console.log("✓ validateAmount");
 }
@@ -105,6 +112,13 @@ console.log("Testing validation functions...\n");
 
   assertThrows(() => validateU128("-1", "--val"), "non-negative", "rejects negative");
   assertThrows(() => validateU128("340282366920938463463374607431768211456", "--val"), "u128 max", "rejects above max");
+for (const bad of ["", "   ", "0x10", "0o10", "0b10", "+1", "001"]) {
+  assertThrows(
+    () => validateU128(bad, "--val"),
+    "valid",
+    `rejects non-decimal u128 ${JSON.stringify(bad)}`
+  );
+}
 
   console.log("✓ validateU128");
 }
@@ -119,6 +133,13 @@ console.log("Testing validation functions...\n");
 
   assertThrows(() => validateI64("9223372036854775808", "--val"), "i64 max", "rejects above max");
   assertThrows(() => validateI64("-9223372036854775809", "--val"), "i64 min", "rejects below min");
+for (const bad of ["", "   ", "0x10", "0o10", "0b10", "+1", "001", "-001"]) {
+  assertThrows(
+    () => validateI64(bad, "--val"),
+    "valid",
+    `rejects non-decimal i64 ${JSON.stringify(bad)}`
+  );
+}
 
   console.log("✓ validateI64");
 }
@@ -137,6 +158,13 @@ console.log("Testing validation functions...\n");
 
   assertThrows(() => validateI128("170141183460469231731687303715884105728", "--size"), "i128 max", "rejects above max");
   assertThrows(() => validateI128("-170141183460469231731687303715884105729", "--size"), "i128 min", "rejects below min");
+for (const bad of ["", "   ", "0x10", "0o10", "0b10", "+1", "001", "-001"]) {
+  assertThrows(
+    () => validateI128(bad, "--size"),
+    "valid",
+    `rejects non-decimal i128 ${JSON.stringify(bad)}`
+  );
+}
 
   console.log("✓ validateI128");
 }
