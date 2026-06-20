@@ -3,6 +3,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: [
+      "test/v17-kind-gate.test.ts",
+      "test/token-program.test.ts",
       "test/encode.test.ts",
       "test/errors.test.ts",
       "test/instructions.test.ts",

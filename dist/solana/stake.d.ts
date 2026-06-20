@@ -162,12 +162,15 @@ export interface StakePoolState {
  * v2: 384 (stake v1 was 352; `pending_admin: [u8;32]` added at offset 288).
  */
 export declare const STAKE_POOL_SIZE = 384;
+export declare const STAKE_POOL_DISCRIMINATOR: Uint8Array<ArrayBuffer>;
+export declare const STAKE_POOL_CURRENT_VERSION = 2;
 /**
  * Decode a StakePool account from raw data buffer. * Uses DataView for all u64/u16 reads — browser-safe.
  */
 export declare function decodeStakePool(data: Uint8Array): StakePoolState;
 /** Size of StakeDeposit on-chain (bytes). */
 export declare const STAKE_DEPOSIT_SIZE = 152;
+export declare const STAKE_DEPOSIT_DISCRIMINATOR: Uint8Array<ArrayBuffer>;
 /** Decoded StakeDeposit PDA state. */
 export interface StakeDepositState {
     isInitialized: boolean;

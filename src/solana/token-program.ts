@@ -10,8 +10,16 @@ export const TOKEN_2022_PROGRAM_ID = new PublicKey(
 
 /**
  * Detect which token program owns a given mint account.
- * Returns the owner program ID (TOKEN_PROGRAM_ID or TOKEN_2022_PROGRAM_ID).
- * Throws if the mint account doesn't exist.
+ * Returns the canonical program ID — TOKEN_PROGRAM_ID or TOKEN_2022_PROGRAM_ID.
+ *
+ * #266: previously this returned `info.owner` verbatim, which FAILS OPEN — an
+ * attacker-controlled account owned by an arbitrary program (or a non-mint
+ * account) would be accepted and its owner propagated as the "token program",
+ * letting a forged program be passed into a later token CPI. Now we branch on
+ * the owner and accept ONLY the two real token programs, throwing otherwise.
+ *
+ * @throws if the mint account doesn't exist, or is not owned by SPL Token or
+ *         Token-2022.
  */
 export async function detectTokenProgram(
   connection: Connection,
@@ -19,7 +27,15 @@ export async function detectTokenProgram(
 ): Promise<PublicKey> {
   const info = await connection.getAccountInfo(mint);
   if (!info) throw new Error(`Mint account not found: ${mint.toBase58()}`);
-  return info.owner;
+
+  if (info.owner.equals(TOKEN_PROGRAM_ID)) return TOKEN_PROGRAM_ID;
+  if (info.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
+
+  throw new Error(
+    `Account ${mint.toBase58()} is not a token mint: owner ${info.owner.toBase58()} ` +
+      `is neither SPL Token (${TOKEN_PROGRAM_ID.toBase58()}) nor ` +
+      `Token-2022 (${TOKEN_2022_PROGRAM_ID.toBase58()})`,
+  );
 }
 
 /**

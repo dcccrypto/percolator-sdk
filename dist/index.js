@@ -4580,6 +4580,8 @@ function parseAccount(data, idx) {
 }
 var V17_MAGIC = 0x5045524356313600n;
 var V17_EXPECTED_VERSION = 16;
+var V17_KIND_MARKET = 1;
+var V17_KIND_OFF = 10;
 var V17_WRAPPER_CONFIG_LEN = 432;
 var V17_ASSET_ORACLE_PROFILE_LEN = 400;
 var V17_HEADER_LEN = 16;
@@ -4750,6 +4752,11 @@ function isV17Account(data) {
   const magic = readU64LE(data, 0);
   const version = readU16LE(data, 8);
   return magic === V17_MAGIC && version === V17_EXPECTED_VERSION;
+}
+function isV17MarketAccount(data) {
+  if (data.length < V17_KIND_OFF + 1) return false;
+  if (!isV17Account(data)) return false;
+  return data[V17_KIND_OFF] === V17_KIND_MARKET;
 }
 var V17_ACCOUNT_HEADER_LEN = 16;
 var PF_PROVENANCE_OFF = V17_ACCOUNT_HEADER_LEN;
@@ -5631,7 +5638,7 @@ async function discoverMarkets(connection, programId, options = {}) {
     if (seenPubkeys.has(pkStr)) continue;
     seenPubkeys.add(pkStr);
     const data = new Uint8Array(account.data);
-    if (isV17Account(data)) {
+    if (isV17MarketAccount(data)) {
       try {
         const configV17 = parseWrapperConfigV17(data);
         markets.push({
@@ -5713,7 +5720,7 @@ async function getMarketsByAddress(connection, programId, addresses, options = {
     if (!entry) continue;
     const { pubkey, data: rawData } = entry;
     const data = new Uint8Array(rawData);
-    if (isV17Account(data)) {
+    if (isV17MarketAccount(data)) {
       try {
         const configV17 = parseWrapperConfigV17(data);
         markets.push({
@@ -6064,7 +6071,11 @@ var TOKEN_2022_PROGRAM_ID = new PublicKey10(
 async function detectTokenProgram(connection, mint) {
   const info = await connection.getAccountInfo(mint);
   if (!info) throw new Error(`Mint account not found: ${mint.toBase58()}`);
-  return info.owner;
+  if (info.owner.equals(TOKEN_PROGRAM_ID3)) return TOKEN_PROGRAM_ID3;
+  if (info.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
+  throw new Error(
+    `Account ${mint.toBase58()} is not a token mint: owner ${info.owner.toBase58()} is neither SPL Token (${TOKEN_PROGRAM_ID3.toBase58()}) nor Token-2022 (${TOKEN_2022_PROGRAM_ID.toBase58()})`
+  );
 }
 function isToken2022(tokenProgramId) {
   return tokenProgramId.equals(TOKEN_2022_PROGRAM_ID);
@@ -6178,7 +6189,17 @@ function readU16LE3(data, off) {
     true
   );
 }
+function requireDiscriminator(accountName, data, offset, expected) {
+  for (let i = 0; i < expected.length; i += 1) {
+    if (data[offset + i] !== expected[i]) {
+      throw new Error(`${accountName} invalid discriminator`);
+    }
+  }
+}
 function u64Le(v) {
+  if (typeof v === "number" && !Number.isSafeInteger(v)) {
+    throw new Error(`u64Le: number ${v} exceeds Number.MAX_SAFE_INTEGER \u2014 use BigInt`);
+  }
   const big = BigInt(v);
   if (big < 0n) throw new Error(`u64Le: value must be non-negative, got ${big}`);
   if (big > 0xFFFFFFFFFFFFFFFFn) throw new Error(`u64Le: value exceeds u64 max`);
@@ -6187,7 +6208,7 @@ function u64Le(v) {
   return arr;
 }
 function u16Le(v) {
-  if (v < 0 || v > 65535) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);
+  if (!Number.isInteger(v) || v < 0 || v > 65535) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);
   const arr = new Uint8Array(2);
   new DataView(arr.buffer).setUint16(0, v, true);
   return arr;
@@ -6286,9 +6307,17 @@ function encodeStakeAdminSetInsurancePolicy(authority, minWithdrawBase, maxWithd
   return removedStakeInstruction("encodeStakeAdminSetInsurancePolicy", STAKE_IX.AdminSetInsurancePolicy);
 }
 var STAKE_POOL_SIZE = 384;
+var STAKE_POOL_DISCRIMINATOR = new Uint8Array([83, 80, 79, 79, 76, 95, 86, 49]);
+var STAKE_POOL_CURRENT_VERSION = 2;
+var STAKE_POOL_RESERVED_OFFSET = 320;
 function decodeStakePool(data) {
   if (data.length < STAKE_POOL_SIZE) {
     throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE}`);
+  }
+  requireDiscriminator("StakePool", data, STAKE_POOL_RESERVED_OFFSET, STAKE_POOL_DISCRIMINATOR);
+  const version = data[STAKE_POOL_RESERVED_OFFSET + 8];
+  if (version !== STAKE_POOL_CURRENT_VERSION) {
+    throw new Error(`StakePool unsupported version: ${version} !== ${STAKE_POOL_CURRENT_VERSION}`);
   }
   const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
   let off = 0;
@@ -6384,10 +6413,13 @@ function decodeStakePool(data) {
   };
 }
 var STAKE_DEPOSIT_SIZE = 152;
+var STAKE_DEPOSIT_DISCRIMINATOR = new Uint8Array([83, 68, 69, 80, 95, 86, 49, 0]);
+var STAKE_DEPOSIT_RESERVED_OFFSET = 88;
 function decodeDepositPda(data) {
   if (data.length < STAKE_DEPOSIT_SIZE) {
     throw new Error(`StakeDeposit data too short: ${data.length} < ${STAKE_DEPOSIT_SIZE}`);
   }
+  requireDiscriminator("StakeDeposit", data, STAKE_DEPOSIT_RESERVED_OFFSET, STAKE_DEPOSIT_DISCRIMINATOR);
   return {
     isInitialized: data[0] === 1,
     bump: data[1],
@@ -7477,7 +7509,7 @@ var ValidationError = class extends Error {
   }
 };
 var DECIMAL_UINT_RE = /^(0|[1-9]\d*)$/;
-var DECIMAL_INT_RE = /^-?(0|[1-9]\d*)$/;
+var DECIMAL_INT_RE2 = /^-?(0|[1-9]\d*)$/;
 function requireDecimalUIntString(value, field) {
   const t = value.trim();
   if (t === "") {
@@ -7493,7 +7525,7 @@ function requireDecimalUIntString(value, field) {
 }
 function safeBigInt(val, caller) {
   const t = val.trim();
-  if (!DECIMAL_INT_RE.test(t)) {
+  if (!DECIMAL_INT_RE2.test(t)) {
     throw new Error(
       `${caller}: "${val}" is not a valid decimal integer (use plain decimal digits, e.g. 123 or -42; no hex, scientific notation, or underscores).`
     );
@@ -8019,8 +8051,11 @@ export {
   SLAB_TIERS_V_ADL,
   SLAB_TIERS_V_ADL_DISCOVERY,
   SLAB_TIERS_V_SETDEXPOOL,
+  STAKE_DEPOSIT_DISCRIMINATOR,
   STAKE_DEPOSIT_SIZE,
   STAKE_IX,
+  STAKE_POOL_CURRENT_VERSION,
+  STAKE_POOL_DISCRIMINATOR,
   STAKE_POOL_SIZE,
   STAKE_PROGRAM_ID,
   STAKE_PROGRAM_IDS,
@@ -8029,6 +8064,8 @@ export {
   V17_ASSET_ORACLE_PROFILE_LEN,
   V17_EXPECTED_VERSION,
   V17_HEADER_LEN,
+  V17_KIND_MARKET,
+  V17_KIND_OFF,
   V17_MAGIC,
   V17_MARKET_ASSET_SLOT_LEN,
   V17_MARKET_GROUP_LEN,
@@ -8262,6 +8299,7 @@ export {
   isStandardToken,
   isToken2022,
   isV17Account,
+  isV17MarketAccount,
   isValidChainlinkOracle,
   maxAccountIndex,
   packOiCap,

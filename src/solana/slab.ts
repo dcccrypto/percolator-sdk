@@ -3692,6 +3692,22 @@ export const V17_MAGIC = 0x5045_5243_5631_3600n;
 /** v17 account version (u16 at offset 8). */
 export const V17_EXPECTED_VERSION = 16;
 
+/**
+ * v17 account-kind byte (offset 10 of the 16-byte header).
+ *
+ * The program's `check_header()` discriminates EVERY v17 percolator-owned
+ * account SOLELY by this byte (percolator-prog `v16_program.rs` KIND_*):
+ *   1 = MARKET, 2 = PORTFOLIO, 3 = BACKING_DOMAIN_LEDGER, 4 = INSURANCE_LEDGER,
+ *   5 = LP_VAULT_REGISTRY, 6 = LP_REDEMPTION, 7 = NFT_REGISTRY.
+ * Only KIND_MARKET (1) carries the WrapperConfigV16 block parsed during market
+ * discovery — every other kind shares the same magic+version and would falsely
+ * pass the looser {@link isV17Account} check (#264).
+ */
+export const V17_KIND_MARKET = 1;
+
+/** Byte offset of the v17 account-kind discriminator within the header. */
+export const V17_KIND_OFF = 10;
+
 /** v17 wrapper config block length (WrapperConfigV16 = 432 bytes). */
 export const V17_WRAPPER_CONFIG_LEN = 432;
 
@@ -4103,6 +4119,24 @@ export function isV17Account(data: Uint8Array): boolean {
   const magic = readU64LE(data, 0);
   const version = readU16LE(data, 8);
   return magic === V17_MAGIC && version === V17_EXPECTED_VERSION;
+}
+
+/**
+ * Check if a raw account buffer is a v17 percolator MARKET account.
+ *
+ * Stricter than {@link isV17Account}: requires both that the account is a valid
+ * v17 account (magic + version) AND that the kind byte at offset 10 is
+ * {@link V17_KIND_MARKET}. Portfolio / ledger / registry accounts share the same
+ * magic+version and so pass `isV17Account`, but they are NOT markets and do not
+ * carry a WrapperConfigV16 block — market discovery must gate on this (#264).
+ *
+ * @param data Raw account bytes.
+ * @returns true if the account is a v17 account whose kind == KIND_MARKET (1).
+ */
+export function isV17MarketAccount(data: Uint8Array): boolean {
+  if (data.length < V17_KIND_OFF + 1) return false;
+  if (!isV17Account(data)) return false;
+  return data[V17_KIND_OFF] === V17_KIND_MARKET;
 }
 
 // =============================================================================
