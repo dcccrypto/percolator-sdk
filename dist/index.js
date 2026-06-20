@@ -5904,6 +5904,13 @@ function parseRaydiumClmmPool(poolAddress, data) {
   };
 }
 var MAX_TOKEN_DECIMALS = 24;
+function assertTokenDecimals(dexName, label, decimals) {
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > MAX_TOKEN_DECIMALS) {
+    throw new Error(
+      `${dexName}: ${label} decimals out of range (${decimals}); expected integer 0..${MAX_TOKEN_DECIMALS}`
+    );
+  }
+}
 function computeRaydiumClmmPriceE6(data) {
   if (data.length < RAYDIUM_CLMM_MIN_LEN) {
     throw new Error(`Raydium CLMM data too short: ${data.length} < ${RAYDIUM_CLMM_MIN_LEN}`);
@@ -5945,11 +5952,8 @@ function computeMeteoraDlmmPriceE6(data, decimalsBase, decimalsQuote) {
   if (data.length < METEORA_DLMM_MIN_LEN) {
     throw new Error(`Meteora DLMM data too short: ${data.length} < ${METEORA_DLMM_MIN_LEN}`);
   }
-  if (decimalsBase > MAX_TOKEN_DECIMALS || decimalsQuote > MAX_TOKEN_DECIMALS) {
-    throw new Error(
-      `Meteora DLMM: decimals out of range (${decimalsBase}, ${decimalsQuote}); max ${MAX_TOKEN_DECIMALS}`
-    );
-  }
+  assertTokenDecimals("Meteora DLMM", "base", decimalsBase);
+  assertTokenDecimals("Meteora DLMM", "quote", decimalsQuote);
   const dv3 = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const binStep = dv3.getUint16(73, true);
   const activeId = dv3.getInt32(76, true);
@@ -7503,15 +7507,8 @@ function validateIndex(value, field) {
   return Number(bi);
 }
 function validateAmount(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7524,15 +7521,8 @@ function validateAmount(value, field) {
   return num;
 }
 function validateU128(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7547,7 +7537,7 @@ function validateU128(value, field) {
 function validateI64(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,
@@ -7571,7 +7561,7 @@ function validateI64(value, field) {
 function validateI128(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,

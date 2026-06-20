@@ -367,6 +367,26 @@ assertThrows(
     "out of range",
     "meteora decimals out of range"
   );
+  assertThrows(
+    () => computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: -1, quote: 6 }),
+    "out of range",
+    "meteora negative base decimals rejected"
+  );
+  assertThrows(
+    () => computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: -1 }),
+    "out of range",
+    "meteora negative quote decimals rejected"
+  );
+  assertThrows(
+    () => computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 1.5, quote: 6 }),
+    "out of range",
+    "meteora fractional decimals rejected"
+  );
+  assertThrows(
+    () => computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: Number.NaN, quote: 6 }),
+    "out of range",
+    "meteora NaN decimals rejected"
+  );
   // missing decimals rejected.
   assertThrows(
     () => computeDexSpotPriceE6("meteora-dlmm", data),
