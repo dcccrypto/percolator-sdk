@@ -1146,7 +1146,11 @@ function encodeSetNftProgramId(args) {
     encPubkey(args.nftProgramId)
   );
 }
+var ORACLE_LEG_CAP = 3;
 function encodeConfigureHybridOracle(args) {
+  if (!Number.isInteger(args.oracleLegCount) || args.oracleLegCount < 1 || args.oracleLegCount > ORACLE_LEG_CAP) {
+    throw new Error(`encodeConfigureHybridOracle: oracleLegCount must be an integer in 1..${ORACLE_LEG_CAP}`);
+  }
   return concatBytes(
     encU8(IX_TAG.ConfigureHybridOracle),
     encU16(args.assetIndex),
@@ -4626,17 +4630,17 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const markMinFee = readU64LE(data, b + 256);
   const oracleTargetPriceE6 = readU64LE(data, b + 264);
   const oracleTargetPublishTime = readI64LE(data, b + 272);
-  const ORACLE_LEG_CAP = 3;
+  const ORACLE_LEG_CAP2 = 3;
   const oracleLegFeeds = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegFeeds.push(new PublicKey5(data.subarray(b + 280 + i * 32, b + 280 + (i + 1) * 32)));
   }
   const oracleLegPricesE6 = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegPricesE6.push(readU64LE(data, b + 376 + i * 8));
   }
   const oracleLegPublishTimes = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegPublishTimes.push(readI64LE(data, b + 400 + i * 8));
   }
   const backingTradeFeePolicyCount = readU16LE(data, b + 424);
@@ -4694,17 +4698,17 @@ function parseAssetOracleProfileV17(data, profileOff) {
     );
   }
   const b = profileOff;
-  const ORACLE_LEG_CAP = 3;
+  const ORACLE_LEG_CAP2 = 3;
   const oracleLegFeeds = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegFeeds.push(new PublicKey5(data.subarray(b + 224 + i * 32, b + 224 + (i + 1) * 32)));
   }
   const oracleLegPricesE6 = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegPricesE6.push(readU64LE(data, b + 320 + i * 8));
   }
   const oracleLegPublishTimes = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegPublishTimes.push(readI64LE(data, b + 344 + i * 8));
   }
   return {
@@ -7503,15 +7507,8 @@ function validateIndex(value, field) {
   return Number(bi);
 }
 function validateAmount(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7524,15 +7521,8 @@ function validateAmount(value, field) {
   return num;
 }
 function validateU128(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7547,7 +7537,7 @@ function validateU128(value, field) {
 function validateI64(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,
@@ -7571,7 +7561,7 @@ function validateI64(value, field) {
 function validateI128(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,

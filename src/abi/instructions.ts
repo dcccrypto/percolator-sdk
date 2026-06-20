@@ -3209,7 +3209,12 @@ export interface ConfigureHybridOracleArgs {
   oracleLegFeeds: [PublicKey | string, PublicKey | string, PublicKey | string];
 }
 
+const ORACLE_LEG_CAP = 3;
+
 export function encodeConfigureHybridOracle(args: ConfigureHybridOracleArgs): Uint8Array {
+  if (!Number.isInteger(args.oracleLegCount) || args.oracleLegCount < 1 || args.oracleLegCount > ORACLE_LEG_CAP) {
+    throw new Error(`encodeConfigureHybridOracle: oracleLegCount must be an integer in 1..${ORACLE_LEG_CAP}`);
+  }
   return concatBytes(
     encU8(IX_TAG.ConfigureHybridOracle),
     encU16(args.assetIndex),

@@ -72,6 +72,16 @@ function assertBuf(actual: Uint8Array, expected: number[], msg: string): void {
   }
 }
 
+function assertThrows(fn: () => unknown, msg: string): void {
+  let threw = false;
+  try {
+    fn();
+  } catch {
+    threw = true;
+  }
+  assert(threw, `${msg} must throw`);
+}
+
 function decI128Le(data: Uint8Array, offset: number): bigint {
   let value = 0n;
   for (let i = 0; i < 16; i++) value |= BigInt(data[offset + i]) << BigInt(i * 8);
@@ -884,6 +894,38 @@ console.log("\nTesting instruction encoders...\n");
   const feedBytes = feed0.toBytes();
   assert(data.slice(60, 92).every((v, i) => v === feedBytes[i]), "ConfigureHybridOracle feed0 bytes");
   console.log("✓ encodeConfigureHybridOracle (156-byte wire)");
+}
+
+// encodeConfigureHybridOracle must reject leg counts that cannot fit the 3-feed wire.
+{
+  const baseArgs = {
+    assetIndex: 1,
+    nowSlot: 300_000_000n,
+    nowUnixTs: 1_700_000_000n,
+    oracleLegCount: 1,
+    oracleLegFlags: 0,
+    maxStalenessSecs: 60n,
+    hybridSoftStaleSlots: 100n,
+    markEwmaHalflifeSlots: 500n,
+    markMinFee: 0n,
+    invert: 0,
+    unitScale: 1_000_000,
+    confFilterBps: 200,
+    oracleLegFeeds: [PublicKey.default, PublicKey.default, PublicKey.default],
+  } as const;
+  assertThrows(
+    () => encodeConfigureHybridOracle({ ...baseArgs, oracleLegCount: 0 }),
+    "ConfigureHybridOracle oracle_leg_count=0",
+  );
+  assertThrows(
+    () => encodeConfigureHybridOracle({ ...baseArgs, oracleLegCount: 4 }),
+    "ConfigureHybridOracle oracle_leg_count=4",
+  );
+  assertThrows(
+    () => encodeConfigureHybridOracle({ ...baseArgs, oracleLegCount: 1.5 }),
+    "ConfigureHybridOracle fractional oracle_leg_count",
+  );
+  console.log("✓ encodeConfigureHybridOracle oracle_leg_count validation");
 }
 
 // Test encodeConfigureEwmaMark — 35-byte wire
