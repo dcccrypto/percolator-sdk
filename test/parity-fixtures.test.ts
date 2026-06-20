@@ -167,10 +167,11 @@ describe("Rust parity fixtures", () => {
     }>("nft-parity.json");
 
     expect(POSITION_NFT_STATE_LEN).toBe(fixture.position_nft_len);
-    expect(fixture.offsets.position_owner).toBe(160);
-    expect(fixture.offsets.reserved).toBe(192);
-    expect(fixture.offsets.nft_mint).toBe(56);
-    expect(fixture.offsets.user_idx).toBe(48);
+    expect(fixture.offsets.portfolio_account).toBe(10);
+    expect(fixture.offsets.nft_mint).toBe(42);
+    expect(fixture.offsets.asset_index).toBe(74);
+    expect(fixture.offsets.position_owner_at_mint).toBe(127);
+    expect(fixture.offsets.reserved).toBe(167);
   });
 
   describe("matcher", () => {

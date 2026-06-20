@@ -2105,11 +2105,11 @@ var NFT_IX_TAG = {
   ExecuteTransferHook: 4,
   EmergencyBurn: 5
 };
-function encodeNftMint(userIdx) {
+function encodeNftMint(assetIndex) {
+  const assetIndexBuf = u16Buf(assetIndex, "assetIndex");
   const buf = new Uint8Array(3);
   buf[0] = NFT_IX_TAG.MintPositionNft;
-  buf[1] = userIdx & 255;
-  buf[2] = userIdx >> 8 & 255;
+  buf.set(assetIndexBuf, 1);
   return buf;
 }
 function encodeNftBurn() {
@@ -2152,22 +2152,22 @@ var ACCOUNTS_NFT_EMERGENCY_BURN = [
   "r"
 ];
 var TEXT = new TextEncoder();
-function idxBuf(userIdx) {
+function u16Buf(value, label) {
+  if (!Number.isInteger(value) || value < 0 || value > 65535) {
+    throw new Error(`${label} must be a u16`);
+  }
   const buf = new Uint8Array(2);
-  new DataView(buf.buffer).setUint16(0, userIdx, true);
+  new DataView(buf.buffer).setUint16(0, value, true);
   return buf;
 }
-function deriveNftPda(slab, userIdx, programId = NFT_PROGRAM_ID) {
+function deriveNftPda(portfolioAccount, assetIndex, programId = NFT_PROGRAM_ID) {
   return PublicKey4.findProgramAddressSync(
-    [TEXT.encode("position_nft"), slab.toBytes(), idxBuf(userIdx)],
+    [TEXT.encode("position_nft"), portfolioAccount.toBytes(), u16Buf(assetIndex, "assetIndex")],
     programId
   );
 }
-function deriveNftMint(slab, userIdx, programId = NFT_PROGRAM_ID) {
-  return PublicKey4.findProgramAddressSync(
-    [TEXT.encode("position_nft_mint"), slab.toBytes(), idxBuf(userIdx)],
-    programId
-  );
+function deriveNftMint(_portfolioAccount, _assetIndex, _programId = NFT_PROGRAM_ID) {
+  throw new Error("deriveNftMint: v16 NFT mint is a fresh signer keypair, not a PDA");
 }
 function deriveMintAuthority(programId = NFT_PROGRAM_ID) {
   return PublicKey4.findProgramAddressSync(
@@ -2175,7 +2175,9 @@ function deriveMintAuthority(programId = NFT_PROGRAM_ID) {
     programId
   );
 }
-var POSITION_NFT_STATE_LEN = 208;
+var POSITION_NFT_STATE_LEN = 199;
+var POSITION_NFT_MAGIC = 0x504552434e465400n;
+var POSITION_NFT_VERSION = 2;
 function readI128FromView(view, offset) {
   const lo = view.getBigUint64(offset, true);
   const hi = view.getBigUint64(offset + 8, true);
@@ -2193,20 +2195,28 @@ function parsePositionNftAccount(data) {
     );
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const magic = view.getBigUint64(0, true);
+  if (magic !== POSITION_NFT_MAGIC) {
+    throw new Error("PositionNft account has invalid magic");
+  }
+  if (data[8] !== POSITION_NFT_VERSION) {
+    throw new Error(`PositionNft account has invalid version: ${data[8]}`);
+  }
+  const positionOwnerAtMint = new PublicKey4(data.subarray(127, 159));
   return {
     version: data[8],
     bump: data[9],
-    slab: new PublicKey4(data.subarray(16, 48)),
-    userIdx: view.getUint16(48, true),
-    nftMint: new PublicKey4(data.subarray(56, 88)),
-    positionOwner: new PublicKey4(data.subarray(160, 192)),
-    entryPriceE6: view.getBigUint64(88, true),
-    positionSize: view.getBigUint64(96, true),
-    isLong: data[104] === 1,
-    positionBasisQ: readI128FromView(view, 112),
-    lastFundingIndexE18: readI128FromView(view, 128),
-    mintedAt: view.getBigInt64(144, true),
-    accountId: view.getBigUint64(152, true)
+    portfolioAccount: new PublicKey4(data.subarray(10, 42)),
+    nftMint: new PublicKey4(data.subarray(42, 74)),
+    assetIndex: view.getUint32(74, true),
+    sideAtMint: data[78],
+    basisPosQAtMint: readI128FromView(view, 79),
+    fSnapAtMint: readI128FromView(view, 95),
+    marketIdAtMint: view.getBigUint64(111, true),
+    epochSnapAtMint: view.getBigUint64(119, true),
+    positionOwnerAtMint,
+    positionOwner: positionOwnerAtMint,
+    mintedAt: view.getBigInt64(159, true)
   };
 }
 
@@ -4958,10 +4968,10 @@ function deriveLpPda(programId, slab, lpIdx) {
       `deriveLpPda: lpIdx must be an integer in [0, ${LP_INDEX_U16_MAX}], got ${lpIdx}`
     );
   }
-  const idxBuf2 = new Uint8Array(2);
-  new DataView(idxBuf2.buffer).setUint16(0, lpIdx, true);
+  const idxBuf = new Uint8Array(2);
+  new DataView(idxBuf.buffer).setUint16(0, lpIdx, true);
   return PublicKey6.findProgramAddressSync(
-    [textEncoder.encode("lp"), slab.toBytes(), idxBuf2],
+    [textEncoder.encode("lp"), slab.toBytes(), idxBuf],
     programId
   );
 }

@@ -10,9 +10,8 @@
  *   - ExecuteTransferHook (tag 4, SPL interface — not called directly)
  *   - EmergencyBurn   (tag 5)
  *
- * PDA seeds (matches percolator-nft/src/state.rs):
- *   PositionNft state : ["position_nft",      slab, user_idx_u16_LE]
- *   PositionNft mint  : ["position_nft_mint", slab, user_idx_u16_LE]
+ * PDA seeds (matches percolator-nft/src/state_v16.rs):
+ *   PositionNft state : ["position_nft", portfolio_account, asset_index_u16_LE]
  *   Mint authority    : ["mint_authority"]
  */
 import { PublicKey } from "@solana/web3.js";
@@ -27,8 +26,8 @@ export declare const NFT_IX_TAG: {
     readonly ExecuteTransferHook: 4;
     readonly EmergencyBurn: 5;
 };
-/** Encode MintPositionNft (tag 0). Data: tag(1) + user_idx(2). */
-export declare function encodeNftMint(userIdx: number): Uint8Array;
+/** Encode MintPositionNft (tag 0). Data: tag(1) + asset_index(u16). */
+export declare function encodeNftMint(assetIndex: number): Uint8Array;
 /** Encode BurnPositionNft (tag 1). Data: tag(1). */
 export declare function encodeNftBurn(): Uint8Array;
 /** Encode SettleFunding (tag 2). Data: tag(1). */
@@ -43,7 +42,7 @@ type AccountMeta = "s" | "w" | "sw" | "r";
  *   1. [writable]          PositionNft PDA (created)
  *   2. [writable, signer]  NFT mint (Token-2022, fresh keypair)
  *   3. [writable]          Owner's NFT ATA (created)
- *   4. []                  Slab account
+ *   4. []                  Portfolio account
  *   5. []                  Mint authority PDA
  *   6. []                  Token-2022 program
  *   7. []                  Associated token account program
@@ -77,60 +76,56 @@ export declare const ACCOUNTS_NFT_BURN: AccountMeta[];
 export declare const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[];
 /**
  * Derive the PositionNft state PDA.
- * Seeds: ["position_nft", slab, user_idx_u16_LE]
+ * Seeds: ["position_nft", portfolio_account, asset_index_u16_LE]
  */
-export declare function deriveNftPda(slab: PublicKey, userIdx: number, programId?: PublicKey): [PublicKey, number];
+export declare function deriveNftPda(portfolioAccount: PublicKey, assetIndex: number, programId?: PublicKey): [PublicKey, number];
 /**
- * Derive the PositionNft mint PDA.
- * Seeds: ["position_nft_mint", slab, user_idx_u16_LE]
+ * @deprecated v16 Position NFT mints are fresh signer keypairs, not PDAs.
  */
-export declare function deriveNftMint(slab: PublicKey, userIdx: number, programId?: PublicKey): [PublicKey, number];
+export declare function deriveNftMint(_portfolioAccount: PublicKey, _assetIndex: number, _programId?: PublicKey): [PublicKey, number];
 /**
  * Derive the program-wide mint authority PDA.
  * Seeds: ["mint_authority"]
  */
 export declare function deriveMintAuthority(programId?: PublicKey): [PublicKey, number];
 /**
- * On-chain PositionNft state (208 bytes, matches percolator-nft/src/state.rs).
+ * On-chain PositionNftV16 state (199 bytes, matches percolator-nft/src/state_v16.rs).
  *
- *   [0..8]     magic             u64
+ *   [0..8]     magic             u64 ("PERCNFT\0")
  *   [8]        version           u8
  *   [9]        bump              u8
- *   [10..16]   _pad0
- *   [16..48]   slab              [u8; 32]
- *   [48..50]   user_idx          u16 LE
- *   [50..56]   _pad1
- *   [56..88]   nft_mint          [u8; 32]
- *   [88..96]   entry_price_e6    u64
- *   [96..104]  position_size     u64
- *   [104]      is_long           u8
- *   [105..112] _pad2
- *   [112..128] position_basis_q  i128
- *   [128..144] last_funding_index_e18  i128
- *   [144..152] minted_at         i64
- *   [152..160] account_id        u64
- *   [160..192] position_owner    [u8; 32]
- *   [192..208] _reserved
+ *   [10..42]   portfolio_account [u8; 32]
+ *   [42..74]   nft_mint          [u8; 32]
+ *   [74..78]   asset_index       u32 LE
+ *   [78]       side_at_mint      u8
+ *   [79..95]   basis_pos_q_at_mint i128
+ *   [95..111]  f_snap_at_mint    i128
+ *   [111..119] market_id_at_mint u64
+ *   [119..127] epoch_snap_at_mint u64
+ *   [127..159] position_owner_at_mint [u8; 32]
+ *   [159..167] minted_at         i64
+ *   [167..199] _reserved
  */
-export declare const POSITION_NFT_STATE_LEN = 208;
+export declare const POSITION_NFT_STATE_LEN = 199;
 export interface PositionNftState {
     version: number;
     bump: number;
-    slab: PublicKey;
-    userIdx: number;
+    portfolioAccount: PublicKey;
     nftMint: PublicKey;
+    assetIndex: number;
+    sideAtMint: number;
+    basisPosQAtMint: bigint;
+    fSnapAtMint: bigint;
+    marketIdAtMint: bigint;
+    epochSnapAtMint: bigint;
+    positionOwnerAtMint: PublicKey;
+    /** Backward-compatible alias for positionOwnerAtMint. */
     positionOwner: PublicKey;
-    entryPriceE6: bigint;
-    positionSize: bigint;
-    isLong: boolean;
-    positionBasisQ: bigint;
-    lastFundingIndexE18: bigint;
     mintedAt: bigint;
-    accountId: bigint;
 }
 /**
  * Parse a PositionNft account from raw bytes.
- * @throws if data is shorter than POSITION_NFT_STATE_LEN (208 bytes).
+ * @throws if data is shorter than POSITION_NFT_STATE_LEN (199 bytes) or has an invalid magic/version.
  */
 export declare function parsePositionNftAccount(data: Uint8Array): PositionNftState;
 export {};

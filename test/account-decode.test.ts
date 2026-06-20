@@ -140,16 +140,17 @@ describe("account-decode: NFT PositionNft (mainnet)", () => {
 
     expect(nft.version).toBe(ex["version"]);
     expect(nft.bump).toBe(ex["bump"]);
-    expect(nft.slab.toBase58()).toBe(ex["slab"]);
-    expect(nft.userIdx).toBe(ex["userIdx"]);
+    expect(nft.portfolioAccount.toBase58()).toBe(ex["portfolioAccount"]);
     expect(nft.nftMint.toBase58()).toBe(ex["nftMint"]);
-    expect(nft.entryPriceE6).toBe(BigInt(ex["entryPriceE6"] as string));
-    expect(nft.positionSize).toBe(BigInt(ex["positionSize"] as string));
-    expect(nft.isLong).toBe(ex["isLong"]);
-    expect(nft.positionBasisQ).toBe(BigInt(ex["positionBasisQ"] as string));
-    expect(nft.lastFundingIndexE18).toBe(BigInt(ex["lastFundingIndexE18"] as string));
+    expect(nft.assetIndex).toBe(ex["assetIndex"]);
+    expect(nft.sideAtMint).toBe(ex["sideAtMint"]);
+    expect(nft.basisPosQAtMint).toBe(BigInt(ex["basisPosQAtMint"] as string));
+    expect(nft.fSnapAtMint).toBe(BigInt(ex["fSnapAtMint"] as string));
+    expect(nft.marketIdAtMint).toBe(BigInt(ex["marketIdAtMint"] as string));
+    expect(nft.epochSnapAtMint).toBe(BigInt(ex["epochSnapAtMint"] as string));
+    expect(nft.positionOwnerAtMint.toBase58()).toBe(ex["positionOwnerAtMint"]);
+    expect(nft.positionOwner.toBase58()).toBe(ex["positionOwnerAtMint"]);
     expect(nft.mintedAt).toBe(BigInt(ex["mintedAt"] as string));
-    expect(nft.accountId).toBe(BigInt(ex["accountId"] as string));
   });
 });
 
