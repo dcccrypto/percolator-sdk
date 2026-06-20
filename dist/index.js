@@ -2175,7 +2175,8 @@ var ACCOUNTS_NFT_BURN = [
   "w",
   "r",
   "r",
-  "r"
+  "r",
+  "w"
 ];
 var ACCOUNTS_NFT_EMERGENCY_BURN = [
   "s",
@@ -2184,7 +2185,8 @@ var ACCOUNTS_NFT_EMERGENCY_BURN = [
   "w",
   "r",
   "r",
-  "r"
+  "r",
+  "w"
 ];
 var TEXT = new TextEncoder();
 function u16Buf(value, label) {
@@ -2207,6 +2209,12 @@ function deriveNftMint(_portfolioAccount, _assetIndex, _programId = NFT_PROGRAM_
 function deriveMintAuthority(programId = NFT_PROGRAM_ID) {
   return PublicKey4.findProgramAddressSync(
     [TEXT.encode("mint_authority")],
+    programId
+  );
+}
+function deriveExtraAccountMetas(nftMint, programId = NFT_PROGRAM_ID) {
+  return PublicKey4.findProgramAddressSync(
+    [TEXT.encode("extra-account-metas"), nftMint.toBytes()],
     programId
   );
 }
@@ -8180,6 +8188,7 @@ export {
   depositAccounts,
   deriveCreatorLockPda,
   deriveDepositPda,
+  deriveExtraAccountMetas,
   deriveInsuranceLpMint,
   deriveLpBackingLedger,
   deriveLpEscrow,

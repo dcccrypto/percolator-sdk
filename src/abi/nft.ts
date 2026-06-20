@@ -108,9 +108,10 @@ export const ACCOUNTS_NFT_MINT: AccountMeta[] = [
  *   4. []          Slab account
  *   5. []          Mint authority PDA
  *   6. []          Token-2022 program
+ *   7. [writable]  ExtraAccountMetaList PDA (closed on burn — rent refunded to holder; #102)
  */
 export const ACCOUNTS_NFT_BURN: AccountMeta[] = [
-  "s", "w", "w", "w", "r", "r", "r",
+  "s", "w", "w", "w", "r", "r", "r", "w",
 ];
 
 /**
@@ -123,9 +124,10 @@ export const ACCOUNTS_NFT_BURN: AccountMeta[] = [
  *   4. []          Slab account
  *   5. []          Mint authority PDA
  *   6. []          Token-2022 program
+ *   7. [writable]  ExtraAccountMetaList PDA (closed on burn — rent refunded to holder; #102)
  */
 export const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[] = [
-  "s", "w", "w", "w", "r", "r", "r",
+  "s", "w", "w", "w", "r", "r", "r", "w",
 ];
 
 // ---------------------------------------------------------------------------
@@ -178,6 +180,22 @@ export function deriveMintAuthority(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [TEXT.encode("mint_authority")],
+    programId,
+  );
+}
+
+/**
+ * Derive the Token-2022 ExtraAccountMetaList PDA for a Position NFT mint.
+ * Seeds: ["extra-account-metas", nft_mint]. This is account #9 of MintPositionNft
+ * and (since #102) account #7 of BurnPositionNft / EmergencyBurn — the burn paths
+ * close it and refund its rent to the holder.
+ */
+export function deriveExtraAccountMetas(
+  nftMint: PublicKey,
+  programId: PublicKey = NFT_PROGRAM_ID,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [TEXT.encode("extra-account-metas"), nftMint.toBytes()],
     programId,
   );
 }

@@ -60,6 +60,7 @@ export declare const ACCOUNTS_NFT_MINT: AccountMeta[];
  *   4. []          Slab account
  *   5. []          Mint authority PDA
  *   6. []          Token-2022 program
+ *   7. [writable]  ExtraAccountMetaList PDA (closed on burn — rent refunded to holder; #102)
  */
 export declare const ACCOUNTS_NFT_BURN: AccountMeta[];
 /**
@@ -72,6 +73,7 @@ export declare const ACCOUNTS_NFT_BURN: AccountMeta[];
  *   4. []          Slab account
  *   5. []          Mint authority PDA
  *   6. []          Token-2022 program
+ *   7. [writable]  ExtraAccountMetaList PDA (closed on burn — rent refunded to holder; #102)
  */
 export declare const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[];
 /**
@@ -88,6 +90,13 @@ export declare function deriveNftMint(_portfolioAccount: PublicKey, _assetIndex:
  * Seeds: ["mint_authority"]
  */
 export declare function deriveMintAuthority(programId?: PublicKey): [PublicKey, number];
+/**
+ * Derive the Token-2022 ExtraAccountMetaList PDA for a Position NFT mint.
+ * Seeds: ["extra-account-metas", nft_mint]. This is account #9 of MintPositionNft
+ * and (since #102) account #7 of BurnPositionNft / EmergencyBurn — the burn paths
+ * close it and refund its rent to the holder.
+ */
+export declare function deriveExtraAccountMetas(nftMint: PublicKey, programId?: PublicKey): [PublicKey, number];
 /**
  * On-chain PositionNftV16 state (199 bytes, matches percolator-nft/src/state_v16.rs).
  *
