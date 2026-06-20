@@ -2787,33 +2787,36 @@ export interface BatchTradeNoCpiArgs {
   legs: BatchTradeNoCpiLeg[];
 }
 
+function validateBatchTradeFeeBps(value: bigint | string, caller: string): void {
+  const feeBps = typeof value === "string" ? BigInt(value) : value;
+  if (feeBps > 10_000n) {
+    throw new Error(`${caller}: feeBps must be <= 10000, got ${feeBps}`);
+  }
+}
+
 export function encodeBatchTradeNoCpi(args: BatchTradeNoCpiArgs): Uint8Array {
+  if (args.legs.length === 0) {
+    throw new Error("encodeBatchTradeNoCpi: at least one leg is required");
+  }
   if (args.legs.length > 255) {
     throw new Error(`encodeBatchTradeNoCpi: too many legs (${args.legs.length} > 255)`);
   }
+
   const parts: Uint8Array[] = [
     encU8(IX_TAG.BatchTradeNoCpi),
     encU8(args.legs.length),
   ];
+
   for (const leg of args.legs) {
+    validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeNoCpi");
     parts.push(encU16(leg.assetIndex));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.execPrice));
     parts.push(encU64(leg.feeBps));
   }
+
   return concatBytes(...parts);
 }
-
-/**
- * One leg of a BatchTradeCpi instruction.
- */
-export interface BatchTradeCpiLeg {
-  assetIndex: number;
-  sizeQ: bigint | string;
-  feeBps: bigint | string;
-  limitPrice: bigint | string;
-}
-
 /**
  * BatchTradeCpi (tag 67) — multi-leg CPI batch trade.
  *
@@ -2828,24 +2831,39 @@ export interface BatchTradeCpiLeg {
  * ]});
  * ```
  */
+
+export interface BatchTradeCpiLeg {
+  assetIndex: number;
+  sizeQ: bigint | string;
+  feeBps: bigint | string;
+  limitPrice: bigint | string;
+}
+
 export interface BatchTradeCpiArgs {
   legs: BatchTradeCpiLeg[];
 }
 
 export function encodeBatchTradeCpi(args: BatchTradeCpiArgs): Uint8Array {
+  if (args.legs.length === 0) {
+    throw new Error("encodeBatchTradeCpi: at least one leg is required");
+  }
   if (args.legs.length > 255) {
     throw new Error(`encodeBatchTradeCpi: too many legs (${args.legs.length} > 255)`);
   }
+
   const parts: Uint8Array[] = [
     encU8(IX_TAG.BatchTradeCpi),
     encU8(args.legs.length),
   ];
+
   for (const leg of args.legs) {
+    validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeCpi");
     parts.push(encU16(leg.assetIndex));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.feeBps));
     parts.push(encU64(leg.limitPrice));
   }
+
   return concatBytes(...parts);
 }
 

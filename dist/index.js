@@ -1053,7 +1053,16 @@ function encodeUpdateAssetAuthority(args) {
     encPubkey(args.newPubkey)
   );
 }
+function validateBatchTradeFeeBps(value, caller) {
+  const feeBps = typeof value === "string" ? BigInt(value) : value;
+  if (feeBps > 10000n) {
+    throw new Error(`${caller}: feeBps must be <= 10000, got ${feeBps}`);
+  }
+}
 function encodeBatchTradeNoCpi(args) {
+  if (args.legs.length === 0) {
+    throw new Error("encodeBatchTradeNoCpi: at least one leg is required");
+  }
   if (args.legs.length > 255) {
     throw new Error(`encodeBatchTradeNoCpi: too many legs (${args.legs.length} > 255)`);
   }
@@ -1062,6 +1071,7 @@ function encodeBatchTradeNoCpi(args) {
     encU8(args.legs.length)
   ];
   for (const leg of args.legs) {
+    validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeNoCpi");
     parts.push(encU16(leg.assetIndex));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.execPrice));
@@ -1070,6 +1080,9 @@ function encodeBatchTradeNoCpi(args) {
   return concatBytes(...parts);
 }
 function encodeBatchTradeCpi(args) {
+  if (args.legs.length === 0) {
+    throw new Error("encodeBatchTradeCpi: at least one leg is required");
+  }
   if (args.legs.length > 255) {
     throw new Error(`encodeBatchTradeCpi: too many legs (${args.legs.length} > 255)`);
   }
@@ -1078,6 +1091,7 @@ function encodeBatchTradeCpi(args) {
     encU8(args.legs.length)
   ];
   for (const leg of args.legs) {
+    validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeCpi");
     parts.push(encU16(leg.assetIndex));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.feeBps));
@@ -7503,15 +7517,8 @@ function validateIndex(value, field) {
   return Number(bi);
 }
 function validateAmount(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7524,15 +7531,8 @@ function validateAmount(value, field) {
   return num;
 }
 function validateU128(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7547,7 +7547,7 @@ function validateU128(value, field) {
 function validateI64(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,
@@ -7571,7 +7571,7 @@ function validateI64(value, field) {
 function validateI128(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,

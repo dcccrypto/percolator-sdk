@@ -643,6 +643,21 @@ console.log("\nTesting instruction encoders...\n");
     encodeBatchTradeNoCpi({ legs: new Array(256).fill({ assetIndex: 0, sizeQ: 0n, execPrice: 0n, feeBps: 0n }) });
   } catch { threw = true; }
   assert(threw, "encodeBatchTradeNoCpi rejects > 255 legs");
+  threw = false;
+  try {
+    encodeBatchTradeNoCpi({ legs: [] });
+  } catch { threw = true; }
+  assert(threw, "encodeBatchTradeNoCpi rejects empty legs");
+
+  threw = false;
+  try {
+    encodeBatchTradeNoCpi({
+      legs: [
+        { assetIndex: 0, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 10_001n },
+      ],
+    });
+  } catch { threw = true; }
+  assert(threw, "encodeBatchTradeNoCpi rejects feeBps > 10000");
 
   console.log("✓ encodeBatchTradeNoCpi (v17)");
 }
@@ -666,6 +681,21 @@ console.log("\nTesting instruction encoders...\n");
     [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "BatchTradeCpi leg.sizeQ=1_000_000"
   );
+  let threw = false;
+  try {
+    encodeBatchTradeCpi({ legs: [] });
+  } catch { threw = true; }
+  assert(threw, "encodeBatchTradeCpi rejects empty legs");
+
+  threw = false;
+  try {
+    encodeBatchTradeCpi({
+      legs: [
+        { assetIndex: 0, sizeQ: 1_000_000n, feeBps: 10_001n, limitPrice: 51_000_000_000n },
+      ],
+    });
+  } catch { threw = true; }
+  assert(threw, "encodeBatchTradeCpi rejects feeBps > 10000");
   console.log("✓ encodeBatchTradeCpi (v17)");
 }
 
