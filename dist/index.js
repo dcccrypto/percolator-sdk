@@ -1166,7 +1166,15 @@ function encodeConfigureHybridOracle(args) {
     encPubkey(args.oracleLegFeeds[2])
   );
 }
+function requirePositiveU64(value, field) {
+  const n = typeof value === "string" ? BigInt(value) : value;
+  if (n <= 0n) {
+    throw new Error(`${field} must be > 0`);
+  }
+}
 function encodeConfigureEwmaMark(args) {
+  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
+  requirePositiveU64(args.markEwmaHalflifeSlots, "markEwmaHalflifeSlots");
   return concatBytes(
     encU8(IX_TAG.ConfigureEwmaMark),
     encU16(args.assetIndex),
@@ -1177,6 +1185,7 @@ function encodeConfigureEwmaMark(args) {
   );
 }
 function encodePushEwmaMark(args) {
+  requirePositiveU64(args.markE6, "markE6");
   return concatBytes(
     encU8(IX_TAG.PushEwmaMark),
     encU16(args.assetIndex),
@@ -1185,6 +1194,7 @@ function encodePushEwmaMark(args) {
   );
 }
 function encodeConfigureAuthMark(args) {
+  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
   return concatBytes(
     encU8(IX_TAG.ConfigureAuthMark),
     encU16(args.assetIndex),
@@ -1193,6 +1203,7 @@ function encodeConfigureAuthMark(args) {
   );
 }
 function encodePushAuthMark(args) {
+  requirePositiveU64(args.markE6, "markE6");
   return concatBytes(
     encU8(IX_TAG.PushAuthMark),
     encU16(args.assetIndex),
@@ -7503,15 +7514,8 @@ function validateIndex(value, field) {
   return Number(bi);
 }
 function validateAmount(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7524,15 +7528,8 @@ function validateAmount(value, field) {
   return num;
 }
 function validateU128(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7547,7 +7544,7 @@ function validateU128(value, field) {
 function validateI64(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,
@@ -7571,7 +7568,7 @@ function validateI64(value, field) {
 function validateI128(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,

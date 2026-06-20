@@ -945,7 +945,150 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodePushAuthMark (19-byte wire)");
 }
 
-// ── TASK B: matcher passive-init payload ──────────────────────────────────────
+// Regression: oracle mark encoders reject zero mark values and zero halflife
+{
+  let oracleMarkThrew = false;
+  try {
+    encodeConfigureEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 0n,
+      markEwmaHalflifeSlots: 500n,
+      markMinFee: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodeConfigureEwmaMark rejects zero initialMarkE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodeConfigureEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 50_000_000_000n,
+      markEwmaHalflifeSlots: 0n,
+      markMinFee: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(
+    oracleMarkThrew,
+    "encodeConfigureEwmaMark rejects zero markEwmaHalflifeSlots",
+  );
+
+  oracleMarkThrew = false;
+  try {
+    encodePushEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_001n,
+      markE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodePushEwmaMark rejects zero markE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodeConfigureAuthMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodeConfigureAuthMark rejects zero initialMarkE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodePushAuthMark({
+      assetIndex: 1,
+      nowSlot: 300_000_001n,
+      markE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodePushAuthMark rejects zero markE6");
+
+console.log("✓ encodePushAuthMark (19-byte wire)");
+}
+
+// Regression: oracle mark encoders reject zero mark values and zero halflife
+{
+  let oracleMarkThrew = false;
+  try {
+    encodeConfigureEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 0n,
+      markEwmaHalflifeSlots: 500n,
+      markMinFee: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodeConfigureEwmaMark rejects zero initialMarkE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodeConfigureEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 50_000_000_000n,
+      markEwmaHalflifeSlots: 0n,
+      markMinFee: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(
+    oracleMarkThrew,
+    "encodeConfigureEwmaMark rejects zero markEwmaHalflifeSlots",
+  );
+
+  oracleMarkThrew = false;
+  try {
+    encodePushEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_001n,
+      markE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodePushEwmaMark rejects zero markE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodeConfigureAuthMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodeConfigureAuthMark rejects zero initialMarkE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodePushAuthMark({
+      assetIndex: 1,
+      nowSlot: 300_000_001n,
+      markE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodePushAuthMark rejects zero markE6");
+
+  console.log("✓ oracle mark encoders reject zero values");
+}
+// ── TASK B: matcher passive-init payload ─────────────────────────────
 
 // Test encodeMatcherInitPassive — 66-byte wire to matcher program
 // Layout: [0]=2, [1]=0, [2..10]=0, [10..14]=100u32LE, [14..34]=0, [34..50]=max_fill_abs u128LE, [50..66]=0

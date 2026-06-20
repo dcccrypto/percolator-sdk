@@ -3269,7 +3269,16 @@ export interface ConfigureEwmaMarkArgs {
   markMinFee: bigint | string;
 }
 
+function requirePositiveU64(value: bigint | string, field: string): void {
+  const n = typeof value === "string" ? BigInt(value) : value;
+  if (n <= 0n) {
+    throw new Error(`${field} must be > 0`);
+  }
+}
 export function encodeConfigureEwmaMark(args: ConfigureEwmaMarkArgs): Uint8Array {
+  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
+  requirePositiveU64(args.markEwmaHalflifeSlots, "markEwmaHalflifeSlots");
+
   return concatBytes(
     encU8(IX_TAG.ConfigureEwmaMark),
     encU16(args.assetIndex),
@@ -3310,6 +3319,8 @@ export interface PushEwmaMarkArgs {
 }
 
 export function encodePushEwmaMark(args: PushEwmaMarkArgs): Uint8Array {
+  requirePositiveU64(args.markE6, "markE6");
+
   return concatBytes(
     encU8(IX_TAG.PushEwmaMark),
     encU16(args.assetIndex),
@@ -3346,6 +3357,8 @@ export interface ConfigureAuthMarkArgs {
 }
 
 export function encodeConfigureAuthMark(args: ConfigureAuthMarkArgs): Uint8Array {
+  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
+
   return concatBytes(
     encU8(IX_TAG.ConfigureAuthMark),
     encU16(args.assetIndex),
@@ -3384,6 +3397,8 @@ export interface PushAuthMarkArgs {
 }
 
 export function encodePushAuthMark(args: PushAuthMarkArgs): Uint8Array {
+  requirePositiveU64(args.markE6, "markE6");
+
   return concatBytes(
     encU8(IX_TAG.PushAuthMark),
     encU16(args.assetIndex),
