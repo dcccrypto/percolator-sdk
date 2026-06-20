@@ -56,6 +56,7 @@ import {
   encodeConfigureAuthMark,
   encodePushAuthMark,
   encodeMatcherInitPassive,
+  derivePythPriceUpdateAccount,
   IX_TAG,
 } from "../src/abi/instructions.js";
 
@@ -70,6 +71,16 @@ function assertBuf(actual: Uint8Array, expected: number[], msg: string): void {
       `FAIL: ${msg}\n  expected: [${[...exp].join(", ")}]\n  actual:   [${[...actual].join(", ")}]`
     );
   }
+}
+
+async function assertRejects(fn: () => Promise<unknown>, msg: string): Promise<void> {
+  let threw = false;
+  try {
+    await fn();
+  } catch {
+    threw = true;
+  }
+  assert(threw, `${msg} must reject`);
 }
 
 function decI128Le(data: Uint8Array, offset: number): bigint {
@@ -218,6 +229,32 @@ console.log("Testing encode functions...\n");
   const pkBytes = pk.toBytes();
   assert(buf.length === pkBytes.length && buf.every((v, i) => v === pkBytes[i]), "encPubkey value");
   console.log("✓ encPubkey");
+}
+
+// Test derivePythPriceUpdateAccount input validation
+{
+  const feed = new Uint8Array(32);
+  const pda0 = await derivePythPriceUpdateAccount(feed, 0);
+  const pdaMaxShard = await derivePythPriceUpdateAccount(feed, 0xffff);
+  assert(typeof pda0 === "string" && pda0.length > 0, "derivePythPriceUpdateAccount returns a PDA");
+  assert(typeof pdaMaxShard === "string" && pdaMaxShard.length > 0, "derivePythPriceUpdateAccount accepts shard u16 max");
+  await assertRejects(
+    () => derivePythPriceUpdateAccount(new Uint8Array(31), 0),
+    "derivePythPriceUpdateAccount short feedId",
+  );
+  await assertRejects(
+    () => derivePythPriceUpdateAccount(new Uint8Array(33), 0),
+    "derivePythPriceUpdateAccount long feedId",
+  );
+  await assertRejects(
+    () => derivePythPriceUpdateAccount(feed, 65536),
+    "derivePythPriceUpdateAccount shard wrap",
+  );
+  await assertRejects(
+    () => derivePythPriceUpdateAccount(feed, 1.5),
+    "derivePythPriceUpdateAccount fractional shard",
+  );
+  console.log("✓ derivePythPriceUpdateAccount validation");
 }
 
 console.log("\nTesting instruction encoders...\n");

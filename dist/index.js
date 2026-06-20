@@ -696,6 +696,12 @@ function encodeSetPythOracle(args) {
 }
 var PYTH_RECEIVER_PROGRAM_ID = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
 async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
+  if (!(feedId instanceof Uint8Array) || feedId.length !== 32) {
+    throw new Error(`derivePythPriceUpdateAccount: feedId must be 32 bytes, got ${feedId?.length ?? "invalid"}`);
+  }
+  if (!Number.isInteger(shardId) || shardId < 0 || shardId > 65535) {
+    throw new Error(`derivePythPriceUpdateAccount: shardId must be a u16, got ${shardId}`);
+  }
   const { PublicKey: PublicKey15 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
@@ -7503,15 +7509,8 @@ function validateIndex(value, field) {
   return Number(bi);
 }
 function validateAmount(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7524,15 +7523,8 @@ function validateAmount(value, field) {
   return num;
 }
 function validateU128(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7547,7 +7539,7 @@ function validateU128(value, field) {
 function validateI64(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,
@@ -7571,7 +7563,7 @@ function validateI64(value, field) {
 function validateI128(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,

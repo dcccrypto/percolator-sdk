@@ -1465,6 +1465,12 @@ export async function derivePythPriceUpdateAccount(
   feedId: Uint8Array,
   shardId = 0,
 ): Promise<string> {
+  if (!(feedId instanceof Uint8Array) || feedId.length !== 32) {
+    throw new Error(`derivePythPriceUpdateAccount: feedId must be 32 bytes, got ${feedId?.length ?? "invalid"}`);
+  }
+  if (!Number.isInteger(shardId) || shardId < 0 || shardId > 0xffff) {
+    throw new Error(`derivePythPriceUpdateAccount: shardId must be a u16, got ${shardId}`);
+  }
   const { PublicKey } = await import('@solana/web3.js');
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
