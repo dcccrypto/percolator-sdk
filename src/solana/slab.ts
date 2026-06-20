@@ -4143,8 +4143,33 @@ export function isV17MarketAccount(data: Uint8Array): boolean {
 // V17 account decoders (DESYNC fixes — new standalone account types)
 // =============================================================================
 
-/** Header length for all v17 standalone accounts (magic:u64 + kind:u16 + reserved:6 = 16). */
+/** Header length for all v17 standalone accounts (magic:u64 + version:u16 + kind:u8 + reserved:5 = 16). */
 const V17_ACCOUNT_HEADER_LEN = 16;
+const V17_KIND_PORTFOLIO = 2;
+const V17_KIND_LP_VAULT_REGISTRY = 5;
+const V17_KIND_LP_REDEMPTION = 6;
+
+function assertV17StandaloneHeader(
+  data: Uint8Array,
+  parserName: string,
+  expectedKind: number,
+): void {
+  if (data.length < V17_ACCOUNT_HEADER_LEN) {
+    throw new Error(`${parserName}: data too short (${data.length} < ${V17_ACCOUNT_HEADER_LEN})`);
+  }
+  const magic = readU64LE(data, 0);
+  if (magic !== V17_MAGIC) {
+    throw new Error(`${parserName}: invalid v17 magic`);
+  }
+  const version = readU16LE(data, 8);
+  if (version !== V17_EXPECTED_VERSION) {
+    throw new Error(`${parserName}: invalid v17 version (${version} !== ${V17_EXPECTED_VERSION})`);
+  }
+  const kind = readU8(data, 10);
+  if (kind !== expectedKind) {
+    throw new Error(`${parserName}: invalid v17 account kind (${kind} !== ${expectedKind})`);
+  }
+}
 
 // PortfolioAccountV16Account field layout (relative to HEADER_LEN=16).
 // ProvenanceHeaderV16Account: market_group_id[32]+portfolio_account_id[32]+owner[32]+version[2]+layout_discriminator[2] = 100 bytes.
@@ -4284,11 +4309,12 @@ export interface PortfolioV17 {
  * ```
  */
 export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
-  // Minimum size check: header(16) + provenance(100) + owner(32) + capital(16) = 164
-  const MIN_PORTFOLIO_BYTES = PF_BODY_OFF + 16; // at minimum through capital
+  // Minimum size check: header(16) + provenance(100) + owner/capital/pnl/reserved_pnl.
+  const MIN_PORTFOLIO_BYTES = PF_RESERVED_PNL_OFF + 16;
   if (data.length < MIN_PORTFOLIO_BYTES) {
     throw new Error(`parsePortfolioV17: data too short (${data.length} < ${MIN_PORTFOLIO_BYTES})`);
   }
+  assertV17StandaloneHeader(data, "parsePortfolioV17", V17_KIND_PORTFOLIO);
 
   // Provenance header
   const marketGroupId = new PublicKey(data.subarray(PF_PROVENANCE_MARKET_GROUP_OFF, PF_PROVENANCE_MARKET_GROUP_OFF + 32));
@@ -4433,6 +4459,7 @@ export function parseLpVaultRegistry(data: Uint8Array): LpVaultRegistryV17 {
       `parseLpVaultRegistry: data too short (${data.length} < ${LP_VAULT_REGISTRY_TOTAL})`
     );
   }
+  assertV17StandaloneHeader(data, "parseLpVaultRegistry", V17_KIND_LP_VAULT_REGISTRY);
   const b = V17_ACCOUNT_HEADER_LEN; // skip 16-byte header
   return {
     marketGroup: new PublicKey(data.subarray(b + 0, b + 32)),
@@ -4493,6 +4520,7 @@ export function parseLpRedemption(data: Uint8Array): LpRedemptionV17 {
       `parseLpRedemption: data too short (${data.length} < ${LP_REDEMPTION_TOTAL})`
     );
   }
+  assertV17StandaloneHeader(data, "parseLpRedemption", V17_KIND_LP_REDEMPTION);
   const b = V17_ACCOUNT_HEADER_LEN; // skip 16-byte header
   return {
     registry: new PublicKey(data.subarray(b + 0, b + 32)),

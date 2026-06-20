@@ -11,10 +11,29 @@ import {
   isAccountUsed,
   AccountKind,
   detectSlabLayout,
+  parsePortfolioV17,
+  parseLpVaultRegistry,
+  parseLpRedemption,
 } from "../src/solana/slab.js";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`FAIL: ${msg}`);
+}
+
+function assertThrows(fn: () => unknown, msg: string): void {
+  let threw = false;
+  try {
+    fn();
+  } catch {
+    threw = true;
+  }
+  assert(threw, `${msg} must throw`);
+}
+
+function writeV17Header(buf: Buffer, kind: number): void {
+  buf.writeBigUInt64LE(0x5045_5243_5631_3600n, 0);
+  buf.writeUInt16LE(16, 8);
+  buf.writeUInt8(kind, 10);
 }
 
 console.log("Testing slab parsing...\n");
@@ -886,4 +905,46 @@ console.log("\n✅ All slab tests passed!");
   console.log("  ✓ Wrapper-only InitUser policy fields are bounded defaults, not bogus u128 reads");
 
   console.log("✅ V12_19 parseParams round-trip passed!");
+}
+
+// ─── V17 standalone parser header validation ────────────────────────────────
+{
+  console.log("\nTesting V17 standalone parser validation...");
+
+  assertThrows(
+    () => parsePortfolioV17(new Uint8Array(132)),
+    "parsePortfolioV17 truncated data",
+  );
+  assertThrows(
+    () => parsePortfolioV17(new Uint8Array(291)),
+    "parsePortfolioV17 zero header",
+  );
+  assertThrows(
+    () => parseLpVaultRegistry(new Uint8Array(176)),
+    "parseLpVaultRegistry zero header",
+  );
+  assertThrows(
+    () => parseLpRedemption(new Uint8Array(112)),
+    "parseLpRedemption zero header",
+  );
+
+  const portfolio = Buffer.alloc(196);
+  writeV17Header(portfolio, 2);
+  assert(parsePortfolioV17(portfolio).capital === 0n, "parsePortfolioV17 accepts valid v17 portfolio header");
+
+  const registry = Buffer.alloc(176);
+  writeV17Header(registry, 5);
+  assert(parseLpVaultRegistry(registry).totalLpSharesOutstanding === 0n, "parseLpVaultRegistry accepts valid v17 registry header");
+
+  const redemption = Buffer.alloc(112);
+  writeV17Header(redemption, 6);
+  assert(parseLpRedemption(redemption).shares === 0n, "parseLpRedemption accepts valid v17 redemption header");
+
+  registry.writeUInt8(6, 10);
+  assertThrows(
+    () => parseLpVaultRegistry(registry),
+    "parseLpVaultRegistry wrong v17 kind",
+  );
+
+  console.log("✅ V17 standalone parser validation passed!");
 }
