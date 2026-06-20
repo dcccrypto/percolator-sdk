@@ -174,6 +174,14 @@ export function computeFeeSplit(
   if (config.lpBps === 0n && config.protocolBps === 0n && config.creatorBps === 0n) {
     return [totalFee, 0n, 0n];
   }
+  const totalBps = config.lpBps + config.protocolBps + config.creatorBps;
+  if (config.lpBps < 0n || config.protocolBps < 0n || config.creatorBps < 0n) {
+    throw new Error("computeFeeSplit: bps values must be non-negative");
+  }
+  if (totalBps !== 10000n) {
+    throw new Error(`computeFeeSplit: bps values must sum to 10000, got ${totalBps}`);
+  }
+
   const lp = (totalFee * config.lpBps) / 10000n;
   const protocol = (totalFee * config.protocolBps) / 10000n;
   const creator = totalFee - lp - protocol;
