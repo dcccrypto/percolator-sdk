@@ -4744,6 +4744,26 @@ function isV17Account(data) {
   return magic === V17_MAGIC && version === V17_EXPECTED_VERSION;
 }
 var V17_ACCOUNT_HEADER_LEN = 16;
+var V17_KIND_PORTFOLIO = 2;
+var V17_KIND_LP_VAULT_REGISTRY = 5;
+var V17_KIND_LP_REDEMPTION = 6;
+function assertV17StandaloneHeader(data, parserName, expectedKind) {
+  if (data.length < V17_ACCOUNT_HEADER_LEN) {
+    throw new Error(`${parserName}: data too short (${data.length} < ${V17_ACCOUNT_HEADER_LEN})`);
+  }
+  const magic = readU64LE(data, 0);
+  if (magic !== V17_MAGIC) {
+    throw new Error(`${parserName}: invalid v17 magic`);
+  }
+  const version = readU16LE(data, 8);
+  if (version !== V17_EXPECTED_VERSION) {
+    throw new Error(`${parserName}: invalid v17 version (${version} !== ${V17_EXPECTED_VERSION})`);
+  }
+  const kind = readU8(data, 10);
+  if (kind !== expectedKind) {
+    throw new Error(`${parserName}: invalid v17 account kind (${kind} !== ${expectedKind})`);
+  }
+}
 var PF_PROVENANCE_OFF = V17_ACCOUNT_HEADER_LEN;
 var PF_PROVENANCE_MARKET_GROUP_OFF = PF_PROVENANCE_OFF;
 var PF_PROVENANCE_ACCOUNT_ID_OFF = PF_PROVENANCE_OFF + 32;
@@ -4770,10 +4790,11 @@ var PF_SOURCE_DOMAINS_OFF = PF_LEGS_OFF + PF_LEGS_COUNT * PF_LEG_SIZE;
 var PF_SOURCE_DOMAINS_CAP = 32;
 var PF_HEALTH_CERT_OFF = PF_SOURCE_DOMAINS_OFF + PF_SOURCE_DOMAINS_CAP * PF_SOURCE_DOMAIN_SIZE;
 function parsePortfolioV17(data) {
-  const MIN_PORTFOLIO_BYTES = PF_BODY_OFF + 16;
+  const MIN_PORTFOLIO_BYTES = PF_RESERVED_PNL_OFF + 16;
   if (data.length < MIN_PORTFOLIO_BYTES) {
     throw new Error(`parsePortfolioV17: data too short (${data.length} < ${MIN_PORTFOLIO_BYTES})`);
   }
+  assertV17StandaloneHeader(data, "parsePortfolioV17", V17_KIND_PORTFOLIO);
   const marketGroupId = new PublicKey5(data.subarray(PF_PROVENANCE_MARKET_GROUP_OFF, PF_PROVENANCE_MARKET_GROUP_OFF + 32));
   const portfolioAccountId = new PublicKey5(data.subarray(PF_PROVENANCE_ACCOUNT_ID_OFF, PF_PROVENANCE_ACCOUNT_ID_OFF + 32));
   const provenanceOwner = new PublicKey5(data.subarray(PF_PROVENANCE_OWNER_OFF, PF_PROVENANCE_OWNER_OFF + 32));
@@ -4857,6 +4878,7 @@ function parseLpVaultRegistry(data) {
       `parseLpVaultRegistry: data too short (${data.length} < ${LP_VAULT_REGISTRY_TOTAL})`
     );
   }
+  assertV17StandaloneHeader(data, "parseLpVaultRegistry", V17_KIND_LP_VAULT_REGISTRY);
   const b = V17_ACCOUNT_HEADER_LEN;
   return {
     marketGroup: new PublicKey5(data.subarray(b + 0, b + 32)),
@@ -4882,6 +4904,7 @@ function parseLpRedemption(data) {
       `parseLpRedemption: data too short (${data.length} < ${LP_REDEMPTION_TOTAL})`
     );
   }
+  assertV17StandaloneHeader(data, "parseLpRedemption", V17_KIND_LP_REDEMPTION);
   const b = V17_ACCOUNT_HEADER_LEN;
   return {
     registry: new PublicKey5(data.subarray(b + 0, b + 32)),
@@ -7503,15 +7526,8 @@ function validateIndex(value, field) {
   return Number(bi);
 }
 function validateAmount(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7524,15 +7540,8 @@ function validateAmount(value, field) {
   return num;
 }
 function validateU128(value, field) {
-  let num;
-  try {
-    num = BigInt(value);
-  } catch {
-    throw new ValidationError(
-      field,
-      `"${value}" is not a valid number. Use decimal digits only.`
-    );
-  }
+  const t = requireDecimalUIntString(value, field);
+  const num = BigInt(t);
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
@@ -7547,7 +7556,7 @@ function validateU128(value, field) {
 function validateI64(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,
@@ -7571,7 +7580,7 @@ function validateI64(value, field) {
 function validateI128(value, field) {
   let num;
   try {
-    num = BigInt(value);
+    num = safeBigInt(value, field);
   } catch {
     throw new ValidationError(
       field,
