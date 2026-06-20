@@ -704,6 +704,12 @@ function encodeSetPythOracle(args) {
 }
 var PYTH_RECEIVER_PROGRAM_ID = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
 async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
+  if (!(feedId instanceof Uint8Array) || feedId.length !== 32) {
+    throw new Error(`derivePythPriceUpdateAccount: feedId must be 32 bytes, got ${feedId?.length ?? "invalid"}`);
+  }
+  if (!Number.isInteger(shardId) || shardId < 0 || shardId > 65535) {
+    throw new Error(`derivePythPriceUpdateAccount: shardId must be a u16, got ${shardId}`);
+  }
   const { PublicKey: PublicKey15 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
@@ -1061,7 +1067,16 @@ function encodeUpdateAssetAuthority(args) {
     encPubkey(args.newPubkey)
   );
 }
+function validateBatchTradeFeeBps(value, caller) {
+  const feeBps = typeof value === "string" ? BigInt(value) : value;
+  if (feeBps > 10000n) {
+    throw new Error(`${caller}: feeBps must be <= 10000, got ${feeBps}`);
+  }
+}
 function encodeBatchTradeNoCpi(args) {
+  if (args.legs.length === 0) {
+    throw new Error("encodeBatchTradeNoCpi: at least one leg is required");
+  }
   if (args.legs.length > 255) {
     throw new Error(`encodeBatchTradeNoCpi: too many legs (${args.legs.length} > 255)`);
   }
@@ -1070,6 +1085,7 @@ function encodeBatchTradeNoCpi(args) {
     encU8(args.legs.length)
   ];
   for (const leg of args.legs) {
+    validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeNoCpi");
     parts.push(encU16(leg.assetIndex));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.execPrice));
@@ -1078,6 +1094,9 @@ function encodeBatchTradeNoCpi(args) {
   return concatBytes(...parts);
 }
 function encodeBatchTradeCpi(args) {
+  if (args.legs.length === 0) {
+    throw new Error("encodeBatchTradeCpi: at least one leg is required");
+  }
   if (args.legs.length > 255) {
     throw new Error(`encodeBatchTradeCpi: too many legs (${args.legs.length} > 255)`);
   }
@@ -1086,6 +1105,7 @@ function encodeBatchTradeCpi(args) {
     encU8(args.legs.length)
   ];
   for (const leg of args.legs) {
+    validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeCpi");
     parts.push(encU16(leg.assetIndex));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.feeBps));
@@ -1154,7 +1174,11 @@ function encodeSetNftProgramId(args) {
     encPubkey(args.nftProgramId)
   );
 }
+var ORACLE_LEG_CAP = 3;
 function encodeConfigureHybridOracle(args) {
+  if (!Number.isInteger(args.oracleLegCount) || args.oracleLegCount < 1 || args.oracleLegCount > ORACLE_LEG_CAP) {
+    throw new Error(`encodeConfigureHybridOracle: oracleLegCount must be an integer in 1..${ORACLE_LEG_CAP}`);
+  }
   return concatBytes(
     encU8(IX_TAG.ConfigureHybridOracle),
     encU16(args.assetIndex),
@@ -1174,7 +1198,15 @@ function encodeConfigureHybridOracle(args) {
     encPubkey(args.oracleLegFeeds[2])
   );
 }
+function requirePositiveU64(value, field) {
+  const n = typeof value === "string" ? BigInt(value) : value;
+  if (n <= 0n) {
+    throw new Error(`${field} must be > 0`);
+  }
+}
 function encodeConfigureEwmaMark(args) {
+  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
+  requirePositiveU64(args.markEwmaHalflifeSlots, "markEwmaHalflifeSlots");
   return concatBytes(
     encU8(IX_TAG.ConfigureEwmaMark),
     encU16(args.assetIndex),
@@ -1185,6 +1217,7 @@ function encodeConfigureEwmaMark(args) {
   );
 }
 function encodePushEwmaMark(args) {
+  requirePositiveU64(args.markE6, "markE6");
   return concatBytes(
     encU8(IX_TAG.PushEwmaMark),
     encU16(args.assetIndex),
@@ -1193,6 +1226,7 @@ function encodePushEwmaMark(args) {
   );
 }
 function encodeConfigureAuthMark(args) {
+  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
   return concatBytes(
     encU8(IX_TAG.ConfigureAuthMark),
     encU16(args.assetIndex),
@@ -1201,6 +1235,7 @@ function encodeConfigureAuthMark(args) {
   );
 }
 function encodePushAuthMark(args) {
+  requirePositiveU64(args.markE6, "markE6");
   return concatBytes(
     encU8(IX_TAG.PushAuthMark),
     encU16(args.assetIndex),
@@ -4646,17 +4681,17 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const markMinFee = readU64LE(data, b + 256);
   const oracleTargetPriceE6 = readU64LE(data, b + 264);
   const oracleTargetPublishTime = readI64LE(data, b + 272);
-  const ORACLE_LEG_CAP = 3;
+  const ORACLE_LEG_CAP2 = 3;
   const oracleLegFeeds = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegFeeds.push(new PublicKey5(data.subarray(b + 280 + i * 32, b + 280 + (i + 1) * 32)));
   }
   const oracleLegPricesE6 = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegPricesE6.push(readU64LE(data, b + 376 + i * 8));
   }
   const oracleLegPublishTimes = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegPublishTimes.push(readI64LE(data, b + 400 + i * 8));
   }
   const backingTradeFeePolicyCount = readU16LE(data, b + 424);
@@ -4714,17 +4749,17 @@ function parseAssetOracleProfileV17(data, profileOff) {
     );
   }
   const b = profileOff;
-  const ORACLE_LEG_CAP = 3;
+  const ORACLE_LEG_CAP2 = 3;
   const oracleLegFeeds = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegFeeds.push(new PublicKey5(data.subarray(b + 224 + i * 32, b + 224 + (i + 1) * 32)));
   }
   const oracleLegPricesE6 = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegPricesE6.push(readU64LE(data, b + 320 + i * 8));
   }
   const oracleLegPublishTimes = [];
-  for (let i = 0; i < ORACLE_LEG_CAP; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
     oracleLegPublishTimes.push(readI64LE(data, b + 344 + i * 8));
   }
   return {
