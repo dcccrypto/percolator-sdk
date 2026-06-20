@@ -72,6 +72,16 @@ function assertBuf(actual: Uint8Array, expected: number[], msg: string): void {
   }
 }
 
+function assertThrows(fn: () => unknown, msg: string): void {
+  let threw = false;
+  try {
+    fn();
+  } catch {
+    threw = true;
+  }
+  assert(threw, `${msg} must throw`);
+}
+
 function decI128Le(data: Uint8Array, offset: number): bigint {
   let value = 0n;
   for (let i = 0; i < 16; i++) value |= BigInt(data[offset + i]) << BigInt(i * 8);
@@ -208,6 +218,16 @@ console.log("Testing encode functions...\n");
     "encI128(-1000000)"
   );
   console.log("✓ encI128");
+}
+
+// Decimal string inputs must be canonical decimal integers.
+{
+  assertThrows(() => encU64("0x10"), 'encU64("0x10")');
+  assertThrows(() => encU64(" 10"), 'encU64(" 10")');
+  assertThrows(() => encI64("+10"), 'encI64("+10")');
+  assertThrows(() => encU128("01"), 'encU128("01")');
+  assertThrows(() => encI128("1e3"), 'encI128("1e3")');
+  console.log("✓ integer encoders reject non-decimal string forms");
 }
 
 // Test encPubkey

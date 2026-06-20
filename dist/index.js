@@ -3,6 +3,14 @@ import { PublicKey } from "@solana/web3.js";
 var U8_MAX = 255;
 var U16_MAX = 65535;
 var U32_MAX = 4294967295;
+var DECIMAL_INT_RE = /^-?(0|[1-9]\d*)$/;
+function parseDecimalBigInt(val, fnName) {
+  if (typeof val !== "string") return val;
+  if (!DECIMAL_INT_RE.test(val)) {
+    throw new Error(`${fnName}: value must be a decimal integer string`);
+  }
+  return BigInt(val);
+}
 function encU8(val) {
   if (!Number.isInteger(val) || val < 0 || val > U8_MAX) {
     throw new Error(`encU8: value out of range (0..255), got ${val}`);
@@ -26,7 +34,7 @@ function encU32(val) {
   return buf;
 }
 function encU64(val) {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = parseDecimalBigInt(val, "encU64");
   if (n < 0n) throw new Error("encU64: value must be non-negative");
   if (n > 0xffffffffffffffffn) throw new Error("encU64: value exceeds u64 max");
   const buf = new Uint8Array(8);
@@ -34,7 +42,7 @@ function encU64(val) {
   return buf;
 }
 function encI64(val) {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = parseDecimalBigInt(val, "encI64");
   const min = -(1n << 63n);
   const max = (1n << 63n) - 1n;
   if (n < min || n > max) throw new Error("encI64: value out of range");
@@ -43,7 +51,7 @@ function encI64(val) {
   return buf;
 }
 function encU128(val) {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = parseDecimalBigInt(val, "encU128");
   if (n < 0n) throw new Error("encU128: value must be non-negative");
   const max = (1n << 128n) - 1n;
   if (n > max) throw new Error("encU128: value exceeds u128 max");
@@ -56,7 +64,7 @@ function encU128(val) {
   return buf;
 }
 function encI128(val) {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = parseDecimalBigInt(val, "encI128");
   const min = -(1n << 127n);
   const max = (1n << 127n) - 1n;
   if (n < min || n > max) throw new Error("encI128: value out of range");

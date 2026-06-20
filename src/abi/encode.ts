@@ -3,6 +3,15 @@ import { PublicKey } from "@solana/web3.js";
 const U8_MAX = 0xFF;
 const U16_MAX = 0xFFFF;
 const U32_MAX = 0xFFFFFFFF;
+const DECIMAL_INT_RE = /^-?(0|[1-9]\d*)$/;
+
+function parseDecimalBigInt(val: bigint | string, fnName: string): bigint {
+  if (typeof val !== "string") return val;
+  if (!DECIMAL_INT_RE.test(val)) {
+    throw new Error(`${fnName}: value must be a decimal integer string`);
+  }
+  return BigInt(val);
+}
 
 /**
  * Encode u8 (1 byte)
@@ -43,7 +52,7 @@ export function encU32(val: number): Uint8Array {
  * Input: bigint or string (decimal)
  */
 export function encU64(val: bigint | string): Uint8Array {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = parseDecimalBigInt(val, "encU64");
   if (n < 0n) throw new Error("encU64: value must be non-negative");
   if (n > 0xffff_ffff_ffff_ffffn) throw new Error("encU64: value exceeds u64 max");
   const buf = new Uint8Array(8);
@@ -56,7 +65,7 @@ export function encU64(val: bigint | string): Uint8Array {
  * Input: bigint or string (decimal, may be negative)
  */
 export function encI64(val: bigint | string): Uint8Array {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = parseDecimalBigInt(val, "encI64");
   const min = -(1n << 63n);
   const max = (1n << 63n) - 1n;
   if (n < min || n > max) throw new Error("encI64: value out of range");
@@ -70,7 +79,7 @@ export function encI64(val: bigint | string): Uint8Array {
  * Input: bigint or string (decimal)
  */
 export function encU128(val: bigint | string): Uint8Array {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = parseDecimalBigInt(val, "encU128");
   if (n < 0n) throw new Error("encU128: value must be non-negative");
   const max = (1n << 128n) - 1n;
   if (n > max) throw new Error("encU128: value exceeds u128 max");
@@ -88,7 +97,7 @@ export function encU128(val: bigint | string): Uint8Array {
  * Input: bigint or string (decimal, may be negative)
  */
 export function encI128(val: bigint | string): Uint8Array {
-  const n = typeof val === "string" ? BigInt(val) : val;
+  const n = parseDecimalBigInt(val, "encI128");
   const min = -(1n << 127n);
   const max = (1n << 127n) - 1n;
   if (n < min || n > max) throw new Error("encI128: value out of range");
