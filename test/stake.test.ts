@@ -67,6 +67,51 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(data[10]).toBe(0);
   });
 
+  it("rejects unsafe JavaScript number inputs in stake amount encoders", () => {
+    const unsafe = Number.MAX_SAFE_INTEGER + 1;
+
+    expect(() => encodeStakeInitPool(unsafe, 1n)).toThrow(
+      /Number\.MAX_SAFE_INTEGER|safe/i,
+    );
+    expect(() => encodeStakeInitPool(1n, unsafe)).toThrow(
+      /Number\.MAX_SAFE_INTEGER|safe/i,
+    );
+
+    expect(() => encodeStakeDeposit(unsafe)).toThrow(
+      /Number\.MAX_SAFE_INTEGER|safe/i,
+    );
+
+    expect(() => encodeStakeWithdraw(unsafe)).toThrow(
+      /Number\.MAX_SAFE_INTEGER|safe/i,
+    );
+
+    expect(() => encodeStakeFlushToInsurance(unsafe)).toThrow(
+      /Number\.MAX_SAFE_INTEGER|safe/i,
+    );
+
+    expect(() => encodeStakeUpdateConfig(unsafe, undefined)).toThrow(
+      /Number\.MAX_SAFE_INTEGER|safe/i,
+    );
+    expect(() => encodeStakeUpdateConfig(undefined, unsafe)).toThrow(
+      /Number\.MAX_SAFE_INTEGER|safe/i,
+    );
+  });
+
+  it("still accepts safe number and bigint stake amounts", () => {
+    expect(encodeStakeDeposit(Number.MAX_SAFE_INTEGER)).toBeInstanceOf(
+      Uint8Array,
+    );
+    expect(encodeStakeWithdraw(Number.MAX_SAFE_INTEGER)).toBeInstanceOf(
+      Uint8Array,
+    );
+    expect(encodeStakeDeposit(9_007_199_254_740_993n)).toBeInstanceOf(
+      Uint8Array,
+    );
+    expect(encodeStakeWithdraw(9_007_199_254_740_993n)).toBeInstanceOf(
+      Uint8Array,
+    );
+  });
+
   it("encodeStakeTransferAdmin", () => {
     expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
   });

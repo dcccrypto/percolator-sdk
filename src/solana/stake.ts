@@ -167,6 +167,10 @@ function readU16LE(data: Uint8Array, off: number): number {
 // ═══════════════════════════════════════════════════════════════
 
 function u64Le(v: bigint | number): Uint8Array {
+  if (typeof v === "number" && !Number.isSafeInteger(v)) {
+    throw new Error(`u64Le: number ${v} exceeds Number.MAX_SAFE_INTEGER — use BigInt`);
+  }
+
   const big = BigInt(v);
   if (big < 0n) throw new Error(`u64Le: value must be non-negative, got ${big}`);
   if (big > 0xFFFF_FFFF_FFFF_FFFFn) throw new Error(`u64Le: value exceeds u64 max`);
@@ -175,6 +179,10 @@ function u64Le(v: bigint | number): Uint8Array {
 }
 
 function u128Le(v: bigint | number): Uint8Array {
+  if (typeof v === "number" && !Number.isSafeInteger(v)) {
+    throw new Error(`u128Le: number ${v} exceeds Number.MAX_SAFE_INTEGER — use BigInt`);
+  }
+
   const big = BigInt(v);
   if (big < 0n) throw new Error(`u128Le: value must be non-negative, got ${big}`);
   if (big > (1n << 128n) - 1n) throw new Error(`u128Le: value exceeds u128 max`);
@@ -185,7 +193,7 @@ function u128Le(v: bigint | number): Uint8Array {
 }
 
 function u16Le(v: number): Uint8Array {
-  if (v < 0 || v > 0xFFFF) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);  const arr = new Uint8Array(2);  new DataView(arr.buffer).setUint16(0, v, true);
+  if (!Number.isInteger(v) || v < 0 || v > 0xFFFF) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);  const arr = new Uint8Array(2);  new DataView(arr.buffer).setUint16(0, v, true);
   return arr;
 }
 
