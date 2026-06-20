@@ -1,24 +1,19 @@
 {
-  "source": "mainnet",
-  "cluster_slot": 414164554,
-  "captured_at": "2026-04-19",
+  "source": "generated-v16-fixture",
   "program_id": "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS",
-  "account_address": "BZJ8f9o7dQFG4AhryzD784m4t7LbRmjoQgYSQEAHnSfB",
-  "owner": "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS",
-  "lamports": 2338560,
-  "data_base64": "AFRGTkNSRVAB/gAAAAAAAFLvo3hf7FVjxy1254KDdPT+scens1KIkhej3EzcHLtDAQAAAAAAAACTRiBxKbqb2H0jRN8PxWMYO9ryFKJPblVKM6a7EKC9TQdV7QQAAAAAAvMGAAAAAAABAAAAAAAAAALzBgAAAAAAAAAAAAAAAACA+s4QAAAAAAAAAAAAAAAARZ7caQAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+  "data_base64": "AFRGTkNSRVAC/lLvo3hf7FVjxy1254KDdPT+scens1KIkhej3EzcHLtDk0YgcSm6m9h9I0TfD8VjGDva8hSiT25VSjOmuxCgvU0HAAAAAcfP//////////////////8JAwAAAAAAAAAAAAAAAAAAKgAAAAAAAAAFAAAAAAAAANx9FKo3fUoRUuZNMdkweDAxiLjpCHs4qUcgddxHNKHFAPFTZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
   "expected_decoded": {
-    "version": 1,
+    "version": 2,
     "bump": 254,
-    "slab": "6akNPYQLyg2nGLDtGAoykB8ZtuoAEwGhxreXaDWncya2",
-    "userIdx": 1,
+    "portfolioAccount": "6akNPYQLyg2nGLDtGAoykB8ZtuoAEwGhxreXaDWncya2",
     "nftMint": "AutxDYK4QARmFGCpQFQuet2kND3tzP5nZGRww9Tx8btp",
-    "entryPriceE6": "82662663",
-    "positionSize": "455426",
-    "isLong": true,
-    "positionBasisQ": "455426",
-    "lastFundingIndexE18": "282000000",
-    "mintedAt": "1776066117",
-    "accountId": "2"
+    "assetIndex": 7,
+    "sideAtMint": 1,
+    "basisPosQAtMint": "-12345",
+    "fSnapAtMint": "777",
+    "marketIdAtMint": "42",
+    "epochSnapAtMint": "5",
+    "positionOwnerAtMint": "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS",
+    "mintedAt": "1700000000"
   }
 }

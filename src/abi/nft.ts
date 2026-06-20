@@ -10,9 +10,8 @@
  *   - ExecuteTransferHook (tag 4, SPL interface — not called directly)
  *   - EmergencyBurn   (tag 5)
  *
- * PDA seeds (matches percolator-nft/src/state.rs):
- *   PositionNft state : ["position_nft",      slab, user_idx_u16_LE]
- *   PositionNft mint  : ["position_nft_mint", slab, user_idx_u16_LE]
+ * PDA seeds (matches percolator-nft/src/state_v16.rs):
+ *   PositionNft state : ["position_nft", portfolio_account, asset_index_u16_LE]
  *   Mint authority    : ["mint_authority"]
  */
 
@@ -51,12 +50,12 @@ export const NFT_IX_TAG = {
 // Instruction encoders
 // ---------------------------------------------------------------------------
 
-/** Encode MintPositionNft (tag 0). Data: tag(1) + user_idx(2). */
-export function encodeNftMint(userIdx: number): Uint8Array {
+/** Encode MintPositionNft (tag 0). Data: tag(1) + asset_index(u16). */
+export function encodeNftMint(assetIndex: number): Uint8Array {
+  const assetIndexBuf = u16Buf(assetIndex, "assetIndex");
   const buf = new Uint8Array(3);
   buf[0] = NFT_IX_TAG.MintPositionNft;
-  buf[1] = userIdx & 0xff;
-  buf[2] = (userIdx >> 8) & 0xff;
+  buf.set(assetIndexBuf, 1);
   return buf;
 }
 
@@ -88,7 +87,7 @@ type AccountMeta = "s" | "w" | "sw" | "r";
  *   1. [writable]          PositionNft PDA (created)
  *   2. [writable, signer]  NFT mint (Token-2022, fresh keypair)
  *   3. [writable]          Owner's NFT ATA (created)
- *   4. []                  Slab account
+ *   4. []                  Portfolio account
  *   5. []                  Mint authority PDA
  *   6. []                  Token-2022 program
  *   7. []                  Associated token account program
@@ -135,40 +134,39 @@ export const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[] = [
 
 const TEXT = new TextEncoder();
 
-function idxBuf(userIdx: number): Uint8Array {
+function u16Buf(value: number, label: string): Uint8Array {
+  if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
+    throw new Error(`${label} must be a u16`);
+  }
   const buf = new Uint8Array(2);
-  new DataView(buf.buffer).setUint16(0, userIdx, true);
+  new DataView(buf.buffer).setUint16(0, value, true);
   return buf;
 }
 
 /**
  * Derive the PositionNft state PDA.
- * Seeds: ["position_nft", slab, user_idx_u16_LE]
+ * Seeds: ["position_nft", portfolio_account, asset_index_u16_LE]
  */
 export function deriveNftPda(
-  slab: PublicKey,
-  userIdx: number,
+  portfolioAccount: PublicKey,
+  assetIndex: number,
   programId: PublicKey = NFT_PROGRAM_ID,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [TEXT.encode("position_nft"), slab.toBytes(), idxBuf(userIdx)],
+    [TEXT.encode("position_nft"), portfolioAccount.toBytes(), u16Buf(assetIndex, "assetIndex")],
     programId,
   );
 }
 
 /**
- * Derive the PositionNft mint PDA.
- * Seeds: ["position_nft_mint", slab, user_idx_u16_LE]
+ * @deprecated v16 Position NFT mints are fresh signer keypairs, not PDAs.
  */
 export function deriveNftMint(
-  slab: PublicKey,
-  userIdx: number,
-  programId: PublicKey = NFT_PROGRAM_ID,
+  _portfolioAccount: PublicKey,
+  _assetIndex: number,
+  _programId: PublicKey = NFT_PROGRAM_ID,
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [TEXT.encode("position_nft_mint"), slab.toBytes(), idxBuf(userIdx)],
-    programId,
-  );
+  throw new Error("deriveNftMint: v16 NFT mint is a fresh signer keypair, not a PDA");
 }
 
 /**
@@ -189,43 +187,42 @@ export function deriveMintAuthority(
 // ---------------------------------------------------------------------------
 
 /**
- * On-chain PositionNft state (208 bytes, matches percolator-nft/src/state.rs).
+ * On-chain PositionNftV16 state (199 bytes, matches percolator-nft/src/state_v16.rs).
  *
- *   [0..8]     magic             u64
+ *   [0..8]     magic             u64 ("PERCNFT\0")
  *   [8]        version           u8
  *   [9]        bump              u8
- *   [10..16]   _pad0
- *   [16..48]   slab              [u8; 32]
- *   [48..50]   user_idx          u16 LE
- *   [50..56]   _pad1
- *   [56..88]   nft_mint          [u8; 32]
- *   [88..96]   entry_price_e6    u64
- *   [96..104]  position_size     u64
- *   [104]      is_long           u8
- *   [105..112] _pad2
- *   [112..128] position_basis_q  i128
- *   [128..144] last_funding_index_e18  i128
- *   [144..152] minted_at         i64
- *   [152..160] account_id        u64
- *   [160..192] position_owner    [u8; 32]
- *   [192..208] _reserved
+ *   [10..42]   portfolio_account [u8; 32]
+ *   [42..74]   nft_mint          [u8; 32]
+ *   [74..78]   asset_index       u32 LE
+ *   [78]       side_at_mint      u8
+ *   [79..95]   basis_pos_q_at_mint i128
+ *   [95..111]  f_snap_at_mint    i128
+ *   [111..119] market_id_at_mint u64
+ *   [119..127] epoch_snap_at_mint u64
+ *   [127..159] position_owner_at_mint [u8; 32]
+ *   [159..167] minted_at         i64
+ *   [167..199] _reserved
  */
-export const POSITION_NFT_STATE_LEN = 208;
+export const POSITION_NFT_STATE_LEN = 199;
+const POSITION_NFT_MAGIC = 0x5045_5243_4e46_5400n;
+const POSITION_NFT_VERSION = 2;
 
 export interface PositionNftState {
   version: number;
   bump: number;
-  slab: PublicKey;
-  userIdx: number;
+  portfolioAccount: PublicKey;
   nftMint: PublicKey;
+  assetIndex: number;
+  sideAtMint: number;
+  basisPosQAtMint: bigint;
+  fSnapAtMint: bigint;
+  marketIdAtMint: bigint;
+  epochSnapAtMint: bigint;
+  positionOwnerAtMint: PublicKey;
+  /** Backward-compatible alias for positionOwnerAtMint. */
   positionOwner: PublicKey;
-  entryPriceE6: bigint;
-  positionSize: bigint;
-  isLong: boolean;
-  positionBasisQ: bigint;
-  lastFundingIndexE18: bigint;
   mintedAt: bigint;
-  accountId: bigint;
 }
 
 /**
@@ -259,7 +256,7 @@ function readI128FromView(view: DataView, offset: number): bigint {
 
 /**
  * Parse a PositionNft account from raw bytes.
- * @throws if data is shorter than POSITION_NFT_STATE_LEN (208 bytes).
+ * @throws if data is shorter than POSITION_NFT_STATE_LEN (199 bytes) or has an invalid magic/version.
  */
 export function parsePositionNftAccount(data: Uint8Array): PositionNftState {
   if (data.length < POSITION_NFT_STATE_LEN) {
@@ -269,20 +266,29 @@ export function parsePositionNftAccount(data: Uint8Array): PositionNftState {
   }
 
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const magic = view.getBigUint64(0, true);
+  if (magic !== POSITION_NFT_MAGIC) {
+    throw new Error("PositionNft account has invalid magic");
+  }
+  if (data[8] !== POSITION_NFT_VERSION) {
+    throw new Error(`PositionNft account has invalid version: ${data[8]}`);
+  }
+
+  const positionOwnerAtMint = new PublicKey(data.subarray(127, 159));
 
   return {
     version: data[8],
     bump: data[9],
-    slab: new PublicKey(data.subarray(16, 48)),
-    userIdx: view.getUint16(48, true),
-    nftMint: new PublicKey(data.subarray(56, 88)),
-    positionOwner: new PublicKey(data.subarray(160, 192)),
-    entryPriceE6: view.getBigUint64(88, true),
-    positionSize: view.getBigUint64(96, true),
-    isLong: data[104] === 1,
-    positionBasisQ: readI128FromView(view, 112),
-    lastFundingIndexE18: readI128FromView(view, 128),
-    mintedAt: view.getBigInt64(144, true),
-    accountId: view.getBigUint64(152, true),
+    portfolioAccount: new PublicKey(data.subarray(10, 42)),
+    nftMint: new PublicKey(data.subarray(42, 74)),
+    assetIndex: view.getUint32(74, true),
+    sideAtMint: data[78],
+    basisPosQAtMint: readI128FromView(view, 79),
+    fSnapAtMint: readI128FromView(view, 95),
+    marketIdAtMint: view.getBigUint64(111, true),
+    epochSnapAtMint: view.getBigUint64(119, true),
+    positionOwnerAtMint,
+    positionOwner: positionOwnerAtMint,
+    mintedAt: view.getBigInt64(159, true),
   };
 }

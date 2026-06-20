@@ -32,7 +32,14 @@ import {
   encodeStakeReturnInsurance,
   encodeStakeSetMarketResolved,
 } from "../src/solana/stake.js";
-import { parsePositionNftAccount, POSITION_NFT_STATE_LEN } from "../src/abi/nft.js";
+import {
+  parsePositionNftAccount,
+  POSITION_NFT_STATE_LEN,
+  NFT_PROGRAM_ID,
+  encodeNftMint,
+  deriveNftPda,
+  deriveNftMint,
+} from "../src/abi/nft.js";
 import {
   detectSlabLayout,
   detectLayout,
@@ -374,10 +381,31 @@ describe("SDK drift guards", () => {
 
   it("parses positionOwner from standalone NFT account bytes", () => {
     const buf = new Uint8Array(POSITION_NFT_STATE_LEN);
+    const view = new DataView(buf.buffer);
     const owner = PublicKey.unique();
-    buf.set(owner.toBytes(), 160);
+    view.setBigUint64(0, 0x5045_5243_4e46_5400n, true);
+    buf[8] = 2;
+    buf.set(owner.toBytes(), 127);
     const parsed = parsePositionNftAccount(buf);
     expect(parsed.positionOwner.equals(owner)).toBe(true);
+  });
+
+  it("standalone NFT helpers use v16 portfolio asset-index model", () => {
+    const portfolio = PublicKey.unique();
+    const assetIndex = 7;
+    const assetIndexBytes = new Uint8Array([assetIndex, 0]);
+    const encoded = encodeNftMint(assetIndex);
+    expect([...encoded]).toEqual([0, ...assetIndexBytes]);
+
+    const [actual] = deriveNftPda(portfolio, assetIndex);
+    const [expected] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode("position_nft"), portfolio.toBytes(), assetIndexBytes],
+      NFT_PROGRAM_ID,
+    );
+    expect(actual.equals(expected)).toBe(true);
+    expect(() => encodeNftMint(65536)).toThrow(/u16/i);
+    expect(() => deriveNftPda(portfolio, 65536)).toThrow(/u16/i);
+    expect(() => deriveNftMint(portfolio, assetIndex)).toThrow(/fresh signer/i);
   });
 });
 
