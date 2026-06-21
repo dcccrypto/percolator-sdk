@@ -2161,32 +2161,38 @@ var ACCOUNTS_NFT_MINT = [
   "w",
   "sw",
   "w",
+  "w",
   "r",
   "r",
   "r",
   "r",
+  "w",
   "r",
-  "w"
+  "r"
 ];
 var ACCOUNTS_NFT_BURN = [
   "s",
   "w",
   "w",
   "w",
+  "w",
   "r",
   "r",
+  "w",
   "r",
-  "w"
+  "r"
 ];
 var ACCOUNTS_NFT_EMERGENCY_BURN = [
   "s",
   "w",
   "w",
   "w",
+  "w",
   "r",
   "r",
+  "w",
   "r",
-  "w"
+  "r"
 ];
 var TEXT = new TextEncoder();
 function u16Buf(value, label) {

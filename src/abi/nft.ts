@@ -81,53 +81,66 @@ export function encodeNftEmergencyBurn(): Uint8Array {
 type AccountMeta = "s" | "w" | "sw" | "r";
 
 /**
- * Account metas for MintPositionNft (tag 0).
+ * Account metas for MintPositionNft (tag 0). 12 accounts.
  *
  *   0. [signer, writable]  payer / position owner
  *   1. [writable]          PositionNft PDA (created)
  *   2. [writable, signer]  NFT mint (Token-2022, fresh keypair)
  *   3. [writable]          Owner's NFT ATA (created)
- *   4. []                  Portfolio account
+ *   4. [writable]          Portfolio account (#105: B-3 escrow CPI mutates owner)
  *   5. []                  Mint authority PDA
  *   6. []                  Token-2022 program
  *   7. []                  Associated token account program
  *   8. []                  System program
  *   9. [writable]          ExtraAccountMetaList PDA
+ *  10. []                  Per-market NftRegistry PDA (#109 — was missing from this template)
+ *  11. []                  Percolator wrapper program (#105 — escrow CPI target)
+ *
+ * #105 escrow-at-mint: mint now CPIs the wrapper's B-3 TransferPortfolioOwnership
+ * to escrow the position to the NFT program's mint-authority PDA, so #4 must be
+ * writable and #10/#11 are required.
  */
 export const ACCOUNTS_NFT_MINT: AccountMeta[] = [
-  "sw", "w", "sw", "w", "r", "r", "r", "r", "r", "w",
+  "sw", "w", "sw", "w", "w", "r", "r", "r", "r", "w", "r", "r",
 ];
 
 /**
- * Account metas for BurnPositionNft (tag 1).
+ * Account metas for BurnPositionNft (tag 1). 10 accounts.
  *
  *   0. [signer]    NFT holder
  *   1. [writable]  PositionNft PDA (closed)
  *   2. [writable]  NFT mint (supply → 0)
  *   3. [writable]  Holder's NFT ATA (closed)
- *   4. []          Slab account
+ *   4. [writable]  Portfolio account (#105: UnwrapEscrowedPortfolio CPI mutates owner)
  *   5. []          Mint authority PDA
  *   6. []          Token-2022 program
  *   7. [writable]  ExtraAccountMetaList PDA (closed on burn — rent refunded to holder; #102)
+ *   8. []          Per-market NftRegistry PDA (#105 — unwrap CPI)
+ *   9. []          Percolator wrapper program (#105 — unwrap CPI target)
+ *
+ * #105 escrow-at-mint: burn now CPIs the wrapper's UnwrapEscrowedPortfolio to
+ * release the escrow back to the holder, so #4 must be writable and #8/#9 are required.
  */
 export const ACCOUNTS_NFT_BURN: AccountMeta[] = [
-  "s", "w", "w", "w", "r", "r", "r", "w",
+  "s", "w", "w", "w", "w", "r", "r", "w", "r", "r",
 ];
 
 /**
- * Account metas for EmergencyBurn (tag 5).
+ * Account metas for EmergencyBurn (tag 5). 10 accounts.
  *
  *   0. [signer]    NFT holder
  *   1. [writable]  PositionNft PDA (closed)
  *   2. [writable]  NFT mint
  *   3. [writable]  Holder's NFT ATA
- *   4. []          Slab account
+ *   4. [writable]  Portfolio account (#105: UnwrapEscrowedPortfolio CPI mutates owner)
  *   5. []          Mint authority PDA
  *   6. []          Token-2022 program
  *   7. [writable]  ExtraAccountMetaList PDA (closed on burn — rent refunded to holder; #102)
+ *   8. []          Per-market NftRegistry PDA (#105 — unwrap CPI)
+ *   9. []          Percolator wrapper program (#105 — unwrap CPI target)
  */
 export const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[] = [
-  "s", "w", "w", "w", "r", "r", "r", "w",
+  "s", "w", "w", "w", "w", "r", "r", "w", "r", "r",
 ];
 
 // ---------------------------------------------------------------------------
@@ -176,6 +189,11 @@ export function deriveNftPda(
     programId,
   );
 }
+
+// The per-market NftRegistry PDA — required as an account for MintPositionNft
+// (#109) and for Burn/EmergencyBurn (#105 unwrap CPI) — is derived by
+// `deriveNftRegistry(wrapperProgramId, marketGroup)` in `../solana/pda`
+// (seeds ["nft_registry", marketGroup] under the WRAPPER program id).
 
 /**
  * @deprecated v16 Position NFT mints are fresh signer keypairs, not PDAs.
