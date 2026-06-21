@@ -2197,9 +2197,18 @@ function u16Buf(value, label) {
   new DataView(buf.buffer).setUint16(0, value, true);
   return buf;
 }
-function deriveNftPda(portfolioAccount, assetIndex, programId = NFT_PROGRAM_ID) {
+function u64Buf(value, label) {
+  const v = typeof value === "bigint" ? value : BigInt(value);
+  if (v < 0n || v > 0xffffffffffffffffn) {
+    throw new Error(`${label} must be a u64`);
+  }
+  const buf = new Uint8Array(8);
+  new DataView(buf.buffer).setBigUint64(0, v, true);
+  return buf;
+}
+function deriveNftPda(portfolioAccount, marketId, programId = NFT_PROGRAM_ID) {
   return PublicKey4.findProgramAddressSync(
-    [TEXT.encode("position_nft"), portfolioAccount.toBytes(), u16Buf(assetIndex, "assetIndex")],
+    [TEXT.encode("position_nft"), portfolioAccount.toBytes(), u64Buf(marketId, "marketId")],
     programId
   );
 }

@@ -78,9 +78,16 @@ export declare const ACCOUNTS_NFT_BURN: AccountMeta[];
 export declare const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[];
 /**
  * Derive the PositionNft state PDA.
- * Seeds: ["position_nft", portfolio_account, asset_index_u16_LE]
+ * Seeds: ["position_nft", portfolio_account, market_id_u64_LE]
+ *
+ * #108: the seed is keyed on the position-instance `marketId` (the engine's
+ * monotonic, never-reused `legs[].market_id`), NOT `asset_index` — which the
+ * engine reuses across close/re-open of the same asset and which therefore
+ * aliased the PDA (a stale NFT could squat the slot and brick re-wrapping the
+ * new position). Pass `marketId` = the active leg's `market_id` at mint, or the
+ * NFT's stored `marketIdAtMint` for any later op.
  */
-export declare function deriveNftPda(portfolioAccount: PublicKey, assetIndex: number, programId?: PublicKey): [PublicKey, number];
+export declare function deriveNftPda(portfolioAccount: PublicKey, marketId: bigint | number, programId?: PublicKey): [PublicKey, number];
 /**
  * @deprecated v16 Position NFT mints are fresh signer keypairs, not PDAs.
  */

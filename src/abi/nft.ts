@@ -145,17 +145,34 @@ function u16Buf(value: number, label: string): Uint8Array {
   return buf;
 }
 
+function u64Buf(value: bigint | number, label: string): Uint8Array {
+  const v = typeof value === "bigint" ? value : BigInt(value);
+  if (v < 0n || v > 0xffff_ffff_ffff_ffffn) {
+    throw new Error(`${label} must be a u64`);
+  }
+  const buf = new Uint8Array(8);
+  new DataView(buf.buffer).setBigUint64(0, v, true);
+  return buf;
+}
+
 /**
  * Derive the PositionNft state PDA.
- * Seeds: ["position_nft", portfolio_account, asset_index_u16_LE]
+ * Seeds: ["position_nft", portfolio_account, market_id_u64_LE]
+ *
+ * #108: the seed is keyed on the position-instance `marketId` (the engine's
+ * monotonic, never-reused `legs[].market_id`), NOT `asset_index` — which the
+ * engine reuses across close/re-open of the same asset and which therefore
+ * aliased the PDA (a stale NFT could squat the slot and brick re-wrapping the
+ * new position). Pass `marketId` = the active leg's `market_id` at mint, or the
+ * NFT's stored `marketIdAtMint` for any later op.
  */
 export function deriveNftPda(
   portfolioAccount: PublicKey,
-  assetIndex: number,
+  marketId: bigint | number,
   programId: PublicKey = NFT_PROGRAM_ID,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [TEXT.encode("position_nft"), portfolioAccount.toBytes(), u16Buf(assetIndex, "assetIndex")],
+    [TEXT.encode("position_nft"), portfolioAccount.toBytes(), u64Buf(marketId, "marketId")],
     programId,
   );
 }

@@ -390,21 +390,30 @@ describe("SDK drift guards", () => {
     expect(parsed.positionOwner.equals(owner)).toBe(true);
   });
 
-  it("standalone NFT helpers use v16 portfolio asset-index model", () => {
+  it("standalone NFT helpers use v16 portfolio model (mint=asset_index, PDA=market_id)", () => {
     const portfolio = PublicKey.unique();
     const assetIndex = 7;
+    // MintPositionNft instruction data still carries asset_index (used to find
+    // the active leg). The seed, however, is keyed on market_id (#108).
     const assetIndexBytes = new Uint8Array([assetIndex, 0]);
     const encoded = encodeNftMint(assetIndex);
     expect([...encoded]).toEqual([0, ...assetIndexBytes]);
+    expect(() => encodeNftMint(65536)).toThrow(/u16/i);
 
-    const [actual] = deriveNftPda(portfolio, assetIndex);
+    // #108: PDA seed is market_id (u64 LE), not asset_index.
+    const marketId = 4242n;
+    const marketIdBytes = new Uint8Array(8);
+    new DataView(marketIdBytes.buffer).setBigUint64(0, marketId, true);
+    const [actual] = deriveNftPda(portfolio, marketId);
     const [expected] = PublicKey.findProgramAddressSync(
-      [new TextEncoder().encode("position_nft"), portfolio.toBytes(), assetIndexBytes],
+      [new TextEncoder().encode("position_nft"), portfolio.toBytes(), marketIdBytes],
       NFT_PROGRAM_ID,
     );
     expect(actual.equals(expected)).toBe(true);
-    expect(() => encodeNftMint(65536)).toThrow(/u16/i);
-    expect(() => deriveNftPda(portfolio, 65536)).toThrow(/u16/i);
+    // A reused asset_index but a fresh market_id derives a DISTINCT PDA.
+    const [other] = deriveNftPda(portfolio, marketId + 1n);
+    expect(actual.equals(other)).toBe(false);
+    expect(() => deriveNftPda(portfolio, -1)).toThrow(/u64/i);
     expect(() => deriveNftMint(portfolio, assetIndex)).toThrow(/fresh signer/i);
   });
 });
