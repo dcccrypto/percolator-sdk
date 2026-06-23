@@ -7256,8 +7256,19 @@ function buildIx(params) {
   });
 }
 var MAX_COMPUTE_UNIT_LIMIT = 14e5;
+var V17_WRAPPER_HEAP_FRAME_BYTES = 128 * 1024;
+var MIN_HEAP_FRAME_BYTES = 32 * 1024;
+var MAX_HEAP_FRAME_BYTES = 256 * 1024;
 async function simulateOrSend(params) {
-  const { connection, ix, signers, simulate, commitment = "confirmed", computeUnitLimit } = params;
+  const {
+    connection,
+    ix,
+    signers,
+    simulate,
+    commitment = "confirmed",
+    computeUnitLimit,
+    heapFrameBytes = V17_WRAPPER_HEAP_FRAME_BYTES
+  } = params;
   if (typeof simulate !== "boolean") {
     throw new Error("simulateOrSend: simulate must be explicitly set to true or false");
   }
@@ -7271,7 +7282,17 @@ async function simulateOrSend(params) {
       );
     }
   }
+  if (heapFrameBytes !== 0) {
+    if (typeof heapFrameBytes !== "number" || !Number.isInteger(heapFrameBytes) || heapFrameBytes % 1024 !== 0 || heapFrameBytes < MIN_HEAP_FRAME_BYTES || heapFrameBytes > MAX_HEAP_FRAME_BYTES) {
+      throw new Error(
+        `heapFrameBytes must be 0 or a multiple of 1024 in [${MIN_HEAP_FRAME_BYTES}, ${MAX_HEAP_FRAME_BYTES}]`
+      );
+    }
+  }
   const tx = new Transaction();
+  if (heapFrameBytes !== 0) {
+    tx.add(ComputeBudgetProgram.requestHeapFrame({ bytes: heapFrameBytes }));
+  }
   if (computeUnitLimit !== void 0) {
     tx.add(
       ComputeBudgetProgram.setComputeUnitLimit({
@@ -8245,6 +8266,7 @@ export {
   V17_PROGRAMS_DEPLOYED,
   V17_SLAB_MAGIC,
   V17_WRAPPER_CONFIG_LEN,
+  V17_WRAPPER_HEAP_FRAME_BYTES,
   VAMM_MAGIC,
   ValidationError,
   WELL_KNOWN,

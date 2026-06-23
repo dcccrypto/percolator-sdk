@@ -46,6 +46,15 @@ export interface SimulateOrSendParams {
   simulate: boolean;
   commitment?: Commitment;
   computeUnitLimit?: number; // Custom compute unit limit (default: 200,000, max: 1,400,000)
+  /**
+   * Heap frame to request, in bytes (Compute Budget). The v17 wrapper installs a 128 KB
+   * BumpAllocator and makes its FIRST heap allocation near heap_base+128KB on every
+   * instruction, so EVERY transaction touching the wrapper MUST request a 128 KB heap frame
+   * or it aborts on-chain with ProgramFailedToComplete / "Access violation in heap section"
+   * (#176). Defaults to 128 KB so wrapper txs work out of the box; pass 0 to omit. Must be a
+   * multiple of 1024 in [32768, 262144].
+   */
+  heapFrameBytes?: number;
 }
 
 /**
@@ -55,10 +64,27 @@ export interface SimulateOrSendParams {
 /** Solana per-transaction compute unit ceiling (Compute Budget program). */
 const MAX_COMPUTE_UNIT_LIMIT = 1_400_000;
 
+/**
+ * The v17 wrapper's installed heap-frame size. EVERY transaction that touches the wrapper
+ * MUST request this much heap or it aborts on-chain (#176). Default for `heapFrameBytes`.
+ */
+export const V17_WRAPPER_HEAP_FRAME_BYTES = 128 * 1024;
+/** Compute Budget heap-frame bounds: [32 KB, 256 KB], must be a multiple of 1024. */
+const MIN_HEAP_FRAME_BYTES = 32 * 1024;
+const MAX_HEAP_FRAME_BYTES = 256 * 1024;
+
 export async function simulateOrSend(
   params: SimulateOrSendParams
 ): Promise<TxResult> {
-  const { connection, ix, signers, simulate, commitment = "confirmed", computeUnitLimit } = params;
+  const {
+    connection,
+    ix,
+    signers,
+    simulate,
+    commitment = "confirmed",
+    computeUnitLimit,
+    heapFrameBytes = V17_WRAPPER_HEAP_FRAME_BYTES,
+  } = params;
 
   if (typeof simulate !== "boolean") {
     throw new Error("simulateOrSend: simulate must be explicitly set to true or false");
@@ -81,7 +107,28 @@ export async function simulateOrSend(
     }
   }
 
+  if (heapFrameBytes !== 0) {
+    if (
+      typeof heapFrameBytes !== "number" ||
+      !Number.isInteger(heapFrameBytes) ||
+      heapFrameBytes % 1024 !== 0 ||
+      heapFrameBytes < MIN_HEAP_FRAME_BYTES ||
+      heapFrameBytes > MAX_HEAP_FRAME_BYTES
+    ) {
+      throw new Error(
+        `heapFrameBytes must be 0 or a multiple of 1024 in [${MIN_HEAP_FRAME_BYTES}, ${MAX_HEAP_FRAME_BYTES}]`,
+      );
+    }
+  }
+
   const tx = new Transaction();
+
+  // #176: the v17 wrapper needs a 128 KB heap frame on every tx (its BumpAllocator's first
+  // allocation lands near heap_base+128KB). Request it by default so wrapper calls don't
+  // abort on-chain; callers send `heapFrameBytes: 0` to opt out for non-wrapper txs.
+  if (heapFrameBytes !== 0) {
+    tx.add(ComputeBudgetProgram.requestHeapFrame({ bytes: heapFrameBytes }));
+  }
 
   // Add compute budget instruction if custom limit is specified
   if (computeUnitLimit !== undefined) {
