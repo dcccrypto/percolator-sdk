@@ -58,7 +58,12 @@ const MAX_COMPUTE_UNIT_LIMIT = 1_400_000;
 export async function simulateOrSend(
   params: SimulateOrSendParams
 ): Promise<TxResult> {
-  const { connection, ix, signers, simulate, commitment = "confirmed", computeUnitLimit } = params;
+  const { connection, ix, signers, simulate, commitment, computeUnitLimit } = params;
+  // Use "finalized" as the default for actual sends so callers don't treat a
+  // "confirmed" (but not yet finalized) transaction as settled state — a reorg
+  // within the ~13-second finalization window can reverse it.  Simulation-only
+  // calls keep "confirmed" since no on-chain state is mutated.
+  const effectiveCommitment = commitment ?? (simulate ? "confirmed" : "finalized");
 
   if (typeof simulate !== "boolean") {
     throw new Error("simulateOrSend: simulate must be explicitly set to true or false");
@@ -93,7 +98,7 @@ export async function simulateOrSend(
   }
 
   tx.add(ix);
-  const latestBlockhash = await connection.getLatestBlockhash(commitment);
+  const latestBlockhash = await connection.getLatestBlockhash(effectiveCommitment);
   tx.recentBlockhash = latestBlockhash.blockhash;
   tx.feePayer = signers[0].publicKey;
 
@@ -137,7 +142,7 @@ export async function simulateOrSend(
   // Send
   const options: SendOptions = {
     skipPreflight: false,
-    preflightCommitment: commitment,
+    preflightCommitment: effectiveCommitment,
   };
 
   try {
@@ -149,12 +154,15 @@ export async function simulateOrSend(
         blockhash: latestBlockhash.blockhash,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
       },
-      commitment
+      effectiveCommitment
     );
 
-    // Fetch logs
+    // Fetch logs at the same finality level used for confirmation.
+    // getTransaction only accepts Finality ("confirmed" | "finalized"); map anything
+    // weaker than "finalized" to "confirmed" — the safest valid fallback.
+    const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
     const txInfo = await connection.getTransaction(signature, {
-      commitment: "confirmed",
+      commitment: txFinality,
       maxSupportedTransactionVersion: 0,
     });
 
