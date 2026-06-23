@@ -1302,6 +1302,14 @@ var ACCOUNTS_WITHDRAW_COLLATERAL = [
   { name: "vaultAuthority", signer: false, writable: false },
   { name: "tokenProgram", signer: false, writable: false }
 ];
+var ACCOUNTS_NFT_HOLDER_AUTH = [
+  { name: "nftRegistry", signer: false, writable: false },
+  { name: "positionNft", signer: false, writable: false },
+  { name: "signerNftAta", signer: false, writable: false }
+];
+function withNftHolderAuth(base) {
+  return [...base, ...ACCOUNTS_NFT_HOLDER_AUTH];
+}
 var ACCOUNTS_KEEPER_CRANK = [
   { name: "caller", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
@@ -2138,7 +2146,9 @@ var NFT_IX_TAG = {
   SettleFunding: 2,
   GetPositionValue: 3,
   ExecuteTransferHook: 4,
-  EmergencyBurn: 5
+  EmergencyBurn: 5,
+  RepairExtraMetas: 6,
+  ReconcileBurnedNft: 7
 };
 function encodeNftMint(assetIndex) {
   const assetIndexBuf = u16Buf(assetIndex, "assetIndex");
@@ -2155,6 +2165,9 @@ function encodeNftSettleFunding() {
 }
 function encodeNftEmergencyBurn() {
   return new Uint8Array([NFT_IX_TAG.EmergencyBurn]);
+}
+function encodeNftReconcile() {
+  return new Uint8Array([NFT_IX_TAG.ReconcileBurnedNft]);
 }
 var ACCOUNTS_NFT_MINT = [
   "sw",
@@ -2193,6 +2206,15 @@ var ACCOUNTS_NFT_EMERGENCY_BURN = [
   "w",
   "r",
   "r"
+];
+var ACCOUNTS_NFT_RECONCILE = [
+  "w",
+  "r",
+  "w",
+  "r",
+  "r",
+  "r",
+  "w"
 ];
 var TEXT = new TextEncoder();
 function u16Buf(value, label) {
@@ -8027,7 +8049,9 @@ export {
   ACCOUNTS_MINT_POSITION_NFT,
   ACCOUNTS_NFT_BURN,
   ACCOUNTS_NFT_EMERGENCY_BURN,
+  ACCOUNTS_NFT_HOLDER_AUTH,
   ACCOUNTS_NFT_MINT,
+  ACCOUNTS_NFT_RECONCILE,
   ACCOUNTS_PAUSE_MARKET,
   ACCOUNTS_PERMISSIONLESS_CRANK_BASE,
   ACCOUNTS_PUSH_AUTH_MARK,
@@ -8288,6 +8312,7 @@ export {
   encodeNftBurn,
   encodeNftEmergencyBurn,
   encodeNftMint,
+  encodeNftReconcile,
   encodeNftSettleFunding,
   encodePauseMarket,
   encodePermissionlessCrank,
@@ -8436,6 +8461,7 @@ export {
   validateU128,
   validateU16,
   validateU64,
+  withNftHolderAuth,
   withRetry,
   withdrawAccounts
 };

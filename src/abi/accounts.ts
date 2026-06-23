@@ -122,6 +122,33 @@ export const ACCOUNTS_WITHDRAW_COLLATERAL: readonly AccountSpec[] = [
 ] as const;
 
 /**
+ * E2 (native NFT-holder auth): the OPTIONAL trailing accounts that let the CURRENT
+ * HOLDER of a position's bound NFT operate an NFT-escrowed position — deposit
+ * (margin-defend), withdraw, trade_cpi/batch_trade_cpi, close_resolved,
+ * claim_resolved_payout, convert/forfeit/rebalance. Append these to the base
+ * account list when the signer is the NFT holder (not `portfolio.owner`); omit
+ * them for the normal `owner == signer` path. The wrapper reads them as trailing
+ * optional accounts and routes funds to the SIGNER (the holder), never the escrow PDA.
+ *   [+0] nftRegistry  — `["nft_registry", marketGroup]` PDA (under the wrapper program)
+ *   [+1] positionNft  — `["position_nft", portfolio, marketId_le]` PDA (the NFT program)
+ *   [+2] signerNftAta — the signer's token account holding the bound NFT (amount == 1)
+ */
+export const ACCOUNTS_NFT_HOLDER_AUTH: readonly AccountSpec[] = [
+  { name: "nftRegistry", signer: false, writable: false },
+  { name: "positionNft", signer: false, writable: false },
+  { name: "signerNftAta", signer: false, writable: false },
+] as const;
+
+/**
+ * Append the E2 NFT-holder-auth trio to any owner-gated account list, so the bound
+ * NFT's holder can operate an escrowed position. No-op semantics for the wrapper
+ * when the signer is the portfolio owner (it takes the fast path and ignores them).
+ */
+export function withNftHolderAuth(base: readonly AccountSpec[]): AccountSpec[] {
+  return [...base, ...ACCOUNTS_NFT_HOLDER_AUTH];
+}
+
+/**
  * KeeperCrank: 4 accounts
  * @deprecated v12.x only. Use ACCOUNTS_PERMISSIONLESS_CRANK in v17.
  */

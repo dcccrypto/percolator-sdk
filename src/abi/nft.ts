@@ -44,6 +44,8 @@ export const NFT_IX_TAG = {
   GetPositionValue: 3,
   ExecuteTransferHook: 4,
   EmergencyBurn: 5,
+  RepairExtraMetas: 6,
+  ReconcileBurnedNft: 7,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -72,6 +74,15 @@ export function encodeNftSettleFunding(): Uint8Array {
 /** Encode EmergencyBurn (tag 5). Data: tag(1). */
 export function encodeNftEmergencyBurn(): Uint8Array {
   return new Uint8Array([NFT_IX_TAG.EmergencyBurn]);
+}
+
+/**
+ * Encode ReconcileBurnedNft (tag 7, #138). Data: tag(1). Permissionless: releases
+ * a position stranded by an out-of-band Token-2022 Burn (supply==0, escrow not
+ * released) back to the recorded last holder, then closes the PositionNft PDA.
+ */
+export function encodeNftReconcile(): Uint8Array {
+  return new Uint8Array([NFT_IX_TAG.ReconcileBurnedNft]);
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +152,21 @@ export const ACCOUNTS_NFT_BURN: AccountMeta[] = [
  */
 export const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[] = [
   "s", "w", "w", "w", "w", "r", "r", "w", "r", "r",
+];
+
+/**
+ * Account metas for ReconcileBurnedNft (tag 7, #138). 7 accounts. Permissionless.
+ *
+ *   0. [writable]  PositionNft PDA (closed)
+ *   1. []          NFT mint (Token-2022 — supply must be 0)
+ *   2. [writable]  Portfolio account (escrow released to the last holder)
+ *   3. []          Mint authority PDA (unwrap CPI signer)
+ *   4. []          Per-market NftRegistry PDA
+ *   5. []          Percolator wrapper program (unwrap CPI target)
+ *   6. [writable]  Recorded last-holder wallet (escrow + PDA-rent recipient)
+ */
+export const ACCOUNTS_NFT_RECONCILE: AccountMeta[] = [
+  "w", "r", "w", "r", "r", "r", "w",
 ];
 
 // ---------------------------------------------------------------------------
