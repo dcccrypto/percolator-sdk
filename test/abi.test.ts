@@ -83,6 +83,22 @@ function assertThrows(fn: () => unknown, msg: string): void {
   assert(threw, `${msg} must throw`);
 }
 
+/**
+ * Assert that a synchronous function throws and that the thrown error message
+ * matches the expected pattern.
+ */
+function assertThrowsMatch(fn: () => unknown, pattern: RegExp, msg: string): void {
+  try {
+    fn();
+  } catch (err) {
+    const text = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    assert(pattern.test(text), `${msg} must throw matching ${pattern}, got ${text}`);
+    return;
+  }
+
+  throw new Error(`FAIL: ${msg} must throw`);
+}
+
 async function assertRejects(fn: () => Promise<unknown>, msg: string): Promise<void> {
   let threw = false;
   try {
@@ -249,6 +265,63 @@ console.log("Testing encode functions...\n");
   const pkBytes = pk.toBytes();
   assert(buf.length === pkBytes.length && buf.every((v, i) => v === pkBytes[i]), "encPubkey value");
   console.log("✓ encPubkey");
+}
+
+// Runtime PublicKey-like objects must still produce exactly 32 bytes.
+{
+  const missingToBytesPubkeyLike = {};
+  const nonCallableToBytesPubkeyLike = { toBytes: 123 };
+  const shortPubkeyLike = { toBytes: () => new Uint8Array(31) };
+  const longPubkeyLike = { toBytes: () => new Uint8Array(33) };
+  const nonUint8ArrayPubkeyLike = { toBytes: () => [1, 2, 3] };
+
+  assertThrowsMatch(
+    () => encPubkey(missingToBytesPubkeyLike as any),
+    /encPubkey:.*PublicKey or base58 string/i,
+    "encPubkey rejects runtime value without toBytes",
+  );
+
+  assertThrowsMatch(
+    () => encPubkey(nonCallableToBytesPubkeyLike as any),
+    /encPubkey:.*PublicKey or base58 string/i,
+    "encPubkey rejects runtime value with non-callable toBytes",
+  );
+
+  assertThrowsMatch(
+    () => encPubkey(shortPubkeyLike as any),
+    /encPubkey:.*32 bytes/i,
+    "encPubkey rejects short runtime toBytes output",
+  );
+
+  assertThrowsMatch(
+    () => encPubkey(longPubkeyLike as any),
+    /encPubkey:.*32 bytes/i,
+    "encPubkey rejects long runtime toBytes output",
+  );
+
+  assertThrowsMatch(
+    () => encPubkey(nonUint8ArrayPubkeyLike as any),
+    /encPubkey:.*Uint8Array/i,
+    "encPubkey rejects non-Uint8Array toBytes output",
+  );
+
+  assertThrowsMatch(
+    () => encodeSetNftProgramId({ nftProgramId: shortPubkeyLike as any }),
+    /encPubkey:.*32 bytes/i,
+    "encodeSetNftProgramId rejects malformed runtime pubkey",
+  );
+
+  assertThrowsMatch(
+    () =>
+      encodeTransferPortfolioOwnership({
+        newOwner: shortPubkeyLike as any,
+        assetIndex: 0,
+      }),
+    /encPubkey:.*32 bytes/i,
+    "encodeTransferPortfolioOwnership rejects malformed runtime pubkey",
+  );
+
+  console.log("✓ encPubkey runtime output validation");
 }
 
 // Test derivePythPriceUpdateAccount input validation

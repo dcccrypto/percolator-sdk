@@ -83,7 +83,17 @@ function encI128(val) {
 function encPubkey(val) {
   try {
     const pk = typeof val === "string" ? new PublicKey(val) : val;
-    return pk.toBytes();
+    if (pk == null || typeof pk.toBytes !== "function") {
+      throw new Error("value must be a PublicKey or base58 string");
+    }
+    const bytes = pk.toBytes();
+    if (!(bytes instanceof Uint8Array)) {
+      throw new Error("toBytes() must return a Uint8Array");
+    }
+    if (bytes.length !== 32) {
+      throw new Error(`expected 32 bytes, got ${bytes.length}`);
+    }
+    return bytes;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`encPubkey: invalid public key "${String(val)}" \u2014 ${msg}`);

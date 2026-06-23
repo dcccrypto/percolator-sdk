@@ -118,13 +118,34 @@ export function encI128(val: bigint | string): Uint8Array {
 }
 
 /**
- * Encode a PublicKey (32 bytes)
- * Input: PublicKey or base58 string
+ * Encode a Solana public key into its fixed-width 32-byte ABI representation.
+ *
+ * Accepts a `PublicKey` instance or a base58 string. Runtime PublicKey-like
+ * objects are validated before their bytes are returned so JavaScript callers
+ * cannot provide malformed `toBytes()` output.
+ *
+ * @throws Error when the value is not PublicKey-like, when `toBytes()` does not
+ * return a `Uint8Array`, or when the output length is not exactly 32 bytes.
  */
 export function encPubkey(val: PublicKey | string): Uint8Array {
   try {
     const pk = typeof val === "string" ? new PublicKey(val) : val;
-    return pk.toBytes();
+
+    if (pk == null || typeof (pk as { toBytes?: unknown }).toBytes !== "function") {
+      throw new Error("value must be a PublicKey or base58 string");
+    }
+
+    const bytes = pk.toBytes();
+
+    if (!(bytes instanceof Uint8Array)) {
+      throw new Error("toBytes() must return a Uint8Array");
+    }
+
+    if (bytes.length !== 32) {
+      throw new Error(`expected 32 bytes, got ${bytes.length}`);
+    }
+
+    return bytes;
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`encPubkey: invalid public key "${String(val)}" — ${msg}`);
