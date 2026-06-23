@@ -32,8 +32,14 @@ export declare function encU128(val: bigint | string): Uint8Array;
  */
 export declare function encI128(val: bigint | string): Uint8Array;
 /**
- * Encode a PublicKey (32 bytes)
- * Input: PublicKey or base58 string
+ * Encode a Solana public key into its fixed-width 32-byte ABI representation.
+ *
+ * Accepts a `PublicKey` instance or a base58 string. Runtime PublicKey-like
+ * objects are validated before their bytes are returned so JavaScript callers
+ * cannot provide malformed `toBytes()` output.
+ *
+ * @throws Error when the value is not PublicKey-like, when `toBytes()` does not
+ * return a `Uint8Array`, or when the output length is not exactly 32 bytes.
  */
 export declare function encPubkey(val: PublicKey | string): Uint8Array;
 /**
