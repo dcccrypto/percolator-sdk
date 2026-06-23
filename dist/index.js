@@ -5,7 +5,10 @@ var U16_MAX = 65535;
 var U32_MAX = 4294967295;
 var DECIMAL_INT_RE = /^-?(0|[1-9]\d*)$/;
 function parseDecimalBigInt(val, fnName) {
-  if (typeof val !== "string") return val;
+  if (typeof val === "bigint") return val;
+  if (typeof val !== "string") {
+    throw new Error(`${fnName}: value must be bigint or decimal integer string`);
+  }
   if (!DECIMAL_INT_RE.test(val)) {
     throw new Error(`${fnName}: value must be a decimal integer string`);
   }
@@ -6237,9 +6240,13 @@ var STAKE_IX = {
   Withdraw: 2,
   FlushToInsurance: 3,
   UpdateConfig: 4,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** Step 1 of two-step stake admin rotation. */
+  ProposeAdmin: 5,
+  /** Step 2 of two-step stake admin rotation. */
+  AcceptAdmin: 6,
+  /** @deprecated Legacy one-step admin transfer name. Use ProposeAdmin. */
   TransferAdmin: 5,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Legacy admin CPI proxy name. Tag 6 is now AcceptAdmin. */
   AdminSetOracleAuthority: 6,
   /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetRiskThreshold: 7,
@@ -6353,8 +6360,17 @@ function encodeStakeUpdateConfig(newCooldownSlots, newDepositCap) {
 }
 function removedStakeInstruction(name, tag) {
   throw new Error(
-    `${name} (stake tag ${tag}) was removed on-chain in percolator-stake v3 and must not be sent.`
+    `${name} (legacy stake tag ${tag}) no longer matches the live on-chain instruction and must not be sent.`
   );
+}
+function encodeStakeProposeAdmin(newAdmin) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.ProposeAdmin]),
+    newAdmin.toBytes()
+  );
+}
+function encodeStakeAcceptAdmin() {
+  return new Uint8Array([STAKE_IX.AcceptAdmin]);
 }
 function encodeStakeTransferAdmin() {
   return removedStakeInstruction("encodeStakeTransferAdmin", STAKE_IX.TransferAdmin);
@@ -8349,6 +8365,7 @@ export {
   encodeSetWalletCap,
   encodeSettleAccount,
   encodeSlashCreationDeposit,
+  encodeStakeAcceptAdmin,
   encodeStakeAccrueFees,
   encodeStakeAdminResolveMarket,
   encodeStakeAdminSetHwmConfig,
@@ -8363,6 +8380,7 @@ export {
   encodeStakeFlushToInsurance,
   encodeStakeInitPool,
   encodeStakeInitTradingPool,
+  encodeStakeProposeAdmin,
   encodeStakeReturnInsurance,
   encodeStakeSetMarketResolved,
   encodeStakeTransferAdmin,
