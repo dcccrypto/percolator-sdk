@@ -5,7 +5,10 @@ var U16_MAX = 65535;
 var U32_MAX = 4294967295;
 var DECIMAL_INT_RE = /^-?(0|[1-9]\d*)$/;
 function parseDecimalBigInt(val, fnName) {
-  if (typeof val !== "string") return val;
+  if (typeof val === "bigint") return val;
+  if (typeof val !== "string") {
+    throw new Error(`${fnName}: value must be bigint or decimal integer string`);
+  }
   if (!DECIMAL_INT_RE.test(val)) {
     throw new Error(`${fnName}: value must be a decimal integer string`);
   }
