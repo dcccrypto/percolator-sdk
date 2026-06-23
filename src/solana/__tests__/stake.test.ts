@@ -12,6 +12,8 @@ import {
   encodeStakeWithdraw,
   encodeStakeFlushToInsurance,
   encodeStakeUpdateConfig,
+  encodeStakeProposeAdmin,
+  encodeStakeAcceptAdmin,
   encodeStakeTransferAdmin,
   encodeStakeAdminSetOracleAuthority,
   encodeStakeAdminSetRiskThreshold,
@@ -54,6 +56,8 @@ describe('STAKE_IX tags', () => {
     expect(STAKE_IX.Withdraw).toBe(2);
     expect(STAKE_IX.FlushToInsurance).toBe(3);
     expect(STAKE_IX.UpdateConfig).toBe(4);
+    expect(STAKE_IX.ProposeAdmin).toBe(5);
+    expect(STAKE_IX.AcceptAdmin).toBe(6);
     expect(STAKE_IX.TransferAdmin).toBe(5);
     expect(STAKE_IX.AdminSetOracleAuthority).toBe(6);
     expect(STAKE_IX.AdminSetRiskThreshold).toBe(7);
@@ -166,11 +170,25 @@ describe('Instruction encoders', () => {
     expect(readU64LE(buf, 11)).toBe(500n);
   });
 
-  it('encodeStakeTransferAdmin rejects removed tag 5', () => {
+  it('encodeStakeProposeAdmin — tag 5 + new admin', () => {
+    const newAdmin = Keypair.generate().publicKey;
+    const buf = encodeStakeProposeAdmin(newAdmin);
+    expect(buf[0]).toBe(5);
+    expect(buf.length).toBe(33);
+    expect(new PublicKey(buf.subarray(1, 33)).equals(newAdmin)).toBe(true);
+  });
+
+  it('encodeStakeAcceptAdmin — tag 6', () => {
+    const buf = encodeStakeAcceptAdmin();
+    expect(buf[0]).toBe(6);
+    expect(buf.length).toBe(1);
+  });
+
+  it('encodeStakeTransferAdmin rejects legacy tag 5 name', () => {
     expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
   });
 
-  it('encodeStakeAdminSetOracleAuthority rejects removed tag 6', () => {
+  it('encodeStakeAdminSetOracleAuthority rejects legacy tag 6 name', () => {
     const auth = Keypair.generate().publicKey;
     expect(() => encodeStakeAdminSetOracleAuthority(auth)).toThrow(/tag 6/i);
   });
