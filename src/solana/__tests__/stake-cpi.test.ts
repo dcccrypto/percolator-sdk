@@ -29,6 +29,8 @@ import {
   encodeStakeWithdraw,
   encodeStakeFlushToInsurance,
   encodeStakeUpdateConfig,
+  encodeStakeProposeAdmin,
+  encodeStakeAcceptAdmin,
   encodeStakeTransferAdmin,
   encodeStakeAdminSetOracleAuthority,
   encodeStakeAdminSetRiskThreshold,
@@ -323,7 +325,21 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
   });
 
   describe('Phase 5: Admin CPI Forwarding', () => {
-    it('AdminSetOracleAuthority rejects removed stake tag 6', () => {
+    it('ProposeAdmin encodes live stake tag 5', () => {
+      const newAdmin = Keypair.generate().publicKey;
+      const data = encodeStakeProposeAdmin(newAdmin);
+      expect(data[0]).toBe(STAKE_IX.ProposeAdmin);
+      expect(data.length).toBe(33);
+      expect(new PublicKey(data.subarray(1)).equals(newAdmin)).toBe(true);
+    });
+
+    it('AcceptAdmin encodes live stake tag 6', () => {
+      const data = encodeStakeAcceptAdmin();
+      expect(data[0]).toBe(STAKE_IX.AcceptAdmin);
+      expect(data.length).toBe(1);
+    });
+
+    it('AdminSetOracleAuthority rejects legacy stake tag 6 name', () => {
       const newAuth = Keypair.generate().publicKey;
       expect(() => encodeStakeAdminSetOracleAuthority(newAuth)).toThrow(/tag 6/i);
     });
@@ -360,7 +376,7 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       expect(() => encodeStakeAdminSetInsurancePolicy(authority, 100_000n, 500, 100n)).toThrow(/tag 11/i);
     });
 
-    it('TransferAdmin rejects removed stake tag 5', () => {
+    it('TransferAdmin rejects legacy stake tag 5 name', () => {
       expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
     });
 
@@ -452,7 +468,7 @@ describe('Stake PDA Chain — Multi-Market Isolation', () => {
 describe('Stake Instruction Tags — No Gaps or Conflicts', () => {
   it('tags match the live on-chain mapping, including tombstones and aliases', () => {
     const tags = Object.values(STAKE_IX);
-    expect(tags).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 14, 15, 16, 18]);
+    expect(tags).toEqual([0, 1, 2, 3, 4, 5, 6, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 14, 15, 16, 18]);
   });
 
   it('live encoders produce the correct tag byte and tombstoned encoders throw', () => {
@@ -462,6 +478,8 @@ describe('Stake Instruction Tags — No Gaps or Conflicts', () => {
       [STAKE_IX.Withdraw, encodeStakeWithdraw(0n)],
       [STAKE_IX.FlushToInsurance, encodeStakeFlushToInsurance(0n)],
       [STAKE_IX.UpdateConfig, encodeStakeUpdateConfig()],
+      [STAKE_IX.ProposeAdmin, encodeStakeProposeAdmin(PublicKey.default)],
+      [STAKE_IX.AcceptAdmin, encodeStakeAcceptAdmin()],
       [STAKE_IX.ReturnInsurance, encodeStakeReturnInsurance(0n)],
       [STAKE_IX.AdminWithdrawInsurance, encodeStakeAdminWithdrawInsurance(0n)],
       [STAKE_IX.AccrueFees, encodeStakeAccrueFees()],

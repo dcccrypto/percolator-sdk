@@ -5,8 +5,11 @@ const U16_MAX = 0xFFFF;
 const U32_MAX = 0xFFFFFFFF;
 const DECIMAL_INT_RE = /^-?(0|[1-9]\d*)$/;
 
-function parseDecimalBigInt(val: bigint | string, fnName: string): bigint {
-  if (typeof val !== "string") return val;
+function parseDecimalBigInt(val: unknown, fnName: string): bigint {
+  if (typeof val === "bigint") return val;
+  if (typeof val !== "string") {
+    throw new Error(`${fnName}: value must be bigint or decimal integer string`);
+  }
   if (!DECIMAL_INT_RE.test(val)) {
     throw new Error(`${fnName}: value must be a decimal integer string`);
   }

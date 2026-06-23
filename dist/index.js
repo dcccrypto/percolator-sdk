@@ -5,7 +5,10 @@ var U16_MAX = 65535;
 var U32_MAX = 4294967295;
 var DECIMAL_INT_RE = /^-?(0|[1-9]\d*)$/;
 function parseDecimalBigInt(val, fnName) {
-  if (typeof val !== "string") return val;
+  if (typeof val === "bigint") return val;
+  if (typeof val !== "string") {
+    throw new Error(`${fnName}: value must be bigint or decimal integer string`);
+  }
   if (!DECIMAL_INT_RE.test(val)) {
     throw new Error(`${fnName}: value must be a decimal integer string`);
   }
@@ -1312,6 +1315,14 @@ var ACCOUNTS_WITHDRAW_COLLATERAL = [
   { name: "vaultAuthority", signer: false, writable: false },
   { name: "tokenProgram", signer: false, writable: false }
 ];
+var ACCOUNTS_NFT_HOLDER_AUTH = [
+  { name: "nftRegistry", signer: false, writable: false },
+  { name: "positionNft", signer: false, writable: false },
+  { name: "signerNftAta", signer: false, writable: false }
+];
+function withNftHolderAuth(base) {
+  return [...base, ...ACCOUNTS_NFT_HOLDER_AUTH];
+}
 var ACCOUNTS_KEEPER_CRANK = [
   { name: "caller", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
@@ -2148,7 +2159,9 @@ var NFT_IX_TAG = {
   SettleFunding: 2,
   GetPositionValue: 3,
   ExecuteTransferHook: 4,
-  EmergencyBurn: 5
+  EmergencyBurn: 5,
+  RepairExtraMetas: 6,
+  ReconcileBurnedNft: 7
 };
 function encodeNftMint(assetIndex) {
   const assetIndexBuf = u16Buf(assetIndex, "assetIndex");
@@ -2165,6 +2178,9 @@ function encodeNftSettleFunding() {
 }
 function encodeNftEmergencyBurn() {
   return new Uint8Array([NFT_IX_TAG.EmergencyBurn]);
+}
+function encodeNftReconcile() {
+  return new Uint8Array([NFT_IX_TAG.ReconcileBurnedNft]);
 }
 var ACCOUNTS_NFT_MINT = [
   "sw",
@@ -2203,6 +2219,15 @@ var ACCOUNTS_NFT_EMERGENCY_BURN = [
   "w",
   "r",
   "r"
+];
+var ACCOUNTS_NFT_RECONCILE = [
+  "w",
+  "r",
+  "w",
+  "r",
+  "r",
+  "r",
+  "w"
 ];
 var TEXT = new TextEncoder();
 function u16Buf(value, label) {
@@ -6225,9 +6250,13 @@ var STAKE_IX = {
   Withdraw: 2,
   FlushToInsurance: 3,
   UpdateConfig: 4,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** Step 1 of two-step stake admin rotation. */
+  ProposeAdmin: 5,
+  /** Step 2 of two-step stake admin rotation. */
+  AcceptAdmin: 6,
+  /** @deprecated Legacy one-step admin transfer name. Use ProposeAdmin. */
   TransferAdmin: 5,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Legacy admin CPI proxy name. Tag 6 is now AcceptAdmin. */
   AdminSetOracleAuthority: 6,
   /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetRiskThreshold: 7,
@@ -6341,8 +6370,17 @@ function encodeStakeUpdateConfig(newCooldownSlots, newDepositCap) {
 }
 function removedStakeInstruction(name, tag) {
   throw new Error(
-    `${name} (stake tag ${tag}) was removed on-chain in percolator-stake v3 and must not be sent.`
+    `${name} (legacy stake tag ${tag}) no longer matches the live on-chain instruction and must not be sent.`
   );
+}
+function encodeStakeProposeAdmin(newAdmin) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.ProposeAdmin]),
+    newAdmin.toBytes()
+  );
+}
+function encodeStakeAcceptAdmin() {
+  return new Uint8Array([STAKE_IX.AcceptAdmin]);
 }
 function encodeStakeTransferAdmin() {
   return removedStakeInstruction("encodeStakeTransferAdmin", STAKE_IX.TransferAdmin);
@@ -8037,7 +8075,9 @@ export {
   ACCOUNTS_MINT_POSITION_NFT,
   ACCOUNTS_NFT_BURN,
   ACCOUNTS_NFT_EMERGENCY_BURN,
+  ACCOUNTS_NFT_HOLDER_AUTH,
   ACCOUNTS_NFT_MINT,
+  ACCOUNTS_NFT_RECONCILE,
   ACCOUNTS_PAUSE_MARKET,
   ACCOUNTS_PERMISSIONLESS_CRANK_BASE,
   ACCOUNTS_PUSH_AUTH_MARK,
@@ -8298,6 +8338,7 @@ export {
   encodeNftBurn,
   encodeNftEmergencyBurn,
   encodeNftMint,
+  encodeNftReconcile,
   encodeNftSettleFunding,
   encodePauseMarket,
   encodePermissionlessCrank,
@@ -8334,6 +8375,7 @@ export {
   encodeSetWalletCap,
   encodeSettleAccount,
   encodeSlashCreationDeposit,
+  encodeStakeAcceptAdmin,
   encodeStakeAccrueFees,
   encodeStakeAdminResolveMarket,
   encodeStakeAdminSetHwmConfig,
@@ -8348,6 +8390,7 @@ export {
   encodeStakeFlushToInsurance,
   encodeStakeInitPool,
   encodeStakeInitTradingPool,
+  encodeStakeProposeAdmin,
   encodeStakeReturnInsurance,
   encodeStakeSetMarketResolved,
   encodeStakeTransferAdmin,
@@ -8446,6 +8489,7 @@ export {
   validateU128,
   validateU16,
   validateU64,
+  withNftHolderAuth,
   withRetry,
   withdrawAccounts
 };

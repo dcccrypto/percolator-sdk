@@ -92,9 +92,13 @@ export const STAKE_IX = {
   Withdraw: 2,
   FlushToInsurance: 3,
   UpdateConfig: 4,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** Step 1 of two-step stake admin rotation. */
+  ProposeAdmin: 5,
+  /** Step 2 of two-step stake admin rotation. */
+  AcceptAdmin: 6,
+  /** @deprecated Legacy one-step admin transfer name. Use ProposeAdmin. */
   TransferAdmin: 5,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Legacy admin CPI proxy name. Tag 6 is now AcceptAdmin. */
   AdminSetOracleAuthority: 6,
   /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetRiskThreshold: 7,
@@ -250,16 +254,29 @@ export function encodeStakeUpdateConfig(
 
 function removedStakeInstruction(name: string, tag: number): never {
   throw new Error(
-    `${name} (stake tag ${tag}) was removed on-chain in percolator-stake v3 and must not be sent.`,
+    `${name} (legacy stake tag ${tag}) no longer matches the live on-chain instruction and must not be sent.`,
   );
 }
 
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** Tag 5: ProposeAdmin — current admin proposes a pending admin. */
+export function encodeStakeProposeAdmin(newAdmin: PublicKey): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.ProposeAdmin]),
+    newAdmin.toBytes(),
+  );
+}
+
+/** Tag 6: AcceptAdmin — pending admin accepts ownership. */
+export function encodeStakeAcceptAdmin(): Uint8Array {
+  return new Uint8Array([STAKE_IX.AcceptAdmin]);
+}
+
+/** @deprecated Legacy one-step admin transfer name. Use encodeStakeProposeAdmin instead. */
 export function encodeStakeTransferAdmin(): Uint8Array {
   return removedStakeInstruction('encodeStakeTransferAdmin', STAKE_IX.TransferAdmin);
 }
 
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** @deprecated Removed admin CPI proxy. Tag 6 is now encodeStakeAcceptAdmin. */
 export function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Uint8Array {
   void newAuthority;
   return removedStakeInstruction('encodeStakeAdminSetOracleAuthority', STAKE_IX.AdminSetOracleAuthority);

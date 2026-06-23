@@ -40,9 +40,13 @@ export declare const STAKE_IX: {
     readonly Withdraw: 2;
     readonly FlushToInsurance: 3;
     readonly UpdateConfig: 4;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /** Step 1 of two-step stake admin rotation. */
+    readonly ProposeAdmin: 5;
+    /** Step 2 of two-step stake admin rotation. */
+    readonly AcceptAdmin: 6;
+    /** @deprecated Legacy one-step admin transfer name. Use ProposeAdmin. */
     readonly TransferAdmin: 5;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /** @deprecated Legacy admin CPI proxy name. Tag 6 is now AcceptAdmin. */
     readonly AdminSetOracleAuthority: 6;
     /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
     readonly AdminSetRiskThreshold: 7;
@@ -85,9 +89,13 @@ export declare function encodeStakeWithdraw(lpAmount: bigint | number): Uint8Arr
 export declare function encodeStakeFlushToInsurance(amount: bigint | number): Uint8Array;
 /** Tag 4: UpdateConfig — update cooldown and/or deposit cap. */
 export declare function encodeStakeUpdateConfig(newCooldownSlots?: bigint | number, newDepositCap?: bigint | number): Uint8Array;
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** Tag 5: ProposeAdmin — current admin proposes a pending admin. */
+export declare function encodeStakeProposeAdmin(newAdmin: PublicKey): Uint8Array;
+/** Tag 6: AcceptAdmin — pending admin accepts ownership. */
+export declare function encodeStakeAcceptAdmin(): Uint8Array;
+/** @deprecated Legacy one-step admin transfer name. Use encodeStakeProposeAdmin instead. */
 export declare function encodeStakeTransferAdmin(): Uint8Array;
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** @deprecated Removed admin CPI proxy. Tag 6 is now encodeStakeAcceptAdmin. */
 export declare function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Uint8Array;
 /** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export declare function encodeStakeAdminSetRiskThreshold(newThreshold: bigint | number): Uint8Array;
