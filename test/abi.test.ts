@@ -83,13 +83,10 @@ function assertThrows(fn: () => unknown, msg: string): void {
   assert(threw, `${msg} must throw`);
 }
 
-<<<<<<< HEAD
 /**
  * Assert that a synchronous function throws and that the thrown error message
  * matches the expected pattern.
  */
-=======
->>>>>>> origin/main
 function assertThrowsMatch(fn: () => unknown, pattern: RegExp, msg: string): void {
   try {
     fn();
