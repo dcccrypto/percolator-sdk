@@ -83,6 +83,18 @@ function assertThrows(fn: () => unknown, msg: string): void {
   assert(threw, `${msg} must throw`);
 }
 
+function assertThrowsMatch(fn: () => unknown, pattern: RegExp, msg: string): void {
+  try {
+    fn();
+  } catch (err) {
+    const text = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    assert(pattern.test(text), `${msg} must throw matching ${pattern}, got ${text}`);
+    return;
+  }
+
+  throw new Error(`FAIL: ${msg} must throw`);
+}
+
 async function assertRejects(fn: () => Promise<unknown>, msg: string): Promise<void> {
   let threw = false;
   try {
@@ -239,6 +251,59 @@ console.log("Testing encode functions...\n");
   assertThrows(() => encU128("01"), 'encU128("01")');
   assertThrows(() => encI128("1e3"), 'encI128("1e3")');
   console.log("✓ integer encoders reject non-decimal string forms");
+}
+
+// Runtime inputs must still be validated because TypeScript types are erased for JS callers.
+{
+  const typeError = /value must be bigint or decimal integer string/;
+  const unsafe = Number.MAX_SAFE_INTEGER + 2;
+
+  assertThrowsMatch(() => encU64(1 as any), typeError, "encU64 runtime number");
+  assertThrowsMatch(() => encI64(1 as any), typeError, "encI64 runtime number");
+  assertThrowsMatch(() => encU128(1 as any), typeError, "encU128 runtime number");
+  assertThrowsMatch(() => encI128(1 as any), typeError, "encI128 runtime number");
+
+  assertThrowsMatch(() => encU64(unsafe as any), typeError, "encU64 unsafe runtime number");
+  assertThrowsMatch(() => encU128(unsafe as any), typeError, "encU128 unsafe runtime number");
+  assertThrowsMatch(() => encI128(unsafe as any), typeError, "encI128 unsafe runtime number");
+
+  assertThrowsMatch(
+    () => encodeDepositCollateral({ amount: 1 as any }),
+    typeError,
+    "encodeDepositCollateral runtime number amount",
+  );
+
+  assertThrowsMatch(
+    () => encodeWithdrawCollateral({ amount: 1 as any }),
+    typeError,
+    "encodeWithdrawCollateral runtime number amount",
+  );
+
+  assertThrowsMatch(
+    () =>
+      encodeTradeNoCpi({
+        assetIndex: 0,
+        sizeQ: 1 as any,
+        execPrice: 1n,
+        feeBps: 0n,
+      }),
+    typeError,
+    "encodeTradeNoCpi runtime number sizeQ",
+  );
+
+  assertThrowsMatch(
+    () =>
+      encodeTradeNoCpi({
+        assetIndex: 0,
+        sizeQ: 1n,
+        execPrice: 1 as any,
+        feeBps: 0n,
+      }),
+    typeError,
+    "encodeTradeNoCpi runtime number execPrice",
+  );
+
+  console.log("✓ bigint encoders reject runtime non-bigint/string inputs");
 }
 
 // Test encPubkey
