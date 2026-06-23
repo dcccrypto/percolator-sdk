@@ -38,6 +38,17 @@ function assertEq(actual: bigint | number, expected: bigint | number, msg: strin
   }
 }
 
+function assertThrows(fn: () => unknown, msg: string): void {
+  try {
+    fn();
+    console.error(`  ✗ ${msg}: expected throw`);
+    failed++;
+  } catch {
+    console.log(`  ✓ ${msg}`);
+    passed++;
+  }
+}
+
 // =============================================================================
 // computeDynamicFeeBps
 // =============================================================================
@@ -344,6 +355,22 @@ console.log("\n--- computeFeeSplit ---");
   assertEq(lp, 5000n, "all-zero config: 100% to LP");
   assertEq(protocol, 0n, "all-zero config: 0 to protocol");
   assertEq(creator, 0n, "all-zero config: 0 to creator");
+}
+
+// Invalid non-legacy bps totals are rejected instead of minting negative creator shares.
+{
+  assertThrows(
+    () => computeFeeSplit(10000n, { lpBps: 9000n, protocolBps: 2000n, creatorBps: 0n }),
+    "over-100% bps split is rejected",
+  );
+  assertThrows(
+    () => computeFeeSplit(10000n, { lpBps: 7000n, protocolBps: 2000n, creatorBps: 0n }),
+    "under-100% non-legacy bps split is rejected",
+  );
+  assertThrows(
+    () => computeFeeSplit(10000n, { lpBps: -1n, protocolBps: 0n, creatorBps: 10001n }),
+    "negative bps split is rejected",
+  );
 }
 
 // Zero fee amount

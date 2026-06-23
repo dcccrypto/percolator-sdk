@@ -6,10 +6,17 @@ import { PublicKey } from "@solana/web3.js";
  */
 export declare function safeEnv(key: string): string | undefined;
 /**
- * Centralized PROGRAM_ID configuration
+ * Centralized PROGRAM_ID configuration — LEGACY (non-v17) deployed addresses.
  *
  * Default to environment variable, then fall back to network-specific defaults.
  * This prevents hard-coded program IDs scattered across the codebase.
+ *
+ * @deprecated Do NOT pair these IDs with v17 encoders. They point at the
+ * currently-deployed non-v17 programs, which cannot decode v17 instruction
+ * payloads. `getProgramId()`/`getMatcherProgramId()` fail closed while
+ * `V17_PROGRAMS_DEPLOYED === false`; reading this constant directly bypasses
+ * that guard. Use `getProgramId()` / `PROGRAM_IDS_V17` instead, and only read
+ * these raw addresses for explicitly-legacy (pre-cutover) tooling.
  */
 export declare const PROGRAM_IDS: {
     readonly devnet: {

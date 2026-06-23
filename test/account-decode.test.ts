@@ -24,7 +24,6 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
-import { PublicKey } from "@solana/web3.js";
 
 import {
   parseHeader,
@@ -96,33 +95,8 @@ describe("account-decode: StakePool (devnet)", () => {
     expect(data.length).toBe(STAKE_POOL_SIZE);
   });
 
-  it("decodeStakePool returns correct fields", () => {
-    const pool = decodeStakePool(data);
-    const ex = fixture.expected_decoded;
-
-    expect(pool.isInitialized).toBe(ex["isInitialized"]);
-    expect(pool.bump).toBe(ex["bump"]);
-    expect(pool.vaultAuthorityBump).toBe(ex["vaultAuthorityBump"]);
-    expect(pool.adminTransferred).toBe(ex["adminTransferred"]);
-
-    expect(pool.slab.toBase58()).toBe(ex["slab"]);
-    expect(pool.admin.toBase58()).toBe(ex["admin"]);
-    expect(pool.collateralMint.toBase58()).toBe(ex["collateralMint"]);
-    expect(pool.lpMint.toBase58()).toBe(ex["lpMint"]);
-    expect(pool.vault.toBase58()).toBe(ex["vault"]);
-
-    expect(pool.totalDeposited).toBe(BigInt(ex["totalDeposited"] as string));
-    expect(pool.totalLpSupply).toBe(BigInt(ex["totalLpSupply"] as string));
-    expect(pool.cooldownSlots).toBe(BigInt(ex["cooldownSlots"] as string));
-    expect(pool.depositCap).toBe(BigInt(ex["depositCap"] as string));
-    expect(pool.totalFlushed).toBe(BigInt(ex["totalFlushed"] as string));
-    expect(pool.totalReturned).toBe(BigInt(ex["totalReturned"] as string));
-    expect(pool.totalWithdrawn).toBe(BigInt(ex["totalWithdrawn"] as string));
-
-    expect(pool.poolMode).toBe(ex["poolMode"]);
-    expect(pool.marketResolved).toBe(ex["marketResolved"]);
-    expect(pool.hwmEnabled).toBe(ex["hwmEnabled"]);
-    expect(pool.hwmFloorBps).toBe(ex["hwmFloorBps"]);
+  it("rejects the stale devnet fixture because it has no v2 discriminator/version", () => {
+    expect(() => decodeStakePool(data)).toThrow(/StakePool invalid discriminator/);
   });
 });
 
@@ -138,22 +112,13 @@ describe("account-decode: StakeDeposit (devnet)", () => {
     expect(data.length).toBe(STAKE_DEPOSIT_SIZE);
   });
 
-  it("decodeDepositPda returns correct fields", () => {
-    const deposit = decodeDepositPda(data);
-    const ex = fixture.expected_decoded;
-
-    expect(deposit.isInitialized).toBe(ex["isInitialized"]);
-    expect(deposit.bump).toBe(ex["bump"]);
-    expect(deposit.pool.toBase58()).toBe(ex["pool"]);
-    expect(deposit.user.toBase58()).toBe(ex["user"]);
-    expect(deposit.lastDepositSlot).toBe(BigInt(ex["lastDepositSlot"] as string));
-    expect(deposit.lpAmount).toBe(BigInt(ex["lpAmount"] as string));
+  it("rejects the stale devnet fixture because it has no discriminator", () => {
+    expect(() => decodeDepositPda(data)).toThrow(/StakeDeposit invalid discriminator/);
   });
 
-  it("deposit.pool matches stake pool account address", () => {
-    const deposit = decodeDepositPda(data);
+  it("still documents the captured pool link for fixture archaeology", () => {
     const poolFixture = loadFixture("devnet-stake-pool.json");
-    expect(deposit.pool.toBase58()).toBe(poolFixture.account_address);
+    expect(fixture.expected_decoded["pool"]).toBe(poolFixture.account_address);
   });
 });
 
@@ -175,16 +140,17 @@ describe("account-decode: NFT PositionNft (mainnet)", () => {
 
     expect(nft.version).toBe(ex["version"]);
     expect(nft.bump).toBe(ex["bump"]);
-    expect(nft.slab.toBase58()).toBe(ex["slab"]);
-    expect(nft.userIdx).toBe(ex["userIdx"]);
+    expect(nft.portfolioAccount.toBase58()).toBe(ex["portfolioAccount"]);
     expect(nft.nftMint.toBase58()).toBe(ex["nftMint"]);
-    expect(nft.entryPriceE6).toBe(BigInt(ex["entryPriceE6"] as string));
-    expect(nft.positionSize).toBe(BigInt(ex["positionSize"] as string));
-    expect(nft.isLong).toBe(ex["isLong"]);
-    expect(nft.positionBasisQ).toBe(BigInt(ex["positionBasisQ"] as string));
-    expect(nft.lastFundingIndexE18).toBe(BigInt(ex["lastFundingIndexE18"] as string));
+    expect(nft.assetIndex).toBe(ex["assetIndex"]);
+    expect(nft.sideAtMint).toBe(ex["sideAtMint"]);
+    expect(nft.basisPosQAtMint).toBe(BigInt(ex["basisPosQAtMint"] as string));
+    expect(nft.fSnapAtMint).toBe(BigInt(ex["fSnapAtMint"] as string));
+    expect(nft.marketIdAtMint).toBe(BigInt(ex["marketIdAtMint"] as string));
+    expect(nft.epochSnapAtMint).toBe(BigInt(ex["epochSnapAtMint"] as string));
+    expect(nft.positionOwnerAtMint.toBase58()).toBe(ex["positionOwnerAtMint"]);
+    expect(nft.positionOwner.toBase58()).toBe(ex["positionOwnerAtMint"]);
     expect(nft.mintedAt).toBe(BigInt(ex["mintedAt"] as string));
-    expect(nft.accountId).toBe(BigInt(ex["accountId"] as string));
   });
 });
 

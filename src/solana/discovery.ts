@@ -4,7 +4,7 @@ import {
   parseConfig,
   parseParams,
   detectSlabLayout,
-  isV17Account,
+  isV17MarketAccount,
   parseWrapperConfigV17,
   SLAB_TIERS_V1M,
   SLAB_TIERS_V1M2,
@@ -883,12 +883,15 @@ export async function discoverMarkets(
     seenPubkeys.add(pkStr);
     const data = new Uint8Array(account.data);
 
-    // Check for v17 market group account (magic = "PERCV16\0").
+    // Check for v17 market group account (magic = "PERCV16\0", kind == KIND_MARKET).
     // The data slice is HEADER_SLICE_LENGTH=1940 bytes, which exceeds the 448-byte
     // minimum needed by parseWrapperConfigV17. V17 accounts have dynamic sizes and
     // do NOT appear in the fixed-size tier queries; they reach this loop only via the
     // memcmp fallback or if the account happens to match a tier size by coincidence.
-    if (isV17Account(data)) {
+    // #264: gate on isV17MarketAccount (kind byte @10 == 1) so portfolio/ledger/
+    // registry accounts — which share the magic+version but carry no WrapperConfigV16
+    // — are not mis-parsed as markets.
+    if (isV17MarketAccount(data)) {
       try {
         const configV17 = parseWrapperConfigV17(data);
         markets.push({
@@ -1054,8 +1057,10 @@ export async function getMarketsByAddress(
     const { pubkey, data: rawData } = entry;
     const data = new Uint8Array(rawData);
 
-    // Gate: check for v17 account first, then fall through to v12 slab path.
-    if (isV17Account(data)) {
+    // Gate: check for a v17 MARKET account first, then fall through to v12 slab path.
+    // #264: gate on isV17MarketAccount (kind byte @10 == 1) — portfolio/ledger/registry
+    // accounts share the magic+version but are not markets and carry no WrapperConfigV16.
+    if (isV17MarketAccount(data)) {
       try {
         const configV17 = parseWrapperConfigV17(data);
         // v17 accounts have no slab header/config/engine/params; supply defaults so

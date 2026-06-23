@@ -1958,15 +1958,6 @@ export interface BatchTradeNoCpiArgs {
 }
 export declare function encodeBatchTradeNoCpi(args: BatchTradeNoCpiArgs): Uint8Array;
 /**
- * One leg of a BatchTradeCpi instruction.
- */
-export interface BatchTradeCpiLeg {
-    assetIndex: number;
-    sizeQ: bigint | string;
-    feeBps: bigint | string;
-    limitPrice: bigint | string;
-}
-/**
  * BatchTradeCpi (tag 67) — multi-leg CPI batch trade.
  *
  * Wire: tag(1) + n_legs(u8) + [asset_index(u16) + size_q(i128) + fee_bps(u64) + limit_price(u64)]×n
@@ -1980,6 +1971,12 @@ export interface BatchTradeCpiLeg {
  * ]});
  * ```
  */
+export interface BatchTradeCpiLeg {
+    assetIndex: number;
+    sizeQ: bigint | string;
+    feeBps: bigint | string;
+    limitPrice: bigint | string;
+}
 export interface BatchTradeCpiArgs {
     legs: BatchTradeCpiLeg[];
 }

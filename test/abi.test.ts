@@ -56,6 +56,7 @@ import {
   encodeConfigureAuthMark,
   encodePushAuthMark,
   encodeMatcherInitPassive,
+  derivePythPriceUpdateAccount,
   IX_TAG,
 } from "../src/abi/instructions.js";
 
@@ -70,6 +71,42 @@ function assertBuf(actual: Uint8Array, expected: number[], msg: string): void {
       `FAIL: ${msg}\n  expected: [${[...exp].join(", ")}]\n  actual:   [${[...actual].join(", ")}]`
     );
   }
+}
+
+function assertThrows(fn: () => unknown, msg: string): void {
+  let threw = false;
+  try {
+    fn();
+  } catch {
+    threw = true;
+  }
+  assert(threw, `${msg} must throw`);
+}
+
+/**
+ * Assert that a synchronous function throws and that the thrown error message
+ * matches the expected pattern.
+ */
+function assertThrowsMatch(fn: () => unknown, pattern: RegExp, msg: string): void {
+  try {
+    fn();
+  } catch (err) {
+    const text = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    assert(pattern.test(text), `${msg} must throw matching ${pattern}, got ${text}`);
+    return;
+  }
+
+  throw new Error(`FAIL: ${msg} must throw`);
+}
+
+async function assertRejects(fn: () => Promise<unknown>, msg: string): Promise<void> {
+  let threw = false;
+  try {
+    await fn();
+  } catch {
+    threw = true;
+  }
+  assert(threw, `${msg} must reject`);
 }
 
 function decI128Le(data: Uint8Array, offset: number): bigint {
@@ -210,6 +247,69 @@ console.log("Testing encode functions...\n");
   console.log("✓ encI128");
 }
 
+// Decimal string inputs must be canonical decimal integers.
+{
+  assertThrows(() => encU64("0x10"), 'encU64("0x10")');
+  assertThrows(() => encU64(" 10"), 'encU64(" 10")');
+  assertThrows(() => encI64("+10"), 'encI64("+10")');
+  assertThrows(() => encU128("01"), 'encU128("01")');
+  assertThrows(() => encI128("1e3"), 'encI128("1e3")');
+  console.log("✓ integer encoders reject non-decimal string forms");
+}
+
+// Runtime inputs must still be validated because TypeScript types are erased for JS callers.
+{
+  const typeError = /value must be bigint or decimal integer string/;
+  const unsafe = Number.MAX_SAFE_INTEGER + 2;
+
+  assertThrowsMatch(() => encU64(1 as any), typeError, "encU64 runtime number");
+  assertThrowsMatch(() => encI64(1 as any), typeError, "encI64 runtime number");
+  assertThrowsMatch(() => encU128(1 as any), typeError, "encU128 runtime number");
+  assertThrowsMatch(() => encI128(1 as any), typeError, "encI128 runtime number");
+
+  assertThrowsMatch(() => encU64(unsafe as any), typeError, "encU64 unsafe runtime number");
+  assertThrowsMatch(() => encU128(unsafe as any), typeError, "encU128 unsafe runtime number");
+  assertThrowsMatch(() => encI128(unsafe as any), typeError, "encI128 unsafe runtime number");
+
+  assertThrowsMatch(
+    () => encodeDepositCollateral({ amount: 1 as any }),
+    typeError,
+    "encodeDepositCollateral runtime number amount",
+  );
+
+  assertThrowsMatch(
+    () => encodeWithdrawCollateral({ amount: 1 as any }),
+    typeError,
+    "encodeWithdrawCollateral runtime number amount",
+  );
+
+  assertThrowsMatch(
+    () =>
+      encodeTradeNoCpi({
+        assetIndex: 0,
+        sizeQ: 1 as any,
+        execPrice: 1n,
+        feeBps: 0n,
+      }),
+    typeError,
+    "encodeTradeNoCpi runtime number sizeQ",
+  );
+
+  assertThrowsMatch(
+    () =>
+      encodeTradeNoCpi({
+        assetIndex: 0,
+        sizeQ: 1n,
+        execPrice: 1 as any,
+        feeBps: 0n,
+      }),
+    typeError,
+    "encodeTradeNoCpi runtime number execPrice",
+  );
+
+  console.log("✓ bigint encoders reject runtime non-bigint/string inputs");
+}
+
 // Test encPubkey
 {
   const pk = new PublicKey("11111111111111111111111111111111");
@@ -218,6 +318,89 @@ console.log("Testing encode functions...\n");
   const pkBytes = pk.toBytes();
   assert(buf.length === pkBytes.length && buf.every((v, i) => v === pkBytes[i]), "encPubkey value");
   console.log("✓ encPubkey");
+}
+
+// Runtime PublicKey-like objects must still produce exactly 32 bytes.
+{
+  const missingToBytesPubkeyLike = {};
+  const nonCallableToBytesPubkeyLike = { toBytes: 123 };
+  const shortPubkeyLike = { toBytes: () => new Uint8Array(31) };
+  const longPubkeyLike = { toBytes: () => new Uint8Array(33) };
+  const nonUint8ArrayPubkeyLike = { toBytes: () => [1, 2, 3] };
+
+  assertThrowsMatch(
+    () => encPubkey(missingToBytesPubkeyLike as any),
+    /encPubkey:.*PublicKey or base58 string/i,
+    "encPubkey rejects runtime value without toBytes",
+  );
+
+  assertThrowsMatch(
+    () => encPubkey(nonCallableToBytesPubkeyLike as any),
+    /encPubkey:.*PublicKey or base58 string/i,
+    "encPubkey rejects runtime value with non-callable toBytes",
+  );
+
+  assertThrowsMatch(
+    () => encPubkey(shortPubkeyLike as any),
+    /encPubkey:.*32 bytes/i,
+    "encPubkey rejects short runtime toBytes output",
+  );
+
+  assertThrowsMatch(
+    () => encPubkey(longPubkeyLike as any),
+    /encPubkey:.*32 bytes/i,
+    "encPubkey rejects long runtime toBytes output",
+  );
+
+  assertThrowsMatch(
+    () => encPubkey(nonUint8ArrayPubkeyLike as any),
+    /encPubkey:.*Uint8Array/i,
+    "encPubkey rejects non-Uint8Array toBytes output",
+  );
+
+  assertThrowsMatch(
+    () => encodeSetNftProgramId({ nftProgramId: shortPubkeyLike as any }),
+    /encPubkey:.*32 bytes/i,
+    "encodeSetNftProgramId rejects malformed runtime pubkey",
+  );
+
+  assertThrowsMatch(
+    () =>
+      encodeTransferPortfolioOwnership({
+        newOwner: shortPubkeyLike as any,
+        assetIndex: 0,
+      }),
+    /encPubkey:.*32 bytes/i,
+    "encodeTransferPortfolioOwnership rejects malformed runtime pubkey",
+  );
+
+  console.log("✓ encPubkey runtime output validation");
+}
+
+// Test derivePythPriceUpdateAccount input validation
+{
+  const feed = new Uint8Array(32);
+  const pda0 = await derivePythPriceUpdateAccount(feed, 0);
+  const pdaMaxShard = await derivePythPriceUpdateAccount(feed, 0xffff);
+  assert(typeof pda0 === "string" && pda0.length > 0, "derivePythPriceUpdateAccount returns a PDA");
+  assert(typeof pdaMaxShard === "string" && pdaMaxShard.length > 0, "derivePythPriceUpdateAccount accepts shard u16 max");
+  await assertRejects(
+    () => derivePythPriceUpdateAccount(new Uint8Array(31), 0),
+    "derivePythPriceUpdateAccount short feedId",
+  );
+  await assertRejects(
+    () => derivePythPriceUpdateAccount(new Uint8Array(33), 0),
+    "derivePythPriceUpdateAccount long feedId",
+  );
+  await assertRejects(
+    () => derivePythPriceUpdateAccount(feed, 65536),
+    "derivePythPriceUpdateAccount shard wrap",
+  );
+  await assertRejects(
+    () => derivePythPriceUpdateAccount(feed, 1.5),
+    "derivePythPriceUpdateAccount fractional shard",
+  );
+  console.log("✓ derivePythPriceUpdateAccount validation");
 }
 
 console.log("\nTesting instruction encoders...\n");
@@ -643,6 +826,21 @@ console.log("\nTesting instruction encoders...\n");
     encodeBatchTradeNoCpi({ legs: new Array(256).fill({ assetIndex: 0, sizeQ: 0n, execPrice: 0n, feeBps: 0n }) });
   } catch { threw = true; }
   assert(threw, "encodeBatchTradeNoCpi rejects > 255 legs");
+  threw = false;
+  try {
+    encodeBatchTradeNoCpi({ legs: [] });
+  } catch { threw = true; }
+  assert(threw, "encodeBatchTradeNoCpi rejects empty legs");
+
+  threw = false;
+  try {
+    encodeBatchTradeNoCpi({
+      legs: [
+        { assetIndex: 0, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 10_001n },
+      ],
+    });
+  } catch { threw = true; }
+  assert(threw, "encodeBatchTradeNoCpi rejects feeBps > 10000");
 
   console.log("✓ encodeBatchTradeNoCpi (v17)");
 }
@@ -666,6 +864,21 @@ console.log("\nTesting instruction encoders...\n");
     [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "BatchTradeCpi leg.sizeQ=1_000_000"
   );
+  let threw = false;
+  try {
+    encodeBatchTradeCpi({ legs: [] });
+  } catch { threw = true; }
+  assert(threw, "encodeBatchTradeCpi rejects empty legs");
+
+  threw = false;
+  try {
+    encodeBatchTradeCpi({
+      legs: [
+        { assetIndex: 0, sizeQ: 1_000_000n, feeBps: 10_001n, limitPrice: 51_000_000_000n },
+      ],
+    });
+  } catch { threw = true; }
+  assert(threw, "encodeBatchTradeCpi rejects feeBps > 10000");
   console.log("✓ encodeBatchTradeCpi (v17)");
 }
 
@@ -886,6 +1099,38 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeConfigureHybridOracle (156-byte wire)");
 }
 
+// encodeConfigureHybridOracle must reject leg counts that cannot fit the 3-feed wire.
+{
+  const baseArgs = {
+    assetIndex: 1,
+    nowSlot: 300_000_000n,
+    nowUnixTs: 1_700_000_000n,
+    oracleLegCount: 1,
+    oracleLegFlags: 0,
+    maxStalenessSecs: 60n,
+    hybridSoftStaleSlots: 100n,
+    markEwmaHalflifeSlots: 500n,
+    markMinFee: 0n,
+    invert: 0,
+    unitScale: 1_000_000,
+    confFilterBps: 200,
+    oracleLegFeeds: [PublicKey.default, PublicKey.default, PublicKey.default],
+  } as const;
+  assertThrows(
+    () => encodeConfigureHybridOracle({ ...baseArgs, oracleLegCount: 0 }),
+    "ConfigureHybridOracle oracle_leg_count=0",
+  );
+  assertThrows(
+    () => encodeConfigureHybridOracle({ ...baseArgs, oracleLegCount: 4 }),
+    "ConfigureHybridOracle oracle_leg_count=4",
+  );
+  assertThrows(
+    () => encodeConfigureHybridOracle({ ...baseArgs, oracleLegCount: 1.5 }),
+    "ConfigureHybridOracle fractional oracle_leg_count",
+  );
+  console.log("✓ encodeConfigureHybridOracle oracle_leg_count validation");
+}
+
 // Test encodeConfigureEwmaMark — 35-byte wire
 // Wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_mark_e6(u64) +
 //       mark_ewma_halflife_slots(u64) + mark_min_fee(u64) = 1+2+8+8+8+8 = 35 bytes
@@ -945,7 +1190,150 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodePushAuthMark (19-byte wire)");
 }
 
-// ── TASK B: matcher passive-init payload ──────────────────────────────────────
+// Regression: oracle mark encoders reject zero mark values and zero halflife
+{
+  let oracleMarkThrew = false;
+  try {
+    encodeConfigureEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 0n,
+      markEwmaHalflifeSlots: 500n,
+      markMinFee: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodeConfigureEwmaMark rejects zero initialMarkE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodeConfigureEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 50_000_000_000n,
+      markEwmaHalflifeSlots: 0n,
+      markMinFee: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(
+    oracleMarkThrew,
+    "encodeConfigureEwmaMark rejects zero markEwmaHalflifeSlots",
+  );
+
+  oracleMarkThrew = false;
+  try {
+    encodePushEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_001n,
+      markE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodePushEwmaMark rejects zero markE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodeConfigureAuthMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodeConfigureAuthMark rejects zero initialMarkE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodePushAuthMark({
+      assetIndex: 1,
+      nowSlot: 300_000_001n,
+      markE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodePushAuthMark rejects zero markE6");
+
+console.log("✓ encodePushAuthMark (19-byte wire)");
+}
+
+// Regression: oracle mark encoders reject zero mark values and zero halflife
+{
+  let oracleMarkThrew = false;
+  try {
+    encodeConfigureEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 0n,
+      markEwmaHalflifeSlots: 500n,
+      markMinFee: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodeConfigureEwmaMark rejects zero initialMarkE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodeConfigureEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 50_000_000_000n,
+      markEwmaHalflifeSlots: 0n,
+      markMinFee: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(
+    oracleMarkThrew,
+    "encodeConfigureEwmaMark rejects zero markEwmaHalflifeSlots",
+  );
+
+  oracleMarkThrew = false;
+  try {
+    encodePushEwmaMark({
+      assetIndex: 1,
+      nowSlot: 300_000_001n,
+      markE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodePushEwmaMark rejects zero markE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodeConfigureAuthMark({
+      assetIndex: 1,
+      nowSlot: 300_000_000n,
+      initialMarkE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodeConfigureAuthMark rejects zero initialMarkE6");
+
+  oracleMarkThrew = false;
+  try {
+    encodePushAuthMark({
+      assetIndex: 1,
+      nowSlot: 300_000_001n,
+      markE6: 0n,
+    });
+  } catch {
+    oracleMarkThrew = true;
+  }
+  assert(oracleMarkThrew, "encodePushAuthMark rejects zero markE6");
+
+  console.log("✓ oracle mark encoders reject zero values");
+}
+// ── TASK B: matcher passive-init payload ─────────────────────────────
 
 // Test encodeMatcherInitPassive — 66-byte wire to matcher program
 // Layout: [0]=2, [1]=0, [2..10]=0, [10..14]=100u32LE, [14..34]=0, [34..50]=max_fill_abs u128LE, [50..66]=0

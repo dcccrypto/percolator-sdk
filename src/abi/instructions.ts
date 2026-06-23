@@ -1465,6 +1465,12 @@ export async function derivePythPriceUpdateAccount(
   feedId: Uint8Array,
   shardId = 0,
 ): Promise<string> {
+  if (!(feedId instanceof Uint8Array) || feedId.length !== 32) {
+    throw new Error(`derivePythPriceUpdateAccount: feedId must be 32 bytes, got ${feedId?.length ?? "invalid"}`);
+  }
+  if (!Number.isInteger(shardId) || shardId < 0 || shardId > 0xffff) {
+    throw new Error(`derivePythPriceUpdateAccount: shardId must be a u16, got ${shardId}`);
+  }
   const { PublicKey } = await import('@solana/web3.js');
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
@@ -2787,33 +2793,36 @@ export interface BatchTradeNoCpiArgs {
   legs: BatchTradeNoCpiLeg[];
 }
 
+function validateBatchTradeFeeBps(value: bigint | string, caller: string): void {
+  const feeBps = typeof value === "string" ? BigInt(value) : value;
+  if (feeBps > 10_000n) {
+    throw new Error(`${caller}: feeBps must be <= 10000, got ${feeBps}`);
+  }
+}
+
 export function encodeBatchTradeNoCpi(args: BatchTradeNoCpiArgs): Uint8Array {
+  if (args.legs.length === 0) {
+    throw new Error("encodeBatchTradeNoCpi: at least one leg is required");
+  }
   if (args.legs.length > 255) {
     throw new Error(`encodeBatchTradeNoCpi: too many legs (${args.legs.length} > 255)`);
   }
+
   const parts: Uint8Array[] = [
     encU8(IX_TAG.BatchTradeNoCpi),
     encU8(args.legs.length),
   ];
+
   for (const leg of args.legs) {
+    validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeNoCpi");
     parts.push(encU16(leg.assetIndex));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.execPrice));
     parts.push(encU64(leg.feeBps));
   }
+
   return concatBytes(...parts);
 }
-
-/**
- * One leg of a BatchTradeCpi instruction.
- */
-export interface BatchTradeCpiLeg {
-  assetIndex: number;
-  sizeQ: bigint | string;
-  feeBps: bigint | string;
-  limitPrice: bigint | string;
-}
-
 /**
  * BatchTradeCpi (tag 67) — multi-leg CPI batch trade.
  *
@@ -2828,24 +2837,39 @@ export interface BatchTradeCpiLeg {
  * ]});
  * ```
  */
+
+export interface BatchTradeCpiLeg {
+  assetIndex: number;
+  sizeQ: bigint | string;
+  feeBps: bigint | string;
+  limitPrice: bigint | string;
+}
+
 export interface BatchTradeCpiArgs {
   legs: BatchTradeCpiLeg[];
 }
 
 export function encodeBatchTradeCpi(args: BatchTradeCpiArgs): Uint8Array {
+  if (args.legs.length === 0) {
+    throw new Error("encodeBatchTradeCpi: at least one leg is required");
+  }
   if (args.legs.length > 255) {
     throw new Error(`encodeBatchTradeCpi: too many legs (${args.legs.length} > 255)`);
   }
+
   const parts: Uint8Array[] = [
     encU8(IX_TAG.BatchTradeCpi),
     encU8(args.legs.length),
   ];
+
   for (const leg of args.legs) {
+    validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeCpi");
     parts.push(encU16(leg.assetIndex));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.feeBps));
     parts.push(encU64(leg.limitPrice));
   }
+
   return concatBytes(...parts);
 }
 
@@ -3209,7 +3233,12 @@ export interface ConfigureHybridOracleArgs {
   oracleLegFeeds: [PublicKey | string, PublicKey | string, PublicKey | string];
 }
 
+const ORACLE_LEG_CAP = 3;
+
 export function encodeConfigureHybridOracle(args: ConfigureHybridOracleArgs): Uint8Array {
+  if (!Number.isInteger(args.oracleLegCount) || args.oracleLegCount < 1 || args.oracleLegCount > ORACLE_LEG_CAP) {
+    throw new Error(`encodeConfigureHybridOracle: oracleLegCount must be an integer in 1..${ORACLE_LEG_CAP}`);
+  }
   return concatBytes(
     encU8(IX_TAG.ConfigureHybridOracle),
     encU16(args.assetIndex),
@@ -3269,7 +3298,16 @@ export interface ConfigureEwmaMarkArgs {
   markMinFee: bigint | string;
 }
 
+function requirePositiveU64(value: bigint | string, field: string): void {
+  const n = typeof value === "string" ? BigInt(value) : value;
+  if (n <= 0n) {
+    throw new Error(`${field} must be > 0`);
+  }
+}
 export function encodeConfigureEwmaMark(args: ConfigureEwmaMarkArgs): Uint8Array {
+  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
+  requirePositiveU64(args.markEwmaHalflifeSlots, "markEwmaHalflifeSlots");
+
   return concatBytes(
     encU8(IX_TAG.ConfigureEwmaMark),
     encU16(args.assetIndex),
@@ -3310,6 +3348,8 @@ export interface PushEwmaMarkArgs {
 }
 
 export function encodePushEwmaMark(args: PushEwmaMarkArgs): Uint8Array {
+  requirePositiveU64(args.markE6, "markE6");
+
   return concatBytes(
     encU8(IX_TAG.PushEwmaMark),
     encU16(args.assetIndex),
@@ -3346,6 +3386,8 @@ export interface ConfigureAuthMarkArgs {
 }
 
 export function encodeConfigureAuthMark(args: ConfigureAuthMarkArgs): Uint8Array {
+  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
+
   return concatBytes(
     encU8(IX_TAG.ConfigureAuthMark),
     encU16(args.assetIndex),
@@ -3384,6 +3426,8 @@ export interface PushAuthMarkArgs {
 }
 
 export function encodePushAuthMark(args: PushAuthMarkArgs): Uint8Array {
+  requirePositiveU64(args.markE6, "markE6");
+
   return concatBytes(
     encU8(IX_TAG.PushAuthMark),
     encU16(args.assetIndex),

@@ -179,6 +179,14 @@ function parseRaydiumClmmPool(poolAddress: PublicKey, data: Uint8Array): DexPool
  */
 const MAX_TOKEN_DECIMALS = 24;
 
+function assertTokenDecimals(dexName: string, label: string, decimals: number): void {
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > MAX_TOKEN_DECIMALS) {
+    throw new Error(
+      `${dexName}: ${label} decimals out of range (${decimals}); expected integer 0..${MAX_TOKEN_DECIMALS}`,
+    );
+  }
+}
+
 function computeRaydiumClmmPriceE6(data: Uint8Array): bigint {
   if (data.length < RAYDIUM_CLMM_MIN_LEN) {
     throw new Error(`Raydium CLMM data too short: ${data.length} < ${RAYDIUM_CLMM_MIN_LEN}`);
@@ -261,11 +269,8 @@ function computeMeteoraDlmmPriceE6(
   if (data.length < METEORA_DLMM_MIN_LEN) {
     throw new Error(`Meteora DLMM data too short: ${data.length} < ${METEORA_DLMM_MIN_LEN}`);
   }
-  if (decimalsBase > MAX_TOKEN_DECIMALS || decimalsQuote > MAX_TOKEN_DECIMALS) {
-    throw new Error(
-      `Meteora DLMM: decimals out of range (${decimalsBase}, ${decimalsQuote}); max ${MAX_TOKEN_DECIMALS}`,
-    );
-  }
+  assertTokenDecimals("Meteora DLMM", "base", decimalsBase);
+  assertTokenDecimals("Meteora DLMM", "quote", decimalsQuote);
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
   const binStep = dv.getUint16(73, true);

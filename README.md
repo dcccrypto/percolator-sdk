@@ -265,7 +265,7 @@ const mainnetId = getProgramId("mainnet");
 
 ### Auto-Deleveraging (ADL)
 
-ADL (Auto-Deleveraging) reduces the most-profitable opposing positions when the insurance fund is depleted. The SDK provides both on-chain and API-based ADL utilities.
+ADL (Auto-Deleveraging) reduces the most-profitable opposing positions when the insurance fund is depleted. The SDK provides ranking, trigger-check, API, and event-decoding utilities. Building `ExecuteAdl` transactions is not supported in the v17 SDK because the v17 wrapper does not accept that instruction.
 
 #### Checking if ADL is triggered
 
@@ -291,33 +291,6 @@ const { ranked, longs, shorts, isTriggered } = await fetchAdlRankedPositions(
 // longs   — top-ranked long position (ADL target if insurance negative on short side)
 // shorts  — top-ranked short position
 // isTriggered — whether pnl_pos_tot exceeds max_pnl_cap on-chain
-```
-
-#### Building an ADL instruction
-
-```typescript
-import { buildAdlInstruction, buildAdlTransaction, getProgramId } from "@percolator/sdk";
-
-const programId = getProgramId("devnet");
-
-// Build instruction directly (caller already has target index)
-const ix = buildAdlInstruction(
-  callerPublicKey,   // keeper / crank wallet
-  slabPublicKey,
-  oracleFeedPublicKey,
-  programId,
-  targetAccountIndex, // number — index of account to deleverage
-);
-
-// OR: fetch + rank + pick top target automatically
-const ix2 = await buildAdlTransaction(
-  connection,
-  callerPublicKey,
-  slabPublicKey,
-  oracleFeedPublicKey,
-  programId,
-  "long", // side to deleverage ("long" | "short")
-);
 ```
 
 #### Decoding on-chain ADL events

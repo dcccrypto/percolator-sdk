@@ -92,9 +92,13 @@ export const STAKE_IX = {
   Withdraw: 2,
   FlushToInsurance: 3,
   UpdateConfig: 4,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** Step 1 of two-step stake admin rotation. */
+  ProposeAdmin: 5,
+  /** Step 2 of two-step stake admin rotation. */
+  AcceptAdmin: 6,
+  /** @deprecated Legacy one-step admin transfer name. Use ProposeAdmin. */
   TransferAdmin: 5,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Legacy admin CPI proxy name. Tag 6 is now AcceptAdmin. */
   AdminSetOracleAuthority: 6,
   /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
   AdminSetRiskThreshold: 7,
@@ -162,11 +166,28 @@ function readU16LE(data: Uint8Array, off: number): number {
   return view.getUint16(off, /* littleEndian= */ true);
 }
 
+function requireDiscriminator(
+  accountName: string,
+  data: Uint8Array,
+  offset: number,
+  expected: Uint8Array,
+): void {
+  for (let i = 0; i < expected.length; i += 1) {
+    if (data[offset + i] !== expected[i]) {
+      throw new Error(`${accountName} invalid discriminator`);
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Instruction Encoders
 // ═══════════════════════════════════════════════════════════════
 
 function u64Le(v: bigint | number): Uint8Array {
+  if (typeof v === "number" && !Number.isSafeInteger(v)) {
+    throw new Error(`u64Le: number ${v} exceeds Number.MAX_SAFE_INTEGER — use BigInt`);
+  }
+
   const big = BigInt(v);
   if (big < 0n) throw new Error(`u64Le: value must be non-negative, got ${big}`);
   if (big > 0xFFFF_FFFF_FFFF_FFFFn) throw new Error(`u64Le: value exceeds u64 max`);
@@ -175,6 +196,10 @@ function u64Le(v: bigint | number): Uint8Array {
 }
 
 function u128Le(v: bigint | number): Uint8Array {
+  if (typeof v === "number" && !Number.isSafeInteger(v)) {
+    throw new Error(`u128Le: number ${v} exceeds Number.MAX_SAFE_INTEGER — use BigInt`);
+  }
+
   const big = BigInt(v);
   if (big < 0n) throw new Error(`u128Le: value must be non-negative, got ${big}`);
   if (big > (1n << 128n) - 1n) throw new Error(`u128Le: value exceeds u128 max`);
@@ -185,7 +210,7 @@ function u128Le(v: bigint | number): Uint8Array {
 }
 
 function u16Le(v: number): Uint8Array {
-  if (v < 0 || v > 0xFFFF) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);  const arr = new Uint8Array(2);  new DataView(arr.buffer).setUint16(0, v, true);
+  if (!Number.isInteger(v) || v < 0 || v > 0xFFFF) throw new Error(`u16Le: value out of u16 range (0..65535), got ${v}`);  const arr = new Uint8Array(2);  new DataView(arr.buffer).setUint16(0, v, true);
   return arr;
 }
 
@@ -229,16 +254,29 @@ export function encodeStakeUpdateConfig(
 
 function removedStakeInstruction(name: string, tag: number): never {
   throw new Error(
-    `${name} (stake tag ${tag}) was removed on-chain in percolator-stake v3 and must not be sent.`,
+    `${name} (legacy stake tag ${tag}) no longer matches the live on-chain instruction and must not be sent.`,
   );
 }
 
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** Tag 5: ProposeAdmin — current admin proposes a pending admin. */
+export function encodeStakeProposeAdmin(newAdmin: PublicKey): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.ProposeAdmin]),
+    newAdmin.toBytes(),
+  );
+}
+
+/** Tag 6: AcceptAdmin — pending admin accepts ownership. */
+export function encodeStakeAcceptAdmin(): Uint8Array {
+  return new Uint8Array([STAKE_IX.AcceptAdmin]);
+}
+
+/** @deprecated Legacy one-step admin transfer name. Use encodeStakeProposeAdmin instead. */
 export function encodeStakeTransferAdmin(): Uint8Array {
   return removedStakeInstruction('encodeStakeTransferAdmin', STAKE_IX.TransferAdmin);
 }
 
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** @deprecated Removed admin CPI proxy. Tag 6 is now encodeStakeAcceptAdmin. */
 export function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Uint8Array {
   void newAuthority;
   return removedStakeInstruction('encodeStakeAdminSetOracleAuthority', STAKE_IX.AdminSetOracleAuthority);
@@ -404,6 +442,9 @@ export interface StakePoolState {
  * v2: 384 (stake v1 was 352; `pending_admin: [u8;32]` added at offset 288).
  */
 export const STAKE_POOL_SIZE = 384;
+export const STAKE_POOL_DISCRIMINATOR = new Uint8Array([0x53, 0x50, 0x4f, 0x4f, 0x4c, 0x5f, 0x56, 0x31]);
+export const STAKE_POOL_CURRENT_VERSION = 2;
+const STAKE_POOL_RESERVED_OFFSET = 320;
 
 /**
  * Decode a StakePool account from raw data buffer. * Uses DataView for all u64/u16 reads — browser-safe.
@@ -411,6 +452,11 @@ export const STAKE_POOL_SIZE = 384;
 export function decodeStakePool(data: Uint8Array): StakePoolState {
   if (data.length < STAKE_POOL_SIZE) {
     throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE}`);
+  }
+  requireDiscriminator("StakePool", data, STAKE_POOL_RESERVED_OFFSET, STAKE_POOL_DISCRIMINATOR);
+  const version = data[STAKE_POOL_RESERVED_OFFSET + 8];
+  if (version !== STAKE_POOL_CURRENT_VERSION) {
+    throw new Error(`StakePool unsupported version: ${version} !== ${STAKE_POOL_CURRENT_VERSION}`);
   }
   const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);  let off = 0;
   const isInitialized = bytes[off] === 1; off += 1;
@@ -508,6 +554,8 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
 
 /** Size of StakeDeposit on-chain (bytes). */
 export const STAKE_DEPOSIT_SIZE = 152;
+export const STAKE_DEPOSIT_DISCRIMINATOR = new Uint8Array([0x53, 0x44, 0x45, 0x50, 0x5f, 0x56, 0x31, 0x00]);
+const STAKE_DEPOSIT_RESERVED_OFFSET = 88;
 
 /** Decoded StakeDeposit PDA state. */
 export interface StakeDepositState {
@@ -536,6 +584,7 @@ export function decodeDepositPda(data: Uint8Array): StakeDepositState {
   if (data.length < STAKE_DEPOSIT_SIZE) {
     throw new Error(`StakeDeposit data too short: ${data.length} < ${STAKE_DEPOSIT_SIZE}`);
   }
+  requireDiscriminator("StakeDeposit", data, STAKE_DEPOSIT_RESERVED_OFFSET, STAKE_DEPOSIT_DISCRIMINATOR);
   return {
     isInitialized: data[0] === 1,
     bump: data[1],

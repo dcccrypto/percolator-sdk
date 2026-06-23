@@ -482,6 +482,20 @@ export declare function parseAccount(data: Uint8Array, idx: number): Account;
 export declare const V17_MAGIC = 5784119745589622272n;
 /** v17 account version (u16 at offset 8). */
 export declare const V17_EXPECTED_VERSION = 16;
+/**
+ * v17 account-kind byte (offset 10 of the 16-byte header).
+ *
+ * The program's `check_header()` discriminates EVERY v17 percolator-owned
+ * account SOLELY by this byte (percolator-prog `v16_program.rs` KIND_*):
+ *   1 = MARKET, 2 = PORTFOLIO, 3 = BACKING_DOMAIN_LEDGER, 4 = INSURANCE_LEDGER,
+ *   5 = LP_VAULT_REGISTRY, 6 = LP_REDEMPTION, 7 = NFT_REGISTRY.
+ * Only KIND_MARKET (1) carries the WrapperConfigV16 block parsed during market
+ * discovery — every other kind shares the same magic+version and would falsely
+ * pass the looser {@link isV17Account} check (#264).
+ */
+export declare const V17_KIND_MARKET = 1;
+/** Byte offset of the v17 account-kind discriminator within the header. */
+export declare const V17_KIND_OFF = 10;
 /** v17 wrapper config block length (WrapperConfigV16 = 432 bytes). */
 export declare const V17_WRAPPER_CONFIG_LEN = 432;
 /** v17 AssetOracleProfileV16 length (400 bytes). */
@@ -705,6 +719,19 @@ export declare function parseAssetOracleProfileV17(data: Uint8Array, profileOff:
  * @returns true if magic == V17_MAGIC and version == V17_EXPECTED_VERSION.
  */
 export declare function isV17Account(data: Uint8Array): boolean;
+/**
+ * Check if a raw account buffer is a v17 percolator MARKET account.
+ *
+ * Stricter than {@link isV17Account}: requires both that the account is a valid
+ * v17 account (magic + version) AND that the kind byte at offset 10 is
+ * {@link V17_KIND_MARKET}. Portfolio / ledger / registry accounts share the same
+ * magic+version and so pass `isV17Account`, but they are NOT markets and do not
+ * carry a WrapperConfigV16 block — market discovery must gate on this (#264).
+ *
+ * @param data Raw account bytes.
+ * @returns true if the account is a v17 account whose kind == KIND_MARKET (1).
+ */
+export declare function isV17MarketAccount(data: Uint8Array): boolean;
 /** Per-leg decoded data returned by parsePortfolioV17. */
 export interface PortfolioLegV17 {
     active: boolean;
