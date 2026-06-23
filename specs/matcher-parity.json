@@ -1,15 +1,15 @@
 {
   "call_field_offsets": {
     "_pad": 43,
+    "asset_index": 9,
     "lp_account_id": 11,
-    "lp_idx": 9,
     "oracle_price_e6": 19,
     "req_id": 1,
     "req_size": 27,
     "tag": 0
   },
   "constants": {
-    "MATCHER_ABI_VERSION": 2,
+    "MATCHER_ABI_VERSION": 3,
     "MATCHER_KIND_PASSIVE": 0,
     "MATCHER_KIND_VAMM": 1,
     "MATCHER_MAGIC_hex": "0x504552434d415443",
@@ -60,13 +60,13 @@
   "program": "percolator-match",
   "return_field_offsets": {
     "abi_version": 0,
+    "asset_index": 56,
     "exec_price_e6": 8,
     "exec_size": 16,
     "flags": 4,
     "lp_account_id": 40,
     "oracle_price_e6": 48,
-    "req_id": 32,
-    "reserved": 56
+    "req_id": 32
   },
   "self_checks": {
     "init_ctx_len_eq_78": true,
