@@ -6269,11 +6269,18 @@ var STAKE_IX = {
   TransferAdmin: 5,
   /** @deprecated Legacy admin CPI proxy name. Tag 6 is now AcceptAdmin. */
   AdminSetOracleAuthority: 6,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** #242: ProposeCooldownIncrease — step 1 of the cooldown-increase timelock. */
+  ProposeCooldownIncrease: 7,
+  /** #242: CommitCooldownIncrease — step 2; applies the increase after TIMELOCK_SLOTS. */
+  CommitCooldownIncrease: 8,
+  /** #242: CancelCooldownIncrease — withdraw a pending cooldown proposal. */
+  CancelCooldownIncrease: 9,
+  /** @deprecated Tag 7 reclaimed for ProposeCooldownIncrease (#242). Old admin CPI proxy;
+   *  its encoder still throws as a migration safety net. */
   AdminSetRiskThreshold: 7,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Tag 8 reclaimed for CommitCooldownIncrease (#242). Encoder still throws. */
   AdminSetMaintenanceFee: 8,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Tag 9 reclaimed for CancelCooldownIncrease (#242). Encoder still throws. */
   AdminResolveMarket: 9,
   /** Current on-chain tag 10: transfer withdrawn insurance back into the pool vault. */
   ReturnInsurance: 10,
@@ -6399,6 +6406,18 @@ function encodeStakeTransferAdmin() {
 function encodeStakeAdminSetOracleAuthority(newAuthority) {
   void newAuthority;
   return removedStakeInstruction("encodeStakeAdminSetOracleAuthority", STAKE_IX.AdminSetOracleAuthority);
+}
+function encodeStakeProposeCooldownIncrease(newCooldownSlots) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.ProposeCooldownIncrease]),
+    u64Le(newCooldownSlots)
+  );
+}
+function encodeStakeCommitCooldownIncrease() {
+  return new Uint8Array([STAKE_IX.CommitCooldownIncrease]);
+}
+function encodeStakeCancelCooldownIncrease() {
+  return new Uint8Array([STAKE_IX.CancelCooldownIncrease]);
 }
 function encodeStakeAdminSetRiskThreshold(newThreshold) {
   void newThreshold;
@@ -8397,12 +8416,15 @@ export {
   encodeStakeAdminSetRiskThreshold,
   encodeStakeAdminSetTrancheConfig,
   encodeStakeAdminWithdrawInsurance,
+  encodeStakeCancelCooldownIncrease,
+  encodeStakeCommitCooldownIncrease,
   encodeStakeDeposit,
   encodeStakeDepositJunior,
   encodeStakeFlushToInsurance,
   encodeStakeInitPool,
   encodeStakeInitTradingPool,
   encodeStakeProposeAdmin,
+  encodeStakeProposeCooldownIncrease,
   encodeStakeReturnInsurance,
   encodeStakeSetMarketResolved,
   encodeStakeTransferAdmin,
