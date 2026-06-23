@@ -67,6 +67,19 @@ export const PROGRAM_ID_V17 = new PublicKey(PROGRAM_IDS_V17.percolator);
 
 export type Network = "devnet" | "mainnet";
 
+/** Allowlist of legitimate percolator program addresses (all networks). */
+const KNOWN_PROGRAM_IDS = new Set<string>([
+  PROGRAM_IDS.devnet.percolator,
+  PROGRAM_IDS.mainnet.percolator,
+  PROGRAM_IDS_V17.percolator,
+]);
+
+/** Allowlist of legitimate matcher program addresses (all networks). */
+const KNOWN_MATCHER_IDS = new Set<string>([
+  PROGRAM_IDS.devnet.matcher,
+  PROGRAM_IDS.mainnet.matcher,
+]);
+
 /**
  * Get the Percolator program ID for the current network
  * 
@@ -83,9 +96,14 @@ export function getProgramId(network?: Network): PublicKey {
   if (network === undefined) {
     const override = safeEnv("PROGRAM_ID");
     if (override) {
-      console.warn(
-        `[percolator-sdk] PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
-      );
+      if (!KNOWN_PROGRAM_IDS.has(override)) {
+        throw new Error(
+          `[percolator-sdk] PROGRAM_ID env var "${override}" is not a known program address. ` +
+          `Allowed values: ${[...KNOWN_PROGRAM_IDS].join(', ')}. ` +
+          `Pass an explicit network argument to bypass env resolution.`,
+        );
+      }
+      console.warn(`[percolator-sdk] PROGRAM_ID env override active: ${override}`);
       return new PublicKey(override);
     }
   }
@@ -111,9 +129,14 @@ export function getMatcherProgramId(network?: Network): PublicKey {
   if (network === undefined) {
     const override = safeEnv("MATCHER_PROGRAM_ID");
     if (override) {
-      console.warn(
-        `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
-      );
+      if (!KNOWN_MATCHER_IDS.has(override)) {
+        throw new Error(
+          `[percolator-sdk] MATCHER_PROGRAM_ID env var "${override}" is not a known matcher program address. ` +
+          `Allowed values: ${[...KNOWN_MATCHER_IDS].join(', ')}. ` +
+          `Pass an explicit network argument to bypass env resolution.`,
+        );
+      }
+      console.warn(`[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override}`);
       return new PublicKey(override);
     }
   }
