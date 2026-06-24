@@ -522,10 +522,10 @@ function encodeInitMarket(args) {
     maxAccrualDtSlots = v.maxCrankStalenessSlots ?? 0n;
     maxAbsFundingE9PerSlot = v.extendedTail?.fundingMaxBpsPerSlot ?? 1000n;
     minFundingLifetimeSlots = 0n;
-    maxAccountBSettlementChunks = 0n;
-    maxBankruptCloseChunks = 0n;
-    maxBankruptCloseLifetimeSlots = 0n;
-    publicBChunkAtoms = 0n;
+    maxAccountBSettlementChunks = 10n;
+    maxBankruptCloseChunks = 10n;
+    maxBankruptCloseLifetimeSlots = 500n;
+    publicBChunkAtoms = 1000000n;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   }
   const data = concatBytes(
@@ -2105,13 +2105,28 @@ var PROGRAM_IDS_V17 = {
 Object.freeze(PROGRAM_IDS_V17);
 var V17_PROGRAMS_DEPLOYED = false;
 var PROGRAM_ID_V17 = new PublicKey3(PROGRAM_IDS_V17.percolator);
+var KNOWN_PROGRAM_IDS = /* @__PURE__ */ new Set([
+  PROGRAM_IDS.devnet.percolator,
+  PROGRAM_IDS.mainnet.percolator,
+  PROGRAM_IDS_V17.percolator
+]);
+var KNOWN_MATCHER_IDS = /* @__PURE__ */ new Set([
+  PROGRAM_IDS.devnet.matcher,
+  PROGRAM_IDS.mainnet.matcher
+]);
+function programOverrideOptIn() {
+  return safeEnv("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") === "1";
+}
 function getProgramId(network) {
   if (network === void 0) {
     const override = safeEnv("PROGRAM_ID");
     if (override) {
-      console.warn(
-        `[percolator-sdk] PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
-      );
+      if (!KNOWN_PROGRAM_IDS.has(override) && !programOverrideOptIn()) {
+        throw new Error(
+          `[percolator-sdk] PROGRAM_ID env var "${override}" is not a known program address. Allowed values: ${[...KNOWN_PROGRAM_IDS].join(", ")}. Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`
+        );
+      }
+      console.warn(`[percolator-sdk] PROGRAM_ID env override active: ${override}`);
       return new PublicKey3(override);
     }
   }
@@ -2129,9 +2144,12 @@ function getMatcherProgramId(network) {
   if (network === void 0) {
     const override = safeEnv("MATCHER_PROGRAM_ID");
     if (override) {
-      console.warn(
-        `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
-      );
+      if (!KNOWN_MATCHER_IDS.has(override) && !programOverrideOptIn()) {
+        throw new Error(
+          `[percolator-sdk] MATCHER_PROGRAM_ID env var "${override}" is not a known matcher program address. Allowed values: ${[...KNOWN_MATCHER_IDS].join(", ")}. Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`
+        );
+      }
+      console.warn(`[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override}`);
       return new PublicKey3(override);
     }
   }
@@ -2157,7 +2175,16 @@ function getCurrentNetwork() {
 }
 
 // src/abi/nft.ts
+var KNOWN_NFT_PROGRAM_IDS = /* @__PURE__ */ new Set([
+  "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS"
+  // mainnet
+]);
 var NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");
+if (NFT_PROGRAM_OVERRIDE !== void 0 && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM_OVERRIDE)) {
+  throw new Error(
+    `[percolator-sdk] NFT_PROGRAM_ID env var "${NFT_PROGRAM_OVERRIDE}" is not a known NFT program address. Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. Pass the programId argument explicitly to bypass env resolution.`
+  );
+}
 var NFT_PROGRAM_ID = new PublicKey4(
   NFT_PROGRAM_OVERRIDE ?? "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS"
 );
@@ -6229,12 +6256,18 @@ var STAKE_PROGRAM_IDS = {
   mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F"
 };
 Object.freeze(STAKE_PROGRAM_IDS);
+var KNOWN_STAKE_PROGRAM_IDS = new Set(Object.values(STAKE_PROGRAM_IDS));
 function getStakeProgramId(network) {
   if (!network) {
     const override = safeEnv("STAKE_PROGRAM_ID");
     if (override) {
+      if (!KNOWN_STAKE_PROGRAM_IDS.has(override) && safeEnv("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") !== "1") {
+        throw new Error(
+          `[percolator-sdk] STAKE_PROGRAM_ID env var "${override}" is not a known stake program address. Allowed values: ${[...KNOWN_STAKE_PROGRAM_IDS].join(", ")}. Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`
+        );
+      }
       console.warn(
-        `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
+        `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override}`
       );
       return new PublicKey11(override);
     }
@@ -6269,11 +6302,18 @@ var STAKE_IX = {
   TransferAdmin: 5,
   /** @deprecated Legacy admin CPI proxy name. Tag 6 is now AcceptAdmin. */
   AdminSetOracleAuthority: 6,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** #242: ProposeCooldownIncrease — step 1 of the cooldown-increase timelock. */
+  ProposeCooldownIncrease: 7,
+  /** #242: CommitCooldownIncrease — step 2; applies the increase after TIMELOCK_SLOTS. */
+  CommitCooldownIncrease: 8,
+  /** #242: CancelCooldownIncrease — withdraw a pending cooldown proposal. */
+  CancelCooldownIncrease: 9,
+  /** @deprecated Tag 7 reclaimed for ProposeCooldownIncrease (#242). Old admin CPI proxy;
+   *  its encoder still throws as a migration safety net. */
   AdminSetRiskThreshold: 7,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Tag 8 reclaimed for CommitCooldownIncrease (#242). Encoder still throws. */
   AdminSetMaintenanceFee: 8,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Tag 9 reclaimed for CancelCooldownIncrease (#242). Encoder still throws. */
   AdminResolveMarket: 9,
   /** Current on-chain tag 10: transfer withdrawn insurance back into the pool vault. */
   ReturnInsurance: 10,
@@ -6399,6 +6439,18 @@ function encodeStakeTransferAdmin() {
 function encodeStakeAdminSetOracleAuthority(newAuthority) {
   void newAuthority;
   return removedStakeInstruction("encodeStakeAdminSetOracleAuthority", STAKE_IX.AdminSetOracleAuthority);
+}
+function encodeStakeProposeCooldownIncrease(newCooldownSlots) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.ProposeCooldownIncrease]),
+    u64Le(newCooldownSlots)
+  );
+}
+function encodeStakeCommitCooldownIncrease() {
+  return new Uint8Array([STAKE_IX.CommitCooldownIncrease]);
+}
+function encodeStakeCancelCooldownIncrease() {
+  return new Uint8Array([STAKE_IX.CancelCooldownIncrease]);
 }
 function encodeStakeAdminSetRiskThreshold(newThreshold) {
   void newThreshold;
@@ -6736,9 +6788,33 @@ async function buildAdlTransaction(connection, caller, slab, oracle, programId, 
   return buildAdlInstruction(caller, slab, oracle, programId, target.idx, backupOracles);
 }
 var ADL_EVENT_TAG = 0xAD1E0001n;
-function parseAdlEvent(logs) {
+function parseAdlEvent(logs, percolatorProgramId) {
+  let insidePercolator = percolatorProgramId === void 0;
+  let cpiDepth = 0;
   for (const line of logs) {
     if (typeof line !== "string") continue;
+    if (percolatorProgramId !== void 0) {
+      if (line.startsWith(`Program ${percolatorProgramId} invoke`)) {
+        insidePercolator = true;
+        cpiDepth = 0;
+        continue;
+      }
+      if (line.startsWith(`Program ${percolatorProgramId} success`) || line.startsWith(`Program ${percolatorProgramId} failed`)) {
+        insidePercolator = false;
+        continue;
+      }
+      if (insidePercolator) {
+        if (/^Program \S+ invoke/.test(line)) {
+          cpiDepth++;
+          continue;
+        }
+        if (/^Program \S+ (?:success|failed)$/.test(line)) {
+          cpiDepth = Math.max(0, cpiDepth - 1);
+          continue;
+        }
+      }
+      if (!insidePercolator || cpiDepth > 0) continue;
+    }
     const match = line.match(
       /^Program log: (\d+) (\d+) (\d+) (\d+) (\d+)$/
     );
@@ -7237,8 +7313,20 @@ function buildIx(params) {
   });
 }
 var MAX_COMPUTE_UNIT_LIMIT = 14e5;
+var V17_WRAPPER_HEAP_FRAME_BYTES = 128 * 1024;
+var MIN_HEAP_FRAME_BYTES = 32 * 1024;
+var MAX_HEAP_FRAME_BYTES = 256 * 1024;
 async function simulateOrSend(params) {
-  const { connection, ix, signers, simulate, commitment = "confirmed", computeUnitLimit } = params;
+  const {
+    connection,
+    ix,
+    signers,
+    simulate,
+    commitment,
+    computeUnitLimit,
+    heapFrameBytes = V17_WRAPPER_HEAP_FRAME_BYTES
+  } = params;
+  const effectiveCommitment = commitment ?? (simulate ? "confirmed" : "finalized");
   if (typeof simulate !== "boolean") {
     throw new Error("simulateOrSend: simulate must be explicitly set to true or false");
   }
@@ -7252,7 +7340,17 @@ async function simulateOrSend(params) {
       );
     }
   }
+  if (heapFrameBytes !== 0) {
+    if (typeof heapFrameBytes !== "number" || !Number.isInteger(heapFrameBytes) || heapFrameBytes % 1024 !== 0 || heapFrameBytes < MIN_HEAP_FRAME_BYTES || heapFrameBytes > MAX_HEAP_FRAME_BYTES) {
+      throw new Error(
+        `heapFrameBytes must be 0 or a multiple of 1024 in [${MIN_HEAP_FRAME_BYTES}, ${MAX_HEAP_FRAME_BYTES}]`
+      );
+    }
+  }
   const tx = new Transaction();
+  if (heapFrameBytes !== 0) {
+    tx.add(ComputeBudgetProgram.requestHeapFrame({ bytes: heapFrameBytes }));
+  }
   if (computeUnitLimit !== void 0) {
     tx.add(
       ComputeBudgetProgram.setComputeUnitLimit({
@@ -7261,7 +7359,7 @@ async function simulateOrSend(params) {
     );
   }
   tx.add(ix);
-  const latestBlockhash = await connection.getLatestBlockhash(commitment);
+  const latestBlockhash = await connection.getLatestBlockhash(effectiveCommitment);
   tx.recentBlockhash = latestBlockhash.blockhash;
   tx.feePayer = signers[0].publicKey;
   if (simulate) {
@@ -7300,7 +7398,7 @@ async function simulateOrSend(params) {
   }
   const options = {
     skipPreflight: false,
-    preflightCommitment: commitment
+    preflightCommitment: effectiveCommitment
   };
   try {
     const signature = await connection.sendTransaction(tx, signers, options);
@@ -7310,10 +7408,11 @@ async function simulateOrSend(params) {
         blockhash: latestBlockhash.blockhash,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
       },
-      commitment
+      effectiveCommitment
     );
+    const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
     const txInfo = await connection.getTransaction(signature, {
-      commitment: "confirmed",
+      commitment: txFinality,
       maxSupportedTransactionVersion: 0
     });
     const logs = txInfo?.meta?.logMessages ?? [];
@@ -8014,13 +8113,18 @@ async function resolvePrice(mint, signal, options) {
   if (pythSource) {
     const dexPrice = dexSources[0]?.price ?? 0;
     const jupPrice = jupiterSource?.price ?? 0;
+    const MAX_ENRICHMENT_DEVIATION = 0.05;
     let enrichedPrice = 0;
     let singleSource = false;
     if (dexPrice > 0 && jupPrice > 0) {
       const mid = (dexPrice + jupPrice) / 2;
       const deviation = Math.abs(dexPrice - jupPrice) / mid;
-      if (deviation <= 0.5) {
+      if (deviation <= MAX_ENRICHMENT_DEVIATION) {
         enrichedPrice = mid;
+      } else {
+        console.warn(
+          `[percolator-sdk] resolvePrice: DEX (${dexPrice}) and Jupiter (${jupPrice}) diverge by ${(deviation * 100).toFixed(1)}% > ${MAX_ENRICHMENT_DEVIATION * 100}% \u2014 Pyth enrichment skipped to prevent oracle manipulation.`
+        );
       }
     } else if (dexPrice > 0 || jupPrice > 0) {
       enrichedPrice = dexPrice > 0 ? dexPrice : jupPrice;
@@ -8226,6 +8330,7 @@ export {
   V17_PROGRAMS_DEPLOYED,
   V17_SLAB_MAGIC,
   V17_WRAPPER_CONFIG_LEN,
+  V17_WRAPPER_HEAP_FRAME_BYTES,
   VAMM_MAGIC,
   ValidationError,
   WELL_KNOWN,
@@ -8397,12 +8502,15 @@ export {
   encodeStakeAdminSetRiskThreshold,
   encodeStakeAdminSetTrancheConfig,
   encodeStakeAdminWithdrawInsurance,
+  encodeStakeCancelCooldownIncrease,
+  encodeStakeCommitCooldownIncrease,
   encodeStakeDeposit,
   encodeStakeDepositJunior,
   encodeStakeFlushToInsurance,
   encodeStakeInitPool,
   encodeStakeInitTradingPool,
   encodeStakeProposeAdmin,
+  encodeStakeProposeCooldownIncrease,
   encodeStakeReturnInsurance,
   encodeStakeSetMarketResolved,
   encodeStakeTransferAdmin,

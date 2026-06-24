@@ -721,10 +721,16 @@ export function encodeInitMarket(args: InitMarketV17Args | InitMarketArgs): Uint
     maxAccrualDtSlots = v.maxCrankStalenessSlots ?? 0n;
     maxAbsFundingE9PerSlot = v.extendedTail?.fundingMaxBpsPerSlot ?? 1000n;
     minFundingLifetimeSlots = 0n;
-    maxAccountBSettlementChunks = 0n;
-    maxBankruptCloseChunks = 0n;
-    maxBankruptCloseLifetimeSlots = 0n;
-    publicBChunkAtoms = 0n;
+    // #310: the v12 InitMarketArgs interface has no equivalent for the four fields below,
+    // which control the permissionless B-settlement path — the ONLY mechanism for closing
+    // bankrupt accounts and releasing insurance. Defaulting them to 0 (the old behavior)
+    // PERMANENTLY DISABLED bankruptcy recovery for any market created via the shim. Default
+    // them to functional values instead so v12-initialized markets stay recoverable; callers
+    // wanting explicit control should migrate to InitMarketV17Args.
+    maxAccountBSettlementChunks = 10n;
+    maxBankruptCloseChunks = 10n;
+    maxBankruptCloseLifetimeSlots = 500n;
+    publicBChunkAtoms = 1_000_000n;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   }
 

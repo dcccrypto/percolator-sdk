@@ -24,6 +24,9 @@ export const STAKE_PROGRAM_IDS = {
 } as const;
 Object.freeze(STAKE_PROGRAM_IDS);
 
+/** Allowlist of legitimate stake program addresses (devnet + mainnet). */
+const KNOWN_STAKE_PROGRAM_IDS = new Set<string>(Object.values(STAKE_PROGRAM_IDS));
+
 /**
  * Resolve the stake program ID for the given network.
  *
@@ -41,8 +44,21 @@ export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
   if (!network) {
     const override = safeEnv('STAKE_PROGRAM_ID');
     if (override) {
+      // #308: reject an unlisted override unless the operator explicitly opts in (blocks
+      // ambient env poisoning while allowing fresh pre-deploy addresses).
+      if (
+        !KNOWN_STAKE_PROGRAM_IDS.has(override) &&
+        safeEnv('PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE') !== '1'
+      ) {
+        throw new Error(
+          `[percolator-sdk] STAKE_PROGRAM_ID env var "${override}" is not a known stake program address. ` +
+          `Allowed values: ${[...KNOWN_STAKE_PROGRAM_IDS].join(', ')}. ` +
+          `Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 ` +
+          `to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`,
+        );
+      }
       console.warn(
-        `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
+        `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override}`,
       );
       return new PublicKey(override);
     }
@@ -100,11 +116,18 @@ export const STAKE_IX = {
   TransferAdmin: 5,
   /** @deprecated Legacy admin CPI proxy name. Tag 6 is now AcceptAdmin. */
   AdminSetOracleAuthority: 6,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** #242: ProposeCooldownIncrease — step 1 of the cooldown-increase timelock. */
+  ProposeCooldownIncrease: 7,
+  /** #242: CommitCooldownIncrease — step 2; applies the increase after TIMELOCK_SLOTS. */
+  CommitCooldownIncrease: 8,
+  /** #242: CancelCooldownIncrease — withdraw a pending cooldown proposal. */
+  CancelCooldownIncrease: 9,
+  /** @deprecated Tag 7 reclaimed for ProposeCooldownIncrease (#242). Old admin CPI proxy;
+   *  its encoder still throws as a migration safety net. */
   AdminSetRiskThreshold: 7,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Tag 8 reclaimed for CommitCooldownIncrease (#242). Encoder still throws. */
   AdminSetMaintenanceFee: 8,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Tag 9 reclaimed for CancelCooldownIncrease (#242). Encoder still throws. */
   AdminResolveMarket: 9,
   /** Current on-chain tag 10: transfer withdrawn insurance back into the pool vault. */
   ReturnInsurance: 10,
@@ -282,19 +305,45 @@ export function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Uin
   return removedStakeInstruction('encodeStakeAdminSetOracleAuthority', STAKE_IX.AdminSetOracleAuthority);
 }
 
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** Tag 7: ProposeCooldownIncrease (#242) — admin proposes a LARGER cooldown_slots; it
+ *  takes effect only via CommitCooldownIncrease after TIMELOCK_SLOTS (~48h), giving LP
+ *  holders an exit window. Accounts: [admin signer, pool writable, clock sysvar]. */
+export function encodeStakeProposeCooldownIncrease(newCooldownSlots: bigint | number): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.ProposeCooldownIncrease]),
+    u64Le(newCooldownSlots),
+  );
+}
+
+/** Tag 8: CommitCooldownIncrease (#242) — apply the pending increase (only after the
+ *  timelock window). Accounts: [admin signer, pool writable, clock sysvar]. */
+export function encodeStakeCommitCooldownIncrease(): Uint8Array {
+  return new Uint8Array([STAKE_IX.CommitCooldownIncrease]);
+}
+
+/** Tag 9: CancelCooldownIncrease (#242) — withdraw a pending proposal.
+ *  Accounts: [admin signer, pool writable]. */
+export function encodeStakeCancelCooldownIncrease(): Uint8Array {
+  return new Uint8Array([STAKE_IX.CancelCooldownIncrease]);
+}
+
+/** @deprecated Tag 7 is now ProposeCooldownIncrease (#242). This old admin-CPI-proxy name
+ *  is retained only as a migration safety net — it throws rather than emitting a tx. Use
+ *  encodeStakeProposeCooldownIncrease for the live tag-7 instruction. */
 export function encodeStakeAdminSetRiskThreshold(newThreshold: bigint | number): Uint8Array {
   void newThreshold;
   return removedStakeInstruction('encodeStakeAdminSetRiskThreshold', STAKE_IX.AdminSetRiskThreshold);
 }
 
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** @deprecated Tag 8 is now CommitCooldownIncrease (#242). Retained as a throwing safety
+ *  net; use encodeStakeCommitCooldownIncrease. */
 export function encodeStakeAdminSetMaintenanceFee(newFee: bigint | number): Uint8Array {
   void newFee;
   return removedStakeInstruction('encodeStakeAdminSetMaintenanceFee', STAKE_IX.AdminSetMaintenanceFee);
 }
 
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** @deprecated Tag 9 is now CancelCooldownIncrease (#242). Retained as a throwing safety
+ *  net; use encodeStakeCancelCooldownIncrease. */
 export function encodeStakeAdminResolveMarket(): Uint8Array {
   return removedStakeInstruction('encodeStakeAdminResolveMarket', STAKE_IX.AdminResolveMarket);
 }
