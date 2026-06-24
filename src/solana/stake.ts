@@ -52,6 +52,9 @@ export const STAKE_PROGRAM_IDS = {
 } as const;
 Object.freeze(STAKE_PROGRAM_IDS);
 
+/** Allowlist of legitimate stake program addresses (devnet + mainnet). */
+const KNOWN_STAKE_PROGRAM_IDS = new Set<string>(Object.values(STAKE_PROGRAM_IDS));
+
 /**
  * Resolve the stake program ID for the given network.
  *
@@ -69,8 +72,21 @@ export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
   if (!network) {
     const override = safeEnv('STAKE_PROGRAM_ID');
     if (override) {
+      // #308: reject an unlisted override unless the operator explicitly opts in (blocks
+      // ambient env poisoning while allowing fresh pre-deploy addresses).
+      if (
+        !KNOWN_STAKE_PROGRAM_IDS.has(override) &&
+        safeEnv('PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE') !== '1'
+      ) {
+        throw new Error(
+          `[percolator-sdk] STAKE_PROGRAM_ID env var "${override}" is not a known stake program address. ` +
+          `Allowed values: ${[...KNOWN_STAKE_PROGRAM_IDS].join(', ')}. ` +
+          `Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 ` +
+          `to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`,
+        );
+      }
       console.warn(
-        `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} — ensure this points to a trusted program`,
+        `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override}`,
       );
       return new PublicKey(override);
     }
