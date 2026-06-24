@@ -44,11 +44,17 @@ export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
   if (!network) {
     const override = safeEnv('STAKE_PROGRAM_ID');
     if (override) {
-      if (!KNOWN_STAKE_PROGRAM_IDS.has(override)) {
+      // #308: reject an unlisted override unless the operator explicitly opts in (blocks
+      // ambient env poisoning while allowing fresh pre-deploy addresses).
+      if (
+        !KNOWN_STAKE_PROGRAM_IDS.has(override) &&
+        safeEnv('PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE') !== '1'
+      ) {
         throw new Error(
           `[percolator-sdk] STAKE_PROGRAM_ID env var "${override}" is not a known stake program address. ` +
           `Allowed values: ${[...KNOWN_STAKE_PROGRAM_IDS].join(', ')}. ` +
-          `Pass an explicit network argument to bypass env resolution.`,
+          `Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 ` +
+          `to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`,
         );
       }
       console.warn(

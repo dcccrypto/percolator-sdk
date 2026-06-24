@@ -2105,13 +2105,28 @@ var PROGRAM_IDS_V17 = {
 Object.freeze(PROGRAM_IDS_V17);
 var V17_PROGRAMS_DEPLOYED = false;
 var PROGRAM_ID_V17 = new PublicKey3(PROGRAM_IDS_V17.percolator);
+var KNOWN_PROGRAM_IDS = /* @__PURE__ */ new Set([
+  PROGRAM_IDS.devnet.percolator,
+  PROGRAM_IDS.mainnet.percolator,
+  PROGRAM_IDS_V17.percolator
+]);
+var KNOWN_MATCHER_IDS = /* @__PURE__ */ new Set([
+  PROGRAM_IDS.devnet.matcher,
+  PROGRAM_IDS.mainnet.matcher
+]);
+function programOverrideOptIn() {
+  return safeEnv("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") === "1";
+}
 function getProgramId(network) {
   if (network === void 0) {
     const override = safeEnv("PROGRAM_ID");
     if (override) {
-      console.warn(
-        `[percolator-sdk] PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
-      );
+      if (!KNOWN_PROGRAM_IDS.has(override) && !programOverrideOptIn()) {
+        throw new Error(
+          `[percolator-sdk] PROGRAM_ID env var "${override}" is not a known program address. Allowed values: ${[...KNOWN_PROGRAM_IDS].join(", ")}. Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`
+        );
+      }
+      console.warn(`[percolator-sdk] PROGRAM_ID env override active: ${override}`);
       return new PublicKey3(override);
     }
   }
@@ -2129,9 +2144,12 @@ function getMatcherProgramId(network) {
   if (network === void 0) {
     const override = safeEnv("MATCHER_PROGRAM_ID");
     if (override) {
-      console.warn(
-        `[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
-      );
+      if (!KNOWN_MATCHER_IDS.has(override) && !programOverrideOptIn()) {
+        throw new Error(
+          `[percolator-sdk] MATCHER_PROGRAM_ID env var "${override}" is not a known matcher program address. Allowed values: ${[...KNOWN_MATCHER_IDS].join(", ")}. Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`
+        );
+      }
+      console.warn(`[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override}`);
       return new PublicKey3(override);
     }
   }
@@ -6238,12 +6256,18 @@ var STAKE_PROGRAM_IDS = {
   mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F"
 };
 Object.freeze(STAKE_PROGRAM_IDS);
+var KNOWN_STAKE_PROGRAM_IDS = new Set(Object.values(STAKE_PROGRAM_IDS));
 function getStakeProgramId(network) {
   if (!network) {
     const override = safeEnv("STAKE_PROGRAM_ID");
     if (override) {
+      if (!KNOWN_STAKE_PROGRAM_IDS.has(override) && safeEnv("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") !== "1") {
+        throw new Error(
+          `[percolator-sdk] STAKE_PROGRAM_ID env var "${override}" is not a known stake program address. Allowed values: ${[...KNOWN_STAKE_PROGRAM_IDS].join(", ")}. Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`
+        );
+      }
       console.warn(
-        `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override} \u2014 ensure this points to a trusted program`
+        `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override}`
       );
       return new PublicKey11(override);
     }

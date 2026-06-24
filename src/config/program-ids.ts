@@ -81,6 +81,17 @@ const KNOWN_MATCHER_IDS = new Set<string>([
 ]);
 
 /**
+ * #308 escape hatch: an env program-ID override that is NOT in the allowlist is rejected
+ * UNLESS the operator explicitly opts in with `PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1`. This
+ * blocks ambient env poisoning (a supply-chain attacker who sets PROGRAM_ID but not the opt-in
+ * flag) while preserving the legitimate ability to point the SDK at a freshly-deployed program
+ * during pre-deploy / devnet testing — which the allowlist alone would break.
+ */
+function programOverrideOptIn(): boolean {
+  return safeEnv("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") === "1";
+}
+
+/**
  * Get the Percolator program ID for the current network
  * 
  * Priority:
@@ -96,11 +107,12 @@ export function getProgramId(network?: Network): PublicKey {
   if (network === undefined) {
     const override = safeEnv("PROGRAM_ID");
     if (override) {
-      if (!KNOWN_PROGRAM_IDS.has(override)) {
+      if (!KNOWN_PROGRAM_IDS.has(override) && !programOverrideOptIn()) {
         throw new Error(
           `[percolator-sdk] PROGRAM_ID env var "${override}" is not a known program address. ` +
           `Allowed values: ${[...KNOWN_PROGRAM_IDS].join(', ')}. ` +
-          `Pass an explicit network argument to bypass env resolution.`,
+          `Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 ` +
+          `to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`,
         );
       }
       console.warn(`[percolator-sdk] PROGRAM_ID env override active: ${override}`);
@@ -129,11 +141,12 @@ export function getMatcherProgramId(network?: Network): PublicKey {
   if (network === undefined) {
     const override = safeEnv("MATCHER_PROGRAM_ID");
     if (override) {
-      if (!KNOWN_MATCHER_IDS.has(override)) {
+      if (!KNOWN_MATCHER_IDS.has(override) && !programOverrideOptIn()) {
         throw new Error(
           `[percolator-sdk] MATCHER_PROGRAM_ID env var "${override}" is not a known matcher program address. ` +
           `Allowed values: ${[...KNOWN_MATCHER_IDS].join(', ')}. ` +
-          `Pass an explicit network argument to bypass env resolution.`,
+          `Pass an explicit network argument, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 ` +
+          `to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`,
         );
       }
       console.warn(`[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override}`);
