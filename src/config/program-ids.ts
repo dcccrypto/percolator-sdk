@@ -44,25 +44,27 @@ Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 
 /**
- * v17 program IDs — placeholder until the v17 converged program is deployed.
+ * v17 program IDs — live devnet addresses deployed 2026-06-24.
  *
- * The v17 program uses `declare_id!("Perco1ator111111111111111111111111111111111")`
- * in its source. This will be replaced with the real on-chain address when deployed.
- *
- * v17 converged programs are NOT deployed (cutover is Phase 7 gate).
+ * Devnet addresses are canonical. Mainnet addresses are pending the mainnet
+ * cutover (Phase 7 gate) — mainnet fields will be filled then.
  */
 export const PROGRAM_IDS_V17 = {
-  /** v17 wrapper placeholder (declare_id! value from v16_program.rs). */
-  percolator: "Perco1ator111111111111111111111111111111111",
-  /** v17 stake placeholder. */
-  stake: "Per5taTe111111111111111111111111111111111111",
+  /** v17 wrapper (percolator) — devnet live. */
+  percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
+  /** v17 stake/vault — devnet live. */
+  stake: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ",
+  /** v17 matcher — devnet live. */
+  matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
+  /** v17 NFT — devnet live. */
+  nft: "5TnritLtHS76s5iV8axqDmqhcmJKMRUekMGrk9rBTqSP",
 } as const;
 Object.freeze(PROGRAM_IDS_V17);
 
-/** True only after canonical v17 wrapper IDs have replaced the placeholders above. */
-export const V17_PROGRAMS_DEPLOYED = false;
+/** True after canonical v17 addresses replaced placeholders (devnet deployed 2026-06-24). */
+export const V17_PROGRAMS_DEPLOYED = true;
 
-/** The v17 wrapper placeholder PublicKey. Use only before mainnet cutover. */
+/** The v17 wrapper PublicKey. */
 export const PROGRAM_ID_V17 = new PublicKey(PROGRAM_IDS_V17.percolator);
 
 export type Network = "devnet" | "mainnet";
@@ -72,12 +74,15 @@ const KNOWN_PROGRAM_IDS = new Set<string>([
   PROGRAM_IDS.devnet.percolator,
   PROGRAM_IDS.mainnet.percolator,
   PROGRAM_IDS_V17.percolator,
+  PROGRAM_IDS_V17.stake,
+  PROGRAM_IDS_V17.nft,
 ]);
 
 /** Allowlist of legitimate matcher program addresses (all networks). */
 const KNOWN_MATCHER_IDS = new Set<string>([
   PROGRAM_IDS.devnet.matcher,
   PROGRAM_IDS.mainnet.matcher,
+  PROGRAM_IDS_V17.matcher,
 ]);
 
 /**
@@ -123,14 +128,24 @@ export function getProgramId(network?: Network): PublicKey {
   // Use provided network or detect from env — default to devnet (never mainnet silently)
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
-  if (!V17_PROGRAMS_DEPLOYED) {
+
+  if (V17_PROGRAMS_DEPLOYED) {
+    if (targetNetwork === "devnet") {
+      return new PublicKey(PROGRAM_IDS_V17.percolator);
+    }
+    // Mainnet cutover not yet done — fail closed to prevent sending v17 instructions
+    // to the legacy mainnet program.
     throw new Error(
-      `Percolator v17 program is not deployed for ${targetNetwork}; refusing to return a legacy program ID for v17 SDK encoders. Set PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`,
+      `Percolator v17 program is not deployed on mainnet yet; cutover is pending. ` +
+      `Set PROGRAM_ID to an explicitly trusted mainnet v17 deployment to override.`,
     );
   }
-  const programId = PROGRAM_IDS[targetNetwork].percolator;
 
-  return new PublicKey(programId);
+  // V17_PROGRAMS_DEPLOYED === false (should not be reachable given the flag is true above,
+  // but kept as a safety net for future flag resets during testing).
+  throw new Error(
+    `Percolator v17 program is not deployed for ${targetNetwork}; refusing to return a legacy program ID for v17 SDK encoders. Set PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`,
+  );
 }
 
 /**
@@ -157,18 +172,22 @@ export function getMatcherProgramId(network?: Network): PublicKey {
   // Use provided network or detect from env — default to devnet (never mainnet silently)
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
-  if (!V17_PROGRAMS_DEPLOYED) {
+
+  if (V17_PROGRAMS_DEPLOYED) {
+    if (targetNetwork === "devnet") {
+      return new PublicKey(PROGRAM_IDS_V17.matcher);
+    }
+    // Mainnet cutover not yet done.
     throw new Error(
-      `Percolator v17 matcher program is not deployed for ${targetNetwork}; refusing to return a legacy matcher program ID for v17 SDK encoders. Set MATCHER_PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`,
+      `Percolator v17 matcher program is not deployed on mainnet yet; cutover is pending. ` +
+      `Set MATCHER_PROGRAM_ID to an explicitly trusted mainnet v17 deployment to override.`,
     );
   }
-  const programId = PROGRAM_IDS[targetNetwork].matcher;
 
-  if (!programId) {
-    throw new Error(`Matcher program not deployed on ${targetNetwork}`);
-  }
-
-  return new PublicKey(programId);
+  // V17_PROGRAMS_DEPLOYED === false safety net.
+  throw new Error(
+    `Percolator v17 matcher program is not deployed for ${targetNetwork}; refusing to return a legacy matcher program ID for v17 SDK encoders. Set MATCHER_PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`,
+  );
 }
 
 /**
