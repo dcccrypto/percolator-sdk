@@ -80,7 +80,15 @@ export function computeDexSpotPriceE6(
   switch (dexType) {
     case "pumpswap":
       if (!vaultData) throw new Error("PumpSwap requires vaultData (base and quote vault accounts)");
-      return computePumpSwapPriceE6(data, vaultData);
+      // #323: PumpSwap vaults hold raw atomic balances; the ratio is atomic-per-atomic,
+      // not a human price. The caller MUST supply mint decimals so the result matches the
+      // e6-human-price contract that Meteora (#226) and Raydium (#210) already honour.
+      // Without this, any token/WSOL pool (6-dec base, 9-dec quote) is off by 10^3 →
+      // wrongful liquidations and free profit on the other side.
+      if (!decimals) {
+        throw new Error("PumpSwap requires decimals { base, quote } (mint decimals)");
+      }
+      return computePumpSwapPriceE6(data, vaultData, decimals.base, decimals.quote);
     case "raydium-clmm":
       return computeRaydiumClmmPriceE6(data);
     case "meteora-dlmm":
@@ -121,12 +129,21 @@ function parsePumpSwapPool(poolAddress: PublicKey, data: Uint8Array): DexPoolInf
 const SPL_TOKEN_AMOUNT_MIN_LEN = 72;
 
 /**
- * Compute PumpSwap price: quote_amount * 1e6 / base_amount.
+ * Compute PumpSwap price: (quoteAmount / baseAmount) scaled to e6, with decimal adjustment.
+ *
+ * #323: vault amounts are in atomic units (lamports/raw tokens). Dividing atomics directly
+ * gives an atomic-per-atomic ratio, not a human price. Multiply by 10^(decBase − decQuote)
+ * to convert — the same correction applied by Meteora (#226) and Raydium (#210). Truncation
+ * is deferred to a single division at the end (BigInt is arbitrary-precision) so micro-prices
+ * are not silently zeroed before the decimal scale is applied.
+ *
  * @internal
  */
 function computePumpSwapPriceE6(
   _poolData: Uint8Array,
   vaultData: { base: Uint8Array; quote: Uint8Array },
+  decimalsBase: number,
+  decimalsQuote: number,
 ): bigint {
   if (vaultData.base.length < SPL_TOKEN_AMOUNT_MIN_LEN) {
     throw new Error(`PumpSwap base vault data too short: ${vaultData.base.length} < ${SPL_TOKEN_AMOUNT_MIN_LEN}`);
@@ -134,6 +151,8 @@ function computePumpSwapPriceE6(
   if (vaultData.quote.length < SPL_TOKEN_AMOUNT_MIN_LEN) {
     throw new Error(`PumpSwap quote vault data too short: ${vaultData.quote.length} < ${SPL_TOKEN_AMOUNT_MIN_LEN}`);
   }
+  assertTokenDecimals("PumpSwap", "base", decimalsBase);
+  assertTokenDecimals("PumpSwap", "quote", decimalsQuote);
 
   const baseDv = new DataView(vaultData.base.buffer, vaultData.base.byteOffset, vaultData.base.byteLength);
   const quoteDv = new DataView(vaultData.quote.buffer, vaultData.quote.byteOffset, vaultData.quote.byteLength);
@@ -142,7 +161,15 @@ function computePumpSwapPriceE6(
   const quoteAmount = readU64LE(quoteDv, 64);
 
   if (baseAmount === 0n) return 0n;
-  return (quoteAmount * 1_000_000n) / baseAmount;
+
+  // diff > 0: base has more decimals than quote → multiply (price in quote terms is larger).
+  // diff < 0: quote has more decimals than base → divide (price in quote terms is smaller).
+  // Defer truncation: scale the numerator before dividing to avoid zeroing micro-prices.
+  const diff = decimalsBase - decimalsQuote;
+  if (diff >= 0) {
+    return (quoteAmount * 1_000_000n * 10n ** BigInt(diff)) / baseAmount;
+  }
+  return (quoteAmount * 1_000_000n) / (baseAmount * 10n ** BigInt(-diff));
 }
 
 // ============================================================================

@@ -110,12 +110,12 @@ assertThrows(
   "pumpswap parse too short"
 );
 
-// Price computation — normal
+// Price computation — symmetric decimals (6/6): no decimal correction needed
 {
   const poolData = makePumpSwapPoolData();
   const base = makeSplTokenAccount(1_000_000_000n); // 1B base
   const quote = makeSplTokenAccount(500_000_000n);   // 500M quote
-  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote });
+  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 6 });
   // price = 500M * 1e6 / 1B = 500_000
   assert(price === 500_000n, `pumpswap normal price: expected 500000, got ${price}`);
 }
@@ -125,16 +125,16 @@ assertThrows(
   const poolData = makePumpSwapPoolData();
   const base = makeSplTokenAccount(0n);
   const quote = makeSplTokenAccount(100n);
-  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote });
+  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 6 });
   assert(price === 0n, "pumpswap zero base returns 0");
 }
 
-// Price — very large amounts
+// Price — very large amounts (symmetric decimals → no adjustment)
 {
   const poolData = makePumpSwapPoolData();
   const base = makeSplTokenAccount(18_446_744_073_709_551_615n); // u64 max
   const quote = makeSplTokenAccount(18_446_744_073_709_551_615n);
-  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote });
+  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 6 });
   assert(price === 1_000_000n, `pumpswap equal large amounts: expected 1000000, got ${price}`);
 }
 
@@ -143,7 +143,7 @@ assertThrows(
   () => computeDexSpotPriceE6("pumpswap", makePumpSwapPoolData(), {
     base: new Uint8Array(10),
     quote: makeSplTokenAccount(100n),
-  }),
+  }, { base: 6, quote: 6 }),
   "too short",
   "pumpswap base vault too short"
 );
@@ -153,6 +153,85 @@ assertThrows(
   () => computeDexSpotPriceE6("pumpswap", makePumpSwapPoolData()),
   "vaultData",
   "pumpswap missing vaultData"
+);
+
+// Missing decimals
+assertThrows(
+  () => computeDexSpotPriceE6("pumpswap", makePumpSwapPoolData(), {
+    base: makeSplTokenAccount(1_000n),
+    quote: makeSplTokenAccount(500n),
+  }),
+  "requires decimals",
+  "pumpswap missing decimals"
+);
+
+// #323: token-decimal adjustment — canonical PumpSwap case: pump token (6 dec) / WSOL (9 dec).
+// True price: 50 WSOL / 1,000,000 tokens = 0.00005 WSOL/token → human e6 = 50.
+// Atomic: baseAmount = 1e12, quoteAmount = 5e10.
+// Bug (before fix): 5e10 * 1e6 / 1e12 = 50_000 (off by 10^(9-6) = 1000×).
+// Fix: diff = decBase - decQuote = 6 - 9 = -3 → divide by 10^3 → 50.
+{
+  const DEC_BASE = 6;  // pump token
+  const DEC_QUOTE = 9; // WSOL
+  const baseAmount  = 1_000_000n * 10n ** BigInt(DEC_BASE);  // 1e12 atomic
+  const quoteAmount =        50n * 10n ** BigInt(DEC_QUOTE); // 5e10 atomic
+
+  const poolData = makePumpSwapPoolData();
+  const vaultData = {
+    base:  makeSplTokenAccount(baseAmount),
+    quote: makeSplTokenAccount(quoteAmount),
+  };
+
+  const got = computeDexSpotPriceE6("pumpswap", poolData, vaultData, { base: DEC_BASE, quote: DEC_QUOTE });
+  const correctE6 = 50n;      // 0.00005 WSOL/token × 1e6
+  const buggyE6   = 50_000n;  // pre-fix: atomic ratio × 1e6, decimals dropped (1000× too large)
+
+  assert(got === correctE6, `#323 pump/WSOL (6/9): expected ${correctE6}, got ${got} (was ${buggyE6} before fix)`);
+  assert(got !== buggyE6, `#323 pump/WSOL result must not be the pre-fix 1000× value`);
+}
+
+// #323: symmetric case (6/6) must still be correct — no over/under correction.
+{
+  const baseAmount  = 1_000_000n * 10n ** 6n; // 1e12
+  const quoteAmount =        50n * 10n ** 6n; // 5e7
+  const vaultData = {
+    base:  makeSplTokenAccount(baseAmount),
+    quote: makeSplTokenAccount(quoteAmount),
+  };
+  const got = computeDexSpotPriceE6("pumpswap", makePumpSwapPoolData(), vaultData, { base: 6, quote: 6 });
+  assert(got === 50n, `#323 pump/USDC (6/6): expected 50, got ${got}`);
+}
+
+// #323: base > quote decimals (e.g. 9-dec base / 6-dec quote) → scale UP.
+// Atomic price = 5e10 / 1e12 = 0.05. diff = 9-6 = +3 → human price = 0.05 * 10^3 = 50.
+{
+  const baseAmount  = 1_000_000n * 10n ** 9n; // 1e15 atomic (1M tokens of 9-dec base)
+  const quoteAmount =        50n * 10n ** 6n; // 5e7 atomic (50 tokens of 6-dec quote)
+  const vaultData = {
+    base:  makeSplTokenAccount(baseAmount),
+    quote: makeSplTokenAccount(quoteAmount),
+  };
+  const got = computeDexSpotPriceE6("pumpswap", makePumpSwapPoolData(), vaultData, { base: 9, quote: 6 });
+  // human price = 50/1_000_000 = 0.00005 → e6 = 50
+  assert(got === 50n, `#323 9-dec base / 6-dec quote: expected 50, got ${got}`);
+}
+
+// #323: decimals out of range are rejected.
+assertThrows(
+  () => computeDexSpotPriceE6("pumpswap", makePumpSwapPoolData(), {
+    base:  makeSplTokenAccount(1_000n),
+    quote: makeSplTokenAccount(500n),
+  }, { base: 99, quote: 6 }),
+  "out of range",
+  "pumpswap decimals base out of range"
+);
+assertThrows(
+  () => computeDexSpotPriceE6("pumpswap", makePumpSwapPoolData(), {
+    base:  makeSplTokenAccount(1_000n),
+    quote: makeSplTokenAccount(500n),
+  }, { base: 6, quote: 99 }),
+  "out of range",
+  "pumpswap decimals quote out of range"
 );
 
 console.log("  ✓ PumpSwap");
