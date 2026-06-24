@@ -398,19 +398,62 @@ const ADL_EVENT_TAG = 0xAD1E_0001n;
  * decimal value equals `0xAD1E_0001` (2970353665). Returns `null` if not found.
  *
  * @param logs - Array of log message strings (from `tx.meta.logMessages`).
+ * @param percolatorProgramId - When supplied, only ADL events emitted directly
+ *   by this program ID are accepted. Events from CPI-called programs (which can
+ *   produce identical `Program log:` lines) are silently ignored. Pass the
+ *   program ID used to send the transaction (e.g. `getProgramId().toBase58()`).
+ *   Omit only in contexts where the full log has already been filtered.
  * @returns Decoded `AdlEvent` or `null` if the log is not present.
  *
  * @example
  * ```ts
- * const event = parseAdlEvent(tx.meta?.logMessages ?? []);
+ * const event = parseAdlEvent(tx.meta?.logMessages ?? [], getProgramId().toBase58());
  * if (event) {
  *   console.log(`ADL: idx=${event.targetIdx} price=${event.price} closed=${event.closedAbs}`);
  * }
  * ```
  */
-export function parseAdlEvent(logs: string[]): AdlEvent | null {
+export function parseAdlEvent(
+  logs: string[],
+  percolatorProgramId?: string,
+): AdlEvent | null {
+  // Track whether we are currently inside a top-level Percolator invocation.
+  // When percolatorProgramId is omitted we skip the filter (legacy behaviour).
+  let insidePercolator = percolatorProgramId === undefined;
+  let cpiDepth = 0;
+
   for (const line of logs) {
     if (typeof line !== "string") continue;
+
+    if (percolatorProgramId !== undefined) {
+      // Detect Percolator entry / exit.
+      if (line.startsWith(`Program ${percolatorProgramId} invoke`)) {
+        insidePercolator = true;
+        cpiDepth = 0;
+        continue;
+      }
+      if (
+        line.startsWith(`Program ${percolatorProgramId} success`) ||
+        line.startsWith(`Program ${percolatorProgramId} failed`)
+      ) {
+        insidePercolator = false;
+        continue;
+      }
+      // Track nested CPI depth so we ignore sol_log_64 from inner programs.
+      if (insidePercolator) {
+        if (/^Program \S+ invoke/.test(line)) {
+          cpiDepth++;
+          continue;
+        }
+        if (/^Program \S+ (?:success|failed)$/.test(line)) {
+          cpiDepth = Math.max(0, cpiDepth - 1);
+          continue;
+        }
+      }
+      // Skip log lines that are not inside Percolator or are from a CPI callee.
+      if (!insidePercolator || cpiDepth > 0) continue;
+    }
+
     // sol_log_64 emits: "Program log: a b c d e" (5 space-separated decimals)
     const match = line.match(
       /^Program log: (\d+) (\d+) (\d+) (\d+) (\d+)$/,
