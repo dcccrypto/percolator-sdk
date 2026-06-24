@@ -81,10 +81,14 @@ export async function simulateOrSend(
     ix,
     signers,
     simulate,
-    commitment = "confirmed",
+    commitment,
     computeUnitLimit,
     heapFrameBytes = V17_WRAPPER_HEAP_FRAME_BYTES,
   } = params;
+  // #311: default actual sends to "finalized" so callers don't treat a "confirmed" (but not
+  // yet finalized) transaction as settled — a reorg within the ~13s finalization window can
+  // reverse it. Simulation-only calls keep "confirmed" (no on-chain state mutated).
+  const effectiveCommitment = commitment ?? (simulate ? "confirmed" : "finalized");
 
   if (typeof simulate !== "boolean") {
     throw new Error("simulateOrSend: simulate must be explicitly set to true or false");
@@ -140,7 +144,7 @@ export async function simulateOrSend(
   }
 
   tx.add(ix);
-  const latestBlockhash = await connection.getLatestBlockhash(commitment);
+  const latestBlockhash = await connection.getLatestBlockhash(effectiveCommitment);
   tx.recentBlockhash = latestBlockhash.blockhash;
   tx.feePayer = signers[0].publicKey;
 
@@ -184,7 +188,7 @@ export async function simulateOrSend(
   // Send
   const options: SendOptions = {
     skipPreflight: false,
-    preflightCommitment: commitment,
+    preflightCommitment: effectiveCommitment,
   };
 
   try {
@@ -196,12 +200,15 @@ export async function simulateOrSend(
         blockhash: latestBlockhash.blockhash,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
       },
-      commitment
+      effectiveCommitment
     );
 
-    // Fetch logs
+    // Fetch logs at the same finality level used for confirmation.
+    // getTransaction only accepts Finality ("confirmed" | "finalized"); map anything
+    // weaker than "finalized" to "confirmed" — the safest valid fallback.
+    const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
     const txInfo = await connection.getTransaction(signature, {
-      commitment: "confirmed",
+      commitment: txFinality,
       maxSupportedTransactionVersion: 0,
     });
 

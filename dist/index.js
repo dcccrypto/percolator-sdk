@@ -8483,10 +8483,11 @@ async function simulateOrSend(params) {
     ix,
     signers,
     simulate,
-    commitment = "confirmed",
+    commitment,
     computeUnitLimit,
     heapFrameBytes = V17_WRAPPER_HEAP_FRAME_BYTES
   } = params;
+  const effectiveCommitment = commitment ?? (simulate ? "confirmed" : "finalized");
   if (typeof simulate !== "boolean") {
     throw new Error("simulateOrSend: simulate must be explicitly set to true or false");
   }
@@ -8519,7 +8520,7 @@ async function simulateOrSend(params) {
     );
   }
   tx.add(ix);
-  const latestBlockhash = await connection.getLatestBlockhash(commitment);
+  const latestBlockhash = await connection.getLatestBlockhash(effectiveCommitment);
   tx.recentBlockhash = latestBlockhash.blockhash;
   tx.feePayer = signers[0].publicKey;
   if (simulate) {
@@ -8558,7 +8559,7 @@ async function simulateOrSend(params) {
   }
   const options = {
     skipPreflight: false,
-    preflightCommitment: commitment
+    preflightCommitment: effectiveCommitment
   };
   try {
     const signature = await connection.sendTransaction(tx, signers, options);
@@ -8568,10 +8569,11 @@ async function simulateOrSend(params) {
         blockhash: latestBlockhash.blockhash,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
       },
-      commitment
+      effectiveCommitment
     );
+    const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
     const txInfo = await connection.getTransaction(signature, {
-      commitment: "confirmed",
+      commitment: txFinality,
       maxSupportedTransactionVersion: 0
     });
     const logs = txInfo?.meta?.logMessages ?? [];
