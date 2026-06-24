@@ -48,11 +48,18 @@ export declare const STAKE_IX: {
     readonly TransferAdmin: 5;
     /** @deprecated Legacy admin CPI proxy name. Tag 6 is now AcceptAdmin. */
     readonly AdminSetOracleAuthority: 6;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /** #242: ProposeCooldownIncrease — step 1 of the cooldown-increase timelock. */
+    readonly ProposeCooldownIncrease: 7;
+    /** #242: CommitCooldownIncrease — step 2; applies the increase after TIMELOCK_SLOTS. */
+    readonly CommitCooldownIncrease: 8;
+    /** #242: CancelCooldownIncrease — withdraw a pending cooldown proposal. */
+    readonly CancelCooldownIncrease: 9;
+    /** @deprecated Tag 7 reclaimed for ProposeCooldownIncrease (#242). Old admin CPI proxy;
+     *  its encoder still throws as a migration safety net. */
     readonly AdminSetRiskThreshold: 7;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /** @deprecated Tag 8 reclaimed for CommitCooldownIncrease (#242). Encoder still throws. */
     readonly AdminSetMaintenanceFee: 8;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /** @deprecated Tag 9 reclaimed for CancelCooldownIncrease (#242). Encoder still throws. */
     readonly AdminResolveMarket: 9;
     /** Current on-chain tag 10: transfer withdrawn insurance back into the pool vault. */
     readonly ReturnInsurance: 10;
@@ -97,11 +104,25 @@ export declare function encodeStakeAcceptAdmin(): Uint8Array;
 export declare function encodeStakeTransferAdmin(): Uint8Array;
 /** @deprecated Removed admin CPI proxy. Tag 6 is now encodeStakeAcceptAdmin. */
 export declare function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Uint8Array;
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** Tag 7: ProposeCooldownIncrease (#242) — admin proposes a LARGER cooldown_slots; it
+ *  takes effect only via CommitCooldownIncrease after TIMELOCK_SLOTS (~48h), giving LP
+ *  holders an exit window. Accounts: [admin signer, pool writable, clock sysvar]. */
+export declare function encodeStakeProposeCooldownIncrease(newCooldownSlots: bigint | number): Uint8Array;
+/** Tag 8: CommitCooldownIncrease (#242) — apply the pending increase (only after the
+ *  timelock window). Accounts: [admin signer, pool writable, clock sysvar]. */
+export declare function encodeStakeCommitCooldownIncrease(): Uint8Array;
+/** Tag 9: CancelCooldownIncrease (#242) — withdraw a pending proposal.
+ *  Accounts: [admin signer, pool writable]. */
+export declare function encodeStakeCancelCooldownIncrease(): Uint8Array;
+/** @deprecated Tag 7 is now ProposeCooldownIncrease (#242). This old admin-CPI-proxy name
+ *  is retained only as a migration safety net — it throws rather than emitting a tx. Use
+ *  encodeStakeProposeCooldownIncrease for the live tag-7 instruction. */
 export declare function encodeStakeAdminSetRiskThreshold(newThreshold: bigint | number): Uint8Array;
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** @deprecated Tag 8 is now CommitCooldownIncrease (#242). Retained as a throwing safety
+ *  net; use encodeStakeCommitCooldownIncrease. */
 export declare function encodeStakeAdminSetMaintenanceFee(newFee: bigint | number): Uint8Array;
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/** @deprecated Tag 9 is now CancelCooldownIncrease (#242). Retained as a throwing safety
+ *  net; use encodeStakeCancelCooldownIncrease. */
 export declare function encodeStakeAdminResolveMarket(): Uint8Array;
 /** Tag 10: ReturnInsurance — transfer withdrawn insurance back into the stake pool vault. */
 export declare function encodeStakeReturnInsurance(amount: bigint | number): Uint8Array;
