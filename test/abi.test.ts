@@ -676,7 +676,11 @@ console.log("\nTesting instruction encoders...\n");
   const mint = PublicKey.unique();
   const indexFeedId = "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
 
-  const data = encodeInitMarket({
+  // #310: the v12 InitMarketArgs compat shim now THROWS instead of silently zeroing
+  // publicBChunkAtoms (which would permanently disable permissionless bankruptcy recovery).
+  let threw = false;
+  try {
+    encodeInitMarket({
     admin,
     collateralMint: mint,
     indexFeedId,
@@ -701,11 +705,19 @@ console.log("\nTesting instruction encoders...\n");
     minInitialDeposit: "500000",
     minNonzeroMmReq: "1000",
     minNonzeroImReq: "2000",
-  });
-  // v17 wire: 219 bytes (tag + 22 risk-param fields; no header block, no extended tail).
-  assert(data.length === 219, `InitMarket length: expected 219 (v17 wire), got ${data.length}`);
-  assert(data[0] === IX_TAG.InitMarket, "InitMarket tag byte");
-  console.log("✓ encodeInitMarket");
+    });
+  } catch (e) {
+    threw = true;
+    assert(
+      /publicBChunkAtoms/.test(String(e)),
+      "v12 shim must throw mentioning publicBChunkAtoms",
+    );
+  }
+  assert(
+    threw,
+    "encodeInitMarket(v12 InitMarketArgs) must throw — no silent bankruptcy-recovery disable (#310)",
+  );
+  console.log("✓ encodeInitMarket v12 shim throws (#310)");
 }
 
 // ── TradeCpiV2 ABI tests (PERC-164) ──

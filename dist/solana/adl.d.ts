@@ -212,17 +212,22 @@ export interface AdlEvent {
  * decimal value equals `0xAD1E_0001` (2970353665). Returns `null` if not found.
  *
  * @param logs - Array of log message strings (from `tx.meta.logMessages`).
+ * @param percolatorProgramId - When supplied, only ADL events emitted directly
+ *   by this program ID are accepted. Events from CPI-called programs (which can
+ *   produce identical `Program log:` lines) are silently ignored. Pass the
+ *   program ID used to send the transaction (e.g. `getProgramId().toBase58()`).
+ *   Omit only in contexts where the full log has already been filtered.
  * @returns Decoded `AdlEvent` or `null` if the log is not present.
  *
  * @example
  * ```ts
- * const event = parseAdlEvent(tx.meta?.logMessages ?? []);
+ * const event = parseAdlEvent(tx.meta?.logMessages ?? [], getProgramId().toBase58());
  * if (event) {
  *   console.log(`ADL: idx=${event.targetIdx} price=${event.price} closed=${event.closedAbs}`);
  * }
  * ```
  */
-export declare function parseAdlEvent(logs: string[]): AdlEvent | null;
+export declare function parseAdlEvent(logs: string[], percolatorProgramId?: string): AdlEvent | null;
 /**
  * A single ranked position as returned by the /api/adl/rankings endpoint.
  */
