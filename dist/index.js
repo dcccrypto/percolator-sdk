@@ -522,10 +522,10 @@ function encodeInitMarket(args) {
     maxAccrualDtSlots = v.maxCrankStalenessSlots ?? 0n;
     maxAbsFundingE9PerSlot = v.extendedTail?.fundingMaxBpsPerSlot ?? 1000n;
     minFundingLifetimeSlots = 0n;
-    maxAccountBSettlementChunks = 0n;
-    maxBankruptCloseChunks = 0n;
-    maxBankruptCloseLifetimeSlots = 0n;
-    publicBChunkAtoms = 0n;
+    maxAccountBSettlementChunks = 10n;
+    maxBankruptCloseChunks = 10n;
+    maxBankruptCloseLifetimeSlots = 500n;
+    publicBChunkAtoms = 1000000n;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   }
   const data = concatBytes(
@@ -2157,7 +2157,16 @@ function getCurrentNetwork() {
 }
 
 // src/abi/nft.ts
+var KNOWN_NFT_PROGRAM_IDS = /* @__PURE__ */ new Set([
+  "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS"
+  // mainnet
+]);
 var NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");
+if (NFT_PROGRAM_OVERRIDE !== void 0 && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM_OVERRIDE)) {
+  throw new Error(
+    `[percolator-sdk] NFT_PROGRAM_ID env var "${NFT_PROGRAM_OVERRIDE}" is not a known NFT program address. Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. Pass the programId argument explicitly to bypass env resolution.`
+  );
+}
 var NFT_PROGRAM_ID = new PublicKey4(
   NFT_PROGRAM_OVERRIDE ?? "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS"
 );
@@ -6755,9 +6764,33 @@ async function buildAdlTransaction(connection, caller, slab, oracle, programId, 
   return buildAdlInstruction(caller, slab, oracle, programId, target.idx, backupOracles);
 }
 var ADL_EVENT_TAG = 0xAD1E0001n;
-function parseAdlEvent(logs) {
+function parseAdlEvent(logs, percolatorProgramId) {
+  let insidePercolator = percolatorProgramId === void 0;
+  let cpiDepth = 0;
   for (const line of logs) {
     if (typeof line !== "string") continue;
+    if (percolatorProgramId !== void 0) {
+      if (line.startsWith(`Program ${percolatorProgramId} invoke`)) {
+        insidePercolator = true;
+        cpiDepth = 0;
+        continue;
+      }
+      if (line.startsWith(`Program ${percolatorProgramId} success`) || line.startsWith(`Program ${percolatorProgramId} failed`)) {
+        insidePercolator = false;
+        continue;
+      }
+      if (insidePercolator) {
+        if (/^Program \S+ invoke/.test(line)) {
+          cpiDepth++;
+          continue;
+        }
+        if (/^Program \S+ (?:success|failed)$/.test(line)) {
+          cpiDepth = Math.max(0, cpiDepth - 1);
+          continue;
+        }
+      }
+      if (!insidePercolator || cpiDepth > 0) continue;
+    }
     const match = line.match(
       /^Program log: (\d+) (\d+) (\d+) (\d+) (\d+)$/
     );
@@ -8054,13 +8087,18 @@ async function resolvePrice(mint, signal, options) {
   if (pythSource) {
     const dexPrice = dexSources[0]?.price ?? 0;
     const jupPrice = jupiterSource?.price ?? 0;
+    const MAX_ENRICHMENT_DEVIATION = 0.05;
     let enrichedPrice = 0;
     let singleSource = false;
     if (dexPrice > 0 && jupPrice > 0) {
       const mid = (dexPrice + jupPrice) / 2;
       const deviation = Math.abs(dexPrice - jupPrice) / mid;
-      if (deviation <= 0.5) {
+      if (deviation <= MAX_ENRICHMENT_DEVIATION) {
         enrichedPrice = mid;
+      } else {
+        console.warn(
+          `[percolator-sdk] resolvePrice: DEX (${dexPrice}) and Jupiter (${jupPrice}) diverge by ${(deviation * 100).toFixed(1)}% > ${MAX_ENRICHMENT_DEVIATION * 100}% \u2014 Pyth enrichment skipped to prevent oracle manipulation.`
+        );
       }
     } else if (dexPrice > 0 || jupPrice > 0) {
       enrichedPrice = dexPrice > 0 ? dexPrice : jupPrice;

@@ -705,7 +705,15 @@ console.log("\nTesting instruction encoders...\n");
   // v17 wire: 219 bytes (tag + 22 risk-param fields; no header block, no extended tail).
   assert(data.length === 219, `InitMarket length: expected 219 (v17 wire), got ${data.length}`);
   assert(data[0] === IX_TAG.InitMarket, "InitMarket tag byte");
-  console.log("✓ encodeInitMarket");
+  // #310: the v12 compat shim must NOT zero the B-settlement / bankruptcy-recovery fields
+  // (publicBChunkAtoms etc.) — zeroing them permanently disables permissionless bankruptcy
+  // recovery. Decode them from the wire and assert functional defaults.
+  const dv = new DataView(data.buffer, data.byteOffset, data.length);
+  const maxAccountBSettlementChunks = dv.getBigUint64(163, true); // u64 @ offset 163
+  const publicBChunkAtoms = dv.getBigUint64(187, true); // low 64 bits of u128 @ offset 187
+  assert(maxAccountBSettlementChunks === 10n, "#310: v12 shim maxAccountBSettlementChunks must default to 10, not 0");
+  assert(publicBChunkAtoms === 1_000_000n, "#310: v12 shim publicBChunkAtoms must default to 1_000_000, not 0 (else bankruptcy recovery is disabled)");
+  console.log("✓ encodeInitMarket (v12 shim keeps bankruptcy recovery enabled, #310)");
 }
 
 // ── TradeCpiV2 ABI tests (PERC-164) ──
