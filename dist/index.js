@@ -683,10 +683,10 @@ function encodeInitMarket(args) {
     maxAccrualDtSlots = v.maxCrankStalenessSlots ?? 0n;
     maxAbsFundingE9PerSlot = v.extendedTail?.fundingMaxBpsPerSlot ?? 1000n;
     minFundingLifetimeSlots = 0n;
-    maxAccountBSettlementChunks = 0n;
-    maxBankruptCloseChunks = 0n;
-    maxBankruptCloseLifetimeSlots = 0n;
-    publicBChunkAtoms = 0n;
+    maxAccountBSettlementChunks = 10n;
+    maxBankruptCloseChunks = 10n;
+    maxBankruptCloseLifetimeSlots = 500n;
+    publicBChunkAtoms = 1000000n;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   }
   const data = concatBytes(
@@ -2683,7 +2683,16 @@ function getCurrentNetwork() {
 }
 
 // src/abi/nft.ts
+var KNOWN_NFT_PROGRAM_IDS = /* @__PURE__ */ new Set([
+  "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS"
+  // mainnet
+]);
 var NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");
+if (NFT_PROGRAM_OVERRIDE !== void 0 && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM_OVERRIDE)) {
+  throw new Error(
+    `[percolator-sdk] NFT_PROGRAM_ID env var "${NFT_PROGRAM_OVERRIDE}" is not a known NFT program address. Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. Pass the programId argument explicitly to bypass env resolution.`
+  );
+}
 var NFT_PROGRAM_ID = new PublicKey4(
   NFT_PROGRAM_OVERRIDE ?? "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS"
 );
