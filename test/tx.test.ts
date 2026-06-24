@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Keypair, Connection, TransactionInstruction, PublicKey } from "@solana/web3.js";
+import { Keypair, Connection, TransactionInstruction, PublicKey, ComputeBudgetProgram } from "@solana/web3.js";
 import { simulateOrSend, buildIx, formatResult, TxResult } from "../src/runtime/tx.js";
 
 const dummyIx = new TransactionInstruction({
@@ -108,6 +108,50 @@ describe("simulateOrSend", () => {
     });
     expect(result.err).toContain("0x1");
     expect(result.slot).toBe(10);
+  });
+});
+
+describe("heap frame (#176)", () => {
+  function captureTx() {
+    let captured: { instructions: TransactionInstruction[] } | undefined;
+    const conn = makeMockConnection({
+      simulateTransaction: vi.fn().mockImplementation((tx: { instructions: TransactionInstruction[] }) => {
+        captured = tx;
+        return Promise.resolve({ context: { slot: 42 }, value: { err: null, logs: [], unitsConsumed: 0 } });
+      }),
+    });
+    return { conn, get: () => captured };
+  }
+  // ComputeBudget RequestHeapFrame is instruction index 1.
+  const heapIx = (tx: { instructions: TransactionInstruction[] } | undefined) =>
+    tx?.instructions.find(
+      (i) => i.programId.equals(ComputeBudgetProgram.programId) && i.data[0] === 1,
+    );
+
+  it("requests a 128KB heap frame by default (v17 wrapper requirement)", async () => {
+    const { conn, get } = captureTx();
+    await simulateOrSend({ connection: conn, ix: dummyIx, signers: [Keypair.generate()], simulate: true });
+    const hf = heapIx(get());
+    expect(hf).toBeDefined();
+    const bytes = new DataView(hf!.data.buffer, hf!.data.byteOffset + 1, 4).getUint32(0, true);
+    expect(bytes).toBe(128 * 1024);
+  });
+
+  it("omits the heap frame when heapFrameBytes is 0 (non-wrapper txs)", async () => {
+    const { conn, get } = captureTx();
+    await simulateOrSend({
+      connection: conn, ix: dummyIx, signers: [Keypair.generate()], simulate: true, heapFrameBytes: 0,
+    });
+    expect(heapIx(get())).toBeUndefined();
+  });
+
+  it("rejects an invalid heapFrameBytes (not a multiple of 1024 / out of range)", async () => {
+    const conn = makeMockConnection();
+    await expect(
+      simulateOrSend({
+        connection: conn, ix: dummyIx, signers: [Keypair.generate()], simulate: true, heapFrameBytes: 1000,
+      }),
+    ).rejects.toThrow(/heapFrameBytes/);
   });
 });
 

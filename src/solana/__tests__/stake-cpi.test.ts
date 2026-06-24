@@ -31,6 +31,9 @@ import {
   encodeStakeUpdateConfig,
   encodeStakeProposeAdmin,
   encodeStakeAcceptAdmin,
+  encodeStakeProposeCooldownIncrease,
+  encodeStakeCommitCooldownIncrease,
+  encodeStakeCancelCooldownIncrease,
   encodeStakeTransferAdmin,
   encodeStakeAdminSetOracleAuthority,
   encodeStakeAdminSetRiskThreshold,
@@ -468,7 +471,12 @@ describe('Stake PDA Chain — Multi-Market Isolation', () => {
 describe('Stake Instruction Tags — No Gaps or Conflicts', () => {
   it('tags match the live on-chain mapping, including tombstones and aliases', () => {
     const tags = Object.values(STAKE_IX);
-    expect(tags).toEqual([0, 1, 2, 3, 4, 5, 6, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 14, 15, 16, 18]);
+    // 7/8/9 now appear twice: the live #242 timelock names (ProposeCooldownIncrease/
+    // CommitCooldownIncrease/CancelCooldownIncrease) followed by the retained deprecated
+    // admin-proxy aliases that map to the same tags.
+    expect(tags).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 5, 6, 7, 8, 9, 7, 8, 9, 10, 10, 11, 12, 13, 14, 15, 16, 18,
+    ]);
   });
 
   it('live encoders produce the correct tag byte and tombstoned encoders throw', () => {
@@ -480,6 +488,9 @@ describe('Stake Instruction Tags — No Gaps or Conflicts', () => {
       [STAKE_IX.UpdateConfig, encodeStakeUpdateConfig()],
       [STAKE_IX.ProposeAdmin, encodeStakeProposeAdmin(PublicKey.default)],
       [STAKE_IX.AcceptAdmin, encodeStakeAcceptAdmin()],
+      [STAKE_IX.ProposeCooldownIncrease, encodeStakeProposeCooldownIncrease(0n)],
+      [STAKE_IX.CommitCooldownIncrease, encodeStakeCommitCooldownIncrease()],
+      [STAKE_IX.CancelCooldownIncrease, encodeStakeCancelCooldownIncrease()],
       [STAKE_IX.ReturnInsurance, encodeStakeReturnInsurance(0n)],
       [STAKE_IX.AdminWithdrawInsurance, encodeStakeAdminWithdrawInsurance(0n)],
       [STAKE_IX.AccrueFees, encodeStakeAccrueFees()],

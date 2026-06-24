@@ -14,6 +14,9 @@ import {
   encodeStakeUpdateConfig,
   encodeStakeProposeAdmin,
   encodeStakeAcceptAdmin,
+  encodeStakeProposeCooldownIncrease,
+  encodeStakeCommitCooldownIncrease,
+  encodeStakeCancelCooldownIncrease,
   encodeStakeTransferAdmin,
   encodeStakeAdminSetOracleAuthority,
   encodeStakeAdminSetRiskThreshold,
@@ -181,6 +184,27 @@ describe('Instruction encoders', () => {
   it('encodeStakeAcceptAdmin — tag 6', () => {
     const buf = encodeStakeAcceptAdmin();
     expect(buf[0]).toBe(6);
+    expect(buf.length).toBe(1);
+  });
+
+  it('encodeStakeProposeCooldownIncrease — tag 7 + u64 LE (#242)', () => {
+    const buf = encodeStakeProposeCooldownIncrease(432_001n);
+    expect(buf[0]).toBe(7);
+    expect(buf.length).toBe(9);
+    // u64 LE of 432_001 in bytes [1..9]
+    const dv = new DataView(buf.buffer, buf.byteOffset + 1, 8);
+    expect(dv.getBigUint64(0, true)).toBe(432_001n);
+  });
+
+  it('encodeStakeCommitCooldownIncrease — tag 8 (#242)', () => {
+    const buf = encodeStakeCommitCooldownIncrease();
+    expect(buf[0]).toBe(8);
+    expect(buf.length).toBe(1);
+  });
+
+  it('encodeStakeCancelCooldownIncrease — tag 9 (#242)', () => {
+    const buf = encodeStakeCancelCooldownIncrease();
+    expect(buf[0]).toBe(9);
     expect(buf.length).toBe(1);
   });
 
