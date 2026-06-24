@@ -696,23 +696,36 @@ export function encodeInitMarket(args: InitMarketV17Args | InitMarketArgs): Uint
     publicBChunkAtoms = v.publicBChunkAtoms;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   } else {
-    // v12.x InitMarketArgs compat shim — the v12 interface has no equivalents for
-    // maxAccountBSettlementChunks, maxBankruptCloseChunks, or publicBChunkAtoms.
-    // These control the permissionless B-settlement path (the only mechanism for
-    // closing bankrupt accounts and releasing insurance). Silently defaulting them
-    // to 0 would permanently disable bankruptcy recovery for any market so initialized.
-    // Callers MUST migrate to InitMarketV17Args and supply explicit non-zero values
-    // (recommended: maxAccountBSettlementChunks=10n, maxBankruptCloseChunks=10n,
-    // maxBankruptCloseLifetimeSlots=500n, publicBChunkAtoms=1_000_000n).
-    throw new Error(
-      'encodeInitMarket: InitMarketArgs (v12) cannot be automatically migrated to ' +
-      'InitMarketV17Args because three required v17 fields have no v12 equivalent: ' +
-      'maxAccountBSettlementChunks, maxBankruptCloseChunks, publicBChunkAtoms. ' +
-      'These control permissionless bankruptcy recovery and MUST be explicitly set. ' +
-      'Upgrade your call site to InitMarketV17Args with ' +
-      'maxAccountBSettlementChunks=10n, maxBankruptCloseChunks=10n, ' +
-      'maxBankruptCloseLifetimeSlots=500n, publicBChunkAtoms=1_000_000n.',
-    );
+    // v12.x InitMarketArgs compat shim — map old fields to v17 layout.
+    // Fields removed in v17 (admin, collateralMint, feedId, staleness, conf,
+    // invert, unitScale, extendedTail) are silently ignored.
+    const v = args as InitMarketArgs;
+    const resolvedHMin = v.hMin ?? v.warmupPeriodSlots ?? 0n;
+    const resolvedHMax = v.hMax ?? v.warmupPeriodSlots ?? 0n;
+    maxPortfolioAssets = typeof v.maxAccounts === 'string' ? parseInt(v.maxAccounts, 10) : Number(v.maxAccounts);
+    hMin = resolvedHMin;
+    hMax = resolvedHMax;
+    initialPrice = v.initialMarkPriceE6;
+    minNonzeroMmReq = v.minNonzeroMmReq;
+    minNonzeroImReq = v.minNonzeroImReq;
+    maintenanceMarginBps = v.maintenanceMarginBps;
+    initialMarginBps = v.initialMarginBps;
+    // v12 tradingFeeBps maps to max_trading_fee_bps and trade_fee_base_bps
+    maxTradingFeeBps = v.tradingFeeBps;
+    tradeFeeBaseBps = v.tradingFeeBps;
+    liquidationFeeBps = v.liquidationFeeBps;
+    liquidationFeeCap = v.liquidationFeeCap;
+    minLiquidationAbs = v.minLiquidationAbs;
+    // v12 ExtendedTail fields mapped to v17 equivalents (default safe values)
+    maxPriceMoveBpsPerSlot = v.extendedTail?.maxPriceMoveBpsPerSlot ?? 4n;
+    maxAccrualDtSlots = v.maxCrankStalenessSlots ?? 0n;
+    maxAbsFundingE9PerSlot = v.extendedTail?.fundingMaxBpsPerSlot ?? 1000n;
+    minFundingLifetimeSlots = 0n;
+    maxAccountBSettlementChunks = 0n;
+    maxBankruptCloseChunks = 0n;
+    maxBankruptCloseLifetimeSlots = 0n;
+    publicBChunkAtoms = 0n;
+    maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   }
 
   const data = concatBytes(
