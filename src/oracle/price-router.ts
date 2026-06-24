@@ -312,19 +312,31 @@ export async function resolvePrice(
     const jupPrice = jupiterSource?.price ?? 0;
     // #227: cross-validate the enrichment reference so a single manipulable DEX
     // source cannot poison the Pyth price. When BOTH DEX and Jupiter are present,
-    // require agreement within 50% and use the mid; if they diverge, skip enrichment
+    // require agreement within 5% and use the mid; if they diverge, skip enrichment
     // entirely (don't push a Pyth source). With exactly one source, use it at reduced
     // confidence. Never push price=0 — encodePushOraclePrice throws on it at crank time.
+    //
+    // The original 50% tolerance allowed a pool operator to manipulate a low-TVL
+    // DEX pool to +49% of true price while Jupiter remained at true price — a deviation
+    // of ~39% passes the 50% gate — causing the enriched Pyth price to be 24.5% above
+    // true, which can trigger mass incorrect liquidations on markets using EWMA oracle mode.
+    const MAX_ENRICHMENT_DEVIATION = 0.05; // 5%
     let enrichedPrice = 0;
     let singleSource = false;
     if (dexPrice > 0 && jupPrice > 0) {
       const mid = (dexPrice + jupPrice) / 2;
       const deviation = Math.abs(dexPrice - jupPrice) / mid;
-      if (deviation <= 0.5) {
+      if (deviation <= MAX_ENRICHMENT_DEVIATION) {
         enrichedPrice = mid;
+      } else {
+        // Sources disagree beyond 5% — refuse to enrich the Pyth source.
+        // DEX and Jupiter are still added below at their own confidence levels.
+        console.warn(
+          `[percolator-sdk] resolvePrice: DEX (${dexPrice}) and Jupiter (${jupPrice}) ` +
+          `diverge by ${(deviation * 100).toFixed(1)}% > ${MAX_ENRICHMENT_DEVIATION * 100}% ` +
+          `— Pyth enrichment skipped to prevent oracle manipulation.`,
+        );
       }
-      // deviation > 0.5: sources disagree → leave enrichedPrice = 0 (skip enrichment).
-      // DEX and Jupiter are still added below at their own confidence levels.
     } else if (dexPrice > 0 || jupPrice > 0) {
       enrichedPrice = dexPrice > 0 ? dexPrice : jupPrice;
       singleSource = true;
