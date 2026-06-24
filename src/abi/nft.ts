@@ -22,7 +22,19 @@ import { safeEnv } from "../config/program-ids.js";
 // Program ID
 // ---------------------------------------------------------------------------
 
+/** Allowlist of known NFT program addresses. */
+const KNOWN_NFT_PROGRAM_IDS = new Set([
+  "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS", // mainnet
+]);
+
 const NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");
+if (NFT_PROGRAM_OVERRIDE !== undefined && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM_OVERRIDE)) {
+  throw new Error(
+    `[percolator-sdk] NFT_PROGRAM_ID env var "${NFT_PROGRAM_OVERRIDE}" is not a known NFT program address. ` +
+    `Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. ` +
+    `Pass the programId argument explicitly to bypass env resolution.`,
+  );
+}
 
 /** The standalone percolator-nft program (TransferHook + mint authority). */
 export const NFT_PROGRAM_ID = new PublicKey(
