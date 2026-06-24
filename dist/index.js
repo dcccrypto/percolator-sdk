@@ -372,8 +372,13 @@ var IX_TAG = {
   CloseOrphanSlab: 73,
   /** @deprecated v12.x tag 74. COLLIDES with v17 CreateLpVault(74). Do NOT use. */
   SetDexPool: 74,
-  /** @deprecated v12.x tag 75. COLLIDES with v17 DepositToLpVault(75). Do NOT use. */
-  InitMatcherCtx: 75,
+  /**
+   * @deprecated v12.x stub that incorrectly mapped InitMatcherCtx→tag 75.
+   * Tag 75 is DepositToLpVault in v17. Tag 83 is the real v17 InitMatcherCtx.
+   * Retained as InitMatcherCtxV12Stub so the renamed constant does not collide
+   * with InitMatcherCtx(83) above. The encoder throws removedInstruction().
+   */
+  InitMatcherCtxV12Stub: 75,
   /** @deprecated v12.x tag 78. COLLIDES with v17 LpVaultCrankFees(78). Do NOT use. */
   SetMaxPnlCap: 78,
   /** @deprecated v12.x tag 79. COLLIDES with v17 SetLpVaultPaused(79). Do NOT use. */
@@ -382,10 +387,38 @@ var IX_TAG = {
   SetDisputeParams: 80,
   /** @deprecated v12.x tag 81. Not in v17. */
   SetLpCollateralParams: 81,
-  /** @deprecated v12.x tag 82. Not in v17. */
-  AcceptAdmin: 82,
-  /** @deprecated v12.x tag 83. Not in v17 — v17 tag 32 UpdateAuthority has NO kind byte. */
-  ProposeAdmin: 83,
+  /**
+   * UnwrapEscrowedPortfolio (tag 82) — v17 NEW.
+   *
+   * Wire: tag(1) + new_owner[32] = 33 bytes.
+   * Unwraps an escrowed portfolio, transferring provenance ownership to new_owner.
+   *
+   * Accounts (from handle_unwrap_escrowed_portfolio):
+   *   0  escrow_owner  [signer]           — current owner of the escrowed portfolio
+   *   1  portfolio     [writable]         — the escrowed portfolio account
+   *   2  new_owner     [ro]               — pubkey receiving ownership
+   */
+  UnwrapEscrowedPortfolio: 82,
+  /**
+   * InitMatcherCtx (tag 83) — v17 NEW. Bootstrap a matcher context via CPI.
+   *
+   * Wire: tag(1) + kind(u8) + trading_fee_bps(u32) + base_spread_bps(u32) +
+   *       max_total_bps(u32) + impact_k_bps(u32) + liquidity_notional_e6(u128) +
+   *       max_fill_abs(u128) + max_inventory_abs(u128) + fee_to_insurance_bps(u16) +
+   *       skew_spread_mult_bps(u16) = 70 bytes total (all little-endian).
+   *
+   * lpIdx is NOT in the wire — the LP is identified by the lp_portfolio account.
+   *
+   * Accounts (from handle_init_matcher_ctx in v16_program.rs:13217-13249):
+   *   0  lp_owner         [signer]           — owns the LP portfolio
+   *   1  market           [ro]               — wrapper-owned market account
+   *   2  lp_portfolio     [ro]               — LP's portfolio (provenance checked)
+   *   3  matcher_ctx      [writable]         — matcher context account to initialise
+   *   4  matcher_prog     [ro, executable]   — the matcher program
+   *   5  matcher_delegate [ro]               — PDA ["matcher", market, lp_portfolio,
+   *                                            lp_owner, matcher_prog, matcher_ctx]
+   */
+  InitMatcherCtx: 83,
   /** @deprecated v12.x tag 85. Not in v17. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
@@ -921,12 +954,59 @@ function encodeTransferOwnershipCpi(_args) {
 function encodeSetWalletCap(_args) {
   return removedInstruction("SetWalletCap (v12 tag 70 \u2014 not in v17)", IX_TAG.SetWalletCap, void 0);
 }
-function encodeInitMatcherCtx(_args) {
-  return removedInstruction(
-    "InitMatcherCtx (v12 tag 75 \u2014 COLLIDES with v17 DepositToLpVault)",
-    IX_TAG.InitMatcherCtx,
-    void 0
+function encodeUnwrapEscrowedPortfolio(args) {
+  const data = concatBytes(
+    encU8(IX_TAG.UnwrapEscrowedPortfolio),
+    encPubkey(args.newOwner)
   );
+  if (data.length !== 33) {
+    throw new Error(
+      `encodeUnwrapEscrowedPortfolio: expected 33 bytes (tag+pubkey[32]), got ${data.length}`
+    );
+  }
+  return data;
+}
+var INIT_MATCHER_CTX_LEN = 70;
+function encodeInitMatcherCtx(args) {
+  if (args.kind !== 0 && args.kind !== 1) {
+    throw new Error(`encodeInitMatcherCtx: kind must be 0 (Passive) or 1 (vAMM), got ${args.kind}`);
+  }
+  if (!Number.isInteger(args.feeToInsuranceBps) || args.feeToInsuranceBps < 0 || args.feeToInsuranceBps > 65535) {
+    throw new Error(`encodeInitMatcherCtx: feeToInsuranceBps out of u16 range, got ${args.feeToInsuranceBps}`);
+  }
+  if (!Number.isInteger(args.skewSpreadMultBps) || args.skewSpreadMultBps < 0 || args.skewSpreadMultBps > 65535) {
+    throw new Error(`encodeInitMatcherCtx: skewSpreadMultBps out of u16 range, got ${args.skewSpreadMultBps}`);
+  }
+  const data = concatBytes(
+    encU8(IX_TAG.InitMatcherCtx),
+    // tag = 83 (u8)
+    encU8(args.kind),
+    // kind (u8)
+    encU32(args.tradingFeeBps),
+    // trading_fee_bps (u32 LE)
+    encU32(args.baseSpreadBps),
+    // base_spread_bps (u32 LE)
+    encU32(args.maxTotalBps),
+    // max_total_bps (u32 LE)
+    encU32(args.impactKBps),
+    // impact_k_bps (u32 LE)
+    encU128(args.liquidityNotionalE6),
+    // liquidity_notional_e6 (u128 LE)
+    encU128(args.maxFillAbs),
+    // max_fill_abs (u128 LE)
+    encU128(args.maxInventoryAbs),
+    // max_inventory_abs (u128 LE)
+    encU16(args.feeToInsuranceBps),
+    // fee_to_insurance_bps (u16 LE)
+    encU16(args.skewSpreadMultBps)
+    // skew_spread_mult_bps (u16 LE)
+  );
+  if (data.length !== INIT_MATCHER_CTX_LEN) {
+    throw new Error(
+      `encodeInitMatcherCtx: expected ${INIT_MATCHER_CTX_LEN} bytes, got ${data.length}`
+    );
+  }
+  return data;
 }
 function encodeSetInsuranceWithdrawPolicy(_args) {
   return removedInstruction("SetInsuranceWithdrawPolicy (v12 tag 22 \u2014 not in v17)", IX_TAG.SetInsuranceWithdrawPolicy, void 0);
@@ -1036,7 +1116,7 @@ function encodeSetLpCollateralParams(_args) {
   return removedInstruction("SetLpCollateralParams (v12 tag 81 \u2014 not in v17)", IX_TAG.SetLpCollateralParams, void 0);
 }
 function encodeAcceptAdmin() {
-  return removedInstruction("AcceptAdmin (v12 tag 82 \u2014 not in v17)", IX_TAG.AcceptAdmin, "encodeUpdateAuthority()");
+  return removedInstruction("AcceptAdmin (v12 tag 82 \u2014 COLLIDES with v17 UnwrapEscrowedPortfolio)", 82, "encodeUpdateAuthority()");
 }
 function encodeReclaimEmptyAccount(_args) {
   return removedInstruction("ReclaimEmptyAccount (v12 tag 85 \u2014 not in v17)", IX_TAG.ReclaimEmptyAccount, void 0);
@@ -6031,7 +6111,10 @@ function computeDexSpotPriceE6(dexType, data, vaultData, decimals) {
   switch (dexType) {
     case "pumpswap":
       if (!vaultData) throw new Error("PumpSwap requires vaultData (base and quote vault accounts)");
-      return computePumpSwapPriceE6(data, vaultData);
+      if (!decimals) {
+        throw new Error("PumpSwap requires decimals { base, quote } (mint decimals)");
+      }
+      return computePumpSwapPriceE6(data, vaultData, decimals.base, decimals.quote);
     case "raydium-clmm":
       return computeRaydiumClmmPriceE6(data);
     case "meteora-dlmm":
@@ -6056,19 +6139,25 @@ function parsePumpSwapPool(poolAddress, data) {
   };
 }
 var SPL_TOKEN_AMOUNT_MIN_LEN = 72;
-function computePumpSwapPriceE6(_poolData, vaultData) {
+function computePumpSwapPriceE6(_poolData, vaultData, decimalsBase, decimalsQuote) {
   if (vaultData.base.length < SPL_TOKEN_AMOUNT_MIN_LEN) {
     throw new Error(`PumpSwap base vault data too short: ${vaultData.base.length} < ${SPL_TOKEN_AMOUNT_MIN_LEN}`);
   }
   if (vaultData.quote.length < SPL_TOKEN_AMOUNT_MIN_LEN) {
     throw new Error(`PumpSwap quote vault data too short: ${vaultData.quote.length} < ${SPL_TOKEN_AMOUNT_MIN_LEN}`);
   }
+  assertTokenDecimals("PumpSwap", "base", decimalsBase);
+  assertTokenDecimals("PumpSwap", "quote", decimalsQuote);
   const baseDv = new DataView(vaultData.base.buffer, vaultData.base.byteOffset, vaultData.base.byteLength);
   const quoteDv = new DataView(vaultData.quote.buffer, vaultData.quote.byteOffset, vaultData.quote.byteLength);
   const baseAmount = readU64LE3(baseDv, 64);
   const quoteAmount = readU64LE3(quoteDv, 64);
   if (baseAmount === 0n) return 0n;
-  return quoteAmount * 1000000n / baseAmount;
+  const diff = decimalsBase - decimalsQuote;
+  if (diff >= 0) {
+    return quoteAmount * 1000000n * 10n ** BigInt(diff) / baseAmount;
+  }
+  return quoteAmount * 1000000n / (baseAmount * 10n ** BigInt(-diff));
 }
 var RAYDIUM_CLMM_MIN_LEN = 269;
 function parseRaydiumClmmPool(poolAddress, data) {
@@ -8253,6 +8342,7 @@ export {
   EXPECTED_SLAB_VERSION,
   HEX_RE,
   INIT_CTX_LEN,
+  INIT_MATCHER_CTX_LEN,
   IX_TAG,
   LIGHTHOUSE_CONSTRAINT_ADDRESS,
   LIGHTHOUSE_ERROR_CODES,
@@ -8525,6 +8615,7 @@ export {
   encodeTransferPositionOwnership,
   encodeUnpauseMarket,
   encodeUnresolveMarket,
+  encodeUnwrapEscrowedPortfolio,
   encodeUpdateAdmin,
   encodeUpdateAssetAuthority,
   encodeUpdateAuthority,

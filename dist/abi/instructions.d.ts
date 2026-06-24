@@ -262,8 +262,13 @@ export declare const IX_TAG: {
     readonly CloseOrphanSlab: 73;
     /** @deprecated v12.x tag 74. COLLIDES with v17 CreateLpVault(74). Do NOT use. */
     readonly SetDexPool: 74;
-    /** @deprecated v12.x tag 75. COLLIDES with v17 DepositToLpVault(75). Do NOT use. */
-    readonly InitMatcherCtx: 75;
+    /**
+     * @deprecated v12.x stub that incorrectly mapped InitMatcherCtx→tag 75.
+     * Tag 75 is DepositToLpVault in v17. Tag 83 is the real v17 InitMatcherCtx.
+     * Retained as InitMatcherCtxV12Stub so the renamed constant does not collide
+     * with InitMatcherCtx(83) above. The encoder throws removedInstruction().
+     */
+    readonly InitMatcherCtxV12Stub: 75;
     /** @deprecated v12.x tag 78. COLLIDES with v17 LpVaultCrankFees(78). Do NOT use. */
     readonly SetMaxPnlCap: 78;
     /** @deprecated v12.x tag 79. COLLIDES with v17 SetLpVaultPaused(79). Do NOT use. */
@@ -272,10 +277,38 @@ export declare const IX_TAG: {
     readonly SetDisputeParams: 80;
     /** @deprecated v12.x tag 81. Not in v17. */
     readonly SetLpCollateralParams: 81;
-    /** @deprecated v12.x tag 82. Not in v17. */
-    readonly AcceptAdmin: 82;
-    /** @deprecated v12.x tag 83. Not in v17 — v17 tag 32 UpdateAuthority has NO kind byte. */
-    readonly ProposeAdmin: 83;
+    /**
+     * UnwrapEscrowedPortfolio (tag 82) — v17 NEW.
+     *
+     * Wire: tag(1) + new_owner[32] = 33 bytes.
+     * Unwraps an escrowed portfolio, transferring provenance ownership to new_owner.
+     *
+     * Accounts (from handle_unwrap_escrowed_portfolio):
+     *   0  escrow_owner  [signer]           — current owner of the escrowed portfolio
+     *   1  portfolio     [writable]         — the escrowed portfolio account
+     *   2  new_owner     [ro]               — pubkey receiving ownership
+     */
+    readonly UnwrapEscrowedPortfolio: 82;
+    /**
+     * InitMatcherCtx (tag 83) — v17 NEW. Bootstrap a matcher context via CPI.
+     *
+     * Wire: tag(1) + kind(u8) + trading_fee_bps(u32) + base_spread_bps(u32) +
+     *       max_total_bps(u32) + impact_k_bps(u32) + liquidity_notional_e6(u128) +
+     *       max_fill_abs(u128) + max_inventory_abs(u128) + fee_to_insurance_bps(u16) +
+     *       skew_spread_mult_bps(u16) = 70 bytes total (all little-endian).
+     *
+     * lpIdx is NOT in the wire — the LP is identified by the lp_portfolio account.
+     *
+     * Accounts (from handle_init_matcher_ctx in v16_program.rs:13217-13249):
+     *   0  lp_owner         [signer]           — owns the LP portfolio
+     *   1  market           [ro]               — wrapper-owned market account
+     *   2  lp_portfolio     [ro]               — LP's portfolio (provenance checked)
+     *   3  matcher_ctx      [writable]         — matcher context account to initialise
+     *   4  matcher_prog     [ro, executable]   — the matcher program
+     *   5  matcher_delegate [ro]               — PDA ["matcher", market, lp_portfolio,
+     *                                            lp_owner, matcher_prog, matcher_ctx]
+     */
+    readonly InitMatcherCtx: 83;
     /** @deprecated v12.x tag 85. Not in v17. */
     readonly ReclaimEmptyAccount: 85;
     /** @deprecated v12.x tag 86. Not in v17. */
@@ -1627,50 +1660,134 @@ export interface SetWalletCapArgs {
 /** @deprecated v12.x SetWalletCap (old tag 70). Not in v17. */
 export declare function encodeSetWalletCap(_args: SetWalletCapArgs): Uint8Array;
 /**
- * InitMatcherCtx (Tag 75) — admin initializes the matcher context account for an LP slot.
+ * UnwrapEscrowedPortfolio (tag 82) — transfer ownership out of an escrowed portfolio.
  *
- * The matcher program (DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX) requires its context
- * account to be initialized before TradeCpi can work. Only the percolator program can sign
- * as the LP PDA via invoke_signed, so this instruction acts as the trusted initializer.
+ * v17 wire: tag(1) + new_owner[32] = 33 bytes total (all little-endian).
  *
- * Instruction data layout: tag(1) + lp_idx(2) + kind(1) + trading_fee_bps(4) +
- *   base_spread_bps(4) + max_total_bps(4) + impact_k_bps(4) +
- *   liquidity_notional_e6(16) + max_fill_abs(16) + max_inventory_abs(16) +
- *   fee_to_insurance_bps(2) + skew_spread_mult_bps(2) = 72 bytes
+ * The wrapper verifies the caller is the current escrow owner and rewrites
+ * the provenance header so new_owner becomes the portfolio owner.
  *
- * Accounts:
- *   0. [signer]   admin
- *   1. []         slab (program-owned; used to verify admin + LP slot)
- *   2. [writable] matcherCtx (must match LP's stored matcher_context)
- *   3. []         matcherProg (executable; must match LP's stored matcher_program)
- *   4. []         lpPda (PDA ["lp", slab, lp_idx]; required by CPI as signer)
+ * Accounts (from handle_unwrap_escrowed_portfolio, v16_program.rs):
+ *   0  escrow_owner  [signer]           — current owner of the escrowed portfolio
+ *   1  portfolio     [writable]         — the escrowed portfolio account (wrapper-owned)
+ *   2  new_owner     [ro]               — pubkey receiving provenance ownership
+ *
+ * @param newOwner  New portfolio owner pubkey.
+ *
+ * @example
+ * ```ts
+ * const data = encodeUnwrapEscrowedPortfolio({ newOwner: recipientKey });
+ * assert(data.length === 33);
+ * assert(data[0] === 82);
+ * ```
+ */
+export interface UnwrapEscrowedPortfolioArgs {
+    newOwner: PublicKey | string;
+}
+export declare function encodeUnwrapEscrowedPortfolio(args: UnwrapEscrowedPortfolioArgs): Uint8Array;
+/**
+ * InitMatcherCtx (tag 83) — bootstrap a matcher context via CPI.
+ *
+ * This is the ONLY path that can invoke the matcher's tag-2 `process_init` with the
+ * `matcher_delegate` PDA as signer — a PDA cannot sign top-level transactions, so
+ * only an `invoke_signed` from the wrapper can supply the required signature.
+ *
+ * v17 wire format (70 bytes total, all little-endian):
+ *   tag(1)                  = 83
+ *   kind(u8)                = matcher kind: 0=Passive, 1=vAMM
+ *   trading_fee_bps(u32)    = base trading fee in bps
+ *   base_spread_bps(u32)    = base spread in bps
+ *   max_total_bps(u32)      = maximum total spread in bps
+ *   impact_k_bps(u32)       = vAMM impact constant (0 for passive)
+ *   liquidity_notional_e6(u128) = liquidity depth in e6 units (0 for passive)
+ *   max_fill_abs(u128)      = max single fill size (u128::MAX = no limit)
+ *   max_inventory_abs(u128) = max inventory size (u128::MAX = no limit)
+ *   fee_to_insurance_bps(u16) = fraction of fees routed to insurance in bps
+ *   skew_spread_mult_bps(u16) = skew spread multiplier (0 = disabled)
+ *   Total: 1+1+4+4+4+4+16+16+16+2+2 = 70 bytes
+ *
+ * NOTE: lpIdx is NOT in the wire. The LP is identified by the lp_portfolio
+ * account (accounts[2]). The interface retains lpIdx as an optional field for
+ * caller bookkeeping only — it is ignored by the encoder.
+ *
+ * Accounts (from handle_init_matcher_ctx, v16_program.rs:13217-13249):
+ *   0  lp_owner         [signer]           — owns the LP portfolio
+ *   1  market           [ro]               — wrapper-owned market account
+ *   2  lp_portfolio     [ro]               — LP's portfolio (provenance verified)
+ *   3  matcher_ctx      [writable]         — matcher context account to initialise
+ *   4  matcher_prog     [ro, executable]   — the matcher program
+ *   5  matcher_delegate [ro]               — PDA derived from seeds:
+ *                                            ["matcher", market, lp_portfolio,
+ *                                             lp_owner, matcher_prog, matcher_ctx]
+ *
+ * @param kind                 Matcher kind byte: 0=Passive, 1=vAMM (u8).
+ * @param tradingFeeBps        Base trading fee in bps (u32).
+ * @param baseSpreadBps        Base spread in bps (u32).
+ * @param maxTotalBps          Maximum total spread in bps (u32).
+ * @param impactKBps           vAMM impact constant in bps; 0 for passive matchers (u32).
+ * @param liquidityNotionalE6  Liquidity notional in e6 units; 0 for passive matchers (u128).
+ * @param maxFillAbs           Max single fill in absolute units; 2n**128n-1n = no limit (u128).
+ * @param maxInventoryAbs      Max inventory in absolute units; 2n**128n-1n = no limit (u128).
+ * @param feeToInsuranceBps    Fee share routed to insurance fund in bps (u16).
+ * @param skewSpreadMultBps    Skew spread multiplier in bps; 0 = disabled (u16).
+ *
+ * @example
+ * ```ts
+ * // Passive matcher: no impact_k, no liquidity_notional
+ * const data = encodeInitMatcherCtx({
+ *   kind: 0,
+ *   tradingFeeBps: 30,
+ *   baseSpreadBps: 5,
+ *   maxTotalBps: 100,
+ *   impactKBps: 0,
+ *   liquidityNotionalE6: 0n,
+ *   maxFillAbs: 2n ** 128n - 1n,
+ *   maxInventoryAbs: 2n ** 128n - 1n,
+ *   feeToInsuranceBps: 1000,
+ *   skewSpreadMultBps: 0,
+ * });
+ * assert(data.length === 70);
+ * assert(data[0] === 83);
+ * ```
  */
 export interface InitMatcherCtxArgs {
-    /** LP account index in the engine (0-based). */
-    lpIdx: number;
-    /** Matcher kind: 0=Passive, 1=vAMM. */
+    /**
+     * LP account index — for caller bookkeeping only. NOT encoded in the wire.
+     * The wrapper identifies the LP from the lp_portfolio account (accounts[2]).
+     * @deprecated field has no wire effect; retained for backward compat with v12 callers.
+     */
+    lpIdx?: number;
+    /** Matcher kind: 0=Passive, 1=vAMM (u8). */
     kind: number;
-    /** Base trading fee in bps (e.g. 30 = 0.30%). */
+    /** Base trading fee in bps (u32, e.g. 30 = 0.30%). */
     tradingFeeBps: number;
-    /** Base spread in bps. */
+    /** Base spread in bps (u32). */
     baseSpreadBps: number;
-    /** Max total spread in bps. */
+    /** Maximum total spread in bps (u32). */
     maxTotalBps: number;
-    /** vAMM impact constant in bps (0 for passive matchers). */
+    /** vAMM impact constant in bps; 0 for passive matchers (u32). */
     impactKBps: number;
-    /** Liquidity notional in e6 units (0 for passive matchers). */
+    /** Liquidity notional in e6 units; 0 for passive matchers (u128). */
     liquidityNotionalE6: bigint | string;
-    /** Max single fill size in absolute units (u128::MAX = no limit). */
+    /** Max single fill size in absolute units; 2n**128n-1n = no limit (u128). */
     maxFillAbs: bigint | string;
-    /** Max inventory size in absolute units (u128::MAX = no limit). */
+    /** Max inventory size in absolute units; 2n**128n-1n = no limit (u128). */
     maxInventoryAbs: bigint | string;
-    /** Fraction of fees routed to insurance fund in bps. */
+    /** Fraction of fees routed to insurance fund in bps (u16). */
     feeToInsuranceBps: number;
-    /** Skew spread multiplier in bps (0 = disabled). */
+    /** Skew spread multiplier in bps; 0 = disabled (u16). */
     skewSpreadMultBps: number;
 }
-/** @deprecated v12.x InitMatcherCtx (old tag 75). v17 reuses tag 75 for DepositToLpVault. */
-export declare function encodeInitMatcherCtx(_args: InitMatcherCtxArgs): Uint8Array;
+/**
+ * Byte length of an InitMatcherCtx (tag 83) instruction payload sent to the wrapper program.
+ *
+ * Layout: tag(1) + kind(u8=1) + trading_fee_bps(u32=4) + base_spread_bps(u32=4) +
+ *         max_total_bps(u32=4) + impact_k_bps(u32=4) + liquidity_notional_e6(u128=16) +
+ *         max_fill_abs(u128=16) + max_inventory_abs(u128=16) +
+ *         fee_to_insurance_bps(u16=2) + skew_spread_mult_bps(u16=2) = 70 bytes total.
+ */
+export declare const INIT_MATCHER_CTX_LEN = 70;
+export declare function encodeInitMatcherCtx(args: InitMatcherCtxArgs): Uint8Array;
 /**
  * @deprecated v12.x SetInsuranceWithdrawPolicy (old tag 22). Not in v17.
  */
@@ -1795,7 +1912,8 @@ export interface SetLpCollateralParamsArgs {
 }
 export declare function encodeSetLpCollateralParams(_args: SetLpCollateralParamsArgs): Uint8Array;
 /**
- * @deprecated v12.x AcceptAdmin (old tag 82). v17 uses UpdateAuthority(32) for admin rotation.
+ * @deprecated v12.x AcceptAdmin (old tag 82). v17 reuses tag 82 for UnwrapEscrowedPortfolio.
+ * Sending this would emit a valid tag-82 byte but with wrong field layout — always throws.
  */
 export declare function encodeAcceptAdmin(): Uint8Array;
 /**

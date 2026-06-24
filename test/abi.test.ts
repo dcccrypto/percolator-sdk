@@ -56,6 +56,10 @@ import {
   encodeConfigureAuthMark,
   encodePushAuthMark,
   encodeMatcherInitPassive,
+  encodeUnwrapEscrowedPortfolio,
+  encodeInitMatcherCtx,
+  encodeAcceptAdmin,
+  INIT_MATCHER_CTX_LEN,
   derivePythPriceUpdateAccount,
   IX_TAG,
 } from "../src/abi/instructions.js";
@@ -1376,6 +1380,190 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   const loBytes = new Uint8Array(expectedLo.buffer);
   assert(data.subarray(34, 42).every((v, i) => v === loBytes[i]), "encodeMatcherInitPassive finite max_fill_abs low bytes");
   console.log("✓ encodeMatcherInitPassive finite max_fill_abs");
+}
+
+// ── v17 NEW: UnwrapEscrowedPortfolio (tag 82) ─────────────────────────────────
+// Wire: tag(1) + new_owner[32] = 33 bytes total
+{
+  const newOwner = new PublicKey("11111111111111111111111111111111");
+  const data = encodeUnwrapEscrowedPortfolio({ newOwner });
+  assert(data.length === 33, `UnwrapEscrowedPortfolio length: expected 33, got ${data.length}`);
+  assert(data[0] === 82, "UnwrapEscrowedPortfolio tag byte must be 82");
+  assert(data[0] === IX_TAG.UnwrapEscrowedPortfolio, "UnwrapEscrowedPortfolio IX_TAG == 82");
+  // new_owner[32] at [1..33] — system program = all zeros
+  const pkBytes = newOwner.toBytes();
+  assert(
+    data.subarray(1, 33).every((v, i) => v === pkBytes[i]),
+    "UnwrapEscrowedPortfolio new_owner bytes"
+  );
+  // Regression: must reject malformed pubkeys
+  assertThrowsMatch(
+    () => encodeUnwrapEscrowedPortfolio({ newOwner: { toBytes: () => new Uint8Array(31) } as any }),
+    /encPubkey:.*32 bytes/i,
+    "encodeUnwrapEscrowedPortfolio rejects malformed pubkey",
+  );
+  console.log("✓ encodeUnwrapEscrowedPortfolio (v17 tag 82, 33-byte wire)");
+}
+
+// ── v17 NEW: InitMatcherCtx (tag 83) — core devnet lynchpin ──────────────────
+// Wire: tag(1) + kind(u8) + trading_fee_bps(u32) + base_spread_bps(u32) +
+//       max_total_bps(u32) + impact_k_bps(u32) + liquidity_notional_e6(u128) +
+//       max_fill_abs(u128) + max_inventory_abs(u128) + fee_to_insurance_bps(u16) +
+//       skew_spread_mult_bps(u16) = 70 bytes total (all little-endian)
+{
+  const data = encodeInitMatcherCtx({
+    kind: 0,                          // Passive matcher
+    tradingFeeBps: 30,                // 0.30%
+    baseSpreadBps: 5,
+    maxTotalBps: 100,
+    impactKBps: 0,                    // passive: no impact
+    liquidityNotionalE6: 0n,          // passive: no notional
+    maxFillAbs: 2n ** 128n - 1n,      // u128::MAX = no limit
+    maxInventoryAbs: 2n ** 128n - 1n, // u128::MAX = no limit
+    feeToInsuranceBps: 1000,          // 10% to insurance
+    skewSpreadMultBps: 0,             // disabled
+  });
+
+  // Length gate — must be exactly INIT_MATCHER_CTX_LEN = 70
+  assert(data.length === INIT_MATCHER_CTX_LEN, `InitMatcherCtx length: expected ${INIT_MATCHER_CTX_LEN}, got ${data.length}`);
+  assert(data.length === 70, "InitMatcherCtx length == 70");
+
+  // Tag byte
+  assert(data[0] === 83, "InitMatcherCtx tag byte must be 83");
+  assert(data[0] === IX_TAG.InitMatcherCtx, "InitMatcherCtx IX_TAG == 83");
+
+  // kind = 0 at [1]
+  assert(data[1] === 0, "InitMatcherCtx kind=0 (Passive)");
+
+  // trading_fee_bps = 30 (u32 LE) at [2..6]
+  assertBuf(data.subarray(2, 6), [30, 0, 0, 0], "InitMatcherCtx trading_fee_bps=30 u32 LE");
+
+  // base_spread_bps = 5 (u32 LE) at [6..10]
+  assertBuf(data.subarray(6, 10), [5, 0, 0, 0], "InitMatcherCtx base_spread_bps=5 u32 LE");
+
+  // max_total_bps = 100 (u32 LE) at [10..14]
+  assertBuf(data.subarray(10, 14), [100, 0, 0, 0], "InitMatcherCtx max_total_bps=100 u32 LE");
+
+  // impact_k_bps = 0 (u32 LE) at [14..18]
+  assertBuf(data.subarray(14, 18), [0, 0, 0, 0], "InitMatcherCtx impact_k_bps=0 u32 LE");
+
+  // liquidity_notional_e6 = 0n (u128 LE) at [18..34]
+  assertBuf(
+    data.subarray(18, 34),
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    "InitMatcherCtx liquidity_notional_e6=0 u128 LE"
+  );
+
+  // max_fill_abs = u128::MAX (u128 LE) at [34..50] — all 0xFF
+  assertBuf(
+    data.subarray(34, 50),
+    [0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF],
+    "InitMatcherCtx max_fill_abs=u128::MAX"
+  );
+
+  // max_inventory_abs = u128::MAX (u128 LE) at [50..66] — all 0xFF
+  assertBuf(
+    data.subarray(50, 66),
+    [0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF],
+    "InitMatcherCtx max_inventory_abs=u128::MAX"
+  );
+
+  // fee_to_insurance_bps = 1000 = 0x03E8 LE at [66..68]
+  assertBuf(data.subarray(66, 68), [0xE8, 0x03], "InitMatcherCtx fee_to_insurance_bps=1000 u16 LE");
+
+  // skew_spread_mult_bps = 0 (u16 LE) at [68..70]
+  assertBuf(data.subarray(68, 70), [0, 0], "InitMatcherCtx skew_spread_mult_bps=0 u16 LE");
+
+  console.log("✓ encodeInitMatcherCtx (v17 tag 83, 70-byte wire, passive kind=0)");
+}
+
+// vAMM InitMatcherCtx — verify kind=1 and non-zero liquidity_notional_e6
+{
+  const data = encodeInitMatcherCtx({
+    kind: 1,                              // vAMM
+    tradingFeeBps: 50,
+    baseSpreadBps: 10,
+    maxTotalBps: 200,
+    impactKBps: 500,
+    liquidityNotionalE6: 1_000_000_000n, // 1000 USDC in e6
+    maxFillAbs: 500_000_000n,
+    maxInventoryAbs: 1_000_000_000n,
+    feeToInsuranceBps: 500,
+    skewSpreadMultBps: 100,
+  });
+  assert(data.length === 70, "InitMatcherCtx vAMM length=70");
+  assert(data[0] === 83, "InitMatcherCtx vAMM tag=83");
+  assert(data[1] === 1, "InitMatcherCtx vAMM kind=1");
+  // impact_k_bps = 500 = 0x01F4 (u32 LE) at [14..18]
+  assertBuf(data.subarray(14, 18), [0xF4, 0x01, 0, 0], "InitMatcherCtx vAMM impact_k_bps=500 u32 LE");
+  // liquidity_notional_e6 = 1_000_000_000 (u128 LE) at [18..34]
+  // 1_000_000_000 = 0x3B9ACA00 → LE bytes: [0x00, 0xCA, 0x9A, 0x3B, 0,0,0,0, 0,0,0,0, 0,0,0,0]
+  assertBuf(
+    data.subarray(18, 22),
+    [0x00, 0xCA, 0x9A, 0x3B],
+    "InitMatcherCtx vAMM liquidity_notional_e6 low 4 bytes"
+  );
+  // skew_spread_mult_bps = 100 = 0x64 at [68..70]
+  assertBuf(data.subarray(68, 70), [100, 0], "InitMatcherCtx vAMM skew_spread_mult_bps=100");
+  console.log("✓ encodeInitMatcherCtx (vAMM kind=1 with non-zero fields)");
+}
+
+// InitMatcherCtx input validation
+{
+  // lpIdx is silently ignored (not in wire)
+  const dataWithLpIdx = encodeInitMatcherCtx({
+    lpIdx: 42,                       // MUST be ignored — not in v17 wire
+    kind: 0,
+    tradingFeeBps: 30,
+    baseSpreadBps: 5,
+    maxTotalBps: 100,
+    impactKBps: 0,
+    liquidityNotionalE6: 0n,
+    maxFillAbs: 2n ** 128n - 1n,
+    maxInventoryAbs: 2n ** 128n - 1n,
+    feeToInsuranceBps: 0,
+    skewSpreadMultBps: 0,
+  });
+  assert(dataWithLpIdx.length === 70, "InitMatcherCtx with lpIdx still 70 bytes (lpIdx ignored)");
+  assert(dataWithLpIdx[0] === 83, "InitMatcherCtx with lpIdx tag=83");
+
+  // kind must be 0 or 1
+  assertThrowsMatch(
+    () => encodeInitMatcherCtx({ kind: 2, tradingFeeBps: 0, baseSpreadBps: 0, maxTotalBps: 0, impactKBps: 0, liquidityNotionalE6: 0n, maxFillAbs: 0n, maxInventoryAbs: 0n, feeToInsuranceBps: 0, skewSpreadMultBps: 0 }),
+    /kind must be 0.*1/,
+    "encodeInitMatcherCtx rejects kind=2",
+  );
+
+  // feeToInsuranceBps u16 overflow
+  assertThrowsMatch(
+    () => encodeInitMatcherCtx({ kind: 0, tradingFeeBps: 0, baseSpreadBps: 0, maxTotalBps: 0, impactKBps: 0, liquidityNotionalE6: 0n, maxFillAbs: 0n, maxInventoryAbs: 0n, feeToInsuranceBps: 65536, skewSpreadMultBps: 0 }),
+    /feeToInsuranceBps/,
+    "encodeInitMatcherCtx rejects feeToInsuranceBps > 65535",
+  );
+
+  console.log("✓ encodeInitMatcherCtx input validation (kind gate, u16 range, lpIdx ignored)");
+}
+
+// ── Stale-collision encoders that MUST throw — tags 82 and 83 ─────────────────
+// encodeAcceptAdmin references the deprecated v12 tag 82, which is now
+// UnwrapEscrowedPortfolio in v17. It must always throw to prevent silent ABI collision.
+{
+  assertThrowsMatch(
+    () => encodeAcceptAdmin(),
+    /AcceptAdmin.*82.*UnwrapEscrowedPortfolio/i,
+    "encodeAcceptAdmin throws (v12 tag 82 = v17 UnwrapEscrowedPortfolio collision)",
+  );
+  console.log("✓ encodeAcceptAdmin throws (tag 82 stale collision neutralized)");
+}
+
+// IX_TAG completeness — verify tags 82 and 83 are correct
+{
+  assert(IX_TAG.UnwrapEscrowedPortfolio === 82, "IX_TAG.UnwrapEscrowedPortfolio=82");
+  assert(IX_TAG.InitMatcherCtx === 83, "IX_TAG.InitMatcherCtx=83");
+  // Confirm stale v12 stub key is gone (InitMatcherCtxV12Stub should be 75 for bookkeeping)
+  // The real DepositToLpVault must still be at 75
+  assert(IX_TAG.DepositToLpVault === 75, "IX_TAG.DepositToLpVault=75 (not displaced by InitMatcherCtx)");
+  console.log("✓ IX_TAG.UnwrapEscrowedPortfolio=82, IX_TAG.InitMatcherCtx=83, IX_TAG.DepositToLpVault=75 (no collision)");
 }
 
 console.log("\n✅ All tests passed!");
