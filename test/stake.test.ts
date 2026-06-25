@@ -30,9 +30,14 @@ import {
   STAKE_POOL_DISCRIMINATOR,
   STAKE_POOL_CURRENT_VERSION,
   STAKE_DEPOSIT_DISCRIMINATOR,
+  STAKE_POOL_SIZE_V1,
+  STAKE_POOL_SIZE_V2,
 } from "../src/solana/stake.js";
 
+// v2 _reserved starts at offset 320 (after pending_admin [u8;32] at 288..320)
 const STAKE_POOL_RESERVED_OFFSET = 320;
+// v1 _reserved starts at offset 288 (no pending_admin; deployed binary layout)
+const STAKE_POOL_RESERVED_OFFSET_V1 = 288;
 const STAKE_DEPOSIT_RESERVED_OFFSET = 88;
 const TEST_POOL = new PublicKey("FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD");
 const TEST_USER = new PublicKey("GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24");
@@ -210,14 +215,15 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(data.length).toBe(1);
   });
 
-  it("decodeStakePool reads marketResolved and HWM fields from current reserved offsets", () => {
-    // v2 StakePool: 384 bytes (was 352 in v1). pending_admin [u8;32] added at offset 288.
-    // _reserved (64 bytes) now starts at offset 320 (was 288 in v1).
-    const buf = new Uint8Array(384);
+  it("decodeStakePool (v2, 384 bytes) reads marketResolved and HWM fields from correct reserved offsets", () => {
+    // v2 StakePool: 384 bytes. pending_admin [u8;32] added at offset 288.
+    // _reserved (64 bytes) starts at offset 320 in v2.
+    // _reserved[9] bit 0 = market_resolved, bit 1 = hwm_enabled (state.rs:209).
+    // _reserved[10..12] = hwm_floor_bps (u16 LE).
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V2);
     const dv = new DataView(buf.buffer);
     buf[0] = 1;
     buf[1] = 2;
-    // _padding: bytes 4..8 (4 bytes)
     buf.set(PublicKey.default.toBytes(), 8);   // slab @ 8
     buf.set(PublicKey.default.toBytes(), 40);  // admin @ 40
     buf.set(PublicKey.default.toBytes(), 72);  // collateralMint @ 72
@@ -235,22 +241,121 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     dv.setBigUint64(264, 9n, true);  // lastFeeAccrualSlot
     dv.setBigUint64(272, 10n, true); // lastVaultSnapshot
     // poolMode @ 280 (u8), _mode_padding @ 281..288 (7 bytes)
-    // pending_admin [u8;32] @ 288..320 (new in v2; zeros = no pending proposal)
-    // _reserved (64 bytes) starts at 320 in v2 (was 288 in v1)
-    const reservedStart = 320;
-    stampStakePoolIdentity(buf);
-    buf[reservedStart + 9] = 1;   // market_resolved = true
-    buf[reservedStart + 10] = 1;  // hwm_enabled = true
-    dv.setUint16(reservedStart + 11, 777, true);   // hwm_floor_bps
+    // pending_admin [u8;32] @ 288..320 (zeros = no pending proposal)
+    // _reserved (64 bytes) @ 320..384
+    const reservedStart = STAKE_POOL_RESERVED_OFFSET; // 320
+    stampStakePoolIdentity(buf); // writes discriminator at 320..328, version at 328
+    // _reserved[9] = flags: bit 0 = market_resolved, bit 1 = hwm_enabled
+    buf[reservedStart + 9] = 0x03; // both bits set: market_resolved=1, hwm_enabled=1
+    dv.setUint16(reservedStart + 10, 777, true); // hwm_floor_bps at _reserved[10..12]
     dv.setBigUint64(reservedStart + 16, 123n, true); // epoch_high_water_tvl
     dv.setBigUint64(reservedStart + 24, 456n, true); // hwm_last_epoch
 
     const pool = decodeStakePool(buf);
+    expect(pool.layoutVersion).toBe(2);
     expect(pool.marketResolved).toBe(true);
     expect(pool.hwmEnabled).toBe(true);
     expect(pool.epochHighWaterTvl).toBe(123n);
     expect(pool.hwmFloorBps).toBe(777);
     expect(pool.hwmLastEpoch).toBe(456n);
+    expect(pool.pendingAdmin).toBeNull(); // zeros = no pending proposal
+  });
+
+  it("decodeStakePool (v1, 352 bytes — deployed binary) round-trips all scalar fields", () => {
+    // Deployed stake program (51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ) uses the
+    // 352-byte v1 layout. _reserved (64 bytes) starts at offset 288. No pending_admin.
+    // discriminator at [288..296], version byte 1 at [296].
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V1); // 352
+    const dv = new DataView(buf.buffer);
+
+    // Header
+    buf[0] = 1; // is_initialized
+    buf[1] = 42; // bump
+    buf[2] = 13; // vault_authority_bump
+    buf[3] = 1;  // admin_transferred
+    // _padding [4..8] zeros
+
+    // 5 pubkeys at [8..168]
+    buf.set(TEST_POOL.toBytes(), 8);           // slab
+    buf.set(TEST_USER.toBytes(), 40);          // admin
+    buf.set(PublicKey.default.toBytes(), 72);  // collateral_mint
+    buf.set(PublicKey.default.toBytes(), 104); // lp_mint
+    buf.set(PublicKey.default.toBytes(), 136); // vault
+
+    // u64 accounting fields [168..224]
+    dv.setBigUint64(168, 1_000_000n, true); // total_deposited
+    dv.setBigUint64(176, 500_000n, true);   // total_lp_supply
+    dv.setBigUint64(184, 2_000n, true);     // cooldown_slots
+    dv.setBigUint64(192, 5_000_000n, true); // deposit_cap
+    dv.setBigUint64(200, 100_000n, true);   // total_flushed
+    dv.setBigUint64(208, 50_000n, true);    // total_returned
+    dv.setBigUint64(216, 200_000n, true);   // total_withdrawn
+
+    // percolator_program [224..256]
+    buf.set(PublicKey.default.toBytes(), 224);
+
+    // PERC-272 fields [256..288]
+    dv.setBigUint64(256, 7_777n, true);  // total_fees_earned
+    dv.setBigUint64(264, 8_888n, true);  // last_fee_accrual_slot
+    dv.setBigUint64(272, 9_999n, true);  // last_vault_snapshot
+    buf[280] = 1; // pool_mode = 1 (trading LP)
+    // _mode_padding [281..288] zeros
+
+    // _reserved [288..352] — discriminator + version at [288..297]
+    const reservedStart = STAKE_POOL_RESERVED_OFFSET_V1; // 288
+    // Write discriminator (STAKE_POOL_DISCRIMINATOR = "SPOOL_V1")
+    buf.set(STAKE_POOL_DISCRIMINATOR, reservedStart);
+    // Version byte at _reserved[8] = buf[296]
+    buf[reservedStart + 8] = 1; // v1
+    // flags byte at _reserved[9]: bit 0 = market_resolved, bit 1 = hwm_enabled
+    buf[reservedStart + 9] = 0x02; // hwm_enabled=1, market_resolved=0
+    dv.setUint16(reservedStart + 10, 5000, true); // hwm_floor_bps
+    dv.setBigUint64(reservedStart + 16, 111n, true); // epoch_high_water_tvl
+    dv.setBigUint64(reservedStart + 24, 222n, true); // hwm_last_epoch
+
+    const pool = decodeStakePool(buf);
+
+    // Layout detection
+    expect(pool.layoutVersion).toBe(1);
+    // v1 never has pending_admin
+    expect(pool.pendingAdmin).toBeNull();
+
+    // Header fields
+    expect(pool.isInitialized).toBe(true);
+    expect(pool.bump).toBe(42);
+    expect(pool.vaultAuthorityBump).toBe(13);
+    expect(pool.adminTransferred).toBe(true);
+
+    // Pubkeys
+    expect(pool.slab.toBase58()).toBe(TEST_POOL.toBase58());
+    expect(pool.admin.toBase58()).toBe(TEST_USER.toBase58());
+
+    // Accounting
+    expect(pool.totalDeposited).toBe(1_000_000n);
+    expect(pool.totalLpSupply).toBe(500_000n);
+    expect(pool.cooldownSlots).toBe(2_000n);
+    expect(pool.depositCap).toBe(5_000_000n);
+    expect(pool.totalFlushed).toBe(100_000n);
+    expect(pool.totalReturned).toBe(50_000n);
+    expect(pool.totalWithdrawn).toBe(200_000n);
+
+    // PERC-272
+    expect(pool.totalFeesEarned).toBe(7_777n);
+    expect(pool.lastFeeAccrualSlot).toBe(8_888n);
+    expect(pool.lastVaultSnapshot).toBe(9_999n);
+    expect(pool.poolMode).toBe(1);
+
+    // _reserved flags and HWM
+    expect(pool.marketResolved).toBe(false);
+    expect(pool.hwmEnabled).toBe(true);
+    expect(pool.hwmFloorBps).toBe(5000);
+    expect(pool.epochHighWaterTvl).toBe(111n);
+    expect(pool.hwmLastEpoch).toBe(222n);
+  });
+
+  it("decodeStakePool rejects buffers shorter than v1 minimum (352 bytes)", () => {
+    const buf = new Uint8Array(300);
+    expect(() => decodeStakePool(buf)).toThrow(/StakePool data too short/);
   });
 
   it("rejects stake-pool-shaped bytes with a missing discriminator", () => {
@@ -258,11 +363,20 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(() => decodeStakePool(buf)).toThrow(/StakePool invalid discriminator/);
   });
 
-  it("rejects stake pools with a stale or unsupported version byte", () => {
-    const buf = new Uint8Array(384);
+  it("rejects stake pools with a mismatched version byte (v2 layout with version != 2)", () => {
+    // 384-byte buffer triggers v2 layout detection (expects version = 2).
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V2);
     stampStakePoolIdentity(buf);
-    buf[STAKE_POOL_RESERVED_OFFSET + 8] = STAKE_POOL_CURRENT_VERSION - 1;
-    expect(() => decodeStakePool(buf)).toThrow(/StakePool unsupported version/);
+    buf[STAKE_POOL_RESERVED_OFFSET + 8] = 0; // wrong version for v2
+    expect(() => decodeStakePool(buf)).toThrow(/StakePool version mismatch/);
+  });
+
+  it("rejects stake pools with a mismatched version byte (v1 layout with version != 1)", () => {
+    // 352-byte buffer triggers v1 layout detection (expects version = 1).
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V1);
+    buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V1);
+    buf[STAKE_POOL_RESERVED_OFFSET_V1 + 8] = 2; // wrong version for v1 layout
+    expect(() => decodeStakePool(buf)).toThrow(/StakePool version mismatch/);
   });
 
   it("rejects stake-deposit-shaped bytes with a missing discriminator", () => {
@@ -322,5 +436,36 @@ describe("stake PDA derivation", () => {
     const slab2 = new PublicKey("GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24");
     const [pda1] = deriveStakePool(slab, STAKE_PROGRAM_ID);
     const [pda2] = deriveStakePool(slab2, STAKE_PROGRAM_ID);
-    expect(pda1.equals(pda2)).toBe(false);  });
+    expect(pda1.equals(pda2)).toBe(false);
+  });
+});
+
+// ============================================================================
+// Bug-fix: initPoolAccounts slab must be writable (BUG A)
+// ============================================================================
+
+describe("initPoolAccounts — BUG A: slab must be writable", () => {
+  it("initPoolAccounts returns slab (index 1) with isWritable=true", async () => {
+    // Deployed program (51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ) at processor.rs:316
+    // explicitly checks `!slab.is_writable` and returns ProgramError::InvalidArgument if false.
+    // The wrapper UpdateAuthority CPI performed inside process_init_pool mutates the slab
+    // (transfers admin authority to the pool PDA), which requires the account to be writable
+    // in the outer transaction's account list.
+    const { initPoolAccounts } = await import("../src/solana/stake.js");
+    const dummy = PublicKey.default;
+    const accounts = initPoolAccounts({
+      admin: dummy,
+      slab: dummy,
+      pool: dummy,
+      lpMint: dummy,
+      vault: dummy,
+      vaultAuth: dummy,
+      collateralMint: dummy,
+      percolatorProgram: dummy,
+    });
+    // slab is at index 1
+    const slabMeta = accounts[1];
+    expect(slabMeta.isSigner).toBe(false);
+    expect(slabMeta.isWritable).toBe(true);
+  });
 });

@@ -424,10 +424,39 @@ export function encodeStakeAdminSetInsurancePolicy(
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Decoded StakePool state (384 bytes on-chain — stake v2).
- * v2 adds `pending_admin` ([u8;32]) at offset 288 for the two-step admin-rotation
- * primitive (ProposeAdmin tag 5 / AcceptAdmin tag 6). Struct grew 352 → 384.
- * Includes PERC-272 (fee yield), PERC-313 (HWM), and PERC-303 (tranches).
+ * Decoded StakePool state.
+ *
+ * Supports two on-chain layouts detected by account size:
+ *   - v1 (352 bytes): deployed binary at 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ.
+ *     _reserved (64 bytes) starts at offset 288. No pending_admin field.
+ *     discriminator+version reside at _reserved[0..9] = bytes[288..297].
+ *   - v2 (384 bytes): pending_admin ([u8;32]) added at offset 288; _reserved moves to 320.
+ *
+ * Field offsets (v1 layout, source of truth: /tmp/v39/src/state.rs):
+ *   [0]       is_initialized  u8
+ *   [1]       bump            u8
+ *   [2]       vault_authority_bump u8
+ *   [3]       admin_transferred u8
+ *   [4..8]    _padding        [u8;4]
+ *   [8..40]   slab            [u8;32]
+ *   [40..72]  admin           [u8;32]
+ *   [72..104] collateral_mint [u8;32]
+ *   [104..136] lp_mint        [u8;32]
+ *   [136..168] vault          [u8;32]
+ *   [168..176] total_deposited u64
+ *   [176..184] total_lp_supply u64
+ *   [184..192] cooldown_slots  u64
+ *   [192..200] deposit_cap     u64
+ *   [200..208] total_flushed   u64
+ *   [208..216] total_returned  u64
+ *   [216..224] total_withdrawn u64
+ *   [224..256] percolator_program [u8;32]
+ *   [256..264] total_fees_earned u64
+ *   [264..272] last_fee_accrual_slot u64
+ *   [272..280] last_vault_snapshot u64
+ *   [280]     pool_mode       u8
+ *   [281..288] _mode_padding  [u8;7]
+ *   [288..352] _reserved      [u8;64]  <- discriminator at [288], version at [296]
  */
 export interface StakePoolState {
   isInitialized: boolean;
@@ -453,8 +482,8 @@ export interface StakePoolState {
   percolatorProgram: PublicKey;
 
   /**
-   * Pending admin for the two-step rotation (stake v2, offset 288).
-   * `null` when no proposal is outstanding (all-zero bytes on-chain).
+   * Pending admin for the two-step rotation (stake v2 only, offset 288).
+   * Always `null` for v1 accounts (352 bytes) — field does not exist.
    * Set by ProposeAdmin (tag 5); consumed by AcceptAdmin (tag 6).
    */
   pendingAdmin: PublicKey | null;
@@ -469,45 +498,114 @@ export interface StakePoolState {
   // [0..8]   discriminator
   // [8]      version
   // [9]      market_resolved
-  // [10..32] PERC-313 HWM
+  // [10..12] hwm_enabled (u8) + hwm_floor_bps (u16 LE)
+  // [16..32] epoch_high_water_tvl (u64) + hwm_last_epoch (u64)
   // [32..51] PERC-303 tranches
   // [51..64] free
 
-  // PERC-313: HWM fields (from _reserved[10..32])
+  // PERC-313: HWM fields
   hwmEnabled: boolean;
   epochHighWaterTvl: bigint;
   hwmFloorBps: number;
   hwmLastEpoch: bigint;
 
-  // PERC-303: Tranche fields (from _reserved[32..51])
+  // PERC-303: Tranche fields
   trancheEnabled: boolean;
   juniorBalance: bigint;
   juniorTotalLp: bigint;
   juniorFeeMultBps: number;
+
+  /** Layout version detected from account size: 1 = 352-byte deployed binary, 2 = 384-byte extended. */
+  layoutVersion: 1 | 2;
 }
 
 /**
- * Size of StakePool on-chain (bytes).
- * v2: 384 (stake v1 was 352; `pending_admin: [u8;32]` added at offset 288).
+ * Deployed v1 StakePool size (bytes).
+ * Source: /tmp/v39/src/state.rs test_stake_pool_size assertion. No pending_admin field.
  */
-export const STAKE_POOL_SIZE = 384;
-export const STAKE_POOL_DISCRIMINATOR = new Uint8Array([0x53, 0x50, 0x4f, 0x4f, 0x4c, 0x5f, 0x56, 0x31]);
-export const STAKE_POOL_CURRENT_VERSION = 2;
-const STAKE_POOL_RESERVED_OFFSET = 320;
+export const STAKE_POOL_SIZE_V1 = 352;
 
 /**
- * Decode a StakePool account from raw data buffer. * Uses DataView for all u64/u16 reads — browser-safe.
+ * Extended v2 StakePool size (bytes).
+ * v2 adds pending_admin ([u8;32]) at offset 288; _reserved moves to 320. Struct grew 352 → 384.
+ */
+export const STAKE_POOL_SIZE_V2 = 384;
+
+/**
+ * Current maximum known StakePool size. Use for upper-bound checks.
+ * @deprecated Prefer STAKE_POOL_SIZE_V1 / STAKE_POOL_SIZE_V2 for version-aware code.
+ */
+export const STAKE_POOL_SIZE = STAKE_POOL_SIZE_V2;
+
+export const STAKE_POOL_DISCRIMINATOR = new Uint8Array([0x53, 0x50, 0x4f, 0x4f, 0x4c, 0x5f, 0x56, 0x31]);
+
+/**
+ * Version byte stored at _reserved[8] for v2 accounts.
+ * v1 accounts have version 1 at the same relative position inside _reserved.
+ */
+export const STAKE_POOL_CURRENT_VERSION = 2;
+
+/** _reserved start offset for v1 accounts (352-byte layout, no pending_admin). */
+const STAKE_POOL_RESERVED_OFFSET_V1 = 288;
+/** _reserved start offset for v2 accounts (384-byte layout, pending_admin at 288..320). */
+const STAKE_POOL_RESERVED_OFFSET_V2 = 320;
+/** Exported for test files that reference the old single constant. */
+const STAKE_POOL_RESERVED_OFFSET = STAKE_POOL_RESERVED_OFFSET_V2;
+export { STAKE_POOL_RESERVED_OFFSET };
+
+/**
+ * Decode a StakePool account from raw data buffer.
+ *
+ * Supports both deployed layouts by detecting account size:
+ *   352 bytes → v1 layout (_reserved at 288, no pending_admin, version byte = 1)
+ *   384 bytes → v2 layout (_reserved at 320, pending_admin at 288, version byte = 2)
+ *
+ * Uses DataView for all multi-byte reads — browser-safe, no Node.js Buffer dependency.
+ *
+ * @param data - Raw account data bytes from the RPC response.
+ * @returns Decoded StakePoolState with layoutVersion indicating which layout was used.
+ * @throws If data is too short, discriminator is wrong, or version is unrecognised.
+ *
+ * @example
+ * ```typescript
+ * const accountInfo = await connection.getAccountInfo(poolPda);
+ * const pool = decodeStakePool(new Uint8Array(accountInfo.data));
+ * console.log(pool.totalDeposited, pool.layoutVersion);
+ * ```
  */
 export function decodeStakePool(data: Uint8Array): StakePoolState {
-  if (data.length < STAKE_POOL_SIZE) {
-    throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE}`);
+  // ── layout detection ──────────────────────────────────────────
+  let reservedStart: number;
+  let layoutVersion: 1 | 2;
+
+  if (data.length === STAKE_POOL_SIZE_V1) {
+    reservedStart = STAKE_POOL_RESERVED_OFFSET_V1;
+    layoutVersion = 1;
+  } else if (data.length >= STAKE_POOL_SIZE_V2) {
+    reservedStart = STAKE_POOL_RESERVED_OFFSET_V2;
+    layoutVersion = 2;
+  } else {
+    throw new Error(
+      `StakePool data too short: ${data.length} bytes. ` +
+      `Expected ${STAKE_POOL_SIZE_V1} (v1) or ${STAKE_POOL_SIZE_V2}+ (v2).`,
+    );
   }
-  requireDiscriminator("StakePool", data, STAKE_POOL_RESERVED_OFFSET, STAKE_POOL_DISCRIMINATOR);
-  const version = data[STAKE_POOL_RESERVED_OFFSET + 8];
-  if (version !== STAKE_POOL_CURRENT_VERSION) {
-    throw new Error(`StakePool unsupported version: ${version} !== ${STAKE_POOL_CURRENT_VERSION}`);
+
+  requireDiscriminator("StakePool", data, reservedStart, STAKE_POOL_DISCRIMINATOR);
+
+  const version = data[reservedStart + 8];
+  const expectedVersion = layoutVersion;
+  if (version !== expectedVersion) {
+    throw new Error(
+      `StakePool version mismatch for ${STAKE_POOL_SIZE_V1 === data.length ? 'v1' : 'v2'} layout: ` +
+      `got version ${version}, expected ${expectedVersion}`,
+    );
   }
-  const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);  let off = 0;
+
+  // ── field parsing (offsets identical in v1 and v2 up to byte 288) ─
+  const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  let off = 0;
+
   const isInitialized = bytes[off] === 1; off += 1;
   const bump = bytes[off]; off += 1;
   const vaultAuthorityBump = bytes[off]; off += 1;
@@ -520,6 +618,7 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   const lpMint = new PublicKey(bytes.subarray(off, off + 32)); off += 32;
   const vault = new PublicKey(bytes.subarray(off, off + 32)); off += 32;
 
+  // off == 168 here (both layouts)
   const totalDeposited = readU64LE(bytes, off); off += 8;
   const totalLpSupply = readU64LE(bytes, off); off += 8;
   const cooldownSlots = readU64LE(bytes, off); off += 8;
@@ -528,35 +627,40 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   const totalReturned = readU64LE(bytes, off); off += 8;
   const totalWithdrawn = readU64LE(bytes, off); off += 8;
 
+  // off == 224 (both layouts)
   const percolatorProgram = new PublicKey(bytes.subarray(off, off + 32)); off += 32;
 
-  // PERC-272 fields
+  // off == 256 — PERC-272 fields (both layouts)
   const totalFeesEarned = readU64LE(bytes, off); off += 8;
   const lastFeeAccrualSlot = readU64LE(bytes, off); off += 8;
   const lastVaultSnapshot = readU64LE(bytes, off); off += 8;
   const poolMode = bytes[off]; off += 1;
   off += 7; // _mode_padding
 
-  // stake v2: pending_admin [u8;32] at offset 288 (ProposeAdmin/AcceptAdmin two-step rotation).
-  // Zero bytes = no pending proposal.
-  const pendingAdminBytes = bytes.subarray(off, off + 32); off += 32;
-  const pendingAdmin = pendingAdminBytes.every(b => b === 0)
-    ? null
-    : new PublicKey(pendingAdminBytes);
+  // off == 288 — layout diverges here
+  let pendingAdmin: PublicKey | null = null;
+  if (layoutVersion === 2) {
+    // v2: pending_admin [u8;32] at 288..320
+    const pendingAdminBytes = bytes.subarray(off, off + 32); off += 32;
+    pendingAdmin = pendingAdminBytes.every(b => b === 0)
+      ? null
+      : new PublicKey(pendingAdminBytes);
+  }
+  // v1: off stays at 288, which is exactly where _reserved begins
 
-  // _reserved (64 bytes) starts at offset 320 in v2 (after pending_admin)
-  const reservedStart = off;
-  // _reserved[8] = version (skipped)
+  // off == reservedStart == 288 (v1) or 320 (v2)
+  // _reserved[8] = version (already read above)
   // _reserved[9] = market_resolved
-  // PERC-313: _reserved[10] = hwm_enabled, [11..13] = hwm_floor_bps (u16),
-  // [16..24] = epoch_high_water_tvl (u64), [24..32] = hwm_last_epoch (u64)
-  const marketResolved = bytes[reservedStart + 9] === 1;
-  const hwmEnabled = bytes[reservedStart + 10] === 1;
-  const hwmFloorBps = readU16LE(bytes, reservedStart + 11);
+  const marketResolved = (bytes[reservedStart + 9] & 0x01) !== 0;
+
+  // PERC-313: HWM — _reserved[10] = hwm_enabled (bit 1), [10..12] = hwm_floor_bps (u16 LE)
+  // Note: state.rs stores hwm_enabled in _reserved[9] bit 1, hwm_floor_bps at [10..12].
+  const hwmEnabled = (bytes[reservedStart + 9] & 0x02) !== 0;
+  const hwmFloorBps = readU16LE(bytes, reservedStart + 10);
   const epochHighWaterTvl = readU64LE(bytes, reservedStart + 16);
   const hwmLastEpoch = readU64LE(bytes, reservedStart + 24);
 
-  // PERC-303: _reserved[32] = tranche_enabled, [33..41] = junior_balance, [41..49] = junior_total_lp, [49..51] = junior_fee_mult_bps
+  // PERC-303: Tranches — _reserved[32..51]
   const trancheEnabled = bytes[reservedStart + 32] === 1;
   const juniorBalance = readU64LE(bytes, reservedStart + 33);
   const juniorTotalLp = readU64LE(bytes, reservedStart + 41);
@@ -594,6 +698,7 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
     juniorBalance,
     juniorTotalLp,
     juniorFeeMultBps,
+    layoutVersion,
   };
 }
 
@@ -708,7 +813,11 @@ export function initPoolAccounts(
 ) {
   return [
     { pubkey: a.admin, isSigner: true, isWritable: true },
-    { pubkey: a.slab, isSigner: false, isWritable: false },
+    // slab must be writable: process_init_pool performs a wrapper UpdateAuthority CPI
+    // that mutates the slab (transfers admin authority to the pool PDA). The deployed
+    // program explicitly checks `!slab.is_writable` and returns InvalidArgument if false.
+    // See /tmp/v39/src/processor.rs:316.
+    { pubkey: a.slab, isSigner: false, isWritable: true },
     { pubkey: a.pool, isSigner: false, isWritable: true },
     { pubkey: a.lpMint, isSigner: false, isWritable: true },
     { pubkey: a.vault, isSigner: false, isWritable: true },

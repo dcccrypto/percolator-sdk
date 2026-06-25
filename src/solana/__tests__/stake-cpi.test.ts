@@ -114,10 +114,12 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       expect(keys[0].isSigner).toBe(true);
       expect(keys[0].isWritable).toBe(true);
 
-      // Account 1: slab — read-only (stake reads slab config but doesn't mutate it)
+      // Account 1: slab — writable (process_init_pool performs a wrapper UpdateAuthority CPI
+      // that mutates the slab to transfer admin authority to the pool PDA; deployed binary
+      // explicitly checks `!slab.is_writable` at processor.rs:316 and returns InvalidArgument).
       expect(keys[1].pubkey.equals(slab.publicKey)).toBe(true);
       expect(keys[1].isSigner).toBe(false);
-      expect(keys[1].isWritable).toBe(false);
+      expect(keys[1].isWritable).toBe(true);
 
       // Account 2: pool PDA — writable (created in this ix)
       expect(keys[2].pubkey.equals(pool)).toBe(true);
