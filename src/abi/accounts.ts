@@ -827,18 +827,23 @@ export const ACCOUNTS_UPDATE_HYPERP_MARK: readonly AccountSpec[] = [
  *
  * v17 wire account layout (v16_program.rs handle_create_lp_vault):
  *   [0] admin          signer, writable (marketauth — pays for PDA creation)
- *   [1] market         read-only (market-group slab; program-owned)
+ *   [1] market         writable (market-group slab; program-owned)
  *   [2] registry       writable (LpVaultRegistry PDA — derived via deriveLpVaultRegistry())
  *   [3] lpMint         writable (LP share mint PDA — derived via deriveLpVaultMint())
  *   [4] systemProgram  read-only (required for create_account CPI)
  *   [5] tokenProgram   read-only
+ *
+ * market must be WRITABLE: handle_create_lp_vault calls expect_writable(market_ai) and
+ * writes backing_bucket_authority into the market's asset oracle profile at the end of
+ * the handler (/tmp/wrap-recon/src/v16_program.rs:11877). Read-only would be rejected
+ * with a writable-check error.
  *
  * v12 stale accounts removed: vaultAuthority, rent (Rent::get() used instead).
  * registry replaces lpVaultState; lpMint replaces lpVaultMint.
  */
 export const ACCOUNTS_CREATE_LP_VAULT: readonly AccountSpec[] = [
   { name: "admin", signer: true, writable: true },
-  { name: "market", signer: false, writable: false },
+  { name: "market", signer: false, writable: true },
   { name: "registry", signer: false, writable: true },
   { name: "lpMint", signer: false, writable: true },
   { name: "systemProgram", signer: false, writable: false },
@@ -1108,21 +1113,40 @@ export const ACCOUNTS_SET_DEX_POOL: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// InitMatcherCtx (tag 75)
+// InitMatcherCtx (tag 83) — v17 wire
 // ============================================================================
 
 /**
- * InitMatcherCtx: 5 accounts
- * Admin CPI-initializes the matcher context account for an LP slot.
- * The LP PDA signs via invoke_signed in the program — it must be included in
- * the transaction's account list even though it carries 0 lamports.
+ * InitMatcherCtx (tag 83): 6 accounts.
+ *
+ * v17 wire account layout (v16_program.rs handle_init_matcher_ctx):
+ *   [0] lpOwner          signer (LP portfolio owner wallet)
+ *   [1] market           read-only (program-owned market slab)
+ *   [2] lpPortfolio      read-only (LP's portfolio; wrapper verifies provenance + owner)
+ *   [3] matcherCtx       writable (320-byte account pre-created, owned by matcherProg)
+ *   [4] matcherProg      read-only, executable (the external matcher program)
+ *   [5] matcherDelegate  read-only (PDA derived via deriveMatcherDelegate(); wrapper signs it)
+ *
+ * Fixed from 5 to 6 accounts: lpPortfolio (index 2) was missing; lpPda was
+ * renamed to matcherDelegate (index 5) to match the handler's account list.
+ * Handler at /tmp/wrap-recon/src/v16_program.rs:13243 requires accounts.len() >= 6
+ * and reads each index explicitly — passing 5 accounts returns NotEnoughAccountKeys.
+ *
+ * PREREQUISITE: SetMatcherConfig (tag 68, enabled=1) must be called first — the wrapper
+ * reads the LP portfolio's matcher config tail and verifies all three keys match before
+ * calling the matcher CPI.
+ *
+ * The wrapper uses invoke_signed with the delegate seeds to make matcherDelegate a signer
+ * in the inner CPI to the matcher's process_init (tag 2). No client-side signing of
+ * matcherDelegate is needed — it is passed as a regular (non-signer) account here.
  */
 export const ACCOUNTS_INIT_MATCHER_CTX: readonly AccountSpec[] = [
-  { name: "admin", signer: true, writable: false },
-  { name: "slab", signer: false, writable: false },
+  { name: "lpOwner", signer: true, writable: false },
+  { name: "market", signer: false, writable: false },
+  { name: "lpPortfolio", signer: false, writable: false },
   { name: "matcherCtx", signer: false, writable: true },
   { name: "matcherProg", signer: false, writable: false },
-  { name: "lpPda", signer: false, writable: false },
+  { name: "matcherDelegate", signer: false, writable: false },
 ] as const;
 
 // ============================================================================
