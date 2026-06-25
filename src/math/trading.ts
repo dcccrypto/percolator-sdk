@@ -202,11 +202,12 @@ export function computePnlPercent(
 ): number {
   if (capital === 0n) return 0;
   const scaledPct = (pnlTokens * 10_000n) / capital;
-  if (scaledPct > BigInt(Number.MAX_SAFE_INTEGER) || scaledPct < BigInt(-Number.MAX_SAFE_INTEGER)) {
-    throw new Error(
-      `computePnlPercent: scaled result ${scaledPct} exceeds Number.MAX_SAFE_INTEGER — precision loss`,
-    );
-  }
+  // Clamp rather than throw: values outside MAX_SAFE_INTEGER represent effectively
+  // infinite gain/loss for display purposes; returning a clamped sentinel prevents
+  // unhandled exceptions from crashing the UI on large positions.
+  const MAX_DISPLAY = BigInt(Number.MAX_SAFE_INTEGER);
+  if (scaledPct > MAX_DISPLAY) return Number.MAX_SAFE_INTEGER / 100;
+  if (scaledPct < -MAX_DISPLAY) return -(Number.MAX_SAFE_INTEGER / 100);
   return Number(scaledPct) / 100;
 }
 
@@ -237,11 +238,10 @@ const MIN_SAFE_BIGINT = BigInt(-Number.MAX_SAFE_INTEGER);
 export function computeFundingRateAnnualized(
   fundingRateBpsPerSlot: bigint,
 ): number {
-  if (fundingRateBpsPerSlot > MAX_SAFE_BIGINT || fundingRateBpsPerSlot < MIN_SAFE_BIGINT) {
-    throw new Error(
-      `computeFundingRateAnnualized: value ${fundingRateBpsPerSlot} exceeds safe integer range`,
-    );
-  }
+  // Clamp rather than throw: extreme funding rates are display-only values;
+  // returning +/-Infinity is correct JS behaviour and prevents uncaught exceptions.
+  if (fundingRateBpsPerSlot > MAX_SAFE_BIGINT) return Infinity;
+  if (fundingRateBpsPerSlot < MIN_SAFE_BIGINT) return -Infinity;
   const bpsPerSlot = Number(fundingRateBpsPerSlot);
   const slotsPerYear = 2.5 * 60 * 60 * 24 * 365; // ~400ms slots
   return (bpsPerSlot * slotsPerYear) / 100;
