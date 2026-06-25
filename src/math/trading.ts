@@ -266,5 +266,8 @@ export function computeMaxLeverage(initialMarginBps: bigint): number {
   if (initialMarginBps <= 0n) {
     throw new Error("computeMaxLeverage: initialMarginBps must be positive");
   }
-  return Number(10000n / initialMarginBps);
+  // Use floating-point division so fractional leverage is preserved.
+  // BigInt floor division (10000n / initialMarginBps) silently truncates:
+  // e.g. 3000 bps (33.3% margin) -> 3x instead of 3.33x, a 10% UI error.
+  return 10000 / Number(initialMarginBps);
 }
