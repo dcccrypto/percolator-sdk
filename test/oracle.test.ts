@@ -13,6 +13,7 @@ import {
   isValidChainlinkOracle,
   CHAINLINK_MIN_SIZE,
   CHAINLINK_DECIMALS_OFFSET,
+  CHAINLINK_TIMESTAMP_OFFSET,
   CHAINLINK_ANSWER_OFFSET,
 } from "../src/solana/oracle.js";
 
@@ -150,6 +151,50 @@ console.log("Testing Chainlink oracle parsing...\n");
     "rejects decimals = 255"
   );
   console.log("✓ rejects unreasonable decimals");
+}
+
+// --- Staleness check ---
+// Regression for the staleness check that was added in fb9083e and silently
+// dropped in a later, unrelated commit (af46df6). The module docstring claims
+// "validate oracle data BEFORE parsing to prevent silent propagation of stale
+// ... data" — this must actually be enforced when maxStalenessSeconds is passed.
+
+console.log("\nTesting staleness check...\n");
+
+function buildChainlinkBufferWithTimestamp(decimals: number, answer: bigint, updatedAt: bigint): Uint8Array {
+  const buf = buildChainlinkBuffer(decimals, answer);
+  const dv = new DataView(buf.buffer);
+  dv.setBigInt64(CHAINLINK_TIMESTAMP_OFFSET, updatedAt, true);
+  return buf;
+}
+
+{
+  const now = Math.floor(Date.now() / 1000);
+  const fresh = buildChainlinkBufferWithTimestamp(8, 10012345678n, BigInt(now));
+  const result = parseChainlinkPrice(fresh, { maxStalenessSeconds: 60 });
+  assert(result.updatedAt === now, `fresh oracle updatedAt: expected ${now}, got ${result.updatedAt}`);
+  console.log("✓ fresh oracle within maxStalenessSeconds does not throw");
+}
+
+{
+  const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+  const stale = buildChainlinkBufferWithTimestamp(8, 10012345678n, BigInt(thirtyDaysAgo));
+  assertThrows(
+    () => parseChainlinkPrice(stale, { maxStalenessSeconds: 60 }),
+    "stale",
+    "rejects oracle older than maxStalenessSeconds"
+  );
+  console.log("✓ stale oracle beyond maxStalenessSeconds throws");
+}
+
+{
+  // No maxStalenessSeconds passed: must not throw regardless of age (backward compatible),
+  // but updatedAt should still be populated for callers that want to check it themselves.
+  const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+  const stale = buildChainlinkBufferWithTimestamp(8, 10012345678n, BigInt(thirtyDaysAgo));
+  const result = parseChainlinkPrice(stale);
+  assert(result.updatedAt === thirtyDaysAgo, "updatedAt populated even without maxStalenessSeconds");
+  console.log("✓ updatedAt exposed without throwing when maxStalenessSeconds is omitted");
 }
 
 // --- isValidChainlinkOracle ---
