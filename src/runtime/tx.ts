@@ -191,9 +191,27 @@ export async function simulateOrSend(
     preflightCommitment: effectiveCommitment,
   };
 
+  // sendTransaction is its own try/catch: only here is it true that no
+  // signature was ever produced, so signature: "" is the correct result.
+  let signature: string;
   try {
-    const signature = await connection.sendTransaction(tx, signers, options);
+    signature = await connection.sendTransaction(tx, signers, options);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    return {
+      signature: "",
+      slot: 0,
+      err: message,
+      logs: [],
+    };
+  }
 
+  // Fetch logs at the same finality level used for confirmation.
+  // getTransaction only accepts Finality ("confirmed" | "finalized"); map anything
+  // weaker than "finalized" to "confirmed" — the safest valid fallback.
+  const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
+
+  try {
     const confirmation = await connection.confirmTransaction(
       {
         signature,
@@ -203,10 +221,6 @@ export async function simulateOrSend(
       effectiveCommitment
     );
 
-    // Fetch logs at the same finality level used for confirmation.
-    // getTransaction only accepts Finality ("confirmed" | "finalized"); map anything
-    // weaker than "finalized" to "confirmed" — the safest valid fallback.
-    const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
     const txInfo = await connection.getTransaction(signature, {
       commitment: txFinality,
       maxSupportedTransactionVersion: 0,
@@ -234,11 +248,53 @@ export async function simulateOrSend(
       logs,
     };
   } catch (e: unknown) {
+    // confirmTransaction/getTransaction threw (e.g. TransactionExpiredBlockheightExceededError
+    // on an ordinary RPC timeout) — this does NOT mean the transaction failed to land,
+    // only that we didn't observe confirmation in time. Previously this branch discarded
+    // the real signature obtained above and returned signature: "", which left the caller
+    // with no way to check whether it's safe to retry — for a non-idempotent operation
+    // (deposit/withdraw/trade) a naive retry-on-error could then double-submit a
+    // transaction that had actually already landed. Check the real on-chain status before
+    // reporting failure, and always return the real signature so the caller can verify
+    // it themselves even if this fallback check also fails.
     const message = e instanceof Error ? e.message : String(e);
+    try {
+      const status = await connection.getSignatureStatus(signature, {
+        searchTransactionHistory: true,
+      });
+      if (status.value) {
+        const txInfo = await connection.getTransaction(signature, {
+          commitment: txFinality,
+          maxSupportedTransactionVersion: 0,
+        });
+        const logs = txInfo?.meta?.logMessages ?? [];
+        let err: string | null = null;
+        let hint: string | undefined;
+        if (status.value.err) {
+          const parsed = parseErrorFromLogs(logs);
+          if (parsed) {
+            err = `${parsed.name} (0x${parsed.code.toString(16)})`;
+            hint = parsed.hint;
+          } else {
+            err = JSON.stringify(status.value.err);
+          }
+        }
+        return {
+          signature,
+          slot: txInfo?.slot ?? status.context.slot,
+          err,
+          hint,
+          logs,
+        };
+      }
+    } catch {
+      // Status lookup itself failed too — fall through to the ambiguous result below,
+      // which still carries the real signature instead of discarding it.
+    }
     return {
-      signature: "",
+      signature,
       slot: 0,
-      err: message,
+      err: `confirmation status unknown (${message}) — the transaction may have already landed; check signature ${signature} before retrying`,
       logs: [],
     };
   }
