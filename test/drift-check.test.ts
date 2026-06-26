@@ -608,6 +608,31 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     expect(STAKE_PROGRAM_IDS.devnet).toBe("6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k");
   });
 
+  it("getStakeProgramId() with no args, no env, in a browser context fails open to devnet (not mainnet)", () => {
+    // Mirrors the PERC-697 hardening in program-ids.ts getCurrentNetwork(): an
+    // unconfigured frontend caller must never be silently pointed at mainnet.
+    const savedStakeId = process.env.STAKE_PROGRAM_ID;
+    const savedNetwork = process.env.NETWORK;
+    const savedDefaultNetwork = process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    delete process.env.STAKE_PROGRAM_ID;
+    delete process.env.NETWORK;
+    delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    const hadWindow = "window" in globalThis;
+    const savedWindow = (globalThis as any).window;
+    (globalThis as any).window = {};
+    try {
+      const pk = getStakeProgramId();
+      expect(pk.toBase58()).toBe(STAKE_PROGRAM_IDS.devnet);
+      expect(pk.toBase58()).not.toBe(STAKE_PROGRAM_IDS.mainnet);
+    } finally {
+      if (hadWindow) (globalThis as any).window = savedWindow;
+      else delete (globalThis as any).window;
+      if (savedStakeId !== undefined) process.env.STAKE_PROGRAM_ID = savedStakeId;
+      if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
+      if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
+    }
+  });
+
   it("mainnet and devnet addresses are different", () => {
     expect(STAKE_PROGRAM_IDS.mainnet).not.toBe(STAKE_PROGRAM_IDS.devnet);
   });

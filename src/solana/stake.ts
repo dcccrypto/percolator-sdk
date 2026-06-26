@@ -71,10 +71,13 @@ export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
                 safeEnv('NETWORK')?.toLowerCase() ?? '';
       if (n === 'mainnet' || n === 'mainnet-beta') return 'mainnet' as const;
       if (n === 'devnet') return 'devnet' as const;
-      // In browser bundles, process.env is empty (env vars aren't inlined into
-      // third-party SDK code). Default to mainnet to match the app's fail-closed
-      // behavior — devnet must be opted into explicitly.
-      if (typeof window !== 'undefined') return 'mainnet' as const;
+      // SECURITY: previously defaulted to 'mainnet' in browser bundles (where
+      // process.env is empty — env vars aren't inlined into third-party SDK code),
+      // which could silently target the live mainnet stake program for any
+      // frontend caller that didn't pass an explicit network. Mirrors the same
+      // class of bug fixed in program-ids.ts getCurrentNetwork() (PERC-697): fail
+      // open to devnet, not mainnet. Mainnet must be opted into explicitly via an
+      // explicit `network` argument or the NETWORK/NEXT_PUBLIC_DEFAULT_NETWORK env var.
       return 'devnet' as const;
     })();
 
