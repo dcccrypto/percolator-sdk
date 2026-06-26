@@ -210,6 +210,60 @@ describe("resolvePrice", () => {
     expect(result.bestSource!.confidence).toBe(75); // 200K liquidity
   });
 
+  it("#227-extension: a non-Pyth token's high-liquidity DEX price loses to Jupiter on the ranking when they diverge sharply", async () => {
+    const unknownMint = "DivergentMint11111111111111111111111111111";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair-divergent",
+          liquidity: { usd: 5_000_000 }, // would normally win outright (confidence 90)
+          priceUsd: "10.0",
+          baseToken: { symbol: "DIV" },
+          quoteToken: { symbol: "SOL" },
+        },
+      ],
+      jupiterPrice: 1.0, // independent reference disagrees by 10x — far beyond the 5% threshold
+    });
+
+    const result = await resolvePrice(unknownMint);
+
+    const dexSource = result.allSources.find((s) => s.type === "dex");
+    const jupSource = result.allSources.find((s) => s.type === "jupiter");
+    expect(dexSource).toBeDefined();
+    expect(jupSource).toBeDefined();
+    // The DEX source's confidence must be capped to Jupiter's (40), not its raw
+    // liquidity-derived 90 — it can no longer outrank a disagreeing reference.
+    expect(dexSource!.confidence).toBe(40);
+    expect(dexSource!.price).toBe(10.0); // price itself is untouched, only ranking weight
+  });
+
+  it("#227-extension: a non-Pyth token's DEX and Jupiter prices in agreement keep full DEX confidence", async () => {
+    const unknownMint = "AgreeingMint1111111111111111111111111111111";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair-agreeing",
+          liquidity: { usd: 5_000_000 },
+          priceUsd: "10.0",
+          baseToken: { symbol: "AGR" },
+          quoteToken: { symbol: "SOL" },
+        },
+      ],
+      jupiterPrice: 10.2, // close agreement, well within 5%
+    });
+
+    const result = await resolvePrice(unknownMint);
+
+    const dexSource = result.allSources.find((s) => s.type === "dex");
+    expect(dexSource).toBeDefined();
+    expect(dexSource!.confidence).toBe(90); // untouched — sources agree
+    expect(result.bestSource!.type).toBe("dex");
+  });
+
   it("falls back to Jupiter when no DEX data", async () => {
     const unknownMint = "NoPoolMint1111111111111111111111111111111111";
     mockApis({

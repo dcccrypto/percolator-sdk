@@ -298,6 +298,27 @@ export async function resolvePrice(
     fetchJupiterSource(mint, combinedSignal),
   ]);
 
+  // #227: cross-validate a manipulable DEX source against an independent Jupiter
+  // reference. Originally this threshold (now tightened to 5% by #315) only gated
+  // whether a Pyth source got enriched (see below), so a token with NO Pyth feed —
+  // the common case for permissionless markets — had its top DEX source ranked
+  // purely on self-reported liquidity, with no check against an independent price
+  // at all. A single high-liquidity-labeled pool (manipulable via flash loan, per
+  // the SECURITY NOTE in dex-oracle.ts) could win bestSource outright even when
+  // Jupiter's aggregated price disagreed by an arbitrary amount. Cap the top DEX
+  // source's confidence to Jupiter's when they diverge beyond the same tightened
+  // threshold used for Pyth enrichment, so it can no longer outrank a disagreeing
+  // independent reference purely on liquidity. The source stays in allSources for
+  // transparency; only its ranking weight is reduced.
+  const MAX_ENRICHMENT_DEVIATION = 0.05; // 5% (#315)
+  if (dexSources[0] && jupiterSource && dexSources[0].price > 0 && jupiterSource.price > 0) {
+    const nonPythMid = (dexSources[0].price + jupiterSource.price) / 2;
+    const nonPythDeviation = Math.abs(dexSources[0].price - jupiterSource.price) / nonPythMid;
+    if (nonPythDeviation > MAX_ENRICHMENT_DEVIATION) {
+      dexSources[0].confidence = Math.min(dexSources[0].confidence, jupiterSource.confidence);
+    }
+  }
+
   const pythSource = lookupPythSource(mint);
 
   const allSources: PriceSource[] = [];
@@ -320,7 +341,6 @@ export async function resolvePrice(
     // DEX pool to +49% of true price while Jupiter remained at true price — a deviation
     // of ~39% passes the 50% gate — causing the enriched Pyth price to be 24.5% above
     // true, which can trigger mass incorrect liquidations on markets using EWMA oracle mode.
-    const MAX_ENRICHMENT_DEVIATION = 0.05; // 5%
     let enrichedPrice = 0;
     let singleSource = false;
     if (dexPrice > 0 && jupPrice > 0) {
