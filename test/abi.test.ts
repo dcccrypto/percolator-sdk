@@ -56,6 +56,7 @@ import {
   encodeConfigureAuthMark,
   encodePushAuthMark,
   encodeMatcherInitPassive,
+  computeVammQuote,
   encodeUnwrapEscrowedPortfolio,
   encodeInitMatcherCtx,
   encodeAcceptAdmin,
@@ -1347,39 +1348,150 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
 }
 // ── TASK B: matcher passive-init payload ─────────────────────────────
 
-// Test encodeMatcherInitPassive — 66-byte wire to matcher program
-// Layout: [0]=2, [1]=0, [2..10]=0, [10..14]=100u32LE, [14..34]=0, [34..50]=max_fill_abs u128LE, [50..66]=0
+// Test encodeMatcherInitPassive — 66-byte wire to matcher program.
+// Layout cross-validated byte-for-byte against InitParams::parse in
+// percolator-match/src/vamm.rs: [0]=tag(2), [1]=kind(0=Passive),
+// [2..6]=trading_fee_bps, [6..10]=base_spread_bps, [10..14]=max_total_bps,
+// [14..18]=impact_k_bps(0), [18..34]=liquidity_notional_e6(0),
+// [34..50]=max_fill_abs, [50..66]=max_inventory_abs.
 {
-  const maxFillAbs = 2n ** 128n - 1n; // u128::MAX
-  const data = encodeMatcherInitPassive({ maxFillAbs });
+  const maxFillAbs = 2n ** 128n - 1n; // u128::MAX ("no limit")
+  const maxInventoryAbs = 0n; // "unlimited", delegated to the wrapper
+  const data = encodeMatcherInitPassive({
+    tradingFeeBps: 5,
+    baseSpreadBps: 50,
+    maxTotalBps: 200,
+    maxFillAbs,
+    maxInventoryAbs,
+  });
   assert(data.length === 66, `encodeMatcherInitPassive length: expected 66, got ${data.length}`);
-  assert(data[0] === 2, "encodeMatcherInitPassive opcode=2");
-  assert(data[1] === 0, "encodeMatcherInitPassive reserved[1]=0");
-  // [10..14] = 100u32 LE
-  assertBuf(data.subarray(10, 14), [100, 0, 0, 0], "encodeMatcherInitPassive [10..14]=100u32");
+  assert(data[0] === 2, "encodeMatcherInitPassive tag=2 (MATCHER_INIT_VAMM_TAG)");
+  assert(data[1] === 0, "encodeMatcherInitPassive kind=0 (Passive)");
+  // [2..6] = trading_fee_bps = 5
+  assertBuf(data.subarray(2, 6), [5, 0, 0, 0], "encodeMatcherInitPassive trading_fee_bps=5");
+  // [6..10] = base_spread_bps = 50
+  assertBuf(data.subarray(6, 10), [50, 0, 0, 0], "encodeMatcherInitPassive base_spread_bps=50");
+  // [10..14] = max_total_bps = 200 (NOT a "default inventory slot" — this is the
+  // exact field that was previously mislabeled and hardcoded to 100)
+  assertBuf(data.subarray(10, 14), [200, 0, 0, 0], "encodeMatcherInitPassive max_total_bps=200");
+  // [14..18] = impact_k_bps = 0 (unused in Passive mode)
+  assert(data.subarray(14, 18).every(v => v === 0), "encodeMatcherInitPassive impact_k_bps=0");
+  // [18..34] = liquidity_notional_e6 = 0 (unused in Passive mode)
+  assert(data.subarray(18, 34).every(v => v === 0), "encodeMatcherInitPassive liquidity_notional_e6=0");
   // [34..50] = max_fill_abs = u128::MAX = all 0xFF bytes
   assertBuf(
     data.subarray(34, 50),
     [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
     "encodeMatcherInitPassive max_fill_abs=u128::MAX"
   );
-  // [50..66] = 0
-  assert(data.subarray(50, 66).every(v => v === 0), "encodeMatcherInitPassive [50..66]=0");
-  console.log("✓ encodeMatcherInitPassive (66-byte matcher payload)");
+  // [50..66] = max_inventory_abs = 0 (NOT "reserved" — this is the exact field
+  // that was previously left as zero-by-accident instead of zero-by-intent)
+  assert(data.subarray(50, 66).every(v => v === 0), "encodeMatcherInitPassive max_inventory_abs=0");
+  console.log("✓ encodeMatcherInitPassive (66-byte matcher payload, cross-validated against vamm.rs InitParams::parse)");
 }
 
-// Test encodeMatcherInitPassive with a finite max_fill_abs
+// Test encodeMatcherInitPassive with a finite max_fill_abs and nonzero max_inventory_abs
 {
   const maxFillAbs = 1_000_000_000_000_000_000n; // 1e18
-  const data = encodeMatcherInitPassive({ maxFillAbs });
+  const maxInventoryAbs = 500_000_000_000n; // 5e11
+  const data = encodeMatcherInitPassive({
+    tradingFeeBps: 5,
+    baseSpreadBps: 50,
+    maxTotalBps: 200,
+    maxFillAbs,
+    maxInventoryAbs,
+  });
   assert(data.length === 66, "encodeMatcherInitPassive finite max_fill_abs length=66");
   // [34..42] should encode 1e18 in LE (0x0DE0B6B3A7640000)
-  const lo = 1_000_000_000_000_000_000n & 0xffff_ffff_ffff_ffffn;
+  const lo = maxFillAbs & 0xffff_ffff_ffff_ffffn;
   const expectedLo = new DataView(new ArrayBuffer(8));
   expectedLo.setBigUint64(0, lo, true);
   const loBytes = new Uint8Array(expectedLo.buffer);
   assert(data.subarray(34, 42).every((v, i) => v === loBytes[i]), "encodeMatcherInitPassive finite max_fill_abs low bytes");
-  console.log("✓ encodeMatcherInitPassive finite max_fill_abs");
+  // [50..58] should encode max_inventory_abs in LE
+  const invLo = maxInventoryAbs & 0xffff_ffff_ffff_ffffn;
+  const expectedInvLo = new DataView(new ArrayBuffer(8));
+  expectedInvLo.setBigUint64(0, invLo, true);
+  const invLoBytes = new Uint8Array(expectedInvLo.buffer);
+  assert(data.subarray(50, 58).every((v, i) => v === invLoBytes[i]), "encodeMatcherInitPassive finite max_inventory_abs low bytes");
+  console.log("✓ encodeMatcherInitPassive finite max_fill_abs + max_inventory_abs");
+}
+
+// Test encodeMatcherInitPassive extended (78-byte) payload with optional fields
+{
+  const data = encodeMatcherInitPassive({
+    tradingFeeBps: 5,
+    baseSpreadBps: 50,
+    maxTotalBps: 200,
+    maxFillAbs: 0n,
+    maxInventoryAbs: 0n,
+    feeToInsuranceBps: 500,
+    skewSpreadMultBps: 10,
+    lpAccountId: 42n,
+  });
+  assert(data.length === 78, `encodeMatcherInitPassive extended length: expected 78, got ${data.length}`);
+  // [66..68] = fee_to_insurance_bps = 500
+  assertBuf(data.subarray(66, 68), [0xF4, 0x01], "encodeMatcherInitPassive fee_to_insurance_bps=500");
+  // [68..70] = skew_spread_mult_bps = 10
+  assertBuf(data.subarray(68, 70), [10, 0], "encodeMatcherInitPassive skew_spread_mult_bps=10");
+  // [70..78] = lp_account_id = 42
+  assertBuf(data.subarray(70, 78), [42, 0, 0, 0, 0, 0, 0, 0], "encodeMatcherInitPassive lp_account_id=42");
+  console.log("✓ encodeMatcherInitPassive (78-byte extended matcher payload)");
+}
+
+// ── computeVammQuote — skew-aware spread + ceiling rounding on buys ──────────
+// Regression coverage: this previously omitted the on-chain skew-aware
+// inventory widening entirely (no field for it even existed on
+// VammMatcherParams) and floor-divided the buy-side price instead of
+// ceiling-dividing like compute_vamm_execution in percolator-match/src/vamm.rs
+// does — both biases made every quote estimate too low.
+{
+  const baseParams = {
+    mode: 1, // vAMM
+    tradingFeeBps: 5,
+    baseSpreadBps: 10,
+    maxTotalBps: 5000,
+    impactKBps: 0,
+    liquidityNotionalE6: 0n,
+    inventoryBase: 0n,
+    skewSpreadMultBps: 0,
+  };
+  const oracle = 100_000_000n; // $100
+  const size = 1000n;
+
+  // Zero inventory / zero skew config: skew contributes nothing.
+  const buyNoSkew = computeVammQuote(baseParams, oracle, size, true);
+  assert(buyNoSkew > oracle, "computeVammQuote buy with spread must exceed oracle");
+
+  // LP is short (inventory_base < 0); a buy worsens it further -> skew applies.
+  const skewedParams = { ...baseParams, inventoryBase: -1000n, skewSpreadMultBps: 100 };
+  const buyWithSkew = computeVammQuote(skewedParams, oracle, size, true);
+  assert(
+    buyWithSkew > buyNoSkew,
+    `computeVammQuote must widen buy price when skew worsens inventory: ${buyWithSkew} > ${buyNoSkew}`
+  );
+
+  // Same skew config but the trade improves inventory (sell against short LP) -> no skew.
+  const sellImprovesInventory = computeVammQuote(skewedParams, oracle, size, false);
+  const sellNoSkew = computeVammQuote(baseParams, oracle, size, false);
+  assert(
+    sellImprovesInventory === sellNoSkew,
+    "computeVammQuote must not apply skew on the side that improves inventory"
+  );
+
+  // Ceiling rounding on the buy side: a totalBps that doesn't divide oracle
+  // evenly must round UP, matching the on-chain M-HIGH-1 fix, not down.
+  const oddOracle = 100_000_001n; // deliberately not a multiple of BPS_DENOM
+  const tinyParams = { ...baseParams, baseSpreadBps: 1, tradingFeeBps: 0 };
+  const buyPrice = computeVammQuote(tinyParams, oddOracle, size, true);
+  const totalBps = 1n;
+  const floorPrice = (oddOracle * (10_000n + totalBps)) / 10_000n;
+  assert(
+    buyPrice === floorPrice + 1n,
+    `computeVammQuote buy side must ceiling-divide: expected ${floorPrice + 1n}, got ${buyPrice}`
+  );
+
+  console.log("✓ computeVammQuote (skew-aware widening + buy-side ceiling rounding)");
 }
 
 // ── v17 NEW: UnwrapEscrowedPortfolio (tag 82) ─────────────────────────────────

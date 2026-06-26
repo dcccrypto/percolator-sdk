@@ -1279,6 +1279,12 @@ export interface VammMatcherParams {
     maxTotalBps: number;
     impactKBps: number;
     liquidityNotionalE6: bigint;
+    /** Current LP inventory (signed). Required to reproduce the on-chain
+     * skew-aware spread widening — omitting it understates the quote whenever
+     * the LP's inventory is skewed. Pass 0n for a freshly-initialized LP. */
+    inventoryBase: bigint;
+    /** Skew-aware spread multiplier per inventory unit, bps (0 = disabled). */
+    skewSpreadMultBps: number;
 }
 /** Magic bytes identifying a vAMM matcher context: "PERCMATC" as u64 LE = 0x504552434d415443 */
 export declare const VAMM_MAGIC = 5784119745439683651n;
@@ -2499,35 +2505,65 @@ export interface PushAuthMarkArgs {
 }
 export declare function encodePushAuthMark(args: PushAuthMarkArgs): Uint8Array;
 /**
- * MatcherInitPassive — 66-byte payload sent to the MATCHER PROGRAM (not wrapper)
- * to initialize a passive LP matcher context.
+ * MatcherInitPassive — 66-byte (or 78-byte extended) payload sent to the MATCHER
+ * PROGRAM (not wrapper) to initialize a passive LP matcher context.
  *
  * This is NOT a wrapper instruction. Program = matcher program address.
- * Accounts: [0] matcherDelegate (read-only PDA), [1] matcherCtx (writable).
+ * Accounts: [0] lpPda (signer — the matcher requires the LP PDA to sign InitVamm),
+ * [1] matcherCtx (writable).
  *
- * Wire layout (66 bytes, from percolator-prog/tests/v16_five_program_crosscut.rs:640-648):
- *   [0]       = 2         (opcode: passive-LP init)
- *   [1]       = 0         (reserved)
- *   [2..10]   = 0         (8 bytes reserved)
- *   [10..14]  = 100u32 LE (default max_inventory_abs slot)
- *   [14..34]  = 0         (20 bytes reserved)
- *   [34..50]  = max_fill_abs (u128 LE)
- *   [50..66]  = 0         (16 bytes reserved)
- *   Total = 66 bytes
+ * Wire layout, verified byte-for-byte against `InitParams::parse` in
+ * percolator-match/src/vamm.rs (66-byte v3-compat core; +12 extended bytes when
+ * any of feeToInsuranceBps/skewSpreadMultBps/lpAccountId is supplied):
+ *   [0]       = 2                       (opcode: MATCHER_INIT_VAMM_TAG)
+ *   [1]       = 0                       (kind: 0 = Passive)
+ *   [2..6]    = trading_fee_bps   (u32 LE)
+ *   [6..10]   = base_spread_bps   (u32 LE)
+ *   [10..14]  = max_total_bps     (u32 LE)
+ *   [14..18]  = 0                 (impact_k_bps — unused in Passive mode)
+ *   [18..34]  = 0                 (liquidity_notional_e6 — unused in Passive mode)
+ *   [34..50]  = max_fill_abs      (u128 LE)
+ *   [50..66]  = max_inventory_abs (u128 LE; 0 = unlimited, delegated to the wrapper)
+ *   --- extended (only present if any optional arg is supplied) ---
+ *   [66..68]  = fee_to_insurance_bps (u16 LE)
+ *   [68..70]  = skew_spread_mult_bps (u16 LE)
+ *   [70..78]  = lp_account_id        (u64 LE)
  *
  * The matcher delegate PDA is derived via `deriveMatcherDelegate()` in pda.ts using
  * seeds ["matcher", market, accountB, accountBOwner, matcherProg, matcherCtx].
  *
- * @param maxFillAbs  Maximum absolute fill size (u128). Pass BigInt.MaxUint128 (2^128-1) for no limit.
+ * @param tradingFeeBps     Trading fee in bps, charged on every fill (program caps at 1000).
+ * @param baseSpreadBps     Base spread in bps applied symmetrically around oracle price.
+ * @param maxTotalBps       Hard cap on (base spread + trading fee + skew + impact), bps
+ *                          (program caps at 9000; must be >= tradingFeeBps + baseSpreadBps).
+ * @param maxFillAbs        Maximum absolute fill size per call (u128). Pass 2n**128n-1n for "no limit".
+ * @param maxInventoryAbs   Maximum absolute inventory (u128). Pass 0n to delegate inventory
+ *                          bounding to the wrapper — the matcher treats 0 as unlimited.
+ * @param feeToInsuranceBps Optional: portion of trading fee routed to insurance, bps (<=10000).
+ * @param skewSpreadMultBps Optional: skew-aware spread widening multiplier per inventory unit, bps.
+ * @param lpAccountId       Optional: numeric LP account id (cross-market spoofing guard).
  *
  * @example
  * ```ts
- * const data = encodeMatcherInitPassive({ maxFillAbs: 2n ** 128n - 1n });
+ * const data = encodeMatcherInitPassive({
+ *   tradingFeeBps: 5,
+ *   baseSpreadBps: 50,
+ *   maxTotalBps: 200,
+ *   maxFillAbs: 2n ** 128n - 1n,
+ *   maxInventoryAbs: 0n,
+ * });
  * assert(data.length === 66);
- * // send to matcherProgram, accounts: [delegate(ro), ctx(w)]
+ * // send to matcherProgram, accounts: [lpPda(signer), ctx(w)]
  * ```
  */
 export interface MatcherInitPassiveArgs {
+    tradingFeeBps: number;
+    baseSpreadBps: number;
+    maxTotalBps: number;
     maxFillAbs: bigint | string;
+    maxInventoryAbs: bigint | string;
+    feeToInsuranceBps?: number;
+    skewSpreadMultBps?: number;
+    lpAccountId?: bigint | string;
 }
 export declare function encodeMatcherInitPassive(args: MatcherInitPassiveArgs): Uint8Array;
