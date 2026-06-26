@@ -24,6 +24,7 @@ function makeMockConnection(overrides: Record<string, unknown> = {}): Connection
       slot: 42,
       meta: { logMessages: ["Program log: ok"] },
     }),
+    getSignatureStatus: vi.fn().mockResolvedValue({ context: { slot: 0 }, value: null }),
     ...overrides,
   } as unknown as Connection;
 }
@@ -85,6 +86,75 @@ describe("simulateOrSend", () => {
     expect(conn.getLatestBlockhash).not.toHaveBeenCalled();
     expect(conn.simulateTransaction).not.toHaveBeenCalled();
     expect(conn.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  // Regression: confirmTransaction throwing (e.g. blockhash expiry on an
+  // ordinary RPC timeout) does NOT mean the transaction failed to land. The
+  // real signature from sendTransaction must never be discarded, and the
+  // actual on-chain status must be checked before reporting failure — a
+  // caller who sees signature:"" and retries a non-idempotent operation
+  // (deposit/withdraw/trade) could otherwise double-submit one that already landed.
+
+  it("recovers the real signature and success status when confirmTransaction times out but the tx actually landed", async () => {
+    const conn = makeMockConnection({
+      confirmTransaction: vi.fn().mockRejectedValue(
+        new Error("TransactionExpiredBlockheightExceededError"),
+      ),
+      getSignatureStatus: vi.fn().mockResolvedValue({
+        context: { slot: 77 },
+        value: { slot: 77, confirmations: 5, err: null, confirmationStatus: "confirmed" },
+      }),
+    });
+    const result = await simulateOrSend({
+      connection: conn,
+      ix: dummyIx,
+      signers: [Keypair.generate()],
+      simulate: false,
+    });
+    expect(result.signature).toBe("fakeSig123");
+    expect(result.err).toBeNull();
+  });
+
+  it("recovers the real signature and the on-chain error when confirmTransaction times out but the tx landed with an error", async () => {
+    const conn = makeMockConnection({
+      confirmTransaction: vi.fn().mockRejectedValue(
+        new Error("TransactionExpiredBlockheightExceededError"),
+      ),
+      getSignatureStatus: vi.fn().mockResolvedValue({
+        context: { slot: 77 },
+        value: { slot: 77, confirmations: 5, err: { InstructionError: [0, { Custom: 1 }] }, confirmationStatus: "confirmed" },
+      }),
+      getTransaction: vi.fn().mockResolvedValue({
+        slot: 77,
+        meta: { logMessages: ["Program log: custom program error: 0x1"] },
+      }),
+    });
+    const result = await simulateOrSend({
+      connection: conn,
+      ix: dummyIx,
+      signers: [Keypair.generate()],
+      simulate: false,
+    });
+    expect(result.signature).toBe("fakeSig123");
+    expect(result.err).toContain("0x1");
+  });
+
+  it("returns the real signature with an explicit unknown-status message when confirmTransaction times out and status lookup can't confirm it landed", async () => {
+    const conn = makeMockConnection({
+      confirmTransaction: vi.fn().mockRejectedValue(
+        new Error("TransactionExpiredBlockheightExceededError"),
+      ),
+      getSignatureStatus: vi.fn().mockResolvedValue({ context: { slot: 0 }, value: null }),
+    });
+    const result = await simulateOrSend({
+      connection: conn,
+      ix: dummyIx,
+      signers: [Keypair.generate()],
+      simulate: false,
+    });
+    // The real signature must never be discarded just because confirmation timed out.
+    expect(result.signature).toBe("fakeSig123");
+    expect(result.err).toContain("fakeSig123");
   });
 
   it("parses on-chain error from simulation logs", async () => {
