@@ -286,7 +286,7 @@ function readI128LE(buf: Uint8Array, offset: number): bigint {
  * @param layout      — SlabLayout from detectSlabLayout(actualDataSize). If null, falls back to V0.
  * @param maxAccounts — tier's max accounts for bitmap offset calculation
  */
-function parseEngineLight(
+export function parseEngineLight(
   data: Uint8Array,
   layout: SlabLayout | null,
   maxAccounts: number = 4096,
@@ -363,56 +363,16 @@ function parseEngineLight(
     };
   }
 
-  // V2 engine struct (BPF intermediate): ENGINE_OFF=600, BITMAP_OFF=432
-  // No mark_price, long_oi, short_oi, emergency OI fields.
-  // Field offsets relative to engineOff are different from V1.
-  const isV2 = layout?.version === 2;
-  if (isV2) {
-    return {
-      vault: readU128LE(data, base + 0),
-      insuranceFund: {
-        balance: readU128LE(data, base + 16),
-        feeRevenue: readU128LE(data, base + 32),
-        isolatedBalance: readU128LE(data, base + 48),
-        isolationBps: readU16LE(data, base + 64),
-      },
-      currentSlot: readU64LE(data, base + 352),
-      fundingIndexQpbE6: readI128LE(data, base + 360),
-      lastFundingSlot: readU64LE(data, base + 376),
-      fundingRateBpsPerSlotLast: readI64LE(data, base + 384),
-      fundingRateE9: 0n,
-      marketMode: null,
-      lastCrankSlot: readU64LE(data, base + 392),
-      maxCrankStalenessSlots: readU64LE(data, base + 400),
-      totalOpenInterest: readU128LE(data, base + 408),
-      longOi: 0n,              // V2 has no long_oi
-      shortOi: 0n,             // V2 has no short_oi
-      cTot: readU128LE(data, base + 424),
-      pnlPosTot: readU128LE(data, base + 440),
-      pnlMaturedPosTot: 0n,
-      liqCursor: readU16LE(data, base + 456),
-      gcCursor: readU16LE(data, base + 458),
-      lastSweepStartSlot: readU64LE(data, base + 464),
-      lastSweepCompleteSlot: readU64LE(data, base + 472),
-      crankCursor: readU16LE(data, base + 480),
-      sweepStartIdx: readU16LE(data, base + 482),
-      lifetimeLiquidations: readU64LE(data, base + 488),
-      lifetimeForceCloses: readU64LE(data, base + 496),
-      netLpPos: readI128LE(data, base + 504),
-      lpSumAbs: readU128LE(data, base + 520),
-      lpMaxAbs: readU128LE(data, base + 536),
-      lpMaxAbsSweep: readU128LE(data, base + 552),
-      emergencyOiMode: false,   // V2 has no emergency OI fields
-      emergencyStartSlot: 0n,
-      lastBreakerSlot: 0n,
-      markPriceE6: 0n,          // V2 has no mark_price
-      oraclePriceE6: 0n,
-      fLongNum: 0n, fShortNum: 0n, negPnlAccountCount: 0n, fundPxLast: 0n,
-      resolvedKLongTerminalDelta: 0n, resolvedKShortTerminalDelta: 0n, resolvedLivePrice: 0n,
-      numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
-      nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
-    };
-  }
+  // NOTE: a hardcoded "V2 engine struct (BPF intermediate)" branch used to live here,
+  // gated on `layout?.version === 2`. It was dead/stale: `SlabLayout.version === 2` is
+  // also set by buildLayoutV12_15/17/19 (V12_19 inherits it by spreading V12_17's base
+  // layout) — an unrelated reuse of the same discriminant — which meant V12_15/17/19
+  // (the currently-deployed mainnet tier line) were being routed through this branch's
+  // long-stale hardcoded offsets (e.g. currentSlot at a fixed `base+352`) instead of
+  // their own correct per-field offsets (V12_19's real engineCurrentSlotOff is 200).
+  // Every field this branch returned was potentially wrong for V12_15/17/19. Removed
+  // per the layout-driven branch's own comment below, which already documents that it
+  // covers V12_15/17/19 — that was the intended path all along.
 
   // Layout-driven engine parse: covers V_ADL (engineOff=624, accountSize=312), V12_1, V12_15,
   // V12_17, V12_19, V1M, V1M2, V_SETDEXPOOL and any future layout registered in slab.ts.
@@ -433,7 +393,14 @@ function parseEngineLight(
         isolationBps: hasInsuranceIsolation ? readU16LE(data, base + l.engineInsuranceIsolationBpsOff) : 0,
       },
       currentSlot: readU64LE(data, base + l.engineCurrentSlotOff),
-      fundingIndexQpbE6: readI128LE(data, base + l.engineFundingIndexOff),
+      // engineFundingIndexOff is -1 on V12_15/17/19 (this field doesn't exist in those
+      // engine structs) — guard the same way the heavy parser does (slab.ts parseEngine)
+      // or `base + (-1)` reads 16 bytes starting one byte before the engine region.
+      fundingIndexQpbE6: l.engineFundingIndexOff >= 0
+        ? ((l.engineLastFundingSlotOff >= 0 && l.engineLastFundingSlotOff - l.engineFundingIndexOff === 8)
+            ? BigInt(readI64LE(data, base + l.engineFundingIndexOff))
+            : readI128LE(data, base + l.engineFundingIndexOff))
+        : 0n,
       lastFundingSlot: readU64LE(data, base + l.engineLastFundingSlotOff),
       fundingRateBpsPerSlotLast: readI64LE(data, base + l.engineFundingRateBpsOff),
       fundingRateE9: 0n,
@@ -477,7 +444,7 @@ function parseEngineLight(
 
   // layout === null: unrecognized slab format — callers should have skipped via the
   // layout !== null guard in discoverMarkets before calling parseEngineLight.
-  throw new Error(`parseEngineLight: unrecognized slab layout (isV0=${isV0}, isV2=${isV2})`);
+  throw new Error(`parseEngineLight: unrecognized slab layout (isV0=${isV0})`);
 }
 
 /** Options for `discoverMarkets`. */

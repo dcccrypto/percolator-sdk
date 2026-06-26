@@ -45,7 +45,9 @@ import {
   detectLayout,
   parseAccount,
   SLAB_TIERS_V12_1,
+  SLAB_TIERS_V12_19,
 } from "../src/solana/slab.js";
+import { parseEngineLight } from "../src/solana/discovery.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -566,6 +568,45 @@ describe("V12_1 slab — layout detection and field offsets", () => {
   it("parseAccount: capital is 1_000_000", () => {
     const account = parseAccount(slabBuf, 0);
     expect(account.capital).toBe(1_000_000n);
+  });
+});
+
+// ===========================================================================
+// 3b. parseEngineLight — V12_19 must use its own layout offsets, not the stale
+// hardcoded "isV2" branch (both shared SlabLayout.version === 2 by coincidence)
+// ===========================================================================
+
+describe("parseEngineLight — V12_19 uses layout-driven offsets (not stale isV2 branch)", () => {
+  it("reads currentSlot from the layout's own engineCurrentSlotOff, not a hardcoded offset", () => {
+    const dataSize = SLAB_TIERS_V12_19.small.dataSize;
+    const layout = detectSlabLayout(dataSize);
+    expect(layout).not.toBeNull();
+    expect(layout!.version).toBe(2); // shares the discriminant with the old dead isV2 branch
+    expect(layout!.engineCurrentSlotOff).toBe(200); // NOT 352, which the dead branch hardcoded
+
+    const buf = new Uint8Array(dataSize);
+    const dv = new DataView(buf.buffer);
+    dv.setBigUint64(layout!.engineOff + layout!.engineCurrentSlotOff, 12345n, true);
+    // Plant a decoy at the old dead branch's hardcoded offset to prove it's not read.
+    dv.setBigUint64(layout!.engineOff + 352, 999999n, true);
+
+    const engine = parseEngineLight(buf, layout, layout!.maxAccounts);
+    expect(engine.currentSlot).toBe(12345n);
+  });
+
+  it("returns 0n for fundingIndexQpbE6 instead of an off-by-one read (engineFundingIndexOff = -1)", () => {
+    const dataSize = SLAB_TIERS_V12_19.small.dataSize;
+    const layout = detectSlabLayout(dataSize);
+    expect(layout).not.toBeNull();
+    expect(layout!.engineFundingIndexOff).toBe(-1);
+
+    const buf = new Uint8Array(dataSize);
+    // Plant a nonzero marker at exactly the byte `base + engineFundingIndexOff`
+    // (engineOff + (-1)) would read from without the `>= 0` guard.
+    buf[layout!.engineOff - 1] = 0xab;
+
+    const engine = parseEngineLight(buf, layout, layout!.maxAccounts);
+    expect(engine.fundingIndexQpbE6).toBe(0n);
   });
 });
 
