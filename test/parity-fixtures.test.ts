@@ -15,6 +15,7 @@ import {
   CTX_VAMM_OFFSET,
   CTX_VAMM_LEN,
   CTX_RETURN_OFFSET,
+  encodeMatcherInitPassive,
 } from "../src/abi/instructions.js";
 import { POSITION_NFT_STATE_LEN } from "../src/abi/nft.js";
 import { STAKE_IX, STAKE_POOL_SIZE } from "../src/solana/stake.js";
@@ -194,6 +195,20 @@ describe("Rust parity fixtures", () => {
         MatcherCtx_size: number;
       };
       self_checks: Record<string, boolean>;
+      init_field_offsets: {
+        tag: number;
+        kind: number;
+        trading_fee_bps: number;
+        base_spread_bps: number;
+        max_total_bps: number;
+        impact_k_bps: number;
+        liquidity_notional_e6: number;
+        max_fill_abs: number;
+        max_inventory_abs: number;
+        fee_to_insurance_bps: number;
+        skew_spread_mult_bps: number;
+        lp_account_id: number;
+      };
     };
 
     it("magic, sizes, and self-checks match percolator-match", () => {
@@ -218,6 +233,53 @@ describe("Rust parity fixtures", () => {
       expect(CTX_VAMM_OFFSET).toBe(fixture.sizes.CTX_VAMM_OFFSET);
       expect(CTX_VAMM_LEN).toBe(fixture.sizes.CTX_VAMM_LEN);
       expect(CTX_RETURN_OFFSET).toBe(fixture.sizes.CTX_RETURN_OFFSET);
+    });
+
+    // The fixture's self_checks/sizes/constants only cover top-level lengths and
+    // magic bytes — they previously gave no signal about whether an encoder
+    // places its fields at the *correct offsets*. encodeMatcherInitPassive once
+    // shipped with completely wrong field-to-offset mapping (max_total_bps was
+    // written where the encoder's own comment claimed "reserved", and
+    // max_inventory_abs was left zero while the comment called it "reserved" too)
+    // while still passing every other check in this file, because nothing here
+    // actually read `init_field_offsets`. This test closes that gap by encoding
+    // distinguishable sentinel values per field and verifying each one lands at
+    // the exact offset Rust's InitParams::parse reports for it.
+    it("encodeMatcherInitPassive places every field at the offset percolator-match reports", () => {
+      const fixture = loadJson<MatcherParityFixture>("matcher-parity.json");
+      const offsets = fixture.init_field_offsets;
+
+      const data = encodeMatcherInitPassive({
+        tradingFeeBps: 11,
+        baseSpreadBps: 22,
+        maxTotalBps: 9000,
+        maxFillAbs: 0x1111_2222_3333_4444n,
+        maxInventoryAbs: 0x5555_6666_7777_8888n,
+        feeToInsuranceBps: 333,
+        skewSpreadMultBps: 444,
+        lpAccountId: 0x9999_AAAA_BBBB_CCCCn,
+      });
+
+      const readU32 = (off: number) => new DataView(data.buffer).getUint32(off, true);
+      const readU16 = (off: number) => new DataView(data.buffer).getUint16(off, true);
+      const readU64 = (off: number) => new DataView(data.buffer).getBigUint64(off, true);
+      const readU128 = (off: number) => {
+        const lo = new DataView(data.buffer).getBigUint64(off, true);
+        const hi = new DataView(data.buffer).getBigUint64(off + 8, true);
+        return lo | (hi << 64n);
+      };
+
+      expect(data[offsets.tag]).toBe(2);
+      expect(data[offsets.kind]).toBe(0);
+      expect(readU32(offsets.trading_fee_bps)).toBe(11);
+      expect(readU32(offsets.base_spread_bps)).toBe(22);
+      expect(readU32(offsets.max_total_bps)).toBe(9000);
+      expect(readU128(offsets.liquidity_notional_e6)).toBe(0n);
+      expect(readU128(offsets.max_fill_abs)).toBe(0x1111_2222_3333_4444n);
+      expect(readU128(offsets.max_inventory_abs)).toBe(0x5555_6666_7777_8888n);
+      expect(readU16(offsets.fee_to_insurance_bps)).toBe(333);
+      expect(readU16(offsets.skew_spread_mult_bps)).toBe(444);
+      expect(readU64(offsets.lp_account_id)).toBe(0x9999_AAAA_BBBB_CCCCn);
     });
   });
 });

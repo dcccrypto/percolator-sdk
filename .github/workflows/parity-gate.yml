@@ -34,34 +34,43 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/percolator-sdk
           path: percolator-sdk
+          # If the repo is private, uncomment the token line and add
+          # PERCOLATOR_READ_TOKEN as a repository secret on percolator-sdk:
+          #   Settings → Secrets and variables → Actions → New repository secret
+          #   Name: PERCOLATOR_READ_TOKEN
+          #   Value: a GitHub PAT (classic or fine-grained) with Contents: read
+          #          on percolator-prog, percolator-stake, percolator-nft, percolator-match.
+          # If all five repos are public, this token line is not needed.
+          # token: ${{ secrets.PERCOLATOR_READ_TOKEN }}
 
       # ---------- Rust repos ----------
-      # These repos are public. Omitting token keeps fork PRs working because
-      # repository secrets are not provided to pull_request runs from forks.
-      # If they become private, add PERCOLATOR_READ_TOKEN here with Contents: read.
       - name: Checkout percolator-prog
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/percolator-prog
           path: percolator-prog
+          token: ${{ secrets.PERCOLATOR_READ_TOKEN }}
 
       - name: Checkout percolator-stake
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/percolator-stake
           path: percolator-stake
+          token: ${{ secrets.PERCOLATOR_READ_TOKEN }}
 
       - name: Checkout percolator-nft
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/percolator-nft
           path: percolator-nft
+          token: ${{ secrets.PERCOLATOR_READ_TOKEN }}
 
       - name: Checkout percolator-match
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/percolator-match
           path: percolator-match
+          token: ${{ secrets.PERCOLATOR_READ_TOKEN }}
 
       # ---------- Rust toolchain ----------
       - name: Install Rust stable
