@@ -18,6 +18,7 @@ import {
   ACCOUNTS_UPDATE_CONFIG,
   ACCOUNTS_SET_MAINTENANCE_FEE,
   ACCOUNTS_RESOLVE_MARKET,
+  ACCOUNTS_CONVERT_RELEASED_PNL,
   ACCOUNTS_WITHDRAW_INSURANCE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
@@ -262,6 +263,33 @@ describe("Signer / writable invariants", () => {
     for (const spec of adminInstructions) {
       expect(spec[0].signer).toBe(true);
     }
+  });
+
+  it("ACCOUNTS_RESOLVE_MARKET matches its v17-rewritten encoder, not the stale v12.19 layout", () => {
+    // encodeResolveMarket was confirmed rewritten for v17 (tag-only, no mode byte).
+    // Every other v17-rewritten spec in this file drops standalone clock/oracle
+    // accounts with no exception — this spec must not still carry them.
+    expect(ACCOUNTS_RESOLVE_MARKET).toHaveLength(2);
+    expect(ACCOUNTS_RESOLVE_MARKET.find((a) => a.name === "clock")).toBeUndefined();
+    expect(ACCOUNTS_RESOLVE_MARKET.find((a) => a.name === "oracle")).toBeUndefined();
+    expect(ACCOUNTS_RESOLVE_MARKET[0]).toMatchObject({ name: "admin", signer: true, writable: true });
+    const marketSlab = ACCOUNTS_RESOLVE_MARKET.find((a) => a.name === "slab" || a.name === "market");
+    expect(marketSlab, "market/slab account missing").toBeDefined();
+    expect(marketSlab!.writable).toBe(true);
+  });
+
+  it("ACCOUNTS_CONVERT_RELEASED_PNL matches its v17-rewritten encoder, not the stale v12.19 layout", () => {
+    // encodeConvertReleasedPnl's own doc says "v17 portfolios are identified by
+    // account key alone" (userIdx removed) and points back to this constant —
+    // it must include a portfolio account, not the old userIdx-era clock/oracle pair.
+    expect(ACCOUNTS_CONVERT_RELEASED_PNL).toHaveLength(3);
+    expect(ACCOUNTS_CONVERT_RELEASED_PNL.find((a) => a.name === "clock")).toBeUndefined();
+    expect(ACCOUNTS_CONVERT_RELEASED_PNL.find((a) => a.name === "oracle")).toBeUndefined();
+    expect(ACCOUNTS_CONVERT_RELEASED_PNL.find((a) => a.name === "portfolio")).toBeDefined();
+    expect(ACCOUNTS_CONVERT_RELEASED_PNL[0]).toMatchObject({ name: "owner", signer: true, writable: true });
+    const marketSlab2 = ACCOUNTS_CONVERT_RELEASED_PNL.find((a) => a.name === "slab" || a.name === "market");
+    expect(marketSlab2, "market/slab account missing").toBeDefined();
+    expect(marketSlab2!.writable).toBe(true);
   });
 
 });
