@@ -14,6 +14,7 @@ import {
   parsePortfolioV17,
   parseLpVaultRegistry,
   parseLpRedemption,
+  V17_PORTFOLIO_ACCOUNT_LEN,
 } from "../src/solana/slab.js";
 
 function assert(cond: boolean, msg: string): void {
@@ -931,6 +932,37 @@ console.log("\n✅ All slab tests passed!");
   const portfolio = Buffer.alloc(196);
   writeV17Header(portfolio, 2);
   assert(parsePortfolioV17(portfolio).capital === 0n, "parsePortfolioV17 accepts valid v17 portfolio header");
+
+  // Short buffers (shorter than the matcher-config trailer) must default
+  // gracefully rather than throw — matches the existing pattern for every
+  // other field added after the original v17 portfolio shape.
+  const shortPortfolio = parsePortfolioV17(portfolio);
+  assert(shortPortfolio.matcherProgram.equals(PublicKey.default), "parsePortfolioV17 defaults matcherProgram on short buffer");
+  assert(shortPortfolio.matcherContext.equals(PublicKey.default), "parsePortfolioV17 defaults matcherContext on short buffer");
+  assert(shortPortfolio.matcherDelegate.equals(PublicKey.default), "parsePortfolioV17 defaults matcherDelegate on short buffer");
+  assert(shortPortfolio.matcherEnabled === false, "parsePortfolioV17 defaults matcherEnabled to false on short buffer");
+
+  // Full-length buffer: matcherProgram/matcherContext/matcherDelegate/matcherEnabled
+  // must decode from the PortfolioMatcherConfigV16 trailer at the correct offset
+  // (V17_PORTFOLIO_ACCOUNT_LEN - 104), verified against percolator-prog's struct
+  // layout and percolator-keeper's independently-computed byte accounting.
+  const fullPortfolio = Buffer.alloc(V17_PORTFOLIO_ACCOUNT_LEN);
+  writeV17Header(fullPortfolio, 2);
+  const matcherProgramKey = PublicKey.unique();
+  const matcherContextKey = PublicKey.unique();
+  const matcherDelegateKey = PublicKey.unique();
+  const matcherConfigOff = V17_PORTFOLIO_ACCOUNT_LEN - 104;
+  matcherProgramKey.toBuffer().copy(fullPortfolio, matcherConfigOff);
+  matcherContextKey.toBuffer().copy(fullPortfolio, matcherConfigOff + 32);
+  matcherDelegateKey.toBuffer().copy(fullPortfolio, matcherConfigOff + 64);
+  fullPortfolio.writeBigUInt64LE(1n, matcherConfigOff + 96); // enabled
+
+  const decoded = parsePortfolioV17(fullPortfolio);
+  assert(decoded.matcherProgram.equals(matcherProgramKey), "parsePortfolioV17 decodes matcherProgram at the correct offset");
+  assert(decoded.matcherContext.equals(matcherContextKey), "parsePortfolioV17 decodes matcherContext at the correct offset");
+  assert(decoded.matcherDelegate.equals(matcherDelegateKey), "parsePortfolioV17 decodes matcherDelegate at the correct offset");
+  assert(decoded.matcherEnabled === true, "parsePortfolioV17 decodes matcherEnabled at the correct offset");
+  console.log("  ✓ parsePortfolioV17 decodes the PortfolioMatcherConfigV16 trailer (matcherProgram/Context/Delegate/Enabled)");
 
   const registry = Buffer.alloc(176);
   writeV17Header(registry, 5);

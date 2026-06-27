@@ -2177,22 +2177,29 @@ Object.freeze(PROGRAM_IDS.devnet);
 Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 var PROGRAM_IDS_V17 = {
-  /** v17 wrapper placeholder (declare_id! value from v16_program.rs). */
-  percolator: "Perco1ator111111111111111111111111111111111",
-  /** v17 stake placeholder. */
-  stake: "Per5taTe111111111111111111111111111111111111"
+  /** v17 wrapper (percolator) — devnet live. */
+  percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
+  /** v17 stake/vault — devnet live. */
+  stake: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ",
+  /** v17 matcher — devnet live. */
+  matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
+  /** v17 NFT — devnet live. */
+  nft: "5TnritLtHS76s5iV8axqDmqhcmJKMRUekMGrk9rBTqSP"
 };
 Object.freeze(PROGRAM_IDS_V17);
-var V17_PROGRAMS_DEPLOYED = false;
+var V17_PROGRAMS_DEPLOYED = true;
 var PROGRAM_ID_V17 = new PublicKey3(PROGRAM_IDS_V17.percolator);
 var KNOWN_PROGRAM_IDS = /* @__PURE__ */ new Set([
   PROGRAM_IDS.devnet.percolator,
   PROGRAM_IDS.mainnet.percolator,
-  PROGRAM_IDS_V17.percolator
+  PROGRAM_IDS_V17.percolator,
+  PROGRAM_IDS_V17.stake,
+  PROGRAM_IDS_V17.nft
 ]);
 var KNOWN_MATCHER_IDS = /* @__PURE__ */ new Set([
   PROGRAM_IDS.devnet.matcher,
-  PROGRAM_IDS.mainnet.matcher
+  PROGRAM_IDS.mainnet.matcher,
+  PROGRAM_IDS_V17.matcher
 ]);
 function programOverrideOptIn() {
   return safeEnv("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") === "1";
@@ -2212,13 +2219,17 @@ function getProgramId(network) {
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
-  if (!V17_PROGRAMS_DEPLOYED) {
+  if (V17_PROGRAMS_DEPLOYED) {
+    if (targetNetwork === "devnet") {
+      return new PublicKey3(PROGRAM_IDS_V17.percolator);
+    }
     throw new Error(
-      `Percolator v17 program is not deployed for ${targetNetwork}; refusing to return a legacy program ID for v17 SDK encoders. Set PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`
+      `Percolator v17 program is not deployed on mainnet yet; cutover is pending. Set PROGRAM_ID to an explicitly trusted mainnet v17 deployment to override.`
     );
   }
-  const programId = PROGRAM_IDS[targetNetwork].percolator;
-  return new PublicKey3(programId);
+  throw new Error(
+    `Percolator v17 program is not deployed for ${targetNetwork}; refusing to return a legacy program ID for v17 SDK encoders. Set PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`
+  );
 }
 function getMatcherProgramId(network) {
   if (network === void 0) {
@@ -2235,16 +2246,17 @@ function getMatcherProgramId(network) {
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
-  if (!V17_PROGRAMS_DEPLOYED) {
+  if (V17_PROGRAMS_DEPLOYED) {
+    if (targetNetwork === "devnet") {
+      return new PublicKey3(PROGRAM_IDS_V17.matcher);
+    }
     throw new Error(
-      `Percolator v17 matcher program is not deployed for ${targetNetwork}; refusing to return a legacy matcher program ID for v17 SDK encoders. Set MATCHER_PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`
+      `Percolator v17 matcher program is not deployed on mainnet yet; cutover is pending. Set MATCHER_PROGRAM_ID to an explicitly trusted mainnet v17 deployment to override.`
     );
   }
-  const programId = PROGRAM_IDS[targetNetwork].matcher;
-  if (!programId) {
-    throw new Error(`Matcher program not deployed on ${targetNetwork}`);
-  }
-  return new PublicKey3(programId);
+  throw new Error(
+    `Percolator v17 matcher program is not deployed for ${targetNetwork}; refusing to return a legacy matcher program ID for v17 SDK encoders. Set MATCHER_PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`
+  );
 }
 function getCurrentNetwork() {
   const network = safeEnv("NETWORK")?.toLowerCase();
@@ -5025,6 +5037,11 @@ var PF_SOURCE_DOMAIN_SIZE = 196;
 var PF_SOURCE_DOMAINS_OFF = PF_LEGS_OFF + PF_LEGS_COUNT * PF_LEG_SIZE;
 var PF_SOURCE_DOMAINS_CAP = 32;
 var PF_HEALTH_CERT_OFF = PF_SOURCE_DOMAINS_OFF + PF_SOURCE_DOMAINS_CAP * PF_SOURCE_DOMAIN_SIZE;
+var PF_MATCHER_CONFIG_LEN = 104;
+var PF_MATCHER_PROGRAM_OFF = V17_PORTFOLIO_ACCOUNT_LEN - PF_MATCHER_CONFIG_LEN;
+var PF_MATCHER_CONTEXT_OFF = PF_MATCHER_PROGRAM_OFF + 32;
+var PF_MATCHER_DELEGATE_OFF = PF_MATCHER_CONTEXT_OFF + 32;
+var PF_MATCHER_ENABLED_OFF = PF_MATCHER_DELEGATE_OFF + 32;
 function parsePortfolioV17(data) {
   const MIN_PORTFOLIO_BYTES = PF_RESERVED_PNL_OFF + 16;
   if (data.length < MIN_PORTFOLIO_BYTES) {
@@ -5088,6 +5105,10 @@ function parsePortfolioV17(data) {
       sourceLienImpairedCapitalAtRiskFeeRevenue: readU128LE(data, b + 180)
     });
   }
+  const matcherProgram = data.length >= PF_MATCHER_PROGRAM_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_PROGRAM_OFF, PF_MATCHER_PROGRAM_OFF + 32)) : PublicKey5.default;
+  const matcherContext = data.length >= PF_MATCHER_CONTEXT_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_CONTEXT_OFF, PF_MATCHER_CONTEXT_OFF + 32)) : PublicKey5.default;
+  const matcherDelegate = data.length >= PF_MATCHER_DELEGATE_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_DELEGATE_OFF, PF_MATCHER_DELEGATE_OFF + 32)) : PublicKey5.default;
+  const matcherEnabled = data.length >= PF_MATCHER_ENABLED_OFF + 8 ? readU64LE(data, PF_MATCHER_ENABLED_OFF) !== 0n : false;
   return {
     marketGroupId,
     portfolioAccountId,
@@ -5104,7 +5125,11 @@ function parsePortfolioV17(data) {
     lastFeeSlot,
     activeBitmap,
     legs,
-    sourceDomains
+    sourceDomains,
+    matcherProgram,
+    matcherContext,
+    matcherDelegate,
+    matcherEnabled
   };
 }
 var LP_VAULT_REGISTRY_TOTAL = 176;
