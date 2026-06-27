@@ -151,6 +151,95 @@ describe("rankAdlPositions — unit tests on pure ranking logic", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tests for rankAdlPositions — dominantSide
+// ---------------------------------------------------------------------------
+//
+// Regression: rankAdlPositions previously never determined which side has
+// greater net OI, contradicting the module's own documented behavior ("the
+// position at rank 0 of the dominant side is deleveraged first") and the
+// on-chain engine's actual target-side gating (per the devnet log format:
+// "net_long_oi=... net_short_oi=... target_side=...").
+
+describe("rankAdlPositions — dominantSide", () => {
+  const V12_19_SBF_SMALL_SIZE = 96_784;
+  const ENGINE_BASE = 616;
+  const LONG_OI_OFF = ENGINE_BASE + 472;
+  const SHORT_OI_OFF = ENGINE_BASE + 488;
+
+  function buildEngineOnlySlab(longOi: bigint, shortOi: bigint): Uint8Array {
+    const buf = new Uint8Array(V12_19_SBF_SMALL_SIZE);
+    const dv = new DataView(buf.buffer);
+    dv.setBigUint64(0, 0x504552434f4c4154n, true); // PERCOLAT magic
+    dv.setBigUint64(LONG_OI_OFF, longOi, true);
+    dv.setBigUint64(SHORT_OI_OFF, shortOi, true);
+    return buf;
+  }
+
+  it("dominantSide is 'long' when longOi > shortOi", () => {
+    const result = rankAdlPositions(buildEngineOnlySlab(1_000_000n, 500_000n));
+    expect(result.dominantSide).toBe("long");
+  });
+
+  it("dominantSide is 'short' when shortOi > longOi", () => {
+    const result = rankAdlPositions(buildEngineOnlySlab(500_000n, 1_000_000n));
+    expect(result.dominantSide).toBe("short");
+  });
+
+  it("dominantSide resolves ties to 'long', matching the on-chain target_side convention", () => {
+    const result = rankAdlPositions(buildEngineOnlySlab(500_000n, 500_000n));
+    expect(result.dominantSide).toBe("long");
+  });
+
+  it("dominantSide is null when engine state cannot be parsed at all (bad magic)", () => {
+    // A recognized-length buffer with the wrong magic: parseEngine throws
+    // "invalid slab magic" (caught internally, dominantSide stays null), while
+    // detectSlabLayout/parseAllAccounts don't check magic for this size, so the
+    // rest of rankAdlPositions still completes rather than throwing outright.
+    const buf = new Uint8Array(V12_19_SBF_SMALL_SIZE);
+    const result = rankAdlPositions(buf);
+    expect(result.dominantSide).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests for buildAdlTransaction's default target-side selection logic
+// ---------------------------------------------------------------------------
+//
+// buildAdlTransaction itself requires a live Connection, so this tests the
+// branch-selection rule directly (the same pattern this file already uses for
+// rankAdlPositions' pure sorting logic above) rather than the full RPC path.
+
+describe("buildAdlTransaction — default target-side selection (pure logic)", () => {
+  function selectTarget(
+    dominantSide: "long" | "short" | null,
+    longs: { idx: number }[],
+    shorts: { idx: number }[],
+    ranked: { idx: number }[],
+  ): { idx: number } | undefined {
+    if (dominantSide === "long") return longs[0];
+    if (dominantSide === "short") return shorts[0];
+    return ranked[0];
+  }
+
+  it("targets the dominant side's top position when omitting preferSide, not the global top", () => {
+    const longs = [{ idx: 1 }];
+    const shorts = [{ idx: 2 }];
+    // Global ranked[0] would be the short (idx 2) if merged-sort happened to put
+    // it first — but with dominantSide="long", the long must be targeted instead.
+    const ranked = [{ idx: 2 }, { idx: 1 }];
+    expect(selectTarget("long", longs, shorts, ranked)!.idx).toBe(1);
+    expect(selectTarget("short", longs, shorts, ranked)!.idx).toBe(2);
+  });
+
+  it("falls back to the global top-ranked position only when dominantSide is null", () => {
+    const longs = [{ idx: 1 }];
+    const shorts = [{ idx: 2 }];
+    const ranked = [{ idx: 2 }, { idx: 1 }];
+    expect(selectTarget(null, longs, shorts, ranked)!.idx).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests for isAdlTriggered
 // ---------------------------------------------------------------------------
 
