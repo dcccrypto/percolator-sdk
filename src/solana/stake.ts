@@ -114,11 +114,27 @@ export const STAKE_IX = {
   InitTradingPool: 13,
   /** PERC-313: Set HWM config (enable + floor bps) */
   AdminSetHwmConfig: 14,
-  /** PERC-303: Enable/configure senior-junior LP tranches */
+  /**
+   * BindInsuranceAuthority (tag 15 / 0x0F) — FIND-4 fix.
+   *
+   * Binds the vault_auth PDA as the wrapper's asset-0 insurance_authority via
+   * a CPI to UpdateAssetAuthority (tag 65, kind=INSURANCE=1). The human admin
+   * signs the outer tx as the current authority; vault_auth signs via
+   * invoke_signed inside the stake program.
+   *
+   * Wire: tag(1) = 0x0F — no payload beyond the tag byte.
+   * Accounts: [admin(signer), pool_pda(w), vault_auth, slab(w), percolator_program]
+   */
+  BindInsuranceAuthority: 15,
+  /**
+   * @deprecated Collides with BindInsuranceAuthority (tag 15) in the deployed
+   * percolator-stake v39 program. Sending AdminSetTrancheConfig data at tag 15
+   * would execute BindInsuranceAuthority instead. Use BindInsuranceAuthority.
+   */
   AdminSetTrancheConfig: 15,
-  /** PERC-303: Deposit into junior (first-loss) tranche */
+  /** @deprecated Not in the deployed percolator-stake v39 program (tag 16 is unhandled). */
   DepositJunior: 16,
-  /** Mark the pool as resolved after the wrapper market has been resolved directly. */
+  /** @deprecated Not in the deployed percolator-stake v39 program (tag 18 is unhandled). */
   SetMarketResolved: 18,
 } as const;
 Object.freeze(STAKE_IX);
@@ -321,22 +337,105 @@ export function encodeStakeAdminSetHwmConfig(
   );
 }
 
-/** Tag 15 (PERC-303): AdminSetTrancheConfig — enable senior/junior LP tranches. */
-export function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps: number): Uint8Array {
-  return concatBytes(
-    new Uint8Array([STAKE_IX.AdminSetTrancheConfig]),
-    u16Le(juniorFeeMultBps),
+/**
+ * @deprecated Collides with BindInsuranceAuthority at tag 15 in the deployed
+ * percolator-stake v39 program. Calling this would silently execute
+ * BindInsuranceAuthority on-chain instead of configuring tranches. Throws.
+ * Use encodeStakeBindInsuranceAuthority() instead.
+ */
+export function encodeStakeAdminSetTrancheConfig(_juniorFeeMultBps: number): Uint8Array {
+  throw new Error(
+    'encodeStakeAdminSetTrancheConfig: tag 15 is BindInsuranceAuthority in the deployed ' +
+    'percolator-stake v39 program — sending AdminSetTrancheConfig data would silently ' +
+    'execute BindInsuranceAuthority. Use encodeStakeBindInsuranceAuthority() instead.',
   );
 }
 
-/** Tag 16 (PERC-303): DepositJunior — deposit into first-loss junior tranche. */
-export function encodeStakeDepositJunior(amount: bigint | number): Uint8Array {
-  return concatBytes(new Uint8Array([STAKE_IX.DepositJunior]), u64Le(amount));
+/**
+ * Tag 15 (0x0F): BindInsuranceAuthority — FIND-4 fix.
+ *
+ * Binds the vault_auth PDA as the wrapper program's asset-0 insurance_authority
+ * via a CPI from the stake program to the wrapper's UpdateAssetAuthority (tag 65).
+ * Must be called once after InitPool, before FlushToInsurance will work.
+ *
+ * Wire: tag(1) = 0x0F — no payload beyond the tag byte (1 byte total).
+ *
+ * @returns 1-byte Uint8Array `[0x0F]`.
+ *
+ * @example
+ * ```ts
+ * const data = encodeStakeBindInsuranceAuthority();
+ * // accounts: bindInsuranceAuthorityAccounts({ admin, poolPda, vaultAuth, slab, percolatorProgram })
+ * ```
+ */
+export function encodeStakeBindInsuranceAuthority(): Uint8Array {
+  return new Uint8Array([STAKE_IX.BindInsuranceAuthority]);
 }
 
-/** Tag 18: SetMarketResolved — blocks new deposits after the wrapper market is resolved. */
+/**
+ * Account inputs for BindInsuranceAuthority (tag 15 / 0x0F).
+ *
+ * @param admin               Current insurance_authority (human admin wallet; outer tx signer).
+ * @param poolPda             Stake pool PDA (derived via deriveStakePool()).
+ * @param vaultAuth           Vault authority PDA (derived via deriveStakeVaultAuth()).
+ * @param slab                Wrapper market-group slab (writable — needed for UpdateAssetAuthority CPI).
+ * @param percolatorProgram   Wrapper program ID.
+ */
+export interface BindInsuranceAuthorityAccounts {
+  admin: PublicKey;
+  poolPda: PublicKey;
+  vaultAuth: PublicKey;
+  slab: PublicKey;
+  percolatorProgram: PublicKey;
+}
+
+/**
+ * Build account keys for BindInsuranceAuthority (tag 15 / 0x0F).
+ *
+ * Account order matches src/processor.rs process_bind_insurance_authority:
+ *   [0] admin              signer, read-only  (current insurance_authority)
+ *   [1] pool_pda           writable           (stake pool PDA)
+ *   [2] vault_auth         read-only          (new authority; signs via invoke_signed)
+ *   [3] slab               writable           (wrapper market; needed for CPI)
+ *   [4] percolator_program read-only          (wrapper program for CPI dispatch)
+ *
+ * @param a Named accounts.
+ * @returns Array of `{pubkey, isSigner, isWritable}` in program-expected order.
+ *
+ * @example
+ * ```ts
+ * const [poolPda] = deriveStakePool(slab, stakeProgramId);
+ * const [vaultAuth] = deriveStakeVaultAuth(poolPda, stakeProgramId);
+ * const keys = bindInsuranceAuthorityAccounts({ admin, poolPda, vaultAuth, slab, percolatorProgram });
+ * ```
+ */
+export function bindInsuranceAuthorityAccounts(
+  a: BindInsuranceAuthorityAccounts,
+): { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] {
+  return [
+    { pubkey: a.admin,             isSigner: true,  isWritable: false },
+    { pubkey: a.poolPda,           isSigner: false, isWritable: true  },
+    { pubkey: a.vaultAuth,         isSigner: false, isWritable: false },
+    { pubkey: a.slab,              isSigner: false, isWritable: true  },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false },
+  ];
+}
+
+/** @deprecated Not in the deployed percolator-stake v39 program (tag 16 is unhandled). Throws. */
+export function encodeStakeDepositJunior(amount: bigint | number): Uint8Array {
+  void amount;
+  throw new Error(
+    'encodeStakeDepositJunior: tag 16 is not handled by the deployed percolator-stake v39 program.',
+  );
+}
+
+/**
+ * @deprecated Not in the deployed percolator-stake v39 program (tag 18 is unhandled). Throws.
+ */
 export function encodeStakeSetMarketResolved(): Uint8Array {
-  return new Uint8Array([STAKE_IX.SetMarketResolved]);
+  throw new Error(
+    'encodeStakeSetMarketResolved: tag 18 is not handled by the deployed percolator-stake v39 program.',
+  );
 }
 
 /** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
@@ -421,27 +520,48 @@ export interface StakePoolState {
 }
 
 /**
- * Size of StakePool on-chain (bytes).
+ * Size of StakePool on-chain (bytes) — v1 layout.
+ * v1: 352 bytes = 288 bytes of fields + 64 bytes _reserved (no pending_admin field).
+ * The _reserved block in v1 starts at offset 288; version byte = 1.
+ */
+export const STAKE_POOL_SIZE_V1 = 352;
+
+/**
+ * Size of StakePool on-chain (bytes) — v2 layout (current).
  * v2: 384 (stake v1 was 352; `pending_admin: [u8;32]` added at offset 288).
+ * The _reserved block in v2 starts at offset 320; version byte = 2.
  */
 export const STAKE_POOL_SIZE = 384;
 export const STAKE_POOL_DISCRIMINATOR = new Uint8Array([0x53, 0x50, 0x4f, 0x4f, 0x4c, 0x5f, 0x56, 0x31]);
 export const STAKE_POOL_CURRENT_VERSION = 2;
-const STAKE_POOL_RESERVED_OFFSET = 320;
 
 /**
- * Decode a StakePool account from raw data buffer. * Uses DataView for all u64/u16 reads — browser-safe.
+ * Decode a StakePool account from raw data buffer.
+ *
+ * Supports both v1 (352 bytes, no pending_admin, _reserved starts at 288) and
+ * v2 (384 bytes, pending_admin at 288..320, _reserved starts at 320). The layout
+ * version is detected from the data length before reading the discriminator.
+ *
+ * Uses DataView for all u64/u16 reads — browser-safe.
  */
 export function decodeStakePool(data: Uint8Array): StakePoolState {
-  if (data.length < STAKE_POOL_SIZE) {
-    throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE}`);
+  const isV2 = data.length >= STAKE_POOL_SIZE;
+  const isV1 = !isV2 && data.length >= STAKE_POOL_SIZE_V1;
+  if (!isV2 && !isV1) {
+    throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE_V1}`);
   }
-  requireDiscriminator("StakePool", data, STAKE_POOL_RESERVED_OFFSET, STAKE_POOL_DISCRIMINATOR);
-  const version = data[STAKE_POOL_RESERVED_OFFSET + 8];
-  if (version !== STAKE_POOL_CURRENT_VERSION) {
-    throw new Error(`StakePool unsupported version: ${version} !== ${STAKE_POOL_CURRENT_VERSION}`);
+
+  // _reserved block starts at 288 for v1, 320 for v2.
+  const reservedOffset = isV2 ? 320 : 288;
+  requireDiscriminator("StakePool", data, reservedOffset, STAKE_POOL_DISCRIMINATOR);
+  const version = data[reservedOffset + 8];
+  const expectedVersion = isV2 ? 2 : 1;
+  if (version !== expectedVersion) {
+    throw new Error(`StakePool unsupported version: ${version} !== ${expectedVersion}`);
   }
-  const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);  let off = 0;
+
+  const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  let off = 0;
   const isInitialized = bytes[off] === 1; off += 1;
   const bump = bytes[off]; off += 1;
   const vaultAuthorityBump = bytes[off]; off += 1;
@@ -464,21 +584,24 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
 
   const percolatorProgram = new PublicKey(bytes.subarray(off, off + 32)); off += 32;
 
-  // PERC-272 fields
+  // PERC-272 fields (offset 256..288 in both v1 and v2)
   const totalFeesEarned = readU64LE(bytes, off); off += 8;
   const lastFeeAccrualSlot = readU64LE(bytes, off); off += 8;
   const lastVaultSnapshot = readU64LE(bytes, off); off += 8;
   const poolMode = bytes[off]; off += 1;
-  off += 7; // _mode_padding
+  off += 7; // _mode_padding  (off is now 288)
 
-  // stake v2: pending_admin [u8;32] at offset 288 (ProposeAdmin/AcceptAdmin two-step rotation).
-  // Zero bytes = no pending proposal.
-  const pendingAdminBytes = bytes.subarray(off, off + 32); off += 32;
-  const pendingAdmin = pendingAdminBytes.every(b => b === 0)
-    ? null
-    : new PublicKey(pendingAdminBytes);
+  // stake v2 only: pending_admin [u8;32] at offset 288 (ProposeAdmin/AcceptAdmin two-step rotation).
+  // v1 has no pending_admin — the _reserved block begins immediately at offset 288.
+  let pendingAdmin: PublicKey | null = null;
+  if (isV2) {
+    const pendingAdminBytes = bytes.subarray(off, off + 32); off += 32;
+    pendingAdmin = pendingAdminBytes.every(b => b === 0)
+      ? null
+      : new PublicKey(pendingAdminBytes);
+  }
 
-  // _reserved (64 bytes) starts at offset 320 in v2 (after pending_admin)
+  // _reserved (64 bytes): starts at 288 (v1) or 320 (v2)
   const reservedStart = off;
   // _reserved[8] = version (skipped)
   // _reserved[9] = market_resolved
@@ -642,7 +765,7 @@ export function initPoolAccounts(
 ) {
   return [
     { pubkey: a.admin, isSigner: true, isWritable: true },
-    { pubkey: a.slab, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: true },  // writable: InitPool CPIs UpdateAuthority which writes the slab
     { pubkey: a.pool, isSigner: false, isWritable: true },
     { pubkey: a.lpMint, isSigner: false, isWritable: true },
     { pubkey: a.vault, isSigner: false, isWritable: true },

@@ -2,7 +2,9 @@
  * Percolator v17 program error definitions.
  *
  * Source: v16_program.rs PercolatorError enum (lines 174-226 in v17 wrapper).
- * Ordinals 0-29 = toly base errors; 30-41 = fork LP-vault; 42-46 = fork NFT/B-3.
+ * Ordinals 0-29 = toly base errors; 30-41 = fork LP-vault; 42-46 = fork NFT/B-3;
+ * 47-48 = insurance withdrawal policy (F-1/F-2); 49 = EngineInsufficientInitialMargin
+ * (discriminant tentative — TODO: confirm once percolator-anchor ships it).
  *
  * INVARIANT: ordinals must NOT be reordered (Rust enum discriminants are
  * sequential from 0). CI asserts each ordinal in tests/v16_kani.rs.

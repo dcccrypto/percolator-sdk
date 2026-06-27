@@ -14,6 +14,7 @@ import {
   encodeAdvanceEpoch,
   encodeResolveMarket, encodeWithdrawInsurance,
   IX_TAG,
+  PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
 } from "../src/abi/instructions.js";
 
 /**
@@ -35,6 +36,55 @@ function assertTruncatedPayloadThrowsOnSequentialRead(full: Uint8Array): void {
     ).toThrow(RangeError);
   }
 }
+
+describe("PUBLIC_B_CHUNK_ATOMS_UNLIMITED", () => {
+  it("equals the engine MAX_VAULT_TVL (10_000_000_000_000_000)", () => {
+    expect(PUBLIC_B_CHUNK_ATOMS_UNLIMITED).toBe(10_000_000_000_000_000n);
+  });
+
+  it("is a bigint, not a number", () => {
+    expect(typeof PUBLIC_B_CHUNK_ATOMS_UNLIMITED).toBe("bigint");
+  });
+
+  it("encodeInitMarket accepts PUBLIC_B_CHUNK_ATOMS_UNLIMITED without throwing", () => {
+    const data = encodeInitMarket({
+      maxPortfolioAssets: 256,
+      hMin: 1000n,
+      hMax: 100_000n,
+      initialPrice: 50_000_000_000n,
+      minNonzeroMmReq: 1_000_000n,
+      minNonzeroImReq: 2_000_000n,
+      maintenanceMarginBps: 500n,
+      initialMarginBps: 1000n,
+      maxTradingFeeBps: 100n,
+      tradeFeeBaseBps: 30n,
+      liquidationFeeBps: 100n,
+      liquidationFeeCap: 10_000_000n,
+      minLiquidationAbs: 1_000_000n,
+      maxPriceMoveBpsPerSlot: 4n,
+      maxAccrualDtSlots: 600n,
+      maxAbsFundingE9PerSlot: 1000n,
+      minFundingLifetimeSlots: 50n,
+      maxAccountBSettlementChunks: 10n,
+      maxBankruptCloseChunks: 10n,
+      maxBankruptCloseLifetimeSlots: 500n,
+      publicBChunkAtoms: PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
+      maintenanceFeePerSlot: 0n,
+    });
+    // 219 bytes: tag(1) + 218 bytes of params
+    expect(data.length).toBe(219);
+    // Verify publicBChunkAtoms is encoded as 10_000_000_000_000_000 at the correct offset.
+    // Layout: tag(1) + u16(2) + u64×3(24) + u128×2(32) + u64×5(40) + u128×2(32) + u64×7(56) = 187
+    //   tag=1, maxPortfolioAssets=2, hMin/hMax/initialPrice=24, mmReq/imReq=32,
+    //   maintenanceMarginBps..liquidationFeeBps=40, liquidationFeeCap/minLiquidationAbs=32,
+    //   maxPriceMovePerSlot..maxBankruptCloseLifetimeSlots=56 → publicBChunkAtoms starts at 187
+    const dv = new DataView(data.buffer);
+    const lo = dv.getBigUint64(187, true);
+    const hi = dv.getBigUint64(195, true);
+    const encoded = lo | (hi << 64n);
+    expect(encoded).toBe(PUBLIC_B_CHUNK_ATOMS_UNLIMITED);
+  });
+});
 
 describe("IX_TAG values", () => {
   it("has correct tags", () => {

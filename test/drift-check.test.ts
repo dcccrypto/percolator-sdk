@@ -375,7 +375,7 @@ describe("SDK drift guards", () => {
   it("stake tags reflect the current on-chain mapping", () => {
     expect(STAKE_IX.ReturnInsurance).toBe(10);
     expect(encodeStakeReturnInsurance(55n)[0]).toBe(10);
-    expect(encodeStakeSetMarketResolved()[0]).toBe(18);
+    expect(() => encodeStakeSetMarketResolved()).toThrow(/tag 18/i);
     expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
   });
 

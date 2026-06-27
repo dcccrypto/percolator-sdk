@@ -262,8 +262,8 @@ export declare const IX_TAG: {
     readonly CloseOrphanSlab: 73;
     /** @deprecated v12.x tag 74. COLLIDES with v17 CreateLpVault(74). Do NOT use. */
     readonly SetDexPool: 74;
-    /** @deprecated v12.x tag 75. COLLIDES with v17 DepositToLpVault(75). Do NOT use. */
-    readonly InitMatcherCtx: 75;
+    /** @deprecated v12.x tag 75. COLLIDES with v17 DepositToLpVault(75) AND v17 InitMatcherCtx(83). Do NOT use. */
+    readonly InitMatcherCtxV12: 75;
     /** @deprecated v12.x tag 78. COLLIDES with v17 LpVaultCrankFees(78). Do NOT use. */
     readonly SetMaxPnlCap: 78;
     /** @deprecated v12.x tag 79. COLLIDES with v17 SetLpVaultPaused(79). Do NOT use. */
@@ -274,8 +274,22 @@ export declare const IX_TAG: {
     readonly SetLpCollateralParams: 81;
     /** @deprecated v12.x tag 82. Not in v17. */
     readonly AcceptAdmin: 82;
-    /** @deprecated v12.x tag 83. Not in v17 — v17 tag 32 UpdateAuthority has NO kind byte. */
-    readonly ProposeAdmin: 83;
+    /**
+     * InitMatcherCtx (tag 83) — bootstrap a matcher context by CPIing to the matcher program.
+     *
+     * v17 wire: tag(1) + kind(u8) + trading_fee_bps(u32) + base_spread_bps(u32) +
+     *   max_total_bps(u32) + impact_k_bps(u32) + liquidity_notional_e6(u128) +
+     *   max_fill_abs(u128) + max_inventory_abs(u128) + fee_to_insurance_bps(u16) +
+     *   skew_spread_mult_bps(u16) = 70 bytes total.
+     *
+     * The wrapper's handle_init_matcher_ctx signs the CPI as the matcher_delegate PDA
+     * (via invoke_signed), satisfying the matcher program's lp_pda.is_signer check.
+     *
+     * PREREQUISITE: SetMatcherConfig (tag 68, enabled=1) must be called first to store
+     * (matcherProg, matcherCtx, matcherDelegate) in the LP portfolio's matcher config tail.
+     * InitMatcherCtx verifies the stored triple matches the accounts supplied here.
+     */
+    readonly InitMatcherCtx: 83;
     /** @deprecated v12.x tag 85. Not in v17. */
     readonly ReclaimEmptyAccount: 85;
     /** @deprecated v12.x tag 86. Not in v17. */
@@ -458,6 +472,28 @@ export interface InitMarketArgs {
 export declare const HEX_RE: RegExp;
 export declare function encodeFeedId(feedId: string): Uint8Array;
 /**
+ * Default value for `publicBChunkAtoms` matching the engine's `MAX_VAULT_TVL`
+ * (10_000_000_000_000_000 — effectively unlimited).
+ *
+ * WARNING: Using a small value (e.g. 1_000_000) stalls deep liquidations.
+ * When a bankrupt position's liability exceeds `public_b_chunk_atoms`, the
+ * engine returns `RecoveryRequired` and refuses further liquidation until
+ * the insurance fund covers the residual. Production markets MUST use this
+ * constant (or the engine's own `MAX_VAULT_TVL`) unless a deliberate chunk
+ * limit is intended AND the insurance fund is sized accordingly.
+ *
+ * @example
+ * ```ts
+ * import { PUBLIC_B_CHUNK_ATOMS_UNLIMITED, encodeInitMarket } from "@percolator/sdk";
+ * const data = encodeInitMarket({
+ *   ...otherParams,
+ *   publicBChunkAtoms: PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
+ *   maintenanceFeePerSlot: 0n,
+ * });
+ * ```
+ */
+export declare const PUBLIC_B_CHUNK_ATOMS_UNLIMITED = 10000000000000000n;
+/**
  * InitMarket v17 argument interface.
  *
  * admin and collateralMint are passed as account metas (accounts[0] and
@@ -520,7 +556,16 @@ export interface InitMarketV17Args {
     maxBankruptCloseChunks: bigint | string;
     /** Maximum bankrupt-close lifetime in slots (u64). */
     maxBankruptCloseLifetimeSlots: bigint | string;
-    /** Public-B chunk size in atoms (u128). */
+    /**
+     * Public-B chunk size in atoms (u128).
+     *
+     * WARNING: A small value (e.g. 1_000_000) can stall deep liquidations —
+     * the engine returns `RecoveryRequired` when the bankrupt position's
+     * liability exceeds this limit and insurance is insufficient to cover it.
+     * Use `PUBLIC_B_CHUNK_ATOMS_UNLIMITED` (= engine's `MAX_VAULT_TVL` =
+     * 10_000_000_000_000_000) unless you have a specific chunk-limit requirement
+     * and a funded insurance pool.
+     */
     publicBChunkAtoms: bigint | string;
     /** Maintenance fee per slot in absolute units (u128). Must be <= MAX_PROTOCOL_FEE_ABS. */
     maintenanceFeePerSlot: bigint | string;
@@ -563,7 +608,7 @@ export interface InitMarketV17Args {
  *   maxAccountBSettlementChunks: 10n,
  *   maxBankruptCloseChunks: 10n,
  *   maxBankruptCloseLifetimeSlots: 500n,
- *   publicBChunkAtoms: 1_000_000n,
+ *   publicBChunkAtoms: PUBLIC_B_CHUNK_ATOMS_UNLIMITED,  // use engine's MAX_VAULT_TVL; small values stall deep liquidations
  *   maintenanceFeePerSlot: 0n,
  * });
  * ```
@@ -1627,50 +1672,98 @@ export interface SetWalletCapArgs {
 /** @deprecated v12.x SetWalletCap (old tag 70). Not in v17. */
 export declare function encodeSetWalletCap(_args: SetWalletCapArgs): Uint8Array;
 /**
- * InitMatcherCtx (Tag 75) — admin initializes the matcher context account for an LP slot.
+ * InitMatcherCtx (tag 83) — LP owner bootstraps the matcher context account by invoking
+ * the wrapper, which CPIs to the matcher program signing as the matcher_delegate PDA.
  *
- * The matcher program (DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX) requires its context
- * account to be initialized before TradeCpi can work. Only the percolator program can sign
- * as the LP PDA via invoke_signed, so this instruction acts as the trusted initializer.
+ * v17 wire: tag(1=83) + kind(u8) + trading_fee_bps(u32 LE) + base_spread_bps(u32 LE) +
+ *   max_total_bps(u32 LE) + impact_k_bps(u32 LE) + liquidity_notional_e6(u128 LE) +
+ *   max_fill_abs(u128 LE) + max_inventory_abs(u128 LE) + fee_to_insurance_bps(u16 LE) +
+ *   skew_spread_mult_bps(u16 LE) = 70 bytes total.
  *
- * Instruction data layout: tag(1) + lp_idx(2) + kind(1) + trading_fee_bps(4) +
- *   base_spread_bps(4) + max_total_bps(4) + impact_k_bps(4) +
- *   liquidity_notional_e6(16) + max_fill_abs(16) + max_inventory_abs(16) +
- *   fee_to_insurance_bps(2) + skew_spread_mult_bps(2) = 72 bytes
+ * PREREQUISITE: SetMatcherConfig (tag 68, enabled=1) must be called FIRST. The wrapper's
+ * handler reads the LP portfolio's stored matcher config and verifies that:
+ *   cfg.matcher_program == matcherProg
+ *   cfg.matcher_context == matcherCtx
+ *   cfg.matcher_delegate == matcherDelegate (derived via deriveMatcherDelegate())
  *
- * Accounts:
- *   0. [signer]   admin
- *   1. []         slab (program-owned; used to verify admin + LP slot)
- *   2. [writable] matcherCtx (must match LP's stored matcher_context)
- *   3. []         matcherProg (executable; must match LP's stored matcher_program)
- *   4. []         lpPda (PDA ["lp", slab, lp_idx]; required by CPI as signer)
+ * The wrapper calls derive_matcher_delegate and invoke_signed so the delegate PDA acts
+ * as a signer in the matcher CPI — this is what satisfies the matcher's lp_pda.is_signer
+ * check on the deployed binary. No client-side signer of the delegate is needed.
+ *
+ * Accounts (per handle_init_matcher_ctx in deployed wrapper, tag 83):
+ *   [0] lp_owner        signer (LP portfolio owner)
+ *   [1] market          read-only (program-owned market slab)
+ *   [2] lp_portfolio    read-only (LP's portfolio; must have provenance matching market + owner)
+ *   [3] matcher_ctx     writable (320-byte account owned by matcher program)
+ *   [4] matcher_prog    read-only, executable (the matcher program)
+ *   [5] matcher_delegate read-only (PDA derived by deriveMatcherDelegate; wrapper signs for it)
+ *
+ * @param args.kind              0=Passive, 1=vAMM
+ * @param args.tradingFeeBps     Base trading fee in bps (u32, e.g. 30)
+ * @param args.baseSpreadBps     Base spread in bps (u32)
+ * @param args.maxTotalBps       Max total spread in bps (u32)
+ * @param args.impactKBps        vAMM price impact constant in bps (u32; 0 for Passive)
+ * @param args.liquidityNotionalE6 Liquidity notional in e6 units (u128; 0 for Passive)
+ * @param args.maxFillAbs        Max single fill in absolute units (u128; use i128::MAX for unlimited)
+ * @param args.maxInventoryAbs   Max inventory in absolute units (u128; use i128::MAX for unlimited)
+ * @param args.feeToInsuranceBps Fraction of fees to insurance in bps (u16)
+ * @param args.skewSpreadMultBps Skew spread multiplier in bps (u16; 0=disabled)
+ *
+ * @example
+ * ```ts
+ * const data = encodeInitMatcherCtx({
+ *   kind: 0,  // Passive
+ *   tradingFeeBps: 30,
+ *   baseSpreadBps: 50,
+ *   maxTotalBps: 200,
+ *   impactKBps: 0,
+ *   liquidityNotionalE6: 0n,
+ *   maxFillAbs: 170141183460469231731687303715884105727n,  // i128::MAX
+ *   maxInventoryAbs: 170141183460469231731687303715884105727n,
+ *   feeToInsuranceBps: 0,
+ *   skewSpreadMultBps: 0,
+ * });
+ * ```
  */
 export interface InitMatcherCtxArgs {
-    /** LP account index in the engine (0-based). */
-    lpIdx: number;
+    /**
+     * @deprecated lpIdx is not present in the v17 wire format. The wrapper derives the LP
+     * info from the lp_portfolio account (accounts[2]). This field is ignored if provided.
+     */
+    lpIdx?: number;
     /** Matcher kind: 0=Passive, 1=vAMM. */
     kind: number;
-    /** Base trading fee in bps (e.g. 30 = 0.30%). */
+    /** Base trading fee in bps (u32, e.g. 30 = 0.30%). */
     tradingFeeBps: number;
-    /** Base spread in bps. */
+    /** Base spread in bps (u32). */
     baseSpreadBps: number;
-    /** Max total spread in bps. */
+    /** Max total spread in bps (u32). */
     maxTotalBps: number;
-    /** vAMM impact constant in bps (0 for passive matchers). */
+    /** vAMM price impact constant in bps (u32). Use 0 for Passive kind. */
     impactKBps: number;
-    /** Liquidity notional in e6 units (0 for passive matchers). */
+    /** Liquidity notional in e6 units (u128). Use 0n for Passive kind. */
     liquidityNotionalE6: bigint | string;
-    /** Max single fill size in absolute units (u128::MAX = no limit). */
+    /** Max single fill size in absolute units (u128). Use 170141183460469231731687303715884105727n for no limit (i128::MAX). */
     maxFillAbs: bigint | string;
-    /** Max inventory size in absolute units (u128::MAX = no limit). */
+    /** Max inventory size in absolute units (u128). Use 170141183460469231731687303715884105727n for no limit. */
     maxInventoryAbs: bigint | string;
-    /** Fraction of fees routed to insurance fund in bps. */
+    /** Fraction of fees routed to insurance fund in bps (u16). */
     feeToInsuranceBps: number;
-    /** Skew spread multiplier in bps (0 = disabled). */
+    /** Skew spread multiplier in bps (u16). 0 = disabled. */
     skewSpreadMultBps: number;
 }
-/** @deprecated v12.x InitMatcherCtx (old tag 75). v17 reuses tag 75 for DepositToLpVault. */
-export declare function encodeInitMatcherCtx(_args: InitMatcherCtxArgs): Uint8Array;
+/** Wire length of InitMatcherCtx instruction payload (tag + 10 fields). */
+export declare const INIT_MATCHER_CTX_V17_LEN = 70;
+/**
+ * Encode InitMatcherCtx instruction data (v17 wire format, tag 83).
+ *
+ * Sends to the WRAPPER program (not the matcher directly). The wrapper CPIs the matcher
+ * via invoke_signed, making the delegate PDA a signer in the matcher's process_init call.
+ *
+ * @param args InitMatcherCtxArgs (lpIdx field ignored in v17)
+ * @returns 70-byte Uint8Array
+ */
+export declare function encodeInitMatcherCtx(args: InitMatcherCtxArgs): Uint8Array;
 /**
  * @deprecated v12.x SetInsuranceWithdrawPolicy (old tag 22). Not in v17.
  */

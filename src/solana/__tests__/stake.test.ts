@@ -209,10 +209,8 @@ describe('Instruction encoders', () => {
     expect(() => encodeStakeAdminSetInsurancePolicy(auth, 100n, 500, 200n)).toThrow(/tag 11/i);
   });
 
-  it('encodeStakeSetMarketResolved — tag 18', () => {
-    const buf = encodeStakeSetMarketResolved();
-    expect(buf.length).toBe(1);
-    expect(buf[0]).toBe(18);
+  it('encodeStakeSetMarketResolved throws (tag 18 not in deployed v39)', () => {
+    expect(() => encodeStakeSetMarketResolved()).toThrow(/tag 18/i);
   });
 
   it('encodeStakeDeposit accepts number', () => {

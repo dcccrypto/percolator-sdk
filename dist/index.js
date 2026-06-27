@@ -359,8 +359,8 @@ var IX_TAG = {
   CloseOrphanSlab: 73,
   /** @deprecated v12.x tag 74. COLLIDES with v17 CreateLpVault(74). Do NOT use. */
   SetDexPool: 74,
-  /** @deprecated v12.x tag 75. COLLIDES with v17 DepositToLpVault(75). Do NOT use. */
-  InitMatcherCtx: 75,
+  /** @deprecated v12.x tag 75. COLLIDES with v17 DepositToLpVault(75) AND v17 InitMatcherCtx(83). Do NOT use. */
+  InitMatcherCtxV12: 75,
   /** @deprecated v12.x tag 78. COLLIDES with v17 LpVaultCrankFees(78). Do NOT use. */
   SetMaxPnlCap: 78,
   /** @deprecated v12.x tag 79. COLLIDES with v17 SetLpVaultPaused(79). Do NOT use. */
@@ -371,8 +371,22 @@ var IX_TAG = {
   SetLpCollateralParams: 81,
   /** @deprecated v12.x tag 82. Not in v17. */
   AcceptAdmin: 82,
-  /** @deprecated v12.x tag 83. Not in v17 — v17 tag 32 UpdateAuthority has NO kind byte. */
-  ProposeAdmin: 83,
+  /**
+   * InitMatcherCtx (tag 83) — bootstrap a matcher context by CPIing to the matcher program.
+   *
+   * v17 wire: tag(1) + kind(u8) + trading_fee_bps(u32) + base_spread_bps(u32) +
+   *   max_total_bps(u32) + impact_k_bps(u32) + liquidity_notional_e6(u128) +
+   *   max_fill_abs(u128) + max_inventory_abs(u128) + fee_to_insurance_bps(u16) +
+   *   skew_spread_mult_bps(u16) = 70 bytes total.
+   *
+   * The wrapper's handle_init_matcher_ctx signs the CPI as the matcher_delegate PDA
+   * (via invoke_signed), satisfying the matcher program's lp_pda.is_signer check.
+   *
+   * PREREQUISITE: SetMatcherConfig (tag 68, enabled=1) must be called first to store
+   * (matcherProg, matcherCtx, matcherDelegate) in the LP portfolio's matcher config tail.
+   * InitMatcherCtx verifies the stored triple matches the accounts supplied here.
+   */
+  InitMatcherCtx: 83,
   /** @deprecated v12.x tag 85. Not in v17. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
@@ -439,6 +453,7 @@ function encodeFeedId(feedId) {
   }
   return bytes;
 }
+var PUBLIC_B_CHUNK_ATOMS_UNLIMITED = 10000000000000000n;
 var INIT_MARKET_V17_LEN = 219;
 function encodeInitMarket(args) {
   const isV17Args = "maxPortfolioAssets" in args;
@@ -908,12 +923,37 @@ function encodeTransferOwnershipCpi(_args) {
 function encodeSetWalletCap(_args) {
   return removedInstruction("SetWalletCap (v12 tag 70 \u2014 not in v17)", IX_TAG.SetWalletCap, void 0);
 }
-function encodeInitMatcherCtx(_args) {
-  return removedInstruction(
-    "InitMatcherCtx (v12 tag 75 \u2014 COLLIDES with v17 DepositToLpVault)",
-    IX_TAG.InitMatcherCtx,
-    void 0
+var INIT_MATCHER_CTX_V17_LEN = 70;
+function encodeInitMatcherCtx(args) {
+  const data = concatBytes(
+    encU8(83),
+    // IX_TAG.InitMatcherCtx = 83
+    encU8(args.kind),
+    new Uint8Array(new Uint32Array([args.tradingFeeBps]).buffer),
+    // u32 LE
+    new Uint8Array(new Uint32Array([args.baseSpreadBps]).buffer),
+    // u32 LE
+    new Uint8Array(new Uint32Array([args.maxTotalBps]).buffer),
+    // u32 LE
+    new Uint8Array(new Uint32Array([args.impactKBps]).buffer),
+    // u32 LE
+    encU128(args.liquidityNotionalE6),
+    // u128 LE
+    encU128(args.maxFillAbs),
+    // u128 LE
+    encU128(args.maxInventoryAbs),
+    // u128 LE
+    encU16(args.feeToInsuranceBps),
+    // u16 LE
+    encU16(args.skewSpreadMultBps)
+    // u16 LE
   );
+  if (data.length !== INIT_MATCHER_CTX_V17_LEN) {
+    throw new Error(
+      `encodeInitMatcherCtx: expected ${INIT_MATCHER_CTX_V17_LEN} bytes, got ${data.length}`
+    );
+  }
+  return data;
 }
 function encodeSetInsuranceWithdrawPolicy(_args) {
   return removedInstruction("SetInsuranceWithdrawPolicy (v12 tag 22 \u2014 not in v17)", IX_TAG.SetInsuranceWithdrawPolicy, void 0);
@@ -1615,7 +1655,7 @@ var ACCOUNTS_UPDATE_HYPERP_MARK = [
 ];
 var ACCOUNTS_CREATE_LP_VAULT = [
   { name: "admin", signer: true, writable: true },
-  { name: "market", signer: false, writable: false },
+  { name: "market", signer: false, writable: true },
   { name: "registry", signer: false, writable: true },
   { name: "lpMint", signer: false, writable: true },
   { name: "systemProgram", signer: false, writable: false },
@@ -1780,11 +1820,12 @@ var ACCOUNTS_SET_DEX_POOL = [
   { name: "poolAccount", signer: false, writable: false }
 ];
 var ACCOUNTS_INIT_MATCHER_CTX = [
-  { name: "admin", signer: true, writable: false },
-  { name: "slab", signer: false, writable: false },
+  { name: "lpOwner", signer: true, writable: false },
+  { name: "market", signer: false, writable: false },
+  { name: "lpPortfolio", signer: false, writable: false },
   { name: "matcherCtx", signer: false, writable: true },
   { name: "matcherProg", signer: false, writable: false },
-  { name: "lpPda", signer: false, writable: false }
+  { name: "matcherDelegate", signer: false, writable: false }
 ];
 var ACCOUNTS_CONFIGURE_HYBRID_ORACLE = [
   { name: "oracleAuthority", signer: true, writable: false },
@@ -2015,6 +2056,26 @@ var PERCOLATOR_ERRORS = {
   46: {
     name: "NftPortfolioProvenance",
     hint: "Portfolio provenance mismatch for NFT transfer. The portfolio was not created for this market group."
+  },
+  // ── Insurance withdrawal policy enforcement (F-1 / F-2) (47-48) ─────────────
+  // Source: v16_program.rs PercolatorError variants appended after NftPortfolioProvenance.
+  47: {
+    name: "InsuranceWithdrawCooldownActive",
+    hint: "Insurance withdrawal cooldown is still active (F-1). Wait for the cooldown period to elapse before withdrawing."
+  },
+  48: {
+    name: "InsuranceWithdrawCeilingExceeded",
+    hint: "Insurance withdrawal would exceed the deposits-only ceiling (F-2). Reduce the withdrawal amount or wait for more deposits."
+  },
+  // ── EngineInsufficientInitialMargin (49) ─────────────────────────────────────
+  // TODO: confirm discriminant once percolator-anchor ships EngineInsufficientInitialMargin.
+  // Tentative ordinal 49 (appended after InsuranceWithdrawCeilingExceeded=48).
+  // This is a distinct error for initial-margin failure (previously surfaced as
+  // the opaque EngineInvalidConfig=14). Update the ordinal key if the anchor
+  // agent places it at a different position in the PercolatorError enum.
+  49: {
+    name: "EngineInsufficientInitialMargin",
+    hint: "Insufficient initial margin for this trade or position open. Deposit more collateral or reduce the position size."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -6259,11 +6320,27 @@ var STAKE_IX = {
   InitTradingPool: 13,
   /** PERC-313: Set HWM config (enable + floor bps) */
   AdminSetHwmConfig: 14,
-  /** PERC-303: Enable/configure senior-junior LP tranches */
+  /**
+   * BindInsuranceAuthority (tag 15 / 0x0F) — FIND-4 fix.
+   *
+   * Binds the vault_auth PDA as the wrapper's asset-0 insurance_authority via
+   * a CPI to UpdateAssetAuthority (tag 65, kind=INSURANCE=1). The human admin
+   * signs the outer tx as the current authority; vault_auth signs via
+   * invoke_signed inside the stake program.
+   *
+   * Wire: tag(1) = 0x0F — no payload beyond the tag byte.
+   * Accounts: [admin(signer), pool_pda(w), vault_auth, slab(w), percolator_program]
+   */
+  BindInsuranceAuthority: 15,
+  /**
+   * @deprecated Collides with BindInsuranceAuthority (tag 15) in the deployed
+   * percolator-stake v39 program. Sending AdminSetTrancheConfig data at tag 15
+   * would execute BindInsuranceAuthority instead. Use BindInsuranceAuthority.
+   */
   AdminSetTrancheConfig: 15,
-  /** PERC-303: Deposit into junior (first-loss) tranche */
+  /** @deprecated Not in the deployed percolator-stake v39 program (tag 16 is unhandled). */
   DepositJunior: 16,
-  /** Mark the pool as resolved after the wrapper market has been resolved directly. */
+  /** @deprecated Not in the deployed percolator-stake v39 program (tag 18 is unhandled). */
   SetMarketResolved: 18
 };
 Object.freeze(STAKE_IX);
@@ -6400,17 +6477,33 @@ function encodeStakeAdminSetHwmConfig(enabled, hwmFloorBps) {
     u16Le(hwmFloorBps)
   );
 }
-function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps) {
-  return concatBytes(
-    new Uint8Array([STAKE_IX.AdminSetTrancheConfig]),
-    u16Le(juniorFeeMultBps)
+function encodeStakeAdminSetTrancheConfig(_juniorFeeMultBps) {
+  throw new Error(
+    "encodeStakeAdminSetTrancheConfig: tag 15 is BindInsuranceAuthority in the deployed percolator-stake v39 program \u2014 sending AdminSetTrancheConfig data would silently execute BindInsuranceAuthority. Use encodeStakeBindInsuranceAuthority() instead."
   );
 }
+function encodeStakeBindInsuranceAuthority() {
+  return new Uint8Array([STAKE_IX.BindInsuranceAuthority]);
+}
+function bindInsuranceAuthorityAccounts(a) {
+  return [
+    { pubkey: a.admin, isSigner: true, isWritable: false },
+    { pubkey: a.poolPda, isSigner: false, isWritable: true },
+    { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: true },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false }
+  ];
+}
 function encodeStakeDepositJunior(amount) {
-  return concatBytes(new Uint8Array([STAKE_IX.DepositJunior]), u64Le(amount));
+  void amount;
+  throw new Error(
+    "encodeStakeDepositJunior: tag 16 is not handled by the deployed percolator-stake v39 program."
+  );
 }
 function encodeStakeSetMarketResolved() {
-  return new Uint8Array([STAKE_IX.SetMarketResolved]);
+  throw new Error(
+    "encodeStakeSetMarketResolved: tag 18 is not handled by the deployed percolator-stake v39 program."
+  );
 }
 function encodeStakeAdminSetInsurancePolicy(authority, minWithdrawBase, maxWithdrawBps, cooldownSlots) {
   void authority;
@@ -6419,18 +6512,22 @@ function encodeStakeAdminSetInsurancePolicy(authority, minWithdrawBase, maxWithd
   void cooldownSlots;
   return removedStakeInstruction("encodeStakeAdminSetInsurancePolicy", STAKE_IX.AdminSetInsurancePolicy);
 }
+var STAKE_POOL_SIZE_V1 = 352;
 var STAKE_POOL_SIZE = 384;
 var STAKE_POOL_DISCRIMINATOR = new Uint8Array([83, 80, 79, 79, 76, 95, 86, 49]);
 var STAKE_POOL_CURRENT_VERSION = 2;
-var STAKE_POOL_RESERVED_OFFSET = 320;
 function decodeStakePool(data) {
-  if (data.length < STAKE_POOL_SIZE) {
-    throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE}`);
+  const isV2 = data.length >= STAKE_POOL_SIZE;
+  const isV1 = !isV2 && data.length >= STAKE_POOL_SIZE_V1;
+  if (!isV2 && !isV1) {
+    throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE_V1}`);
   }
-  requireDiscriminator("StakePool", data, STAKE_POOL_RESERVED_OFFSET, STAKE_POOL_DISCRIMINATOR);
-  const version = data[STAKE_POOL_RESERVED_OFFSET + 8];
-  if (version !== STAKE_POOL_CURRENT_VERSION) {
-    throw new Error(`StakePool unsupported version: ${version} !== ${STAKE_POOL_CURRENT_VERSION}`);
+  const reservedOffset = isV2 ? 320 : 288;
+  requireDiscriminator("StakePool", data, reservedOffset, STAKE_POOL_DISCRIMINATOR);
+  const version = data[reservedOffset + 8];
+  const expectedVersion = isV2 ? 2 : 1;
+  if (version !== expectedVersion) {
+    throw new Error(`StakePool unsupported version: ${version} !== ${expectedVersion}`);
   }
   const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
   let off = 0;
@@ -6478,9 +6575,12 @@ function decodeStakePool(data) {
   const poolMode = bytes[off];
   off += 1;
   off += 7;
-  const pendingAdminBytes = bytes.subarray(off, off + 32);
-  off += 32;
-  const pendingAdmin = pendingAdminBytes.every((b) => b === 0) ? null : new PublicKey11(pendingAdminBytes);
+  let pendingAdmin = null;
+  if (isV2) {
+    const pendingAdminBytes = bytes.subarray(off, off + 32);
+    off += 32;
+    pendingAdmin = pendingAdminBytes.every((b) => b === 0) ? null : new PublicKey11(pendingAdminBytes);
+  }
   const reservedStart = off;
   const marketResolved = bytes[reservedStart + 9] === 1;
   const hwmEnabled = bytes[reservedStart + 10] === 1;
@@ -6545,7 +6645,8 @@ function decodeDepositPda(data) {
 function initPoolAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
   return [
     { pubkey: a.admin, isSigner: true, isWritable: true },
-    { pubkey: a.slab, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: true },
+    // writable: InitPool CPIs UpdateAuthority which writes the slab
     { pubkey: a.pool, isSigner: false, isWritable: true },
     { pubkey: a.lpMint, isSigner: false, isWritable: true },
     { pubkey: a.vault, isSigner: false, isWritable: true },
@@ -8112,6 +8213,7 @@ export {
   EXPECTED_SLAB_VERSION,
   HEX_RE,
   INIT_CTX_LEN,
+  INIT_MATCHER_CTX_V17_LEN,
   IX_TAG,
   LIGHTHOUSE_CONSTRAINT_ADDRESS,
   LIGHTHOUSE_ERROR_CODES,
@@ -8140,6 +8242,7 @@ export {
   PROGRAM_IDS,
   PROGRAM_IDS_V17,
   PROGRAM_ID_V17,
+  PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
   PUMPSWAP_PROGRAM_ID,
   PYTH_PUSH_ORACLE_PROGRAM_ID,
   PYTH_RECEIVER_PROGRAM_ID,
@@ -8172,6 +8275,7 @@ export {
   STAKE_POOL_CURRENT_VERSION,
   STAKE_POOL_DISCRIMINATOR,
   STAKE_POOL_SIZE,
+  STAKE_POOL_SIZE_V1,
   STAKE_PROGRAM_ID,
   STAKE_PROGRAM_IDS,
   TOKEN_2022_PROGRAM_ID,
@@ -8192,6 +8296,7 @@ export {
   ValidationError,
   WELL_KNOWN,
   _internal,
+  bindInsuranceAuthorityAccounts,
   buildAccountMetas,
   buildAdlInstruction,
   buildAdlTransaction,
@@ -8358,6 +8463,7 @@ export {
   encodeStakeAdminSetRiskThreshold,
   encodeStakeAdminSetTrancheConfig,
   encodeStakeAdminWithdrawInsurance,
+  encodeStakeBindInsuranceAuthority,
   encodeStakeDeposit,
   encodeStakeDepositJunior,
   encodeStakeFlushToInsurance,

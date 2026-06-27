@@ -21,6 +21,9 @@ import {
   encodeStakeDepositJunior,
   encodeStakeAdminSetInsurancePolicy,
   encodeStakeSetMarketResolved,
+  encodeStakeBindInsuranceAuthority,
+  bindInsuranceAuthorityAccounts,
+  initPoolAccounts,
   decodeStakePool,
   decodeDepositPda,
   deriveStakePool,
@@ -29,17 +32,28 @@ import {
   STAKE_PROGRAM_ID,
   STAKE_POOL_DISCRIMINATOR,
   STAKE_POOL_CURRENT_VERSION,
+  STAKE_POOL_SIZE,
+  STAKE_POOL_SIZE_V1,
   STAKE_DEPOSIT_DISCRIMINATOR,
 } from "../src/solana/stake.js";
 
-const STAKE_POOL_RESERVED_OFFSET = 320;
+// v2 (384-byte) _reserved block starts at 320; v1 (352-byte) starts at 288.
+const STAKE_POOL_RESERVED_OFFSET_V2 = 320;
+const STAKE_POOL_RESERVED_OFFSET_V1 = 288;
 const STAKE_DEPOSIT_RESERVED_OFFSET = 88;
 const TEST_POOL = new PublicKey("FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD");
 const TEST_USER = new PublicKey("GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24");
 
+/** Stamp a v2 (384-byte) StakePool identity at the v2 reserved offset (320). */
 function stampStakePoolIdentity(buf: Uint8Array): void {
-  buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET);
-  buf[STAKE_POOL_RESERVED_OFFSET + 8] = STAKE_POOL_CURRENT_VERSION;
+  buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
+  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = STAKE_POOL_CURRENT_VERSION; // version = 2
+}
+
+/** Stamp a v1 (352-byte) StakePool identity at the v1 reserved offset (288). */
+function stampStakePoolV1Identity(buf: Uint8Array): void {
+  buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V1);
+  buf[STAKE_POOL_RESERVED_OFFSET_V1 + 8] = 1; // version = 1
 }
 
 function stampStakeDepositIdentity(buf: Uint8Array): void {
@@ -185,17 +199,12 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(data.length).toBe(1 + 1 + 2);
   });
 
-  it("encodeStakeAdminSetTrancheConfig", () => {
-    const data = encodeStakeAdminSetTrancheConfig(2000);
-    expect(data).toBeInstanceOf(Uint8Array);
-    expect(data[0]).toBe(STAKE_IX.AdminSetTrancheConfig);
-    expect(data.length).toBe(1 + 2);
+  it("encodeStakeAdminSetTrancheConfig throws (collides with BindInsuranceAuthority at tag 15)", () => {
+    expect(() => encodeStakeAdminSetTrancheConfig(2000)).toThrow(/tag 15|BindInsuranceAuthority/i);
   });
 
-  it("encodeStakeDepositJunior", () => {
-    const data = encodeStakeDepositJunior(1_000_000n);    expect(data).toBeInstanceOf(Uint8Array);
-    expect(data[0]).toBe(STAKE_IX.DepositJunior);
-    expect(data.length).toBe(1 + 8);
+  it("encodeStakeDepositJunior throws (tag 16 not in deployed v39 program)", () => {
+    expect(() => encodeStakeDepositJunior(1_000_000n)).toThrow(/tag 16/i);
   });
 
   it("encodeStakeAdminSetInsurancePolicy", () => {
@@ -203,11 +212,121 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(() => encodeStakeAdminSetInsurancePolicy(auth, 100n, 5000, 86400n)).toThrow(/tag 11/i);
   });
 
-  it("encodeStakeSetMarketResolved", () => {
-    const data = encodeStakeSetMarketResolved();
+  it("encodeStakeSetMarketResolved throws (tag 18 not in deployed v39 program)", () => {
+    expect(() => encodeStakeSetMarketResolved()).toThrow(/tag 18/i);
+  });
+
+  it("encodeStakeBindInsuranceAuthority emits 1-byte tag 0x0F", () => {
+    const data = encodeStakeBindInsuranceAuthority();
     expect(data).toBeInstanceOf(Uint8Array);
-    expect(data[0]).toBe(STAKE_IX.SetMarketResolved);
     expect(data.length).toBe(1);
+    expect(data[0]).toBe(0x0F); // STAKE_IX.BindInsuranceAuthority = 15
+    expect(data[0]).toBe(STAKE_IX.BindInsuranceAuthority);
+  });
+
+  it("STAKE_IX.BindInsuranceAuthority is 15 and STAKE_IX.AdminSetTrancheConfig is also 15 (same tag, deprecated)", () => {
+    expect(STAKE_IX.BindInsuranceAuthority).toBe(15);
+    expect(STAKE_IX.AdminSetTrancheConfig).toBe(15);
+  });
+
+  it("bindInsuranceAuthorityAccounts returns 5 accounts in correct signer/writable order", () => {
+    const admin = new PublicKey("GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24");
+    const poolPda = new PublicKey("FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD");
+    const vaultAuth = new PublicKey("11111111111111111111111111111111");
+    const slab = new PublicKey("So11111111111111111111111111111111111111112");
+    const percolatorProgram = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+    const keys = bindInsuranceAuthorityAccounts({ admin, poolPda, vaultAuth, slab, percolatorProgram });
+    expect(keys).toHaveLength(5);
+
+    // [0] admin: signer, NOT writable
+    expect(keys[0].pubkey.equals(admin)).toBe(true);
+    expect(keys[0].isSigner).toBe(true);
+    expect(keys[0].isWritable).toBe(false);
+
+    // [1] poolPda: NOT signer, writable
+    expect(keys[1].pubkey.equals(poolPda)).toBe(true);
+    expect(keys[1].isSigner).toBe(false);
+    expect(keys[1].isWritable).toBe(true);
+
+    // [2] vaultAuth: NOT signer, NOT writable
+    expect(keys[2].pubkey.equals(vaultAuth)).toBe(true);
+    expect(keys[2].isSigner).toBe(false);
+    expect(keys[2].isWritable).toBe(false);
+
+    // [3] slab: NOT signer, writable (needed for UpdateAssetAuthority CPI)
+    expect(keys[3].pubkey.equals(slab)).toBe(true);
+    expect(keys[3].isSigner).toBe(false);
+    expect(keys[3].isWritable).toBe(true);
+
+    // [4] percolatorProgram: NOT signer, NOT writable
+    expect(keys[4].pubkey.equals(percolatorProgram)).toBe(true);
+    expect(keys[4].isSigner).toBe(false);
+    expect(keys[4].isWritable).toBe(false);
+  });
+
+  it("initPoolAccounts: slab is writable (InitPool CPIs UpdateAuthority which writes the slab)", () => {
+    const admin = new PublicKey("GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24");
+    const slab = new PublicKey("FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD");
+    const pool = new PublicKey("11111111111111111111111111111111");
+    const lpMint = new PublicKey("So11111111111111111111111111111111111111112");
+    const vault = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const vaultAuth = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe8bv");
+    const collateralMint = new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
+    const percolatorProgram = new PublicKey("So11111111111111111111111111111111111111111");
+
+    const keys = initPoolAccounts({ admin, slab, pool, lpMint, vault, vaultAuth, collateralMint, percolatorProgram });
+
+    // account[0] = admin (signer, writable)
+    expect(keys[0].isWritable).toBe(true);
+    expect(keys[0].isSigner).toBe(true);
+
+    // account[1] = slab — MUST be writable for UpdateAuthority CPI
+    expect(keys[1].pubkey.equals(slab)).toBe(true);
+    expect(keys[1].isWritable).toBe(true);
+    expect(keys[1].isSigner).toBe(false);
+
+    // account[2] = pool (writable)
+    expect(keys[2].isWritable).toBe(true);
+  });
+
+  it("decodes a v1 (352-byte) StakePool with pendingAdmin=null", () => {
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V1); // 352 bytes
+    const dv = new DataView(buf.buffer);
+    buf[0] = 1; // isInitialized
+    buf[1] = 5; // bump
+    buf[2] = 7; // vaultAuthorityBump
+    // admin, slab etc. remain at PublicKey.default (all zeros)
+    buf.set(PublicKey.default.toBytes(), 8);   // slab
+    buf.set(PublicKey.default.toBytes(), 40);  // admin
+    buf.set(PublicKey.default.toBytes(), 72);  // collateralMint
+    buf.set(PublicKey.default.toBytes(), 104); // lpMint
+    buf.set(PublicKey.default.toBytes(), 136); // vault
+    dv.setBigUint64(168, 100n, true); // totalDeposited
+    buf.set(PublicKey.default.toBytes(), 224); // percolatorProgram
+
+    // v1: _reserved starts at 288 (NOT 320); stamp identity + version=1 there
+    stampStakePoolV1Identity(buf);
+    buf[STAKE_POOL_RESERVED_OFFSET_V1 + 9] = 1;  // marketResolved = true
+
+    const pool = decodeStakePool(buf);
+    expect(pool.isInitialized).toBe(true);
+    expect(pool.bump).toBe(5);
+    expect(pool.totalDeposited).toBe(100n);
+    expect(pool.pendingAdmin).toBeNull(); // v1 has no pending_admin field
+    expect(pool.marketResolved).toBe(true);
+  });
+
+  it("decodeStakePool rejects v1 data with a bad version byte (stamps discriminator but version=0)", () => {
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V1);
+    buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V1);
+    buf[STAKE_POOL_RESERVED_OFFSET_V1 + 8] = 0; // bad version for v1
+    expect(() => decodeStakePool(buf)).toThrow(/StakePool unsupported version/);
+  });
+
+  it("decodeStakePool rejects buffers shorter than v1 (< 352 bytes)", () => {
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V1 - 1);
+    expect(() => decodeStakePool(buf)).toThrow(/too short/);
   });
 
   it("decodeStakePool reads marketResolved and HWM fields from current reserved offsets", () => {
@@ -237,13 +356,12 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     // poolMode @ 280 (u8), _mode_padding @ 281..288 (7 bytes)
     // pending_admin [u8;32] @ 288..320 (new in v2; zeros = no pending proposal)
     // _reserved (64 bytes) starts at 320 in v2 (was 288 in v1)
-    const reservedStart = 320;
     stampStakePoolIdentity(buf);
-    buf[reservedStart + 9] = 1;   // market_resolved = true
-    buf[reservedStart + 10] = 1;  // hwm_enabled = true
-    dv.setUint16(reservedStart + 11, 777, true);   // hwm_floor_bps
-    dv.setBigUint64(reservedStart + 16, 123n, true); // epoch_high_water_tvl
-    dv.setBigUint64(reservedStart + 24, 456n, true); // hwm_last_epoch
+    buf[STAKE_POOL_RESERVED_OFFSET_V2 + 9] = 1;   // market_resolved = true
+    buf[STAKE_POOL_RESERVED_OFFSET_V2 + 10] = 1;  // hwm_enabled = true
+    dv.setUint16(STAKE_POOL_RESERVED_OFFSET_V2 + 11, 777, true);   // hwm_floor_bps
+    dv.setBigUint64(STAKE_POOL_RESERVED_OFFSET_V2 + 16, 123n, true); // epoch_high_water_tvl
+    dv.setBigUint64(STAKE_POOL_RESERVED_OFFSET_V2 + 24, 456n, true); // hwm_last_epoch
 
     const pool = decodeStakePool(buf);
     expect(pool.marketResolved).toBe(true);
@@ -258,10 +376,10 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(() => decodeStakePool(buf)).toThrow(/StakePool invalid discriminator/);
   });
 
-  it("rejects stake pools with a stale or unsupported version byte", () => {
+  it("rejects v2 (384-byte) stake pools with a bad version byte", () => {
     const buf = new Uint8Array(384);
     stampStakePoolIdentity(buf);
-    buf[STAKE_POOL_RESERVED_OFFSET + 8] = STAKE_POOL_CURRENT_VERSION - 1;
+    buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 99; // bad version for v2
     expect(() => decodeStakePool(buf)).toThrow(/StakePool unsupported version/);
   });
 

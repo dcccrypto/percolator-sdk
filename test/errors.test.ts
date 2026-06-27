@@ -14,7 +14,9 @@ import {
  *   0-29  = toly base errors
  *   30-41 = fork LP-vault errors
  *   42-46 = fork NFT/B-3 errors
- *   47+   = undefined (should be undefined in the table)
+ *   47-48 = insurance withdrawal policy (F-1/F-2) — in deployed wrapper
+ *   49    = EngineInsufficientInitialMargin (discriminant tentative — TODO)
+ *   50+   = undefined (should be undefined in the table)
  */
 
 // ============================================================================
@@ -22,16 +24,16 @@ import {
 // ============================================================================
 
 describe("PERCOLATOR_ERRORS table", () => {
-  it("has contiguous error codes from 0 to 46", () => {
-    for (let i = 0; i <= 46; i++) {
-      expect(PERCOLATOR_ERRORS[i]).toBeDefined();
+  it("has contiguous error codes from 0 to 49", () => {
+    for (let i = 0; i <= 49; i++) {
+      expect(PERCOLATOR_ERRORS[i], `error ${i} should be defined`).toBeDefined();
       expect(PERCOLATOR_ERRORS[i].name).toBeTruthy();
       expect(PERCOLATOR_ERRORS[i].hint).toBeTruthy();
     }
   });
 
-  it("error codes 47+ are not defined (v17 only has 0-46)", () => {
-    expect(PERCOLATOR_ERRORS[47]).toBeUndefined();
+  it("error codes 50+ are not defined", () => {
+    expect(PERCOLATOR_ERRORS[50]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[65]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[100]).toBeUndefined();
   });
@@ -91,6 +93,18 @@ describe("PERCOLATOR_ERRORS table", () => {
     expect(PERCOLATOR_ERRORS[45].name).toBe("NftInvalidMintAuthority");
     expect(PERCOLATOR_ERRORS[46].name).toBe("NftPortfolioProvenance");
   });
+
+  it("insurance withdrawal policy errors 47-48 (F-1/F-2) are in deployed wrapper", () => {
+    expect(PERCOLATOR_ERRORS[47].name).toBe("InsuranceWithdrawCooldownActive");
+    expect(PERCOLATOR_ERRORS[47].hint.toLowerCase()).toContain("cooldown");
+    expect(PERCOLATOR_ERRORS[48].name).toBe("InsuranceWithdrawCeilingExceeded");
+    expect(PERCOLATOR_ERRORS[48].hint.toLowerCase()).toContain("ceiling");
+  });
+
+  it("EngineInsufficientInitialMargin at tentative ordinal 49 (TODO: confirm discriminant)", () => {
+    expect(PERCOLATOR_ERRORS[49].name).toBe("EngineInsufficientInitialMargin");
+    expect(PERCOLATOR_ERRORS[49].hint.toLowerCase()).toContain("initial margin");
+  });
 });
 
 // ============================================================================
@@ -128,8 +142,13 @@ describe("decodeError", () => {
     expect(info!.name).toBe("NftRegistryNotFound");
   });
 
-  it("returns undefined for unknown code 47 (beyond v17 range)", () => {
-    expect(decodeError(47)).toBeUndefined();
+  it("returns defined info for code 47 (InsuranceWithdrawCooldownActive)", () => {
+    expect(decodeError(47)).toBeDefined();
+    expect(decodeError(47)!.name).toBe("InsuranceWithdrawCooldownActive");
+  });
+
+  it("returns undefined for unknown code 50 (beyond current table)", () => {
+    expect(decodeError(50)).toBeUndefined();
   });
 
   it("returns undefined for unknown code 10_000", () => {
@@ -154,8 +173,14 @@ describe("getErrorName", () => {
     expect(getErrorName(42)).toBe("NftRegistryNotFound");
   });
 
-  it("returns Unknown(...) for unknown codes", () => {
-    expect(getErrorName(47)).toBe("Unknown(47)");
+  it("returns name for codes 47-49 (new insurance + im errors)", () => {
+    expect(getErrorName(47)).toBe("InsuranceWithdrawCooldownActive");
+    expect(getErrorName(48)).toBe("InsuranceWithdrawCeilingExceeded");
+    expect(getErrorName(49)).toBe("EngineInsufficientInitialMargin");
+  });
+
+  it("returns Unknown(...) for unknown codes beyond the table", () => {
+    expect(getErrorName(50)).toBe("Unknown(50)");
     expect(getErrorName(999)).toBe("Unknown(999)");
     expect(getErrorName(100)).toBe("Unknown(100)");
   });

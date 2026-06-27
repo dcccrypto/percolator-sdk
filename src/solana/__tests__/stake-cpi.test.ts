@@ -43,6 +43,7 @@ import {
   encodeStakeAdminSetTrancheConfig,
   encodeStakeDepositJunior,
   encodeStakeSetMarketResolved,
+  encodeStakeBindInsuranceAuthority,
   initPoolAccounts,
   depositAccounts,
   withdrawAccounts,
@@ -109,10 +110,10 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       expect(keys[0].isSigner).toBe(true);
       expect(keys[0].isWritable).toBe(true);
 
-      // Account 1: slab — read-only (stake reads slab config but doesn't mutate it)
+      // Account 1: slab — writable (InitPool CPIs UpdateAuthority which writes the slab)
       expect(keys[1].pubkey.equals(slab.publicKey)).toBe(true);
       expect(keys[1].isSigner).toBe(false);
-      expect(keys[1].isWritable).toBe(false);
+      expect(keys[1].isWritable).toBe(true);
 
       // Account 2: pool PDA — writable (created in this ix)
       expect(keys[2].pubkey.equals(pool)).toBe(true);
@@ -393,10 +394,8 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       expect(neither[10]).toBe(0);
     });
 
-    it('SetMarketResolved uses live tag 18', () => {
-      const data = encodeStakeSetMarketResolved();
-      expect(data[0]).toBe(STAKE_IX.SetMarketResolved);
-      expect(data.length).toBe(1);
+    it('SetMarketResolved throws (tag 18 not in deployed v39 program)', () => {
+      expect(() => encodeStakeSetMarketResolved()).toThrow(/tag 18/i);
     });
   });
 });
@@ -452,10 +451,22 @@ describe('Stake PDA Chain — Multi-Market Isolation', () => {
 describe('Stake Instruction Tags — No Gaps or Conflicts', () => {
   it('tags match the live on-chain mapping, including tombstones and aliases', () => {
     const tags = Object.values(STAKE_IX);
-    expect(tags).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 14, 15, 16, 18]);
+    // BindInsuranceAuthority(15) and AdminSetTrancheConfig(15) are both 15 in the object
+    // (same deployed tag; AdminSetTrancheConfig is deprecated). ReturnInsurance and
+    // AdminWithdrawInsurance both map to 10. DepositJunior(16) and SetMarketResolved(18)
+    // are deprecated (not in deployed v39 program) but still in STAKE_IX for reference.
+    expect(tags).toContain(0);
+    expect(tags).toContain(1);
+    expect(tags).toContain(15); // BindInsuranceAuthority
+    expect(tags.filter(t => t === 15).length).toBe(2); // BindInsuranceAuthority + AdminSetTrancheConfig alias
+    expect(tags.filter(t => t === 10).length).toBe(2); // ReturnInsurance + AdminWithdrawInsurance alias
+    expect(tags).toContain(12); // AccrueFees
+    expect(tags).toContain(13); // InitTradingPool
+    expect(tags).toContain(14); // AdminSetHwmConfig
   });
 
-  it('live encoders produce the correct tag byte and tombstoned encoders throw', () => {
+  it('live encoders produce the correct tag byte and deprecated encoders throw', () => {
+    // These encoders are live in the deployed v39 program
     const liveTagMap: [number, Uint8Array][] = [
       [STAKE_IX.InitPool, encodeStakeInitPool(0n, 0n)],
       [STAKE_IX.Deposit, encodeStakeDeposit(0n)],
@@ -467,20 +478,22 @@ describe('Stake Instruction Tags — No Gaps or Conflicts', () => {
       [STAKE_IX.AccrueFees, encodeStakeAccrueFees()],
       [STAKE_IX.InitTradingPool, encodeStakeInitTradingPool(0n, 0n)],
       [STAKE_IX.AdminSetHwmConfig, encodeStakeAdminSetHwmConfig(false, 0)],
-      [STAKE_IX.AdminSetTrancheConfig, encodeStakeAdminSetTrancheConfig(0)],
-      [STAKE_IX.DepositJunior, encodeStakeDepositJunior(0n)],
-      [STAKE_IX.SetMarketResolved, encodeStakeSetMarketResolved()],
+      [STAKE_IX.BindInsuranceAuthority, encodeStakeBindInsuranceAuthority()],
     ];
 
     for (const [expectedTag, data] of liveTagMap) {
       expect(data[0]).toBe(expectedTag);
     }
 
+    // Deprecated / not-in-deployed-program encoders must throw
     expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
     expect(() => encodeStakeAdminSetOracleAuthority(PublicKey.default)).toThrow(/tag 6/i);
     expect(() => encodeStakeAdminSetRiskThreshold(0n)).toThrow(/tag 7/i);
     expect(() => encodeStakeAdminSetMaintenanceFee(0n)).toThrow(/tag 8/i);
     expect(() => encodeStakeAdminResolveMarket()).toThrow(/tag 9/i);
     expect(() => encodeStakeAdminSetInsurancePolicy(PublicKey.default, 0n, 0, 0n)).toThrow(/tag 11/i);
+    expect(() => encodeStakeAdminSetTrancheConfig(0)).toThrow(/tag 15|BindInsuranceAuthority/i);
+    expect(() => encodeStakeDepositJunior(0n)).toThrow(/tag 16/i);
+    expect(() => encodeStakeSetMarketResolved()).toThrow(/tag 18/i);
   });
 });

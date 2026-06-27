@@ -2,7 +2,9 @@
  * Percolator v17 program error definitions.
  *
  * Source: v16_program.rs PercolatorError enum (lines 174-226 in v17 wrapper).
- * Ordinals 0-29 = toly base errors; 30-41 = fork LP-vault; 42-46 = fork NFT/B-3.
+ * Ordinals 0-29 = toly base errors; 30-41 = fork LP-vault; 42-46 = fork NFT/B-3;
+ * 47-48 = insurance withdrawal policy (F-1/F-2); 49 = EngineInsufficientInitialMargin
+ * (discriminant tentative — TODO: confirm once percolator-anchor ships it).
  *
  * INVARIANT: ordinals must NOT be reordered (Rust enum discriminants are
  * sequential from 0). CI asserts each ordinal in tests/v16_kani.rs.
@@ -209,6 +211,26 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   46: {
     name: "NftPortfolioProvenance",
     hint: "Portfolio provenance mismatch for NFT transfer. The portfolio was not created for this market group.",
+  },
+  // ── Insurance withdrawal policy enforcement (F-1 / F-2) (47-48) ─────────────
+  // Source: v16_program.rs PercolatorError variants appended after NftPortfolioProvenance.
+  47: {
+    name: "InsuranceWithdrawCooldownActive",
+    hint: "Insurance withdrawal cooldown is still active (F-1). Wait for the cooldown period to elapse before withdrawing.",
+  },
+  48: {
+    name: "InsuranceWithdrawCeilingExceeded",
+    hint: "Insurance withdrawal would exceed the deposits-only ceiling (F-2). Reduce the withdrawal amount or wait for more deposits.",
+  },
+  // ── EngineInsufficientInitialMargin (49) ─────────────────────────────────────
+  // TODO: confirm discriminant once percolator-anchor ships EngineInsufficientInitialMargin.
+  // Tentative ordinal 49 (appended after InsuranceWithdrawCeilingExceeded=48).
+  // This is a distinct error for initial-margin failure (previously surfaced as
+  // the opaque EngineInvalidConfig=14). Update the ordinal key if the anchor
+  // agent places it at a different position in the PercolatorError enum.
+  49: {
+    name: "EngineInsufficientInitialMargin",
+    hint: "Insufficient initial margin for this trade or position open. Deposit more collateral or reduce the position size.",
   },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
