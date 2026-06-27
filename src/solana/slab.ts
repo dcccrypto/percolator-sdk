@@ -2041,16 +2041,16 @@ export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout
   // Check V12_1_EP sizes (entry_price re-added, ACCOUNT_SIZE=288 on SBF).
   // Must be checked before V12_1 (280-byte accounts) to avoid misdetection.
   const v121epn = V12_1_EP_SIZES.get(dataLen);
-  if (v121epn !== undefined) return buildLayoutV12_1EP(v121epn);
+  if (v121epn !== undefined) return validateLayout(buildLayoutV12_1EP(v121epn), dataLen);
 
   // Check V12_1 sizes (percolator-core v12.1, ACCOUNT_SIZE=320/280, no entry_price).
   const v121n = V12_1_SIZES.get(dataLen);
-  if (v121n !== undefined) return buildLayoutV12_1(v121n, dataLen);
+  if (v121n !== undefined) return validateLayout(buildLayoutV12_1(v121n, dataLen), dataLen);
 
   // Check V_SETDEXPOOL sizes (PERC-SetDexPool, ENGINE_OFF=648, CONFIG_LEN=544).
   // These are the pre-v12.1 newest slabs — largest ENGINE_OFF so no size collision with V_ADL (624).
   const vsdpn = V_SETDEXPOOL_SIZES.get(dataLen);
-  if (vsdpn !== undefined) return buildLayoutVSetDexPool(vsdpn);
+  if (vsdpn !== undefined) return validateLayout(buildLayoutVSetDexPool(vsdpn), dataLen);
 
   // Check V1M2 sizes. After fixing bitmapOff to 1008 for both V1M2 and V_ADL,
   // their sizes no longer collide (engineOff differs: 616 vs 624), so size-based detection
@@ -2058,20 +2058,20 @@ export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout
   //   V1M2 medium (1024 accts): computeSlabSize(616, 1008, 312, 1024, 18) = 323312
   //   V_ADL medium (1024 accts): computeSlabSize(624, 1008, 312, 1024, 18) = 323320
   const v1m2n = V1M2_SIZES.get(dataLen);
-  if (v1m2n !== undefined) return buildLayoutV1M2(v1m2n);
+  if (v1m2n !== undefined) return validateLayout(buildLayoutV1M2(v1m2n), dataLen);
 
   // Check V_ADL sizes (PERC-8270/8271, ENGINE_OFF=624, BITMAP_OFF=1008, ACCOUNT_SIZE=312).
   const vadln = V_ADL_SIZES.get(dataLen);
-  if (vadln !== undefined) return buildLayoutVADL(vadln);
+  if (vadln !== undefined) return validateLayout(buildLayoutVADL(vadln), dataLen);
 
   // Check V1M sizes (mainnet-deployed V1 program, ESa89R5).
   // Must be checked before V1_LEGACY because V1M sizes are unique and don't overlap.
   const v1mn = V1M_SIZES.get(dataLen);
-  if (v1mn !== undefined) return buildLayoutV1M(v1mn);
+  if (v1mn !== undefined) return validateLayout(buildLayoutV1M(v1mn), dataLen);
 
   // Check V0 sizes (deployed devnet V0 program)
   const v0n = V0_SIZES.get(dataLen);
-  if (v0n !== undefined) return buildLayout(0, v0n);
+  if (v0n !== undefined) return validateLayout(buildLayout(0, v0n), dataLen);
 
   // Check V1D sizes (actually deployed V1 program — ENGINE_OFF=424, correct struct layout).
   // V2 slabs produce identical sizes (postBitmap=18 for V2 == postBitmap=2 for V1D).
@@ -2080,27 +2080,27 @@ export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout
   if (v1dn !== undefined) {
     if (data && data.length >= 12) {
       const version = readU32LE(data, 8);
-      if (version === 2) return buildLayoutV2(v1dn);
+      if (version === 2) return validateLayout(buildLayoutV2(v1dn), dataLen);
     }
-    return buildLayoutV1D(v1dn, 2);
+    return validateLayout(buildLayoutV1D(v1dn, 2), dataLen);
   }
 
   // Check V1D legacy sizes (postBitmap=18 on-chain slabs created before GH#1234 fix).
   // e.g. slab 6ZytbpV4 (TEST/USD, top active market) = 65104 bytes, uses postBitmap=18.
   // PR #1236 broke these by only registering the postBitmap=2 size; GH#1237 restores support.
   const v1dln = V1D_SIZES_LEGACY.get(dataLen);
-  if (v1dln !== undefined) return buildLayoutV1D(v1dln, 18);
+  if (v1dln !== undefined) return validateLayout(buildLayoutV1D(v1dln, 18), dataLen);
 
   // Check V1 sizes (future V1 program — ENGINE_OFF=600, PERC-1094 corrected)
   const v1n = V1_SIZES.get(dataLen);
-  if (v1n !== undefined) return buildLayout(1, v1n);
+  if (v1n !== undefined) return validateLayout(buildLayout(1, v1n), dataLen);
 
   // Check legacy V1 sizes (pre-PERC-1094 SDK used ENGINE_OFF=640; orphaned on devnet)
   const v1ln = V1_SIZES_LEGACY.get(dataLen);
   // PERC-1095 follow-up: must pass V1_ENGINE_OFF_LEGACY (640) so the returned SlabLayout
   // has .engineOff=640 — without the override buildLayout would use V1_ENGINE_OFF=600,
   // causing all engine reads on legacy slabs to land at the wrong byte offset.
-  if (v1ln !== undefined) return buildLayout(1, v1ln, V1_ENGINE_OFF_LEGACY);
+  if (v1ln !== undefined) return validateLayout(buildLayout(1, v1ln, V1_ENGINE_OFF_LEGACY), dataLen);
 
   return null;
 }

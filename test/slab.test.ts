@@ -948,3 +948,47 @@ console.log("\n✅ All slab tests passed!");
 
   console.log("✅ V17 standalone parser validation passed!");
 }
+
+// ─── detectSlabLayout: validateLayout coverage ──────────────────────────────
+// validateLayout (accountsOff/bitmap-region bounds check) was previously wired
+// into only 3 of ~13 tier branches (V12_19, V12_17, V12_15). The other branches
+// (V12_1/V12_1EP, V_SETDEXPOOL, V1M2, V_ADL, V1M, V0, V1D/V1D-legacy,
+// V1/V1-legacy) returned their built layout directly with no consistency
+// check — a coverage gap in a defense-in-depth mechanism, not an active
+// misparse (no currently-registered tier size actually violates the
+// invariant, which is why this never surfaced as a test failure). Verify the
+// wiring exists for every branch by checking that every buildLayout* call
+// site inside detectSlabLayout is wrapped in validateLayout(...).
+{
+  console.log("\nTesting detectSlabLayout validateLayout coverage...");
+
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const url = await import("node:url");
+  const slabSrcPath = path.resolve(
+    path.dirname(url.fileURLToPath(import.meta.url)),
+    "..",
+    "src",
+    "solana",
+    "slab.ts",
+  );
+  const src = fs.readFileSync(slabSrcPath, "utf8");
+
+  const fnStart = src.indexOf("export function detectSlabLayout(");
+  assert(fnStart !== -1, "detectSlabLayout function not found in slab.ts");
+  const fnEnd = src.indexOf("\nexport function detectLayout(", fnStart);
+  assert(fnEnd !== -1, "could not locate end of detectSlabLayout (detectLayout marker not found)");
+  const body = src.slice(fnStart, fnEnd);
+
+  const callSites = body.match(/\bbuildLayout\w*\(/g) ?? [];
+  const wrappedCallSites = body.match(/validateLayout\(\s*buildLayout\w*\(/g) ?? [];
+
+  assert(callSites.length > 10, `expected >10 buildLayout call sites, found ${callSites.length}`);
+  assert(
+    wrappedCallSites.length === callSites.length,
+    `validateLayout coverage gap: ${callSites.length} buildLayout call sites, only ${wrappedCallSites.length} wrapped in validateLayout(...)`,
+  );
+  console.log(`  ✓ all ${callSites.length} buildLayout call sites in detectSlabLayout are wrapped in validateLayout(...)`);
+
+  console.log("✅ detectSlabLayout validateLayout coverage check passed!");
+}
