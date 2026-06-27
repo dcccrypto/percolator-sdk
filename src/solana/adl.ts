@@ -106,6 +106,14 @@ export interface AdlRankingResult {
   pnlPosTot: bigint;
   /** max_pnl_cap from market config. */
   maxPnlCap: bigint;
+  /**
+   * The side with greater net open interest (engine.longOi vs engine.shortOi) —
+   * the on-chain ADL engine only deleverages positions on this side. Ties
+   * resolve to "long", matching the on-chain `target_side` log convention
+   * (e.g. "net_long_oi=500000 net_short_oi=500000 target_side=long").
+   * `null` only when engine state could not be parsed at all.
+   */
+  dominantSide: AdlSide | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,9 +202,12 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
   const layout = detectSlabLayout(slabData.length, slabData);
 
   let pnlPosTot = 0n;
+  let dominantSide: AdlSide | null = null;
   try {
     const engine = parseEngine(slabData);
     pnlPosTot = engine.pnlPosTot;
+    // Ties resolve to "long" to match the on-chain target_side log convention.
+    dominantSide = engine.shortOi > engine.longOi ? "short" : "long";
   } catch (err) {
     console.warn(
       `[rankAdlPositions] parseEngine failed:`,
@@ -262,7 +273,7 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
     (a, b) => (b.pnlPct > a.pnlPct ? 1 : b.pnlPct < a.pnlPct ? -1 : 0)
   );
 
-  return { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap };
+  return { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap, dominantSide };
 }
 
 /**
@@ -309,7 +320,10 @@ export function buildAdlInstruction(
  * @param oracle        - Primary oracle public key.
  * @param programId     - Percolator program ID.
  * @param preferSide    - Optional: target "long" or "short" side only.
- *                        If omitted, picks the overall top-ranked position.
+ *                        If omitted, picks the dominant side's (greater net OI)
+ *                        top-ranked position, matching on-chain ADL eligibility —
+ *                        or the overall top-ranked position if engine state could
+ *                        not be parsed at all (dominantSide is null).
  * @param backupOracles - Optional extra oracle accounts.
  *
  * @example
@@ -340,7 +354,13 @@ export async function buildAdlTransaction(
     target = ranking.longs[0];
   } else if (preferSide === "short") {
     target = ranking.shorts[0];
+  } else if (ranking.dominantSide === "long") {
+    target = ranking.longs[0];
+  } else if (ranking.dominantSide === "short") {
+    target = ranking.shorts[0];
   } else {
+    // dominantSide is null only when engine state couldn't be parsed at all —
+    // fall back to the overall top-ranked position across both sides.
     target = ranking.ranked[0];
   }
 
