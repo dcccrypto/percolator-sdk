@@ -802,6 +802,14 @@ export interface PortfolioV17 {
     legs: PortfolioLegV17[];
     /** Up to 32 source-domain entries (sparse; unoccupied slots have domain=0 and all-zero fields). */
     sourceDomains: PortfolioSourceDomainV17[];
+    /** External matcher program this portfolio routes trades through (PublicKey.default if unset). */
+    matcherProgram: PublicKey;
+    /** Matcher context account for matcherProgram (PublicKey.default if unset). */
+    matcherContext: PublicKey;
+    /** PDA the wrapper signs CPI calls to matcherProgram with (PublicKey.default if unset). */
+    matcherDelegate: PublicKey;
+    /** Whether the external matcher is enabled for this portfolio (SetMatcherConfig). */
+    matcherEnabled: boolean;
 }
 /**
  * Parse a v17 PortfolioAccountV16Account from raw account data.

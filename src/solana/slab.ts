@@ -4219,6 +4219,22 @@ const PF_HEALTH_CERT_OFF             = PF_SOURCE_DOMAINS_OFF + PF_SOURCE_DOMAINS
 // ResolvedPayoutReceiptV16Account (66 bytes):
 //   prior_bound(16)+live_released(16)+terminal(16)+paid(16)+present(1)+finalized(1) = 66
 
+// PortfolioMatcherConfigV16 (104 bytes): matcher_program(32)+matcher_context(32)+
+// matcher_delegate(32)+enabled(8). This is a separate trailing region after
+// PortfolioAccountV16Account, not part of it (see v16_program.rs PORTFOLIO_MATCHER_CONFIG_OFF
+// = HEADER_LEN + PORTFOLIO_STATE_LEN). Computed from the END of the account
+// (V17_PORTFOLIO_ACCOUNT_LEN - 104) rather than chaining through HealthCert/locks/
+// CloseProgress/ResolvedPayoutReceipt above — none of those intermediate regions are
+// actually decoded by parsePortfolioV17, and the CloseProgressLedgerV16Account size
+// noted above (188) does not even match its own field breakdown (sums to 184; see
+// percolator-keeper's crank.ts comment, which independently confirms 184 and computes
+// the same anchor-from-the-end offset).
+const PF_MATCHER_CONFIG_LEN    = 104;
+const PF_MATCHER_PROGRAM_OFF   = V17_PORTFOLIO_ACCOUNT_LEN - PF_MATCHER_CONFIG_LEN; // 9243
+const PF_MATCHER_CONTEXT_OFF   = PF_MATCHER_PROGRAM_OFF + 32;                       // 9275
+const PF_MATCHER_DELEGATE_OFF  = PF_MATCHER_CONTEXT_OFF + 32;                       // 9307
+const PF_MATCHER_ENABLED_OFF   = PF_MATCHER_DELEGATE_OFF + 32;                      // 9339
+
 /** Per-leg decoded data returned by parsePortfolioV17. */
 export interface PortfolioLegV17 {
   active: boolean;
@@ -4291,6 +4307,14 @@ export interface PortfolioV17 {
   legs: PortfolioLegV17[];
   /** Up to 32 source-domain entries (sparse; unoccupied slots have domain=0 and all-zero fields). */
   sourceDomains: PortfolioSourceDomainV17[];
+  /** External matcher program this portfolio routes trades through (PublicKey.default if unset). */
+  matcherProgram: PublicKey;
+  /** Matcher context account for matcherProgram (PublicKey.default if unset). */
+  matcherContext: PublicKey;
+  /** PDA the wrapper signs CPI calls to matcherProgram with (PublicKey.default if unset). */
+  matcherDelegate: PublicKey;
+  /** Whether the external matcher is enabled for this portfolio (SetMatcherConfig). */
+  matcherEnabled: boolean;
 }
 
 /**
@@ -4389,6 +4413,19 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
     });
   }
 
+  const matcherProgram = data.length >= PF_MATCHER_PROGRAM_OFF + 32
+    ? new PublicKey(data.subarray(PF_MATCHER_PROGRAM_OFF, PF_MATCHER_PROGRAM_OFF + 32))
+    : PublicKey.default;
+  const matcherContext = data.length >= PF_MATCHER_CONTEXT_OFF + 32
+    ? new PublicKey(data.subarray(PF_MATCHER_CONTEXT_OFF, PF_MATCHER_CONTEXT_OFF + 32))
+    : PublicKey.default;
+  const matcherDelegate = data.length >= PF_MATCHER_DELEGATE_OFF + 32
+    ? new PublicKey(data.subarray(PF_MATCHER_DELEGATE_OFF, PF_MATCHER_DELEGATE_OFF + 32))
+    : PublicKey.default;
+  const matcherEnabled = data.length >= PF_MATCHER_ENABLED_OFF + 8
+    ? readU64LE(data, PF_MATCHER_ENABLED_OFF) !== 0n
+    : false;
+
   return {
     marketGroupId,
     portfolioAccountId,
@@ -4406,6 +4443,10 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
     activeBitmap,
     legs,
     sourceDomains,
+    matcherProgram,
+    matcherContext,
+    matcherDelegate,
+    matcherEnabled,
   };
 }
 
