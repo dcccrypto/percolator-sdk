@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import {
   PUMPSWAP_PROGRAM_ID,
   RAYDIUM_CLMM_PROGRAM_ID,
@@ -92,6 +92,56 @@ export function computeDexSpotPriceE6(
       }
       return computeMeteoraDlmmPriceE6(data, decimals.base, decimals.quote);
   }
+}
+
+// ============================================================================
+// Mint decimals helper
+// ============================================================================
+
+/** Offset of the `decimals` byte in a standard SPL Mint account. */
+const SPL_MINT_DECIMALS_OFFSET = 44;
+
+/**
+ * Read the `decimals` field of any SPL mint account (including native WSOL).
+ *
+ * This replaces `getMint(connection, mint).decimals` for callers that need to
+ * supply decimals to {@link computeDexSpotPriceE6} for Meteora DLMM pools.
+ * `getMint()` throws on native WSOL (`So11111111111111111111111111111111111111112`)
+ * because the system account is not a valid token-program mint; this function
+ * reads raw account data and extracts byte 44 directly, which works for all
+ * SPL mints, Token-2022 mints, and native WSOL (which stores `9` at that byte).
+ *
+ * @param connection - Solana RPC connection
+ * @param mint - The mint public key to query
+ * @returns The `decimals` field value (0–255)
+ * @throws Error if the account does not exist or is too short to hold a mint
+ *
+ * @example
+ * ```ts
+ * import { fetchMintDecimals, computeDexSpotPriceE6 } from "@percolator/sdk";
+ *
+ * const baseDecimals = await fetchMintDecimals(connection, pool.baseMint);
+ * const quoteDecimals = await fetchMintDecimals(connection, pool.quoteMint);
+ * const priceE6 = computeDexSpotPriceE6("meteora-dlmm", poolData, undefined, {
+ *   base: baseDecimals,
+ *   quote: quoteDecimals,
+ * });
+ * ```
+ */
+export async function fetchMintDecimals(
+  connection: Connection,
+  mint: PublicKey,
+): Promise<number> {
+  const info = await connection.getAccountInfo(mint);
+  if (!info) {
+    throw new Error(`fetchMintDecimals: account not found for mint ${mint.toBase58()}`);
+  }
+  if (info.data.length <= SPL_MINT_DECIMALS_OFFSET) {
+    throw new Error(
+      `fetchMintDecimals: account data too short (${info.data.length} bytes) for mint ${mint.toBase58()}`,
+    );
+  }
+  return info.data[SPL_MINT_DECIMALS_OFFSET];
 }
 
 // ============================================================================
@@ -230,10 +280,33 @@ function computeRaydiumClmmPriceE6(data: Uint8Array): bigint {
 // Meteora DLMM
 // ============================================================================
 
-const METEORA_DLMM_MIN_LEN = 145;
+// Meteora DLMM LbPair struct layout (Anchor discriminator = 8 bytes):
+//   [0:8]   discriminator
+//   [8:40]  parameters     (StaticParameters, 32 bytes)
+//   [40:72] v_parameters   (VariableParameters, 32 bytes)
+//   [72]    bump_seed      u8
+//   [73:75] bin_step_seed  [u8;2]
+//   [75]    pair_type      u8
+//   [76:80] active_id      i32
+//   [80:82] bin_step       u16
+//   [82]    status         u8
+//   [83]    require_base_factor_seed  u8
+//   [84:86] base_factor_seed [u8;2]
+//   [86]    activation_type u8
+//   [87]    creator_pool_on_off_control u8
+//   [88:120] token_x_mint  Pubkey  ← corrected from erroneous 81
+//   [120:152] token_y_mint Pubkey  ← corrected from erroneous 113
+//   [152:184] reserve_x    Pubkey
+//   [184:216] reserve_y    Pubkey
+const METEORA_DLMM_MIN_LEN = 152; // need through end of token_y_mint (120 + 32)
 
 /**
  * Parse a Meteora DLMM (discretized liquidity) pool account.
+ *
+ * Reads `token_x_mint` at byte 88 and `token_y_mint` at byte 120, matching the
+ * on-chain `LbPair` struct layout (verified against mainnet pool
+ * `5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6` — WSOL/USDC, Jun 2026).
+ *
  * @internal
  */
 function parseMeteoraPool(poolAddress: PublicKey, data: Uint8Array): DexPoolInfo {
@@ -243,8 +316,8 @@ function parseMeteoraPool(poolAddress: PublicKey, data: Uint8Array): DexPoolInfo
   return {
     dexType: "meteora-dlmm",
     poolAddress,
-    baseMint: new PublicKey(data.slice(81, 113)),
-    quoteMint: new PublicKey(data.slice(113, 145)),
+    baseMint: new PublicKey(data.slice(88, 120)),
+    quoteMint: new PublicKey(data.slice(120, 152)),
   };
 }
 
@@ -273,7 +346,11 @@ function computeMeteoraDlmmPriceE6(
   assertTokenDecimals("Meteora DLMM", "quote", decimalsQuote);
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-  const binStep = dv.getUint16(73, true);
+  // bin_step is at offset 80 (u16 LE), not 73 which is bin_step_seed ([u8;2]).
+  // They happen to encode the same integer for most pools (explaining why the
+  // old code produced correct prices), but reading the correct field is required
+  // for correctness once those fields diverge.
+  const binStep = dv.getUint16(80, true);
   const activeId = dv.getInt32(76, true);
 
   if (binStep === 0) return 0n;

@@ -6,6 +6,7 @@ import {
   detectDexType,
   parseDexPool,
   computeDexSpotPriceE6,
+  fetchMintDecimals,
 } from "../src/solana/dex-oracle.js";
 import {
   PUMPSWAP_PROGRAM_ID,
@@ -286,19 +287,34 @@ console.log("  ✓ Raydium CLMM");
 console.log("--- Meteora DLMM ---");
 
 function makeMeteoraData(binStep: number, activeId: number): Uint8Array {
-  const buf = new Uint8Array(200);
-  fillPubkey(buf, 81, 1);   // baseMint
-  fillPubkey(buf, 113, 33); // quoteMint
-  writeU16LE(buf, 73, binStep);
-  writeI32LE(buf, 76, activeId);
+  // Correct LbPair layout offsets (verified against mainnet pool 5rCf1DM8...):
+  //   [80:82]   bin_step  u16
+  //   [76:80]   active_id i32
+  //   [88:120]  token_x_mint Pubkey
+  //   [120:152] token_y_mint Pubkey
+  const buf = new Uint8Array(216); // at least 152 bytes; 216 covers through reserve_y
+  fillPubkey(buf, 88, 1);   // baseMint (token_x_mint)
+  fillPubkey(buf, 120, 33); // quoteMint (token_y_mint)
+  writeU16LE(buf, 80, binStep);  // bin_step at offset 80 (not 73 which is bin_step_seed)
+  writeI32LE(buf, 76, activeId); // active_id at offset 76
   return buf;
 }
 
-// Parse
+// Parse — type + correct mint extraction
 {
   const data = makeMeteoraData(10, 0);
   const pool = parseDexPool("meteora-dlmm", PublicKey.default, data);
   assert(pool.dexType === "meteora-dlmm", "meteora parse type");
+  // baseMint was filled at offset 88 with seed=1: bytes [1,2,3,...,32]
+  const expectedBase = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) expectedBase[i] = (1 + i) % 256;
+  assert(pool.baseMint.toBytes().every((b, i) => b === expectedBase[i]),
+    "meteora parse correct baseMint from offset 88");
+  // quoteMint was filled at offset 120 with seed=33: bytes [33,34,...,64]
+  const expectedQuote = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) expectedQuote[i] = (33 + i) % 256;
+  assert(pool.quoteMint.toBytes().every((b, i) => b === expectedQuote[i]),
+    "meteora parse correct quoteMint from offset 120");
 }
 
 // Parse too short
@@ -429,6 +445,47 @@ assertThrows(
   const data = makeMeteoraData(10000, 0);
   const price = computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: 6 });
   assert(price === 1_000_000n, `meteora binStep=10000 activeId=0 should work, got ${price}`);
+}
+
+// ===========================================================================
+// FIXTURE: real mainnet Meteora DLMM pool 5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6
+// Fetched from mainnet-beta on 2026-06-28, slot 429510894.
+// Pool: WSOL (So111...) / USDC (EPjFW...), bin_step=4, active_id=-6616.
+// Verified via on-chain RPC: token_x_mint=WSOL at offset 88, token_y_mint=USDC at offset 120.
+// ===========================================================================
+{
+  const POOL_B64 =
+    "IQsxYrVlsQ0QJx4AWAKIE8DUAQDgkwQAeFX+/4iqAQDoAwAAAAAAABAnAAAAAAAAJ+b//wAAAADp" +
+    "cEFqAAAAAAAAAAAAAAAA/wQAACjm//8EAAAAAAAAAAabiFf+q4GE+2h/Y0YYwDXaxDncGus7VZig" +
+    "8AAAAAABxvp6877brTo9ZfNqq8l0MbG75MLS9uDkfKYCA0UvXWHJSJlnLnmUpTrMngO1OaOUlA" +
+    "PGmZRz7OrcxR6p6JFrJq9frZbeoPqr6Upv3p3ixa4nPIa3aZLTj4H3hSgAdOmvR5oEEAAAAAB0" +
+    "scoFAAAAAAAA";
+  // Decode base64 (Node.js Buffer)
+  const raw = Buffer.from(POOL_B64, "base64");
+  const poolData = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+
+  // 1. Parse — mints must be exactly WSOL and USDC
+  const WSOL = "So11111111111111111111111111111111111111112";
+  const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  const pool = parseDexPool(
+    "meteora-dlmm",
+    new PublicKey("5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6"),
+    poolData,
+  );
+  assert(pool.dexType === "meteora-dlmm", "fixture: dexType");
+  assert(pool.baseMint.toBase58() === WSOL,
+    `fixture: baseMint must be WSOL, got ${pool.baseMint.toBase58()}`);
+  assert(pool.quoteMint.toBase58() === USDC,
+    `fixture: quoteMint must be USDC, got ${pool.quoteMint.toBase58()}`);
+
+  // 2. Price — bin_step=4, active_id=-6616, WSOL(9 dec) / USDC(6 dec)
+  //   atomic price = 1.0004^(-6616) ≈ 0.07097
+  //   human price  = 0.07097 * 10^(9-6) = ~70.97 USDC/SOL → price_e6 ≈ 70_970_000
+  const priceE6 = computeDexSpotPriceE6("meteora-dlmm", poolData, undefined, { base: 9, quote: 6 });
+  assert(
+    priceE6 >= 65_000_000n && priceE6 <= 80_000_000n,
+    `fixture: price_e6 should be ~70-71M (SOL/USDC), got ${priceE6}`,
+  );
 }
 
 console.log("  ✓ Meteora DLMM");
