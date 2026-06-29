@@ -732,6 +732,56 @@ export declare function isV17Account(data: Uint8Array): boolean;
  * @returns true if the account is a v17 account whose kind == KIND_MARKET (1).
  */
 export declare function isV17MarketAccount(data: Uint8Array): boolean;
+/**
+ * Aggregated open-interest parsed from a v17 market group account.
+ *
+ * The v17 engine stores OI per-asset (per Market<T> slot) as oi_eff_long_q and
+ * oi_eff_short_q in AssetStateV16Account. This parser sums across all capacity
+ * slots in the account and also returns per-asset breakdown.
+ *
+ * All quantities are in token micro-units (raw, not scaled by decimals).
+ */
+export interface V17MarketGroupOI {
+    /** Group-level insurance reserve (u128, micro-units) */
+    insuranceBalance: bigint;
+    /** Sum of oi_eff_long_q across all asset slots */
+    totalLongOiQ: bigint;
+    /** Sum of oi_eff_short_q across all asset slots */
+    totalShortOiQ: bigint;
+    /** Per-slot breakdown (only slots where at least one side is non-zero) */
+    assets: Array<{
+        assetIndex: number;
+        oiEffLongQ: bigint;
+        oiEffShortQ: bigint;
+    }>;
+}
+/**
+ * Parse open-interest fields from a v17 market group account.
+ *
+ * Reads the group-level insurance balance from MarketGroupV16HeaderAccount and
+ * iterates every asset-slot capacity to accumulate oi_eff_long_q / oi_eff_short_q
+ * from AssetStateV16Account (the first sub-struct of EngineAssetSlotV16Account
+ * which follows the 512-byte wrapper T at the start of each slot).
+ *
+ * Absolute offsets (verified against `/tmp/percolator/src/v16.rs` struct layouts,
+ * all `#[repr(C)]` with explicit `[u8;N]` fields — zero alignment padding):
+ * - Insurance: V17_MARKET_GROUP_OFF(448) + 301 = 749
+ * - oi_eff_long_q(i):  1206 + i×1797 + 512 + 273 = 1991 + i×1797
+ * - oi_eff_short_q(i): 1206 + i×1797 + 512 + 289 = 2007 + i×1797
+ *
+ * @param data  Raw bytes of the v17 market group account.
+ * @returns Parsed V17MarketGroupOI — zero OI when no active positions exist.
+ * @throws Error if the buffer is not a valid v17 market account or is too short.
+ *
+ * @example
+ * ```ts
+ * const info = await connection.getAccountInfo(marketGroupPk);
+ * if (!isV17MarketAccount(new Uint8Array(info.data))) throw new Error("not v17");
+ * const oi = parseMarketGroupV17OI(new Uint8Array(info.data));
+ * console.log(`long OI: ${oi.totalLongOiQ}, short OI: ${oi.totalShortOiQ}`);
+ * ```
+ */
+export declare function parseMarketGroupV17OI(data: Uint8Array): V17MarketGroupOI;
 /** Per-leg decoded data returned by parsePortfolioV17. */
 export interface PortfolioLegV17 {
     active: boolean;

@@ -4140,6 +4140,136 @@ export function isV17MarketAccount(data: Uint8Array): boolean {
 }
 
 // =============================================================================
+// V17 OI parser
+// =============================================================================
+
+/**
+ * Relative offset of insurance within MarketGroupV16HeaderAccount:
+ *   market_group_id[32] + V16ConfigAccount[249] + asset_slot_capacity(V16PodU32)[4] + vault(V16PodU128)[16] = 301
+ */
+const V17_HEADER_INSURANCE_OFF = 301;
+
+/**
+ * Wrapper T size preceding EngineAssetSlotV16Account in each Market<T> slot.
+ * Wrapper T = 512 bytes (AssetOracleProfileV16Account=400 + 112 more).
+ */
+const V17_ASSET_SLOT_WRAPPER_SIZE = 512;
+
+/**
+ * Offsets of oi_eff_long_q and oi_eff_short_q within AssetStateV16Account
+ * (the first sub-struct of EngineAssetSlotV16Account, at slot offset = wrapper size):
+ *   market_id[8] + retired_slot[8] + lifecycle[1] + raw_oracle_target_price[8]
+ *   + effective_price[8] + fund_px_last[8] + slot_last[8] = 49 bytes header
+ *   then 14 × u128 fields before oi_eff_long_q → 49 + 14×16 = 273
+ *   oi_eff_short_q follows at 273 + 16 = 289
+ */
+const V17_ASSET_STATE_OI_LONG_REL = 273;
+const V17_ASSET_STATE_OI_SHORT_REL = 289;
+
+/**
+ * Aggregated open-interest parsed from a v17 market group account.
+ *
+ * The v17 engine stores OI per-asset (per Market<T> slot) as oi_eff_long_q and
+ * oi_eff_short_q in AssetStateV16Account. This parser sums across all capacity
+ * slots in the account and also returns per-asset breakdown.
+ *
+ * All quantities are in token micro-units (raw, not scaled by decimals).
+ */
+export interface V17MarketGroupOI {
+  /** Group-level insurance reserve (u128, micro-units) */
+  insuranceBalance: bigint;
+  /** Sum of oi_eff_long_q across all asset slots */
+  totalLongOiQ: bigint;
+  /** Sum of oi_eff_short_q across all asset slots */
+  totalShortOiQ: bigint;
+  /** Per-slot breakdown (only slots where at least one side is non-zero) */
+  assets: Array<{
+    assetIndex: number;
+    oiEffLongQ: bigint;
+    oiEffShortQ: bigint;
+  }>;
+}
+
+/**
+ * Parse open-interest fields from a v17 market group account.
+ *
+ * Reads the group-level insurance balance from MarketGroupV16HeaderAccount and
+ * iterates every asset-slot capacity to accumulate oi_eff_long_q / oi_eff_short_q
+ * from AssetStateV16Account (the first sub-struct of EngineAssetSlotV16Account
+ * which follows the 512-byte wrapper T at the start of each slot).
+ *
+ * Absolute offsets (verified against `/tmp/percolator/src/v16.rs` struct layouts,
+ * all `#[repr(C)]` with explicit `[u8;N]` fields — zero alignment padding):
+ * - Insurance: V17_MARKET_GROUP_OFF(448) + 301 = 749
+ * - oi_eff_long_q(i):  1206 + i×1797 + 512 + 273 = 1991 + i×1797
+ * - oi_eff_short_q(i): 1206 + i×1797 + 512 + 289 = 2007 + i×1797
+ *
+ * @param data  Raw bytes of the v17 market group account.
+ * @returns Parsed V17MarketGroupOI — zero OI when no active positions exist.
+ * @throws Error if the buffer is not a valid v17 market account or is too short.
+ *
+ * @example
+ * ```ts
+ * const info = await connection.getAccountInfo(marketGroupPk);
+ * if (!isV17MarketAccount(new Uint8Array(info.data))) throw new Error("not v17");
+ * const oi = parseMarketGroupV17OI(new Uint8Array(info.data));
+ * console.log(`long OI: ${oi.totalLongOiQ}, short OI: ${oi.totalShortOiQ}`);
+ * ```
+ */
+export function parseMarketGroupV17OI(data: Uint8Array): V17MarketGroupOI {
+  const MIN_LEN = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN;
+  if (data.length < MIN_LEN) {
+    throw new Error(
+      `parseMarketGroupV17OI: buffer too short — need >= ${MIN_LEN} bytes, got ${data.length}`,
+    );
+  }
+  if (!isV17MarketAccount(data)) {
+    throw new Error(
+      "parseMarketGroupV17OI: not a v17 market account (bad magic, version, or kind)",
+    );
+  }
+
+  // Read insurance u128 from MarketGroupV16HeaderAccount at absolute offset 749.
+  const insuranceOff = V17_MARKET_GROUP_OFF + V17_HEADER_INSURANCE_OFF;
+  const insuranceBalance = readU128LE(data, insuranceOff);
+
+  // Iterate asset slots.  Slots start immediately after MarketGroupV16HeaderAccount.
+  const slotsBase = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN; // 1206
+  const numSlots = Math.floor(
+    (data.length - slotsBase) / V17_MARKET_ASSET_SLOT_LEN,
+  );
+
+  let totalLongOiQ = 0n;
+  let totalShortOiQ = 0n;
+  const assets: V17MarketGroupOI["assets"] = [];
+
+  for (let i = 0; i < numSlots; i++) {
+    const slotBase = slotsBase + i * V17_MARKET_ASSET_SLOT_LEN;
+    // EngineAssetSlotV16Account starts at slotBase + wrapper-T size (512).
+    // AssetStateV16Account is the first field of EngineAssetSlotV16Account (offset 0).
+    const longOff =
+      slotBase + V17_ASSET_SLOT_WRAPPER_SIZE + V17_ASSET_STATE_OI_LONG_REL;
+    const shortOff =
+      slotBase + V17_ASSET_SLOT_WRAPPER_SIZE + V17_ASSET_STATE_OI_SHORT_REL;
+
+    // Guard against a truncated buffer (should not happen on well-formed accounts).
+    if (shortOff + 16 > data.length) break;
+
+    const oiEffLongQ = readU128LE(data, longOff);
+    const oiEffShortQ = readU128LE(data, shortOff);
+
+    totalLongOiQ += oiEffLongQ;
+    totalShortOiQ += oiEffShortQ;
+
+    if (oiEffLongQ !== 0n || oiEffShortQ !== 0n) {
+      assets.push({ assetIndex: i, oiEffLongQ, oiEffShortQ });
+    }
+  }
+
+  return { insuranceBalance, totalLongOiQ, totalShortOiQ, assets };
+}
+
+// =============================================================================
 // V17 account decoders (DESYNC fixes — new standalone account types)
 // =============================================================================
 

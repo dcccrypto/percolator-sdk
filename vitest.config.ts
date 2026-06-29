@@ -18,6 +18,7 @@ export default defineConfig({
       "test/tx.test.ts",
       "src/solana/__tests__/stake.test.ts",
       "src/solana/__tests__/stake-cpi.test.ts",
+      "src/solana/__tests__/v17-oi.test.ts",
       "test/integration-mocked.test.ts",
       "test/discovery-api-fallback.test.ts",
       "test/static-markets.test.ts",

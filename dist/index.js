@@ -2133,8 +2133,9 @@ function safeEnv(key) {
 }
 var PROGRAM_IDS = {
   devnet: {
-    percolator: "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD",
-    matcher: "4HcGCsyjAqnFua5ccuXyt8KRRQzKFbGTJkVChpS7Yfzy"
+    // v17 deployed devnet programs (2026-06-26)
+    percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
+    matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT"
   },
   mainnet: {
     percolator: "ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv",
@@ -2145,10 +2146,14 @@ Object.freeze(PROGRAM_IDS.devnet);
 Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 var PROGRAM_IDS_V17 = {
-  /** v17 wrapper placeholder (declare_id! value from v16_program.rs). */
-  percolator: "Perco1ator111111111111111111111111111111111",
-  /** v17 stake placeholder. */
-  stake: "Per5taTe111111111111111111111111111111111111"
+  /** v17 wrapper — deployed devnet 2026-06-26. */
+  percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
+  /** v17 matcher — deployed devnet 2026-06-26. */
+  matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
+  /** v17 nft — deployed devnet 2026-06-26. */
+  nft: "5TnritLtHS76s5iV8axqDmqhcmJKMRUekMGrk9rBTqSP",
+  /** v17 vault — deployed devnet 2026-06-26. */
+  vault: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ"
 };
 Object.freeze(PROGRAM_IDS_V17);
 var PROGRAM_ID_V17 = new PublicKey3(PROGRAM_IDS_V17.percolator);
@@ -4909,6 +4914,46 @@ function isV17MarketAccount(data) {
   if (!isV17Account(data)) return false;
   return data[V17_KIND_OFF] === V17_KIND_MARKET;
 }
+var V17_HEADER_INSURANCE_OFF = 301;
+var V17_ASSET_SLOT_WRAPPER_SIZE = 512;
+var V17_ASSET_STATE_OI_LONG_REL = 273;
+var V17_ASSET_STATE_OI_SHORT_REL = 289;
+function parseMarketGroupV17OI(data) {
+  const MIN_LEN = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN;
+  if (data.length < MIN_LEN) {
+    throw new Error(
+      `parseMarketGroupV17OI: buffer too short \u2014 need >= ${MIN_LEN} bytes, got ${data.length}`
+    );
+  }
+  if (!isV17MarketAccount(data)) {
+    throw new Error(
+      "parseMarketGroupV17OI: not a v17 market account (bad magic, version, or kind)"
+    );
+  }
+  const insuranceOff = V17_MARKET_GROUP_OFF + V17_HEADER_INSURANCE_OFF;
+  const insuranceBalance = readU128LE(data, insuranceOff);
+  const slotsBase = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN;
+  const numSlots = Math.floor(
+    (data.length - slotsBase) / V17_MARKET_ASSET_SLOT_LEN
+  );
+  let totalLongOiQ = 0n;
+  let totalShortOiQ = 0n;
+  const assets = [];
+  for (let i = 0; i < numSlots; i++) {
+    const slotBase = slotsBase + i * V17_MARKET_ASSET_SLOT_LEN;
+    const longOff = slotBase + V17_ASSET_SLOT_WRAPPER_SIZE + V17_ASSET_STATE_OI_LONG_REL;
+    const shortOff = slotBase + V17_ASSET_SLOT_WRAPPER_SIZE + V17_ASSET_STATE_OI_SHORT_REL;
+    if (shortOff + 16 > data.length) break;
+    const oiEffLongQ = readU128LE(data, longOff);
+    const oiEffShortQ = readU128LE(data, shortOff);
+    totalLongOiQ += oiEffLongQ;
+    totalShortOiQ += oiEffShortQ;
+    if (oiEffLongQ !== 0n || oiEffShortQ !== 0n) {
+      assets.push({ assetIndex: i, oiEffLongQ, oiEffShortQ });
+    }
+  }
+  return { insuranceBalance, totalLongOiQ, totalShortOiQ, assets };
+}
 var V17_ACCOUNT_HEADER_LEN = 16;
 var V17_KIND_PORTFOLIO = 2;
 var V17_KIND_LP_VAULT_REGISTRY = 5;
@@ -6051,6 +6096,19 @@ function computeDexSpotPriceE6(dexType, data, vaultData, decimals) {
       return computeMeteoraDlmmPriceE6(data, decimals.base, decimals.quote);
   }
 }
+var SPL_MINT_DECIMALS_OFFSET = 44;
+async function fetchMintDecimals(connection, mint) {
+  const info = await connection.getAccountInfo(mint);
+  if (!info) {
+    throw new Error(`fetchMintDecimals: account not found for mint ${mint.toBase58()}`);
+  }
+  if (info.data.length <= SPL_MINT_DECIMALS_OFFSET) {
+    throw new Error(
+      `fetchMintDecimals: account data too short (${info.data.length} bytes) for mint ${mint.toBase58()}`
+    );
+  }
+  return info.data[SPL_MINT_DECIMALS_OFFSET];
+}
 var PUMPSWAP_MIN_LEN = 195;
 function parsePumpSwapPool(poolAddress, data) {
   if (data.length < PUMPSWAP_MIN_LEN) {
@@ -6123,7 +6181,7 @@ function computeRaydiumClmmPriceE6(data) {
     return sq1e6 / ((1n << 128n) * 10n ** BigInt(-adjustedDiff));
   }
 }
-var METEORA_DLMM_MIN_LEN = 145;
+var METEORA_DLMM_MIN_LEN = 152;
 function parseMeteoraPool(poolAddress, data) {
   if (data.length < METEORA_DLMM_MIN_LEN) {
     throw new Error(`Meteora DLMM pool data too short: ${data.length} < ${METEORA_DLMM_MIN_LEN}`);
@@ -6131,8 +6189,8 @@ function parseMeteoraPool(poolAddress, data) {
   return {
     dexType: "meteora-dlmm",
     poolAddress,
-    baseMint: new PublicKey9(data.slice(81, 113)),
-    quoteMint: new PublicKey9(data.slice(113, 145))
+    baseMint: new PublicKey9(data.slice(88, 120)),
+    quoteMint: new PublicKey9(data.slice(120, 152))
   };
 }
 var MAX_BIN_STEP = 1e4;
@@ -6144,7 +6202,7 @@ function computeMeteoraDlmmPriceE6(data, decimalsBase, decimalsQuote) {
   assertTokenDecimals("Meteora DLMM", "base", decimalsBase);
   assertTokenDecimals("Meteora DLMM", "quote", decimalsQuote);
   const dv3 = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const binStep = dv3.getUint16(73, true);
+  const binStep = dv3.getUint16(80, true);
   const activeId = dv3.getInt32(76, true);
   if (binStep === 0) return 0n;
   if (binStep > MAX_BIN_STEP) {
@@ -6879,7 +6937,7 @@ async function fetchAdlRankings(apiBase, slab, fetchFn = fetch) {
 
 // src/solana/rpc-pool.ts
 import {
-  Connection as Connection4
+  Connection as Connection5
 } from "@solana/web3.js";
 async function checkRpcHealth(endpoint, timeoutMs = 5e3) {
   const start = performance.now();
@@ -7027,7 +7085,7 @@ var RpcPool = class _RpcPool {
       };
       return {
         config: ep,
-        connection: new Connection4(ep.url, connConfig),
+        connection: new Connection5(ep.url, connConfig),
         label: endpointLabel(ep),
         weight: Math.max(1, ep.weight ?? 1),
         failures: 0,
@@ -8498,6 +8556,7 @@ export {
   encodeWithdrawLpCollateral,
   fetchAdlRankedPositions,
   fetchAdlRankings,
+  fetchMintDecimals,
   fetchSlab,
   fetchTokenAccount,
   flushToInsuranceAccounts,
@@ -8538,6 +8597,7 @@ export {
   parseHeader,
   parseLpRedemption,
   parseLpVaultRegistry,
+  parseMarketGroupV17OI,
   parseParams,
   parsePortfolioV17,
   parsePositionNftAccount,
