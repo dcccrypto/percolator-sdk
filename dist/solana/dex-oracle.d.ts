@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 export type DexType = "pumpswap" | "raydium-clmm" | "meteora-dlmm";
 export interface DexPoolInfo {
     dexType: DexType;
@@ -50,3 +50,31 @@ export declare function computeDexSpotPriceE6(dexType: DexType, data: Uint8Array
     base: number;
     quote: number;
 }): bigint;
+/**
+ * Read the `decimals` field of any SPL mint account (including native WSOL).
+ *
+ * This replaces `getMint(connection, mint).decimals` for callers that need to
+ * supply decimals to {@link computeDexSpotPriceE6} for Meteora DLMM pools.
+ * `getMint()` throws on native WSOL (`So11111111111111111111111111111111111111112`)
+ * because the system account is not a valid token-program mint; this function
+ * reads raw account data and extracts byte 44 directly, which works for all
+ * SPL mints, Token-2022 mints, and native WSOL (which stores `9` at that byte).
+ *
+ * @param connection - Solana RPC connection
+ * @param mint - The mint public key to query
+ * @returns The `decimals` field value (0–255)
+ * @throws Error if the account does not exist or is too short to hold a mint
+ *
+ * @example
+ * ```ts
+ * import { fetchMintDecimals, computeDexSpotPriceE6 } from "@percolator/sdk";
+ *
+ * const baseDecimals = await fetchMintDecimals(connection, pool.baseMint);
+ * const quoteDecimals = await fetchMintDecimals(connection, pool.quoteMint);
+ * const priceE6 = computeDexSpotPriceE6("meteora-dlmm", poolData, undefined, {
+ *   base: baseDecimals,
+ *   quote: quoteDecimals,
+ * });
+ * ```
+ */
+export declare function fetchMintDecimals(connection: Connection, mint: PublicKey): Promise<number>;

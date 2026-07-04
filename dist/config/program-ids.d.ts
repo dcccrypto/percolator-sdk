@@ -13,8 +13,8 @@ export declare function safeEnv(key: string): string | undefined;
  */
 export declare const PROGRAM_IDS: {
     readonly devnet: {
-        readonly percolator: "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD";
-        readonly matcher: "4HcGCsyjAqnFua5ccuXyt8KRRQzKFbGTJkVChpS7Yfzy";
+        readonly percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9";
+        readonly matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT";
     };
     readonly mainnet: {
         readonly percolator: "ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv";
@@ -30,12 +30,16 @@ export declare const PROGRAM_IDS: {
  * v17 converged programs are NOT deployed (cutover is Phase 7 gate).
  */
 export declare const PROGRAM_IDS_V17: {
-    /** v17 wrapper placeholder (declare_id! value from v16_program.rs). */
-    readonly percolator: "Perco1ator111111111111111111111111111111111";
-    /** v17 stake placeholder. */
-    readonly stake: "Per5taTe111111111111111111111111111111111111";
+    /** v17 wrapper — deployed devnet 2026-06-26. */
+    readonly percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9";
+    /** v17 matcher — deployed devnet 2026-06-26. */
+    readonly matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT";
+    /** v17 nft — deployed devnet 2026-06-26. */
+    readonly nft: "5TnritLtHS76s5iV8axqDmqhcmJKMRUekMGrk9rBTqSP";
+    /** v17 vault — deployed devnet 2026-06-26. */
+    readonly vault: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ";
 };
-/** The v17 wrapper placeholder PublicKey. Use only before mainnet cutover. */
+/** The v17 wrapper PublicKey (devnet deployed 2026-06-26). */
 export declare const PROGRAM_ID_V17: PublicKey;
 export type Network = "devnet" | "mainnet";
 /**
