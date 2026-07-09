@@ -7,6 +7,58 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.1.0] — 2026-07-09
+
+PumpSwap (pump.fun AMM) DEX-oracle parser fix. `dex-oracle.ts` had three
+compounding bugs that made every PumpSwap-sourced price wrong by ~12.9x.
+
+### Fixed
+
+- **Vault/mint byte offsets** — `parsePumpSwapPool` read `baseMint`/`quoteMint`/
+  `baseVault`/`quoteVault` 8 bytes short of the real Anchor `Pool` struct
+  layout (`35/67/131/163` instead of `43/75/139/171`), so every field was
+  silently pulling from inside the *preceding* field. Verified against the
+  live ANSEM pool on mainnet (`FnzKY6x7entQ1eR3D225dQyT7ybfka4PskBMQhb8L3CC`):
+  corrected `base_mint` decodes to the real ANSEM mint
+  (`9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump`) and corrected
+  `pool_quote_token_account` decodes to the pool's actual WSOL vault
+  (independently cross-checked via `getTokenAccountsByOwner`).
+  `PUMPSWAP_MIN_LEN` raised 195 → 203 to cover the corrected fields.
+- **Missing decimal adjustment** — `computePumpSwapPriceE6` computed
+  `quote_raw / base_raw` directly on raw token-account amounts, ignoring mint
+  decimals. pump.fun base tokens are 6dp and the WSOL quote is 9dp, so every
+  price was off by exactly 1000x. `computeDexSpotPriceE6` now REQUIRES
+  `decimals: { base, quote }` for `pumpswap`, matching the existing
+  `meteora-dlmm` contract.
+- **Missing SOL→USD conversion** — PumpSwap pools quote in WSOL, not USD;
+  the raw ratio was returned unconverted. `computeDexSpotPriceE6` gained an
+  optional 5th parameter `solPriceE6`; for WSOL-quoted PumpSwap pools it is
+  now REQUIRED (throws a clear error rather than silently mislabeling a
+  token/SOL price as USD) and is multiplied in to produce the final USD e6
+  price.
+
+### Verified
+
+- ANSEM + 2 other live PumpSwap pools (TripleT, KINS) computed within
+  0.1–0.5% of both Jupiter Price API v3 and DexScreener references. The
+  pre-fix formula was ~1186% off on all three (a consistent ~12.9x
+  overprice: the missing 1000x decimal correction only partially offset by
+  the missing ÷SOL-price conversion).
+- `dex-oracle.test.ts` extended with decimal-adjustment cases, a
+  WSOL-without-`solPriceE6` throw case, and a real mainnet-fixture regression
+  test (frozen ANSEM pool + vault bytes, slot 431709958).
+- Full `pnpm test` / `pnpm build` / `tsc --noEmit` clean.
+
+### Impact
+
+Any consumer computing PumpSwap prices via `computeDexSpotPriceE6("pumpswap", ...)`
+must now pass `decimals` (and `solPriceE6` for WSOL-quoted pools, the
+overwhelming majority) — omitting either now throws instead of silently
+returning a wrong price. `parsePumpSwapPool` output (mints/vaults) changes
+for identical input bytes (previous output was wrong).
+
+---
+
 ## [2.0.9] — 2026-05-02
 
 v12.19 `RiskParams` parser fix for user account creation and trading.

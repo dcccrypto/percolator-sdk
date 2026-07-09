@@ -68,19 +68,38 @@ export function parseDexPool(
  * @param dexType - The type of DEX
  * @param data - Raw pool account data
  * @param vaultData - For PumpSwap only: base and quote vault account data
- * @returns Price in e6 format (quote per base token)
- * @throws Error if data is too short or computation fails
+ * @param decimals - Base/quote mint decimals. REQUIRED for meteora-dlmm and pumpswap
+ *   (neither pool layout stores decimals inline in a form usable without a mint lookup);
+ *   ignored for raydium-clmm (decimals are embedded in the pool account).
+ * @param solPriceE6 - Current SOL/USD price in e6 format. Only consulted for PumpSwap
+ *   pools whose quote mint is native WSOL (the vast majority of pump.fun pools) — see
+ *   {@link computePumpSwapPriceE6} for the conversion. Ignored for all other dex types
+ *   and for PumpSwap pools quoted in a non-WSOL mint.
+ * @returns Price in e6 format. For pumpswap/raydium-clmm/meteora-dlmm quoted in USDC
+ *   (or another USD-pegged stable), this is already a USD price. For pumpswap pools
+ *   quoted in WSOL, this is a USD price ONLY if `solPriceE6` was supplied — otherwise
+ *   {@link computePumpSwapPriceE6} throws rather than silently returning a token/SOL
+ *   price mislabeled as USD.
+ * @throws Error if data is too short, required params are missing, or computation fails
  */
 export function computeDexSpotPriceE6(
   dexType: DexType,
   data: Uint8Array,
   vaultData?: { base: Uint8Array; quote: Uint8Array },
   decimals?: { base: number; quote: number },
+  solPriceE6?: bigint,
 ): bigint {
   switch (dexType) {
     case "pumpswap":
       if (!vaultData) throw new Error("PumpSwap requires vaultData (base and quote vault accounts)");
-      return computePumpSwapPriceE6(data, vaultData);
+      // #PS-1: base/quote mint decimals were not applied to the raw vault-reserve
+      // ratio (pump.fun tokens are 6dp, WSOL is 9dp) — a 1000x mispricing. The caller
+      // MUST supply decimals (fetched from the base/quote mints), matching the
+      // meteora-dlmm contract below.
+      if (!decimals) {
+        throw new Error("PumpSwap requires decimals { base, quote } (mint decimals)");
+      }
+      return computePumpSwapPriceE6(data, vaultData, decimals, solPriceE6);
     case "raydium-clmm":
       return computeRaydiumClmmPriceE6(data);
     case "meteora-dlmm":
@@ -98,8 +117,13 @@ export function computeDexSpotPriceE6(
 // Mint decimals helper
 // ============================================================================
 
-/** Offset of the `decimals` byte in a standard SPL Mint account. */
-const SPL_MINT_DECIMALS_OFFSET = 44;
+/**
+ * Offset of the `decimals` byte in a standard SPL Mint account. Exported so
+ * callers that batch-fetch several mint accounts in one `getMultipleAccountsInfo`
+ * (e.g. to resolve PumpSwap base/quote decimals without N extra RPC round-trips)
+ * can read this field directly instead of duplicating the magic number.
+ */
+export const SPL_MINT_DECIMALS_OFFSET = 44;
 
 /**
  * Read the `decimals` field of any SPL mint account (including native WSOL).
@@ -148,7 +172,39 @@ export async function fetchMintDecimals(
 // PumpSwap
 // ============================================================================
 
-const PUMPSWAP_MIN_LEN = 195;
+/**
+ * Native SOL mint — PumpSwap pools overwhelmingly quote in this. Exported so
+ * callers can pre-check `parsed.quoteMint.equals(WSOL_MINT)` before deciding
+ * whether a `solPriceE6` conversion is needed, without duplicating the address.
+ */
+export const WSOL_MINT = new PublicKey("So11111111111111111111111111111111111111112");
+
+// PumpSwap (pump.fun AMM, program pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA) `Pool`
+// account layout (Anchor discriminator = 8 bytes):
+//   [0:8]     discriminator
+//   [8]       pool_bump                  u8
+//   [9:11]    index                      u16
+//   [11:43]   creator                    Pubkey
+//   [43:75]   base_mint                  Pubkey  ← corrected from erroneous 35
+//   [75:107]  quote_mint                 Pubkey  ← corrected from erroneous 67
+//   [107:139] lp_mint                    Pubkey
+//   [139:171] pool_base_token_account    Pubkey  ← corrected from erroneous 131
+//   [171:203] pool_quote_token_account   Pubkey  ← corrected from erroneous 163
+//   [203:211] lp_supply                  u64
+//   [211:243] coin_creator               Pubkey
+//
+// The OLD offsets (35/67/131/163) were uniformly 8 bytes short of the real fields
+// — every prior read was silently pulling from inside the PRECEDING field (e.g. the
+// tail of `creator` instead of `base_mint`), producing plausible-looking but wrong
+// pubkeys. Verified against the live ANSEM pool on mainnet
+// (`FnzKY6x7entQ1eR3D225dQyT7ybfka4PskBMQhb8L3CC`, Jul 2026): base_mint decodes to
+// `9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump` (matches the known ANSEM mint) and
+// pool_quote_token_account decodes to the pool's actual WSOL vault, independently
+// confirmed via `getTokenAccountsByOwner(pool)` (owner = pool PDA, ~15,062 SOL
+// balance at verification time). Note the base vault (holding the pump.fun token)
+// is an SPL **Token-2022** account (immutableOwner extension), while the quote
+// (WSOL) vault is a classic SPL Token account — fetch each with the correct program.
+const PUMPSWAP_MIN_LEN = 203; // through end of pool_quote_token_account (171 + 32)
 
 /**
  * Parse a PumpSwap constant-product AMM pool account.
@@ -161,29 +217,56 @@ function parsePumpSwapPool(poolAddress: PublicKey, data: Uint8Array): DexPoolInf
   return {
     dexType: "pumpswap",
     poolAddress,
-    baseMint: new PublicKey(data.slice(35, 67)),
-    quoteMint: new PublicKey(data.slice(67, 99)),
-    baseVault: new PublicKey(data.slice(131, 163)),
-    quoteVault: new PublicKey(data.slice(163, 195)),
+    baseMint: new PublicKey(data.slice(43, 75)),
+    quoteMint: new PublicKey(data.slice(75, 107)),
+    baseVault: new PublicKey(data.slice(139, 171)),
+    quoteVault: new PublicKey(data.slice(171, 203)),
   };
 }
 
 const SPL_TOKEN_AMOUNT_MIN_LEN = 72;
 
 /**
- * Compute PumpSwap price: quote_amount * 1e6 / base_amount.
+ * Compute PumpSwap spot price, decimal-adjusted and (when quoted in WSOL)
+ * converted to USD.
+ *
+ * Formula: `price = (quote_raw / 10^quoteDecimals) / (base_raw / 10^baseDecimals)`
+ *
+ * #PS-1/#PS-2 fix: the previous implementation computed `quote_raw / base_raw`
+ * directly on RAW token-account amounts, ignoring mint decimals entirely. Since
+ * pump.fun base tokens are almost always 6dp and the WSOL quote is 9dp, this
+ * silently mispriced every PumpSwap market by exactly 1000x. It also returned a
+ * token/SOL ratio unconverted — for a WSOL-quoted pool that is not a USD price
+ * at all unless multiplied by the SOL/USD rate.
+ *
+ * @param poolData - Raw pool account data (used to read `quote_mint` and decide
+ *   whether SOL→USD conversion applies)
+ * @param vaultData - Base and quote vault (SPL token account) raw data
+ * @param decimals - Base/quote mint decimals (fetch via {@link fetchMintDecimals})
+ * @param solPriceE6 - Current SOL/USD price in e6 format. REQUIRED when the pool's
+ *   quote mint is native WSOL (`So111...112`) — throws otherwise, rather than
+ *   silently returning a token/SOL price mislabeled as USD. Ignored for pools
+ *   quoted in a non-WSOL mint (already ~USD, e.g. a hypothetical USDC-quoted
+ *   PumpSwap pool).
  * @internal
  */
 function computePumpSwapPriceE6(
-  _poolData: Uint8Array,
+  poolData: Uint8Array,
   vaultData: { base: Uint8Array; quote: Uint8Array },
+  decimals: { base: number; quote: number },
+  solPriceE6?: bigint,
 ): bigint {
+  if (poolData.length < PUMPSWAP_MIN_LEN) {
+    throw new Error(`PumpSwap pool data too short: ${poolData.length} < ${PUMPSWAP_MIN_LEN}`);
+  }
   if (vaultData.base.length < SPL_TOKEN_AMOUNT_MIN_LEN) {
     throw new Error(`PumpSwap base vault data too short: ${vaultData.base.length} < ${SPL_TOKEN_AMOUNT_MIN_LEN}`);
   }
   if (vaultData.quote.length < SPL_TOKEN_AMOUNT_MIN_LEN) {
     throw new Error(`PumpSwap quote vault data too short: ${vaultData.quote.length} < ${SPL_TOKEN_AMOUNT_MIN_LEN}`);
   }
+  assertTokenDecimals("PumpSwap", "base", decimals.base);
+  assertTokenDecimals("PumpSwap", "quote", decimals.quote);
 
   const baseDv = new DataView(vaultData.base.buffer, vaultData.base.byteOffset, vaultData.base.byteLength);
   const quoteDv = new DataView(vaultData.quote.buffer, vaultData.quote.byteOffset, vaultData.quote.byteLength);
@@ -192,7 +275,30 @@ function computePumpSwapPriceE6(
   const quoteAmount = readU64LE(quoteDv, 64);
 
   if (baseAmount === 0n) return 0n;
-  return (quoteAmount * 1_000_000n) / baseAmount;
+
+  // Deferred truncation (same philosophy as Raydium #210 / Meteora #226): scale
+  // the numerator by both the base-decimal correction AND the 1e6 output scale
+  // before the single division, so low-priced tokens don't truncate to 0n.
+  //   price = (quote_raw / 10^quoteDec) / (base_raw / 10^baseDec)
+  //   price_e6 = quote_raw * 10^baseDec * 1e6 / (10^quoteDec * base_raw)
+  const baseScale = 10n ** BigInt(decimals.base);
+  const quoteScale = 10n ** BigInt(decimals.quote);
+  const quotePerBaseE6 = (quoteAmount * baseScale * 1_000_000n) / (quoteScale * baseAmount);
+
+  const quoteMint = new PublicKey(poolData.slice(75, 107));
+  if (quoteMint.equals(WSOL_MINT)) {
+    // #PS-3: pump.fun pools quote in WSOL, not USD. Convert token/SOL → token/USD.
+    if (solPriceE6 === undefined) {
+      throw new Error(
+        "PumpSwap: pool is WSOL-quoted but no solPriceE6 was supplied — cannot " +
+          "convert to USD. Pass the current SOL/USD price (e6) to computeDexSpotPriceE6.",
+      );
+    }
+    return (quotePerBaseE6 * solPriceE6) / 1_000_000n;
+  }
+  // Non-WSOL quote mint (e.g. a hypothetical USDC-quoted PumpSwap pool) is
+  // already ~USD once decimal-adjusted — no further conversion needed.
+  return quotePerBaseE6;
 }
 
 // ============================================================================

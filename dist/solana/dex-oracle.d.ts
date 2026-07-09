@@ -40,8 +40,19 @@ export declare function parseDexPool(dexType: DexType, poolAddress: PublicKey, d
  * @param dexType - The type of DEX
  * @param data - Raw pool account data
  * @param vaultData - For PumpSwap only: base and quote vault account data
- * @returns Price in e6 format (quote per base token)
- * @throws Error if data is too short or computation fails
+ * @param decimals - Base/quote mint decimals. REQUIRED for meteora-dlmm and pumpswap
+ *   (neither pool layout stores decimals inline in a form usable without a mint lookup);
+ *   ignored for raydium-clmm (decimals are embedded in the pool account).
+ * @param solPriceE6 - Current SOL/USD price in e6 format. Only consulted for PumpSwap
+ *   pools whose quote mint is native WSOL (the vast majority of pump.fun pools) — see
+ *   {@link computePumpSwapPriceE6} for the conversion. Ignored for all other dex types
+ *   and for PumpSwap pools quoted in a non-WSOL mint.
+ * @returns Price in e6 format. For pumpswap/raydium-clmm/meteora-dlmm quoted in USDC
+ *   (or another USD-pegged stable), this is already a USD price. For pumpswap pools
+ *   quoted in WSOL, this is a USD price ONLY if `solPriceE6` was supplied — otherwise
+ *   {@link computePumpSwapPriceE6} throws rather than silently returning a token/SOL
+ *   price mislabeled as USD.
+ * @throws Error if data is too short, required params are missing, or computation fails
  */
 export declare function computeDexSpotPriceE6(dexType: DexType, data: Uint8Array, vaultData?: {
     base: Uint8Array;
@@ -49,7 +60,14 @@ export declare function computeDexSpotPriceE6(dexType: DexType, data: Uint8Array
 }, decimals?: {
     base: number;
     quote: number;
-}): bigint;
+}, solPriceE6?: bigint): bigint;
+/**
+ * Offset of the `decimals` byte in a standard SPL Mint account. Exported so
+ * callers that batch-fetch several mint accounts in one `getMultipleAccountsInfo`
+ * (e.g. to resolve PumpSwap base/quote decimals without N extra RPC round-trips)
+ * can read this field directly instead of duplicating the magic number.
+ */
+export declare const SPL_MINT_DECIMALS_OFFSET = 44;
 /**
  * Read the `decimals` field of any SPL mint account (including native WSOL).
  *
@@ -78,3 +96,9 @@ export declare function computeDexSpotPriceE6(dexType: DexType, data: Uint8Array
  * ```
  */
 export declare function fetchMintDecimals(connection: Connection, mint: PublicKey): Promise<number>;
+/**
+ * Native SOL mint — PumpSwap pools overwhelmingly quote in this. Exported so
+ * callers can pre-check `parsed.quoteMint.equals(WSOL_MINT)` before deciding
+ * whether a `solPriceE6` conversion is needed, without duplicating the address.
+ */
+export declare const WSOL_MINT: PublicKey;

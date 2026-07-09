@@ -79,12 +79,21 @@ console.log("  ✓ detectDexType");
 
 console.log("--- PumpSwap ---");
 
-function makePumpSwapPoolData(): Uint8Array {
-  const buf = new Uint8Array(200);
-  fillPubkey(buf, 35, 1);   // baseMint
-  fillPubkey(buf, 67, 33);  // quoteMint
-  fillPubkey(buf, 131, 65); // baseVault
-  fillPubkey(buf, 163, 97); // quoteVault
+const WSOL_MINT_B58 = "So11111111111111111111111111111111111111112";
+
+// Offsets match the real Anchor `Pool` account layout, verified against the live
+// ANSEM pool (see the fixture test below): base_mint@43, quote_mint@75,
+// pool_base_token_account@139, pool_quote_token_account@171.
+function makePumpSwapPoolData(quoteMintB58?: string): Uint8Array {
+  const buf = new Uint8Array(210);
+  fillPubkey(buf, 43, 1);    // base_mint
+  if (quoteMintB58) {
+    buf.set(new PublicKey(quoteMintB58).toBytes(), 75);
+  } else {
+    fillPubkey(buf, 75, 33); // quote_mint (non-WSOL synthetic pattern)
+  }
+  fillPubkey(buf, 139, 65);  // pool_base_token_account (baseVault)
+  fillPubkey(buf, 171, 97);  // pool_quote_token_account (quoteVault)
   return buf;
 }
 
@@ -94,7 +103,7 @@ function makeSplTokenAccount(amount: bigint): Uint8Array {
   return buf;
 }
 
-// Parse
+// Parse — offsets land on the expected fields
 {
   const data = makePumpSwapPoolData();
   const pool = parseDexPool("pumpswap", PublicKey.default, data);
@@ -102,23 +111,94 @@ function makeSplTokenAccount(amount: bigint): Uint8Array {
   assert(pool.baseMint !== undefined, "pumpswap has baseMint");
   assert(pool.baseVault !== undefined, "pumpswap has baseVault");
   assert(pool.quoteVault !== undefined, "pumpswap has quoteVault");
+  // Spot-check the exact bytes come from the corrected offsets, not the old
+  // (35/67/131/163) ones.
+  const expectedBase = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) expectedBase[i] = (1 + i) % 256;
+  assert(
+    Buffer.from(pool.baseMint.toBytes()).equals(Buffer.from(expectedBase)),
+    "pumpswap baseMint reads from offset 43 (not the old offset 35)",
+  );
 }
 
-// Parse too-short data
+// Parse too-short data (below the new 203-byte minimum, which now covers
+// pool_quote_token_account — the old 195-byte minimum silently under-covered it)
 assertThrows(
-  () => parseDexPool("pumpswap", PublicKey.default, new Uint8Array(100)),
+  () => parseDexPool("pumpswap", PublicKey.default, new Uint8Array(195)),
   "too short",
   "pumpswap parse too short"
 );
 
-// Price computation — normal
+// computeDexSpotPriceE6 now REQUIRES decimals for pumpswap (like meteora-dlmm) —
+// the raw vault-amount ratio ignores mint decimals and mis-prices by
+// 10^(decBase-decQuote).
+assertThrows(
+  () =>
+    computeDexSpotPriceE6("pumpswap", makePumpSwapPoolData(), {
+      base: makeSplTokenAccount(1_000_000n),
+      quote: makeSplTokenAccount(1_000_000n),
+    }),
+  "decimals",
+  "pumpswap missing decimals",
+);
+
+// Price computation — equal decimals, non-WSOL quote (no SOL conversion needed)
 {
   const poolData = makePumpSwapPoolData();
   const base = makeSplTokenAccount(1_000_000_000n); // 1B base
-  const quote = makeSplTokenAccount(500_000_000n);   // 500M quote
-  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote });
-  // price = 500M * 1e6 / 1B = 500_000
+  const quote = makeSplTokenAccount(500_000_000n); // 500M quote
+  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 6 });
+  // equal decimals ⇒ ratio unaffected by the decimal adjustment: 500M/1B * 1e6 = 500_000
   assert(price === 500_000n, `pumpswap normal price: expected 500000, got ${price}`);
+}
+
+// Price computation — decimal-adjusted, non-WSOL quote (base 6dp / quote 9dp,
+// the exact asymmetry pump.fun tokens vs WSOL have — but with a non-WSOL quote
+// mint here so the test isolates the decimal fix from the SOL-conversion fix)
+{
+  const poolData = makePumpSwapPoolData();
+  const base = makeSplTokenAccount(1_000_000n); // 1.0 token (6dp)
+  const quote = makeSplTokenAccount(1_000_000_000n); // 1.0 quote unit (9dp)
+  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 9 });
+  // (1_000_000_000 / 1e9) / (1_000_000 / 1e6) * 1e6 = 1.0 / 1.0 * 1e6 = 1_000_000
+  assert(price === 1_000_000n, `pumpswap decimal-adjusted 1:1 price: expected 1000000, got ${price}`);
+}
+
+// #PS-1 regression: WITHOUT the decimal fix, 6dp-base/9dp-quote at a real
+// pump.fun-shaped ratio would be off by exactly 1000x. Confirm the fix removes it.
+{
+  const poolData = makePumpSwapPoolData();
+  const base = makeSplTokenAccount(3_892_192_026_206n); // ~3.89M tokens, 6dp
+  const quote = makeSplTokenAccount(15_062_049_237_081n); // ~15,062 SOL, 9dp
+  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 9 });
+  // token/quote price ≈ 0.003869 → price_e6 ≈ 3869 (NOT 3_869_000 — the old
+  // undecimaled formula would have produced ~3,869,000, a 1000x error).
+  assert(price === 3869n, `pumpswap decimal-fixed ANSEM-shaped ratio: expected 3869, got ${price}`);
+}
+
+// #PS-3: WSOL-quoted pool WITHOUT solPriceE6 must throw (never silently return
+// a token/SOL price mislabeled as USD).
+assertThrows(
+  () =>
+    computeDexSpotPriceE6(
+      "pumpswap",
+      makePumpSwapPoolData(WSOL_MINT_B58),
+      { base: makeSplTokenAccount(1_000_000n), quote: makeSplTokenAccount(1_000_000_000n) },
+      { base: 6, quote: 9 },
+    ),
+  "solPriceE6",
+  "pumpswap WSOL-quoted without solPriceE6",
+);
+
+// #PS-3: WSOL-quoted pool WITH solPriceE6 converts token/SOL → USD
+{
+  const poolData = makePumpSwapPoolData(WSOL_MINT_B58);
+  const base = makeSplTokenAccount(3_892_192_026_206n); // ~3.89M tokens, 6dp
+  const quote = makeSplTokenAccount(15_062_049_237_081n); // ~15,062 SOL, 9dp
+  const solPriceE6 = 77_728_195n; // $77.728195
+  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 9 }, solPriceE6);
+  // token/SOL price_e6 = 3869 (from the case above); 3869 * 77.728195 / 1e6 ≈ 0.30073 → 300730 e6
+  assert(price === 300_730n, `pumpswap SOL→USD conversion: expected 300730, got ${price}`);
 }
 
 // Price — zero base returns 0
@@ -126,27 +206,30 @@ assertThrows(
   const poolData = makePumpSwapPoolData();
   const base = makeSplTokenAccount(0n);
   const quote = makeSplTokenAccount(100n);
-  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote });
+  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 6 });
   assert(price === 0n, "pumpswap zero base returns 0");
 }
 
-// Price — very large amounts
+// Price — very large amounts (equal decimals, no overflow with BigInt)
 {
   const poolData = makePumpSwapPoolData();
   const base = makeSplTokenAccount(18_446_744_073_709_551_615n); // u64 max
   const quote = makeSplTokenAccount(18_446_744_073_709_551_615n);
-  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote });
+  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 6 });
   assert(price === 1_000_000n, `pumpswap equal large amounts: expected 1000000, got ${price}`);
 }
 
 // Vault data too short
 assertThrows(
-  () => computeDexSpotPriceE6("pumpswap", makePumpSwapPoolData(), {
-    base: new Uint8Array(10),
-    quote: makeSplTokenAccount(100n),
-  }),
+  () =>
+    computeDexSpotPriceE6(
+      "pumpswap",
+      makePumpSwapPoolData(),
+      { base: new Uint8Array(10), quote: makeSplTokenAccount(100n) },
+      { base: 6, quote: 6 },
+    ),
   "too short",
-  "pumpswap base vault too short"
+  "pumpswap base vault too short",
 );
 
 // Missing vaultData
@@ -155,6 +238,71 @@ assertThrows(
   "vaultData",
   "pumpswap missing vaultData"
 );
+
+// ===========================================================================
+// FIXTURE: real mainnet PumpSwap pool FnzKY6x7entQ1eR3D225dQyT7ybfka4PskBMQhb8L3CC
+// ANSEM ("The Black Bull") / WSOL. Fetched from mainnet-beta, slot 431709958,
+// Jul 2026. Verified independently via getTokenAccountsByOwner(pool) — the
+// pool_quote_token_account decoded here matches the pool's actual WSOL vault
+// on-chain (owner=pool PDA, ~15,062 SOL balance at fetch time).
+// ===========================================================================
+{
+  const POOL_B64 =
+    "8ZptBBGxbbz9AADFPRuklpDrfWvVVW4U1TIn3IAQ1eSm5kcr9KA2wGrSVH/wMLND/KPYVoFp" +
+    "U7otoC4VT9HaKQiSLUc+85gnwtA/BpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAGt" +
+    "J2U+oZwnGkL34ynPR+DljHY+o44oq2IYlMu+QXYXAJ/ndBtXZdSGv8DFTwiGTwXbPRJSR6H+" +
+    "yosRI+E81OA5uuMeU9JqOzYa7uy0TMSfZJXP/DwAicwkoM9fRIlaN0H/AuQM5QMAAHpKScAu" +
+    "vZ3NBA/mxNRt1KUZ/PWcaHsdohozBOV1lOjNAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+  const raw = Buffer.from(POOL_B64, "base64");
+  const poolData = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+  assert(poolData.length === 301, `fixture: expected 301 bytes, got ${poolData.length}`);
+
+  const ANSEM_MINT = "9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump";
+  const pool = parseDexPool(
+    "pumpswap",
+    new PublicKey("FnzKY6x7entQ1eR3D225dQyT7ybfka4PskBMQhb8L3CC"),
+    poolData,
+  );
+  assert(pool.dexType === "pumpswap", "fixture: dexType");
+  assert(
+    pool.baseMint.toBase58() === ANSEM_MINT,
+    `fixture: baseMint must be ANSEM, got ${pool.baseMint.toBase58()}`,
+  );
+  assert(
+    pool.quoteMint.toBase58() === WSOL_MINT_B58,
+    `fixture: quoteMint must be WSOL, got ${pool.quoteMint.toBase58()}`,
+  );
+  assert(
+    pool.baseVault!.toBase58() === "BmCXK8QFCHgjiqGm7peAtBbZpFPJNsp5fYP5rSRazMS8",
+    `fixture: baseVault mismatch, got ${pool.baseVault!.toBase58()}`,
+  );
+  assert(
+    pool.quoteVault!.toBase58() === "DaXhQ3pfN3J5dQnXxVU8YqW9bwA3RUVxXvq2iBjTDVt4",
+    `fixture: quoteVault mismatch, got ${pool.quoteVault!.toBase58()}`,
+  );
+
+  // Reserve amounts captured from the same live vaults at fetch time (slot
+  // 431709958): base=3,892,192.026206 ANSEM (6dp), quote=15,062.049237081 SOL (9dp).
+  const base = makeSplTokenAccount(3_892_192_026_206n);
+  const quote = makeSplTokenAccount(15_062_049_237_081n);
+  const solPriceE6 = 77_728_195n; // SOL/USD snapshot from the same verification pass
+  const priceE6 = computeDexSpotPriceE6(
+    "pumpswap",
+    poolData,
+    { base, quote },
+    { base: 6, quote: 9 },
+    solPriceE6,
+  );
+  // Independently verified against Jupiter Price API v3 ($0.298347) and
+  // DexScreener ($0.2994) at fetch time — within 0.5% of both. The pre-fix
+  // formula (no decimals, no SOL conversion) computed $3.84 for this same
+  // snapshot — a ~1186% error.
+  assert(
+    priceE6 === 300_730n,
+    `fixture: ANSEM price should be $0.30073 (300730 e6), got ${priceE6}`,
+  );
+}
 
 console.log("  ✓ PumpSwap");
 

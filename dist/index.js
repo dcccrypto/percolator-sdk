@@ -6082,11 +6082,14 @@ function parseDexPool(dexType, poolAddress, data) {
       return parseMeteoraPool(poolAddress, data);
   }
 }
-function computeDexSpotPriceE6(dexType, data, vaultData, decimals) {
+function computeDexSpotPriceE6(dexType, data, vaultData, decimals, solPriceE6) {
   switch (dexType) {
     case "pumpswap":
       if (!vaultData) throw new Error("PumpSwap requires vaultData (base and quote vault accounts)");
-      return computePumpSwapPriceE6(data, vaultData);
+      if (!decimals) {
+        throw new Error("PumpSwap requires decimals { base, quote } (mint decimals)");
+      }
+      return computePumpSwapPriceE6(data, vaultData, decimals, solPriceE6);
     case "raydium-clmm":
       return computeRaydiumClmmPriceE6(data);
     case "meteora-dlmm":
@@ -6109,7 +6112,8 @@ async function fetchMintDecimals(connection, mint) {
   }
   return info.data[SPL_MINT_DECIMALS_OFFSET];
 }
-var PUMPSWAP_MIN_LEN = 195;
+var WSOL_MINT = new PublicKey9("So11111111111111111111111111111111111111112");
+var PUMPSWAP_MIN_LEN = 203;
 function parsePumpSwapPool(poolAddress, data) {
   if (data.length < PUMPSWAP_MIN_LEN) {
     throw new Error(`PumpSwap pool data too short: ${data.length} < ${PUMPSWAP_MIN_LEN}`);
@@ -6117,26 +6121,43 @@ function parsePumpSwapPool(poolAddress, data) {
   return {
     dexType: "pumpswap",
     poolAddress,
-    baseMint: new PublicKey9(data.slice(35, 67)),
-    quoteMint: new PublicKey9(data.slice(67, 99)),
-    baseVault: new PublicKey9(data.slice(131, 163)),
-    quoteVault: new PublicKey9(data.slice(163, 195))
+    baseMint: new PublicKey9(data.slice(43, 75)),
+    quoteMint: new PublicKey9(data.slice(75, 107)),
+    baseVault: new PublicKey9(data.slice(139, 171)),
+    quoteVault: new PublicKey9(data.slice(171, 203))
   };
 }
 var SPL_TOKEN_AMOUNT_MIN_LEN = 72;
-function computePumpSwapPriceE6(_poolData, vaultData) {
+function computePumpSwapPriceE6(poolData, vaultData, decimals, solPriceE6) {
+  if (poolData.length < PUMPSWAP_MIN_LEN) {
+    throw new Error(`PumpSwap pool data too short: ${poolData.length} < ${PUMPSWAP_MIN_LEN}`);
+  }
   if (vaultData.base.length < SPL_TOKEN_AMOUNT_MIN_LEN) {
     throw new Error(`PumpSwap base vault data too short: ${vaultData.base.length} < ${SPL_TOKEN_AMOUNT_MIN_LEN}`);
   }
   if (vaultData.quote.length < SPL_TOKEN_AMOUNT_MIN_LEN) {
     throw new Error(`PumpSwap quote vault data too short: ${vaultData.quote.length} < ${SPL_TOKEN_AMOUNT_MIN_LEN}`);
   }
+  assertTokenDecimals("PumpSwap", "base", decimals.base);
+  assertTokenDecimals("PumpSwap", "quote", decimals.quote);
   const baseDv = new DataView(vaultData.base.buffer, vaultData.base.byteOffset, vaultData.base.byteLength);
   const quoteDv = new DataView(vaultData.quote.buffer, vaultData.quote.byteOffset, vaultData.quote.byteLength);
   const baseAmount = readU64LE3(baseDv, 64);
   const quoteAmount = readU64LE3(quoteDv, 64);
   if (baseAmount === 0n) return 0n;
-  return quoteAmount * 1000000n / baseAmount;
+  const baseScale = 10n ** BigInt(decimals.base);
+  const quoteScale = 10n ** BigInt(decimals.quote);
+  const quotePerBaseE6 = quoteAmount * baseScale * 1000000n / (quoteScale * baseAmount);
+  const quoteMint = new PublicKey9(poolData.slice(75, 107));
+  if (quoteMint.equals(WSOL_MINT)) {
+    if (solPriceE6 === void 0) {
+      throw new Error(
+        "PumpSwap: pool is WSOL-quoted but no solPriceE6 was supplied \u2014 cannot convert to USD. Pass the current SOL/USD price (e6) to computeDexSpotPriceE6."
+      );
+    }
+    return quotePerBaseE6 * solPriceE6 / 1000000n;
+  }
+  return quotePerBaseE6;
 }
 var RAYDIUM_CLMM_MIN_LEN = 269;
 function parseRaydiumClmmPool(poolAddress, data) {
@@ -8327,6 +8348,7 @@ export {
   SLAB_TIERS_V_ADL,
   SLAB_TIERS_V_ADL_DISCOVERY,
   SLAB_TIERS_V_SETDEXPOOL,
+  SPL_MINT_DECIMALS_OFFSET,
   STAKE_DEPOSIT_DISCRIMINATOR,
   STAKE_DEPOSIT_SIZE,
   STAKE_IX,
@@ -8353,6 +8375,7 @@ export {
   VAMM_MAGIC,
   ValidationError,
   WELL_KNOWN,
+  WSOL_MINT,
   _internal,
   bindInsuranceAuthorityAccounts,
   buildAccountMetas,
