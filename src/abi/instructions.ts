@@ -1108,6 +1108,68 @@ export function encodeTopUpInsurance(args: TopUpInsuranceArgs): Uint8Array {
 }
 
 /**
+ * TopUpBackingBucket instruction data (tag 24).
+ *
+ * v17 wire: tag(1) + domain(u16 LE) + amount(u128 LE) + expiry_slot(u64 LE)
+ *   = 27 bytes.
+ *
+ * Deposits `amount` quote atoms of external collateral into a source domain's
+ * counterparty backing bucket, requesting `expirySlot` as the bucket's fresh
+ * expiry. Gated by the asset's `backing_bucket_authority` (v16_program.rs
+ * handle_top_up_backing_bucket, ~line 8439/8516; engine
+ * deposit_fresh_counterparty_backing_not_atomic, percolator/src/v16.rs:6118).
+ *
+ * Domain numbering: for asset index `i`, the LONG domain is `2*i` and the
+ * SHORT domain is `2*i + 1`.
+ *
+ * ENGINE MECHANICS (percolator/src/v16.rs prepare_counterparty_backing_add_delta,
+ * ~line 755): if the bucket is Empty/Expired, it adopts `expirySlot` and
+ * transitions to Fresh. If it is already Fresh with the SAME expiry, this is a
+ * no-op (safe to call again). If it is Fresh with a DIFFERENT expiry — in
+ * particular a LAPSED one (`current_slot >= expiry_slot`) — this call reverts
+ * with Custom(21) LockActive. Seeding a bucket once while it is still Empty,
+ * with `expirySlot = MAX_BACKING_BUCKET_EXPIRY_SLOT` (9223372036854775807 =
+ * u64::MAX / 2, effectively never-lapsing), makes that domain immune to the
+ * "backing-bucket-freshness deadlock" for the market's practical lifetime —
+ * every later automatic loss-reserve requests the SAME existing expiry and
+ * hits the harmless no-op arm instead of the LockActive trap.
+ *
+ * @param domain     Backing-bucket domain index (2*assetIndex for long,
+ *                   2*assetIndex+1 for short).
+ * @param amount     Quote atoms to deposit (u128; must be > 0). A small
+ *                   nonzero "dust" amount is sufficient — there is no
+ *                   minimum floor enforced by the engine.
+ * @param expirySlot Requested fresh-expiry slot (u64). Use
+ *                   MAX_BACKING_BUCKET_EXPIRY_SLOT to seed an immortal bucket.
+ *
+ * @example
+ * ```ts
+ * // Seed the long domain (asset 0) immortal, while the bucket is still Empty.
+ * const data = encodeTopUpBackingBucket({
+ *   domain: 0,
+ *   amount: 10_000n, // 0.01 Sim-USDC dust
+ *   expirySlot: MAX_BACKING_BUCKET_EXPIRY_SLOT,
+ * });
+ * ```
+ */
+export const MAX_BACKING_BUCKET_EXPIRY_SLOT: bigint = 9_223_372_036_854_775_807n; // u64::MAX / 2
+
+export interface TopUpBackingBucketArgs {
+  domain: number;
+  amount: bigint | string;
+  expirySlot: bigint | string;
+}
+
+export function encodeTopUpBackingBucket(args: TopUpBackingBucketArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.TopUpBackingBucket),
+    encU16(args.domain),
+    encU128(args.amount),
+    encU64(args.expirySlot),
+  );
+}
+
+/**
  * TradeCpi instruction data (v17 wire format).
  *
  * v17 wire: tag(1) + asset_index(u16) + size_q(i128) + fee_bps(u64) + limit_price(u64)

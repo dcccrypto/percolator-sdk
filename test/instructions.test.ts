@@ -5,7 +5,8 @@ import {
   encodeDepositCollateral, encodeWithdrawCollateral,
   encodeKeeperCrank, encodeTradeNoCpi, encodeTradeCpi, encodeTradeCpiV2,
   encodeLiquidateAtOracle, encodeCloseAccount,
-  encodeTopUpInsurance, encodeSetRiskThreshold, encodeUpdateAdmin,
+  encodeTopUpInsurance, encodeTopUpBackingBucket, MAX_BACKING_BUCKET_EXPIRY_SLOT,
+  encodeSetRiskThreshold, encodeUpdateAdmin,
   encodeCloseSlab, encodeUpdateConfig, encodeSetMaintenanceFee,
   encodeSetOraclePriceCap, encodeUpdateRiskParams, encodeRenounceAdmin,
   encodeSetPythOracle, encodeUpdateMarkPrice, encodeSetInsuranceIsolation,
@@ -186,6 +187,20 @@ describe("instruction encoders", () => {
     const data = encodeTopUpInsurance({ amount: "5000000" });
     expect(data.length).toBe(17);
     expect(data[0]).toBe(IX_TAG.TopUpInsurance);
+  });
+
+  it("encodeTopUpBackingBucket produces 27 bytes: tag(1) + domain(u16) + amount(u128) + expiry_slot(u64)", () => {
+    const data = encodeTopUpBackingBucket({ domain: 1, amount: "10000", expirySlot: MAX_BACKING_BUCKET_EXPIRY_SLOT });
+    expect(data.length).toBe(27);
+    expect(data[0]).toBe(IX_TAG.TopUpBackingBucket);
+    expect(IX_TAG.TopUpBackingBucket).toBe(24);
+    const domain = new DataView(data.buffer, data.byteOffset + 1, 2).getUint16(0, true);
+    expect(domain).toBe(1);
+    const expirySlot = new DataView(data.buffer, data.byteOffset + 19, 8).getBigUint64(0, true);
+    expect(expirySlot).toBe(MAX_BACKING_BUCKET_EXPIRY_SLOT);
+    expect(MAX_BACKING_BUCKET_EXPIRY_SLOT).toBe(9_223_372_036_854_775_807n);
+    // u64::MAX / 2, floor division — never lapses in practice.
+    expect(MAX_BACKING_BUCKET_EXPIRY_SLOT).toBe(18_446_744_073_709_551_615n / 2n);
   });
 
   it("encodeSetRiskThreshold rejects removed tag 11", () => {

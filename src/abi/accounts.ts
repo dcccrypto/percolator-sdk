@@ -274,6 +274,28 @@ export const ACCOUNTS_TOPUP_INSURANCE: readonly AccountSpec[] = [
 ] as const;
 
 /**
+ * TopUpBackingBucket (tag 24): 5 accounts (+1 optional).
+ *
+ * v17 wire account layout (v16_program.rs handle_top_up_backing_bucket):
+ *   [0] signer       signer, writable — must == the asset's backing_bucket_authority
+ *   [1] market       writable (market-group slab; program-owned)
+ *   [2] sourceToken  writable (signer's collateral ATA — source of the deposit)
+ *   [3] vaultToken   writable (program vault token account — destination)
+ *   [4] tokenProgram read-only
+ *   [5] ledger       writable, optional (per-domain BackingDomainLedger PDA;
+ *                    omit for a simple top-up with no ledger tracking)
+ *
+ * v17 amount/expiry are u128/u64 (see instructions.ts encodeTopUpBackingBucket).
+ */
+export const ACCOUNTS_TOP_UP_BACKING_BUCKET: readonly AccountSpec[] = [
+  { name: "signer", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "sourceToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+] as const;
+
+/**
  * TradeCpi (tag 10): 7 fixed accounts + optional tail.
  *
  * v17 wire account layout (v16_program.rs handle_trade_cpi):

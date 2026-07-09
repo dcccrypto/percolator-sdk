@@ -630,6 +630,15 @@ function encodeCloseAccount(_args) {
 function encodeTopUpInsurance(args) {
   return concatBytes(encU8(IX_TAG.TopUpInsurance), encU128(args.amount));
 }
+var MAX_BACKING_BUCKET_EXPIRY_SLOT = 9223372036854775807n;
+function encodeTopUpBackingBucket(args) {
+  return concatBytes(
+    encU8(IX_TAG.TopUpBackingBucket),
+    encU16(args.domain),
+    encU128(args.amount),
+    encU64(args.expirySlot)
+  );
+}
 function encodeTradeCpi(args) {
   const data = concatBytes(
     encU8(IX_TAG.TradeCpi),
@@ -1384,6 +1393,13 @@ var ACCOUNTS_CLOSE_ACCOUNT = [
   { name: "portfolio", signer: false, writable: true }
 ];
 var ACCOUNTS_TOPUP_INSURANCE = [
+  { name: "signer", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "sourceToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false }
+];
+var ACCOUNTS_TOP_UP_BACKING_BUCKET = [
   { name: "signer", signer: true, writable: true },
   { name: "market", signer: false, writable: true },
   { name: "sourceToken", signer: false, writable: true },
@@ -8261,6 +8277,7 @@ export {
   ACCOUNTS_SET_RISK_THRESHOLD,
   ACCOUNTS_SET_WALLET_CAP,
   ACCOUNTS_TOPUP_INSURANCE,
+  ACCOUNTS_TOP_UP_BACKING_BUCKET,
   ACCOUNTS_TRADE_CPI,
   ACCOUNTS_TRADE_NOCPI,
   ACCOUNTS_TRANSFER_OWNERSHIP_CPI,
@@ -8305,6 +8322,7 @@ export {
   MATCHER_CONTEXT_LEN,
   MATCHER_MAGIC,
   MATCHER_RETURN_LEN,
+  MAX_BACKING_BUCKET_EXPIRY_SLOT,
   MAX_DECIMALS,
   METEORA_DLMM_PROGRAM_ID,
   NFT_IX_TAG,
@@ -8555,6 +8573,7 @@ export {
   encodeStakeTransferAdmin,
   encodeStakeUpdateConfig,
   encodeStakeWithdraw,
+  encodeTopUpBackingBucket,
   encodeTopUpInsurance,
   encodeTradeCpi,
   encodeTradeCpiV2,
