@@ -315,6 +315,29 @@ export const STAKE_IX = {
    */
   RecoverFlushedInsurance: 23,
   /**
+   * AdminResolveMarketCpi (tag 24) — CPI proxy for the wrapper's ResolveMarket
+   * (wrapper tag 19). InitPool rotates `cfg.marketauth` to this pool's PDA, so
+   * only a CPI signed by that PDA can ever call the wrapper's ResolveMarket;
+   * without this proxy every stake-initialized market would be permanently
+   * stuck in Live mode. The pool PDA signs the wrapper CPI via
+   * `invoke_signed`; no local stake-side state is mutated (SetMarketResolved,
+   * tag 18, remains the separate, explicit local bookkeeping step). NEW in
+   * percolator-stake (see src/instruction.rs / src/processor.rs
+   * `process_admin_resolve_market`, tag 24).
+   *
+   * NOTE on the name: the on-chain enum variant is literally
+   * `AdminResolveMarket` (matching the DEPRECATED tag-9 name from the OLD
+   * percolator-vault lineage, see `AdminResolveMarket: 9` above / its throwing
+   * `encodeStakeAdminResolveMarket()` alias). This key is suffixed `Cpi` to
+   * avoid re-using that already-claimed object key/export name — the tag-9
+   * alias and this tag-24 instruction are unrelated aside from sharing an
+   * on-chain name across two different lineages.
+   *
+   * Wire: tag(1) = 24 — no payload beyond the tag byte.
+   * Accounts: [admin(signer), poolPda, slab(writable), percolatorProgram]
+   */
+  AdminResolveMarketCpi: 24,
+  /**
    * SetMarketResolved (tag 18) — admin marks the pool as market-resolved
    * (blocks new deposits). Call after resolving the market on the wrapper
    * directly.
@@ -1028,6 +1051,66 @@ export function recoverFlushedInsuranceAccounts(
     { pubkey: a.wrapperVaultAuth,   isSigner: false, isWritable: false },
     { pubkey: a.tokenProgram,       isSigner: false, isWritable: false },
     { pubkey: a.percolatorProgram,  isSigner: false, isWritable: false },
+  ];
+}
+
+/**
+ * Tag 24: AdminResolveMarketCpi — CPI proxy for the wrapper's ResolveMarket
+ * (wrapper tag 19). Only the pool PDA (bound as `cfg.marketauth` by InitPool)
+ * can call the wrapper's ResolveMarket directly; this instruction has the
+ * stake program sign that CPI via `invoke_signed` with the pool PDA seeds so
+ * the (human) admin can trigger resolution. Does not mutate any local
+ * stake-side state — call `encodeStakeSetMarketResolved()` (tag 18)
+ * separately afterward for local bookkeeping.
+ *
+ * Wire: tag(1) = 24 — no payload beyond the tag byte.
+ *
+ * @returns 1-byte Uint8Array `[24]`.
+ *
+ * @example
+ * ```ts
+ * const data = encodeStakeAdminResolveMarketCpi();
+ * // accounts: adminResolveMarketCpiAccounts({ admin, poolPda, slab, percolatorProgram })
+ * ```
+ */
+export function encodeStakeAdminResolveMarketCpi(): Uint8Array {
+  return new Uint8Array([STAKE_IX.AdminResolveMarketCpi]);
+}
+
+/**
+ * Account inputs for AdminResolveMarketCpi (tag 24).
+ *
+ * @param admin               Pool admin (outer tx signer; == pool.admin).
+ * @param poolPda             Stake pool PDA — signs the wrapper CPI via invoke_signed (marketauth).
+ * @param slab                Wrapper market-group slab (writable — target of the ResolveMarket CPI).
+ * @param percolatorProgram   Wrapper program ID (CPI target).
+ */
+export interface AdminResolveMarketCpiAccounts {
+  admin: PublicKey;
+  poolPda: PublicKey;
+  slab: PublicKey;
+  percolatorProgram: PublicKey;
+}
+
+/**
+ * Build account keys for AdminResolveMarketCpi (tag 24) — src/processor.rs
+ * process_admin_resolve_market:
+ *   [0] admin              signer, read-only  (== pool.admin)
+ *   [1] pool_pda           read-only          (marketauth; signs the CPI via invoke_signed)
+ *   [2] slab               writable           (wrapper market; ResolveMarket CPI target)
+ *   [3] percolator_program read-only          (wrapper program for CPI dispatch)
+ *
+ * @param a Named accounts.
+ * @returns Array of `{pubkey, isSigner, isWritable}` in program-expected order.
+ */
+export function adminResolveMarketCpiAccounts(
+  a: AdminResolveMarketCpiAccounts,
+): { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] {
+  return [
+    { pubkey: a.admin,             isSigner: true,  isWritable: false },
+    { pubkey: a.poolPda,           isSigner: false, isWritable: false },
+    { pubkey: a.slab,              isSigner: false, isWritable: true  },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false },
   ];
 }
 

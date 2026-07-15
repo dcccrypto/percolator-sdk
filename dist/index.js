@@ -6646,6 +6646,29 @@ var STAKE_IX = {
    */
   RecoverFlushedInsurance: 23,
   /**
+   * AdminResolveMarketCpi (tag 24) — CPI proxy for the wrapper's ResolveMarket
+   * (wrapper tag 19). InitPool rotates `cfg.marketauth` to this pool's PDA, so
+   * only a CPI signed by that PDA can ever call the wrapper's ResolveMarket;
+   * without this proxy every stake-initialized market would be permanently
+   * stuck in Live mode. The pool PDA signs the wrapper CPI via
+   * `invoke_signed`; no local stake-side state is mutated (SetMarketResolved,
+   * tag 18, remains the separate, explicit local bookkeeping step). NEW in
+   * percolator-stake (see src/instruction.rs / src/processor.rs
+   * `process_admin_resolve_market`, tag 24).
+   *
+   * NOTE on the name: the on-chain enum variant is literally
+   * `AdminResolveMarket` (matching the DEPRECATED tag-9 name from the OLD
+   * percolator-vault lineage, see `AdminResolveMarket: 9` above / its throwing
+   * `encodeStakeAdminResolveMarket()` alias). This key is suffixed `Cpi` to
+   * avoid re-using that already-claimed object key/export name — the tag-9
+   * alias and this tag-24 instruction are unrelated aside from sharing an
+   * on-chain name across two different lineages.
+   *
+   * Wire: tag(1) = 24 — no payload beyond the tag byte.
+   * Accounts: [admin(signer), poolPda, slab(writable), percolatorProgram]
+   */
+  AdminResolveMarketCpi: 24,
+  /**
    * SetMarketResolved (tag 18) — admin marks the pool as market-resolved
    * (blocks new deposits). Call after resolving the market on the wrapper
    * directly.
@@ -6923,6 +6946,17 @@ function recoverFlushedInsuranceAccounts(a) {
     { pubkey: a.wrapperVault, isSigner: false, isWritable: true },
     { pubkey: a.wrapperVaultAuth, isSigner: false, isWritable: false },
     { pubkey: a.tokenProgram, isSigner: false, isWritable: false },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false }
+  ];
+}
+function encodeStakeAdminResolveMarketCpi() {
+  return new Uint8Array([STAKE_IX.AdminResolveMarketCpi]);
+}
+function adminResolveMarketCpiAccounts(a) {
+  return [
+    { pubkey: a.admin, isSigner: true, isWritable: false },
+    { pubkey: a.poolPda, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: true },
     { pubkey: a.percolatorProgram, isSigner: false, isWritable: false }
   ];
 }
@@ -8732,6 +8766,7 @@ export {
   WELL_KNOWN,
   WSOL_MINT,
   _internal,
+  adminResolveMarketCpiAccounts,
   bindInsuranceAuthorityAccounts,
   buildAccountMetas,
   buildAdlInstruction,
@@ -8895,6 +8930,7 @@ export {
   encodeStakeAcceptAdmin,
   encodeStakeAccrueFees,
   encodeStakeAdminResolveMarket,
+  encodeStakeAdminResolveMarketCpi,
   encodeStakeAdminSetHwmConfig,
   encodeStakeAdminSetInsurancePolicy,
   encodeStakeAdminSetMaintenanceFee,

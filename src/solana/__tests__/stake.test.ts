@@ -35,10 +35,12 @@ import {
   encodeStakeRotateInsuranceOperator,
   encodeStakeBurnAssetAdmin,
   encodeStakeRecoverFlushedInsurance,
+  encodeStakeAdminResolveMarketCpi,
   bindInsuranceAuthorityAccounts,
   rotateInsuranceAccounts,
   burnAssetAdminAccounts,
   recoverFlushedInsuranceAccounts,
+  adminResolveMarketCpiAccounts,
   initPoolAccounts,
   depositAccounts,
   withdrawAccounts,
@@ -90,6 +92,13 @@ describe('STAKE_IX tags — ADOPTED percolator-stake lineage (feat/adopt-stake-l
     expect(STAKE_IX.BurnAssetAdmin).toBe(21);
     expect(STAKE_IX.RotateInsuranceOperator).toBe(22);
     expect(STAKE_IX.RecoverFlushedInsurance).toBe(23);
+    expect(STAKE_IX.AdminResolveMarketCpi).toBe(24);
+  });
+
+  it('AdminResolveMarketCpi (tag 24) does not collide with the deprecated tag-9 AdminResolveMarket alias', () => {
+    expect(STAKE_IX.AdminResolveMarketCpi).toBe(24);
+    expect(STAKE_IX.AdminResolveMarket).toBe(9);
+    expect(STAKE_IX.AdminResolveMarketCpi).not.toBe(STAKE_IX.AdminResolveMarket);
   });
 
   it('BindInsuranceAuthority moved off tag 15 — AdminSetTrancheConfig and BindInsuranceAuthority no longer collide', () => {
@@ -335,6 +344,13 @@ describe('Instruction encoders', () => {
     expect(readU64LE(buf, 1)).toBe(555_000n);
   });
 
+  it('encodeStakeAdminResolveMarketCpi — tag 24, no payload (bare tag byte)', () => {
+    const buf = encodeStakeAdminResolveMarketCpi();
+    expect(buf.length).toBe(1);
+    expect(buf[0]).toBe(24);
+    expect(buf[0]).toBe(STAKE_IX.AdminResolveMarketCpi);
+  });
+
   it('encodeStakeDeposit accepts number', () => {
     const buf = encodeStakeDeposit(42);
     expect(readU64LE(buf, 1)).toBe(42n);
@@ -509,6 +525,28 @@ describe('Account builders', () => {
     expect(accounts[4].pubkey.equals(slab)).toBe(true);
     expect(accounts[4].isWritable).toBe(true); // wrapperMarket
     expect(accounts[5].isWritable).toBe(true); // wrapperVault (source)
+  });
+
+  it('adminResolveMarketCpiAccounts (tag 24) returns 4 accounts in [admin, poolPda, slab, percolatorProgram] order', () => {
+    const [pool] = deriveStakePool(slab);
+
+    const accounts = adminResolveMarketCpiAccounts({
+      admin, poolPda: pool, slab, percolatorProgram,
+    });
+
+    expect(accounts).toHaveLength(4);
+    expect(accounts[0].pubkey.equals(admin)).toBe(true);
+    expect(accounts[0].isSigner).toBe(true);
+    expect(accounts[0].isWritable).toBe(false);
+    expect(accounts[1].pubkey.equals(pool)).toBe(true);
+    expect(accounts[1].isSigner).toBe(false);
+    expect(accounts[1].isWritable).toBe(false);
+    expect(accounts[2].pubkey.equals(slab)).toBe(true);
+    expect(accounts[2].isSigner).toBe(false);
+    expect(accounts[2].isWritable).toBe(true);
+    expect(accounts[3].pubkey.equals(percolatorProgram)).toBe(true);
+    expect(accounts[3].isSigner).toBe(false);
+    expect(accounts[3].isWritable).toBe(false);
   });
 });
 

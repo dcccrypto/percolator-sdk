@@ -48,6 +48,7 @@ import {
   encodeStakeBurnAssetAdmin,
   encodeStakeRotateInsuranceOperator,
   encodeStakeRecoverFlushedInsurance,
+  encodeStakeAdminResolveMarketCpi,
   initPoolAccounts,
   depositAccounts,
   withdrawAccounts,
@@ -485,6 +486,8 @@ describe('Stake Instruction Tags — No Gaps or Conflicts (ADOPTED percolator-st
     expect(tags).toContain(21); // BurnAssetAdmin
     expect(tags).toContain(22); // RotateInsuranceOperator
     expect(tags).toContain(23); // RecoverFlushedInsurance
+    expect(tags).toContain(24); // AdminResolveMarketCpi
+    expect(tags.filter(t => t === 24).length).toBe(1); // AdminResolveMarketCpi only — does not collide with the tag-9 AdminResolveMarket alias
   });
 
   it('live encoders produce the correct tag byte and deprecated (repurposed-tag) encoders throw', () => {
@@ -508,6 +511,7 @@ describe('Stake Instruction Tags — No Gaps or Conflicts (ADOPTED percolator-st
       [STAKE_IX.BurnAssetAdmin, encodeStakeBurnAssetAdmin()],
       [STAKE_IX.RotateInsuranceOperator, encodeStakeRotateInsuranceOperator()],
       [STAKE_IX.RecoverFlushedInsurance, encodeStakeRecoverFlushedInsurance(0n)],
+      [STAKE_IX.AdminResolveMarketCpi, encodeStakeAdminResolveMarketCpi()],
     ];
 
     for (const [expectedTag, data] of liveTagMap) {
