@@ -386,41 +386,43 @@ var IX_TAG = {
    * (matcherProg, matcherCtx, matcherDelegate) in the LP portfolio's matcher config tail.
    * InitMatcherCtx verifies the stored triple matches the accounts supplied here.
    *
-   * @deprecated ⚠️ TAG COLLIDES with WithdrawProtocolFee on the protocol-fee wrapper
-   * lineage (feat/protocol-fee-taker-only, VERSION 17, percolator-prog@626fb617).
-   * That wrapper's Instruction::decode has NO InitMatcherCtx arm — confirmed by
-   * grepping `InitMatcherCtx` in v16_program.rs on both the protocol-fee branch and
-   * its 14440e0c parent (zero hits), and by the design doc's own free-tag audit
-   * ("Confirmed free tags up to 90: ... 83-90", ~/v17/PROTOCOL-FEE-DESIGN.md §3).
-   * Do NOT call encodeInitMatcherCtx() against a VERSION=17 market — tag 83 decodes
-   * as WithdrawProtocolFee there instead. Safe only against whatever OTHER wrapper
-   * build originally defined this instruction.
+   * CONFIRMED (forensic rebuild + live simulateTransaction, 2026-07-15, see
+   * ~/v17/DECISIONS-LEDGER.md "Pinned deployed revisions" section): the DEPLOYED
+   * wrapper (69VUZ7… = percolator-prog@e26c97a4) HAS InitMatcherCtx at tag 83 — this
+   * is a real, live instruction, not a defunct/other-lineage one. The protocol-fee
+   * change was renumbered (WithdrawProtocolFee→84, SetProtocolFeeAuthority→85) to
+   * free tag 83 for this instruction rather than the reverse.
    */
   InitMatcherCtx: 83,
   /**
-   * WithdrawProtocolFee (tag 83) — v17 protocol-fee wrapper (VERSION 17,
+   * WithdrawProtocolFee (tag 84) — v17 protocol-fee wrapper (VERSION 17,
    * percolator-prog@626fb617, feat/protocol-fee-taker-only).
    *
-   * ⚠️ SAME NUMERIC VALUE as the (deprecated, unrelated-lineage) InitMatcherCtx
-   * above — see its deprecation note. On the protocol-fee wrapper, tag 83 is
-   * WithdrawProtocolFee and InitMatcherCtx does not exist.
+   * Renumbered 83→84 (2026-07-15) to free tag 83 for InitMatcherCtx, which the
+   * deployed wrapper (percolator-prog@e26c97a4) has live at tag 83 — see the
+   * note on IX_TAG.InitMatcherCtx above and ~/v17/DECISIONS-LEDGER.md.
    *
    * Wire: tag(1) + amount(u128) = 17 bytes. `amount == 0` withdraws all
    * currently-available capacity. Accounts: see ACCOUNTS_WITHDRAW_PROTOCOL_FEE
    * in abi/accounts.ts. Signer-gated on cfg.protocol_fee_authority.
    */
-  WithdrawProtocolFee: 83,
+  WithdrawProtocolFee: 84,
   /**
-   * SetProtocolFeeAuthority (tag 84) — v17 protocol-fee wrapper (VERSION 17,
+   * SetProtocolFeeAuthority (tag 85) — v17 protocol-fee wrapper (VERSION 17,
    * percolator-prog@626fb617, feat/protocol-fee-taker-only). Rotates
    * cfg.protocol_fee_authority.
+   *
+   * Renumbered 84→85 (2026-07-15) as part of the same InitMatcherCtx(83) tag
+   * reservation — see the note on IX_TAG.InitMatcherCtx above and
+   * ~/v17/DECISIONS-LEDGER.md. Also frees this value from colliding with the
+   * deprecated v12.x ReclaimEmptyAccount(85) below, which is not present in v17.
    *
    * Wire: tag(1) + new_authority(32) = 33 bytes. Accounts: see
    * ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY in abi/accounts.ts. Gated on the
    * program's BPF upgrade authority — NOT marketauth, NOT any creator-facing gate.
    */
-  SetProtocolFeeAuthority: 84,
-  /** @deprecated v12.x tag 85. Not in v17. */
+  SetProtocolFeeAuthority: 85,
+  /** @deprecated v12.x tag 85. COLLIDES with v17 SetProtocolFeeAuthority(85). Do NOT use. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
   SettleAccount: 86,

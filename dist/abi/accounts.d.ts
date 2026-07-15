@@ -620,7 +620,7 @@ export declare const ACCOUNTS_PUSH_AUTH_MARK: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_SET_MATCHER_CONFIG: readonly AccountSpec[];
 /**
- * WithdrawProtocolFee (tag 83): 6 accounts.
+ * WithdrawProtocolFee (tag 84): 6 accounts.
  *
  * v17 wire account layout (v16_program.rs handle_withdraw_protocol_fee):
  *   [0] authority      signer, writable (must equal cfg.protocol_fee_authority)
@@ -638,7 +638,7 @@ export declare const ACCOUNTS_SET_MATCHER_CONFIG: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_WITHDRAW_PROTOCOL_FEE: readonly AccountSpec[];
 /**
- * SetProtocolFeeAuthority (tag 84): 3 accounts.
+ * SetProtocolFeeAuthority (tag 85): 3 accounts.
  *
  * v17 wire account layout (v16_program.rs handle_set_protocol_fee_authority):
  *   [0] upgradeAuthority signer (must equal the program's BPF upgrade authority)

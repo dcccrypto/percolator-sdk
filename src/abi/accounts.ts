@@ -1132,19 +1132,13 @@ export const ACCOUNTS_SET_DEX_POOL: readonly AccountSpec[] = [
 // ============================================================================
 // InitMatcherCtx (tag 83) — v17 wire
 //
-// ⚠️ TAG COLLISION on the protocol-fee wrapper lineage (feat/protocol-fee-taker-only,
-// VERSION 17, percolator-prog@626fb617): that wrapper's Instruction::decode has NO
-// InitMatcherCtx arm at all — tag 83 there is WithdrawProtocolFee (see
-// ACCOUNTS_WITHDRAW_PROTOCOL_FEE below), and the design doc's own free-tag audit
-// confirms tags 83-90 were free before the protocol-fee change
-// (~/v17/PROTOCOL-FEE-DESIGN.md §3: "Confirmed free tags up to 90: ... 83-90").
-// Grepping `InitMatcherCtx` in percolator-prog/src/v16_program.rs (both the
-// protocol-fee branch AND its 14440e0c parent) returns zero hits — this
-// instruction has never existed in this wrapper lineage. Do NOT call
-// encodeInitMatcherCtx()/ACCOUNTS_INIT_MATCHER_CTX against a VERSION=17
-// market — tag 83 will decode as WithdrawProtocolFee instead and either fail
-// signer/auth checks or (worse) attempt an unintended protocol-fee withdrawal.
-// Kept here only for whatever OTHER wrapper build originally defined it.
+// CONFIRMED (forensic rebuild + live simulateTransaction, 2026-07-15, see
+// ~/v17/DECISIONS-LEDGER.md "Pinned deployed revisions" section): the DEPLOYED
+// wrapper (69VUZ7… = percolator-prog@e26c97a4) HAS InitMatcherCtx live at tag
+// 83. The protocol-fee instructions below were renumbered to 84/85
+// (WithdrawProtocolFee, SetProtocolFeeAuthority) specifically to keep this
+// tag free for InitMatcherCtx — see ACCOUNTS_WITHDRAW_PROTOCOL_FEE /
+// ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY below.
 // ============================================================================
 
 /**
@@ -1281,14 +1275,18 @@ export const ACCOUNTS_SET_MATCHER_CONFIG: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// Protocol-fee program change (tags 83/84) — v17 wire, WrapperConfigV16 496B
+// Protocol-fee program change (tags 84/85) — v17 wire, WrapperConfigV16 496B
 // See ~/v17/PROTOCOL-FEE-DESIGN.md §3. Verified against
 // percolator-prog/src/v16_program.rs (feat/protocol-fee-taker-only@626fb617)
 // handle_withdraw_protocol_fee / handle_set_protocol_fee_authority.
+//
+// Renumbered 2026-07-15 (83→84, 84→85) to keep tag 83 reserved for
+// InitMatcherCtx (see ACCOUNTS_INIT_MATCHER_CTX above and
+// ~/v17/DECISIONS-LEDGER.md, "Pinned deployed revisions").
 // ============================================================================
 
 /**
- * WithdrawProtocolFee (tag 83): 6 accounts.
+ * WithdrawProtocolFee (tag 84): 6 accounts.
  *
  * v17 wire account layout (v16_program.rs handle_withdraw_protocol_fee):
  *   [0] authority      signer, writable (must equal cfg.protocol_fee_authority)
@@ -1314,7 +1312,7 @@ export const ACCOUNTS_WITHDRAW_PROTOCOL_FEE: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * SetProtocolFeeAuthority (tag 84): 3 accounts.
+ * SetProtocolFeeAuthority (tag 85): 3 accounts.
  *
  * v17 wire account layout (v16_program.rs handle_set_protocol_fee_authority):
  *   [0] upgradeAuthority signer (must equal the program's BPF upgrade authority)

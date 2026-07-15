@@ -3872,7 +3872,7 @@ export interface WrapperConfigV17 {
   /**
    * Destination pubkey for the protocol's accrued fee share. Set to a
    * hardcoded program-level constant at InitMarket; rotatable only via
-   * SetProtocolFeeAuthority (tag 84, upgrade-authority-gated). NOT settable
+   * SetProtocolFeeAuthority (tag 85, upgrade-authority-gated). NOT settable
    * by marketauth/insurance_authority/any creator-facing gate.
    */
   protocolFeeAuthority: PublicKey;
@@ -3883,7 +3883,7 @@ export interface WrapperConfigV17 {
    */
   protocolFeeAccruedAtoms: bigint;
   /**
-   * Cumulative atoms ever paid out via WithdrawProtocolFee (tag 83).
+   * Cumulative atoms ever paid out via WithdrawProtocolFee (tag 84).
    * Monotonic, always <= protocolFeeAccruedAtoms. Claim capacity =
    * protocolFeeAccruedAtoms - protocolFeeWithdrawnAtoms.
    */

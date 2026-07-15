@@ -1251,56 +1251,62 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   console.log("✓ encodeMatcherInitPassive finite max_fill_abs");
 }
 
-// ── Protocol-fee program change (tags 83/84) ─────────────────────────────────
+// ── Protocol-fee program change (tags 84/85) ─────────────────────────────────
+// Renumbered 2026-07-15: WithdrawProtocolFee 83→84, SetProtocolFeeAuthority
+// 84→85, freeing tag 83 for InitMatcherCtx (confirmed live on the deployed
+// wrapper percolator-prog@e26c97a4 by forensic rebuild + live
+// simulateTransaction — see ~/v17/DECISIONS-LEDGER.md).
 
-// WithdrawProtocolFee (tag 83)
+// WithdrawProtocolFee (tag 84)
 // Wire: tag(1) + amount(u128) = 17 bytes
 {
   const data = encodeWithdrawProtocolFee({ amount: 1_000_000n });
   assert(data.length === 17, `WithdrawProtocolFee length: expected 17, got ${data.length}`);
-  assert(data[0] === IX_TAG.WithdrawProtocolFee, "WithdrawProtocolFee tag = 83");
-  assert(data[0] === 83, "WithdrawProtocolFee tag literal = 83");
+  assert(data[0] === IX_TAG.WithdrawProtocolFee, "WithdrawProtocolFee tag = 84");
+  assert(data[0] === 84, "WithdrawProtocolFee tag literal = 84");
   assertBuf(
     data.subarray(1, 17),
     [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "WithdrawProtocolFee amount=1_000_000"
   );
-  console.log("✓ encodeWithdrawProtocolFee (v17 17-byte wire, tag 83)");
+  console.log("✓ encodeWithdrawProtocolFee (v17 17-byte wire, tag 84)");
 }
 
-// WithdrawProtocolFee (tag 83) — amount=0 means "withdraw all"
+// WithdrawProtocolFee (tag 84) — amount=0 means "withdraw all"
 {
   const data = encodeWithdrawProtocolFee({ amount: 0n });
   assert(data.length === 17, "WithdrawProtocolFee amount=0 length=17");
-  assert(data[0] === 83, "WithdrawProtocolFee amount=0 tag=83");
+  assert(data[0] === 84, "WithdrawProtocolFee amount=0 tag=84");
   assert(data.subarray(1, 17).every(v => v === 0), "WithdrawProtocolFee amount=0 payload all zero");
   console.log("✓ encodeWithdrawProtocolFee amount=0 (withdraw-all sentinel)");
 }
 
-// SetProtocolFeeAuthority (tag 84)
+// SetProtocolFeeAuthority (tag 85)
 // Wire: tag(1) + new_authority(32) = 33 bytes
 {
   const newAuthority = new PublicKey("11111111111111111111111111111111");
   const data = encodeSetProtocolFeeAuthority({ newAuthority });
   assert(data.length === 33, `SetProtocolFeeAuthority length: expected 33, got ${data.length}`);
-  assert(data[0] === IX_TAG.SetProtocolFeeAuthority, "SetProtocolFeeAuthority tag = 84");
-  assert(data[0] === 84, "SetProtocolFeeAuthority tag literal = 84");
+  assert(data[0] === IX_TAG.SetProtocolFeeAuthority, "SetProtocolFeeAuthority tag = 85");
+  assert(data[0] === 85, "SetProtocolFeeAuthority tag literal = 85");
   const pkBytes = newAuthority.toBytes();
   assert(
     data.subarray(1, 33).every((v, i) => v === pkBytes[i]),
     "SetProtocolFeeAuthority new_authority bytes"
   );
-  console.log("✓ encodeSetProtocolFeeAuthority (v17 33-byte wire, tag 84)");
+  console.log("✓ encodeSetProtocolFeeAuthority (v17 33-byte wire, tag 85)");
 }
 
-// Tags 83/84 are distinct values despite IX_TAG.InitMatcherCtx also being 83
-// (a different, non-protocol-fee wrapper lineage — see the deprecation note
-// on IX_TAG.InitMatcherCtx).
+// Tags 83/84/85 are distinct: InitMatcherCtx keeps tag 83 (confirmed live on
+// the deployed wrapper), WithdrawProtocolFee=84, SetProtocolFeeAuthority=85.
 {
-  assert(IX_TAG.WithdrawProtocolFee === 83, "IX_TAG.WithdrawProtocolFee === 83");
-  assert(IX_TAG.SetProtocolFeeAuthority === 84, "IX_TAG.SetProtocolFeeAuthority === 84");
-  assert(IX_TAG.WithdrawProtocolFee !== IX_TAG.SetProtocolFeeAuthority, "83 !== 84");
-  console.log("✓ IX_TAG.WithdrawProtocolFee (83) / SetProtocolFeeAuthority (84) distinct");
+  assert(IX_TAG.InitMatcherCtx === 83, "IX_TAG.InitMatcherCtx === 83");
+  assert(IX_TAG.WithdrawProtocolFee === 84, "IX_TAG.WithdrawProtocolFee === 84");
+  assert(IX_TAG.SetProtocolFeeAuthority === 85, "IX_TAG.SetProtocolFeeAuthority === 85");
+  assert(IX_TAG.InitMatcherCtx !== IX_TAG.WithdrawProtocolFee, "83 !== 84");
+  assert(IX_TAG.WithdrawProtocolFee !== IX_TAG.SetProtocolFeeAuthority, "84 !== 85");
+  assert(IX_TAG.InitMatcherCtx !== IX_TAG.SetProtocolFeeAuthority, "83 !== 85");
+  console.log("✓ IX_TAG.InitMatcherCtx (83) / WithdrawProtocolFee (84) / SetProtocolFeeAuthority (85) distinct");
 }
 
 // ── Protocol-fee WrapperConfigV17 tail fields (offsets 432/464/480, config len 496) ──
