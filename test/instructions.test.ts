@@ -6,6 +6,8 @@ import {
   encodeKeeperCrank, encodeTradeNoCpi, encodeTradeCpi, encodeTradeCpiV2,
   encodeLiquidateAtOracle, encodeCloseAccount,
   encodeTopUpInsurance, encodeTopUpBackingBucket, MAX_BACKING_BUCKET_EXPIRY_SLOT,
+  encodeWithdrawBackingBucket, encodeUpdateBackingFeePolicy,
+  encodeWithdrawBackingBucketEarnings,
   encodeSetRiskThreshold, encodeUpdateAdmin,
   encodeCloseSlab, encodeUpdateConfig, encodeSetMaintenanceFee,
   encodeSetOraclePriceCap, encodeUpdateRiskParams, encodeRenounceAdmin,
@@ -201,6 +203,39 @@ describe("instruction encoders", () => {
     expect(MAX_BACKING_BUCKET_EXPIRY_SLOT).toBe(9_223_372_036_854_775_807n);
     // u64::MAX / 2, floor division — never lapses in practice.
     expect(MAX_BACKING_BUCKET_EXPIRY_SLOT).toBe(18_446_744_073_709_551_615n / 2n);
+  });
+
+  it("encodeWithdrawBackingBucket produces 19 bytes: tag(1) + domain(u16) + amount(u128)", () => {
+    const data = encodeWithdrawBackingBucket({ domain: 1, amount: "10000" });
+    expect(data.length).toBe(19);
+    expect(data[0]).toBe(IX_TAG.WithdrawBackingBucket);
+    expect(IX_TAG.WithdrawBackingBucket).toBe(50);
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    expect(view.getUint16(1, true)).toBe(1); // domain
+    expect(view.getBigUint64(3, true)).toBe(10_000n); // amount lo64
+    expect(view.getBigUint64(11, true)).toBe(0n); // amount hi64
+  });
+
+  it("encodeUpdateBackingFeePolicy produces 7 bytes: tag(1) + domain(u16) + fee_bps(u16) + insurance_share_bps(u16)", () => {
+    const data = encodeUpdateBackingFeePolicy({ domain: 1, feeBps: 30, insuranceShareBps: 5000 });
+    expect(data.length).toBe(7);
+    expect(data[0]).toBe(IX_TAG.UpdateBackingFeePolicy);
+    expect(IX_TAG.UpdateBackingFeePolicy).toBe(51);
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    expect(view.getUint16(1, true)).toBe(1); // domain
+    expect(view.getUint16(3, true)).toBe(30); // fee_bps
+    expect(view.getUint16(5, true)).toBe(5000); // insurance_share_bps
+  });
+
+  it("encodeWithdrawBackingBucketEarnings produces 19 bytes: tag(1) + domain(u16) + amount(u128)", () => {
+    const data = encodeWithdrawBackingBucketEarnings({ domain: 0, amount: 123_456n });
+    expect(data.length).toBe(19);
+    expect(data[0]).toBe(IX_TAG.WithdrawBackingBucketEarnings);
+    expect(IX_TAG.WithdrawBackingBucketEarnings).toBe(52);
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    expect(view.getUint16(1, true)).toBe(0); // domain
+    expect(view.getBigUint64(3, true)).toBe(123_456n); // amount lo64
+    expect(view.getBigUint64(11, true)).toBe(0n); // amount hi64
   });
 
   it("encodeSetRiskThreshold rejects removed tag 11", () => {
