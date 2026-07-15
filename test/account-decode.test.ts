@@ -35,7 +35,7 @@ import {
 import {
   decodeStakePool,
   decodeDepositPda,
-  STAKE_POOL_SIZE,
+  STAKE_POOL_SIZE_V2,
   STAKE_DEPOSIT_SIZE,
 } from "../src/solana/stake.js";
 import {
@@ -91,8 +91,8 @@ describe("account-decode: StakePool (devnet)", () => {
   const fixture = loadFixture("devnet-stake-pool.json");
   const data = fixtureBytes(fixture);
 
-  it("data length matches STAKE_POOL_SIZE", () => {
-    expect(data.length).toBe(STAKE_POOL_SIZE);
+  it("data length matches STAKE_POOL_SIZE_V2 (fixture predates the v3 H-1 field)", () => {
+    expect(data.length).toBe(STAKE_POOL_SIZE_V2);
   });
 
   it("rejects the stale devnet fixture because it has no v2 discriminator/version", () => {

@@ -8,14 +8,16 @@
  *   mainnet deployment of any stake/vault lineage found in the v17 planning docs as of
  *   this writing; treat as a placeholder until DevOps confirms)
  *
- * LINEAGE (as of 2026-07-14, see ~/v17/RESEARCH-issue6-lineage.md): the devnet address
+ * LINEAGE (as of 2026-07-15, see ~/v17/RESEARCH-issue6-lineage.md): the devnet address
  * 51CeUNpb... currently runs `percolator-vault@eb3ebe8` (`find4-insurance-authority-bind`).
  * The ADOPTED go-forward lineage is `percolator-stake@feat/adopt-stake-lineage-plus-n7`
- * (HEAD 9ec1c3a) — a same-address BPF upgrade of 51CeUNpb..., NOT a new deployment. This
- * module's STAKE_IX tag table and decodeStakePool below already reflect the ADOPTED
- * lineage's instruction set, which is a BREAKING change vs what 51CeUNpb... currently
- * runs on-chain until that upgrade lands (coordinate with the wrapper protocol-fee
- * redeploy — both require the same full market re-seed, see the RESEARCH doc §3).
+ * (HEAD c5a901f — includes the H-1 re-review fix that bumps StakePool 384->392 bytes /
+ * CURRENT_VERSION 2->3, see STAKE_POOL_SIZE_V3) — a same-address BPF upgrade of
+ * 51CeUNpb..., NOT a new deployment. This module's STAKE_IX tag table and decodeStakePool
+ * below already reflect the ADOPTED lineage's instruction set, which is a BREAKING change
+ * vs what 51CeUNpb... currently runs on-chain until that upgrade lands (coordinate with
+ * the wrapper protocol-fee redeploy — both require the same full market re-seed, see the
+ * RESEARCH doc §3).
  */
 import { PublicKey } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
@@ -743,10 +745,14 @@ export declare function adminResolveMarketCpiAccounts(a: AdminResolveMarketCpiAc
 /** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export declare function encodeStakeAdminSetInsurancePolicy(authority: PublicKey, minWithdrawBase: bigint | number, maxWithdrawBps: number, cooldownSlots: bigint | number): Uint8Array;
 /**
- * Decoded StakePool state (384 bytes on-chain — stake v2).
+ * Decoded StakePool state (392 bytes on-chain — stake v3, current).
  * v2 adds `pending_admin` ([u8;32]) at offset 288 for the two-step admin-rotation
  * primitive (ProposeAdmin tag 5 / AcceptAdmin tag 6). Struct grew 352 → 384.
- * Includes PERC-272 (fee yield), PERC-313 (HWM), and PERC-303 (tranches).
+ * v3 (H-1 re-review fix, `percolator-stake@c5a901f`) appends
+ * `total_recovered_from_wrapper` (u64) at the struct TAIL, offset 384..392 —
+ * outside `_reserved`, which stays fixed at [320..384]. Struct grew 384 → 392;
+ * no prior field offset shifts. Includes PERC-272 (fee yield), PERC-313 (HWM),
+ * and PERC-303 (tranches).
  *
  * ⚠️ KNOWN BYTE-ALIASING BUG in the ADOPTED percolator-stake lineage's
  * `_reserved` layout (verified against `state.rs` on
@@ -835,6 +841,22 @@ export interface StakePoolState {
      * admin-controlled key.
      */
     assetAdminBurned: boolean;
+    /**
+     * H-1 re-review fix (stake v3 only, `null` on v1/v2 pools): cumulative
+     * collateral actually recovered from the WRAPPER via the tag-23
+     * `RecoverFlushedInsurance` CPI (which itself CPIs the wrapper's tag-57
+     * `WithdrawInsuranceAsset`) — the ONLY mechanism that pulls flushed
+     * insurance back out of the wrapper. Real struct field at offset 384..392
+     * (the tail, AFTER `_reserved`), NOT carved from `_reserved`.
+     *
+     * Deliberately separate from `totalReturned`, which is also bumped by two
+     * mechanisms that do NOT recover funds from the wrapper (`ReturnInsurance`
+     * tag 10 — the admin's own wallet tokens — and the #161 last-junior-exit
+     * phantom write-off). `AdminResolveMarketCpi`/`SetMarketResolved` gate
+     * market-resolution on `totalFlushed <= totalRecoveredFromWrapper`, not
+     * `totalReturned` — see `state.rs@c5a901f` lines 133-159.
+     */
+    totalRecoveredFromWrapper: bigint | null;
 }
 /**
  * Size of StakePool on-chain (bytes) — v1 layout.
@@ -842,7 +864,7 @@ export interface StakePoolState {
  * The _reserved block in v1 starts at offset 288; version byte = 1.
  *
  * LINEAGE NOTE: the ADOPTED percolator-stake lineage this module targets has
- * `CURRENT_VERSION = 2` unconditionally and is a "fresh-start cutover" (no
+ * `CURRENT_VERSION = 3` unconditionally and is a "fresh-start cutover" (no
  * migration path — `state.rs@9ec1c3a` comment: "no v1 pools exist, so no
  * migration is needed"). v1/352-byte pools can only ever be observed as
  * LEGACY accounts from BEFORE the coordinated protocol-fee + stake-lineage
@@ -853,30 +875,62 @@ export interface StakePoolState {
  */
 export declare const STAKE_POOL_SIZE_V1 = 352;
 /**
- * Size of StakePool on-chain (bytes) — v2 layout (current, and the ONLY
- * layout the ADOPTED percolator-stake lineage ever creates).
+ * Size of StakePool on-chain (bytes) — v2 layout.
  * v2: 384 (stake v1 was 352; `pending_admin: [u8;32]` added at offset 288).
  * The _reserved block in v2 starts at offset 320; version byte = 2.
  * Verified via `core::mem::size_of::<StakePool>()` field-by-field against
  * `percolator-stake/src/state.rs@9ec1c3a` — 384 bytes exactly, no compiler
  * padding (every u64 field lands on an 8-aligned cumulative offset).
+ *
+ * SUPERSEDED by v3 (`STAKE_POOL_SIZE_V3`, 392 bytes) as of the H-1 re-review
+ * fix (`percolator-stake@c5a901f`) — kept here only to decode pools created
+ * between the v1->v2 and v2->v3 cutovers, and for any test/tooling code that
+ * still needs to construct a v2-shaped buffer explicitly.
  */
-export declare const STAKE_POOL_SIZE = 384;
+export declare const STAKE_POOL_SIZE_V2 = 384;
+/**
+ * Size of StakePool on-chain (bytes) — v3 layout (current, and the ONLY
+ * layout the ADOPTED percolator-stake lineage creates as of `c5a901f`).
+ * v3: 392 (stake v2 was 384; `total_recovered_from_wrapper: u64` appended at
+ * the STRUCT TAIL, offset 384..392 — NOT inside `_reserved`, which stays a
+ * fixed 64 bytes at [320..384] in both v2 and v3; every prior field offset is
+ * therefore unchanged from v2). Added for the H-1 re-review fix: gates
+ * `AdminResolveMarket`/`SetMarketResolved` on cumulative collateral actually
+ * recovered from the wrapper via the tag-23 `RecoverFlushedInsurance` CPI,
+ * instead of the broader (and gameable) `total_returned` counter — see
+ * `state.rs@c5a901f` lines 133-159 for the full rationale.
+ * Verified via `core::mem::size_of::<StakePool>()` field-by-field against
+ * `percolator-stake/src/state.rs@c5a901f` — 392 bytes exactly, no compiler
+ * padding (the appended u64 lands on the already-8-aligned offset 384).
+ */
+export declare const STAKE_POOL_SIZE_V3 = 392;
+/**
+ * Size of StakePool on-chain (bytes) — alias for the CURRENT layout the
+ * ADOPTED percolator-stake lineage creates. Currently equal to
+ * `STAKE_POOL_SIZE_V3` (392). Prefer the explicit `STAKE_POOL_SIZE_V{1,2,3}`
+ * constants in new code so a future version bump doesn't silently change the
+ * meaning of call sites that hard-coded `STAKE_POOL_SIZE`.
+ */
+export declare const STAKE_POOL_SIZE = 392;
 export declare const STAKE_POOL_DISCRIMINATOR: Uint8Array<ArrayBuffer>;
-export declare const STAKE_POOL_CURRENT_VERSION = 2;
+export declare const STAKE_POOL_CURRENT_VERSION = 3;
 /**
  * Decode a StakePool account from raw data buffer.
  *
- * Supports both v1 (352 bytes, no pending_admin, _reserved starts at 288) and
- * v2 (384 bytes, pending_admin at 288..320, _reserved starts at 320). The layout
- * version is detected from the data length before reading the discriminator.
+ * Supports v1 (352 bytes, no pending_admin, _reserved starts at 288), v2 (384
+ * bytes, pending_admin at 288..320, _reserved starts at 320), and v3 (392
+ * bytes, adds `total_recovered_from_wrapper: u64` at the struct tail,
+ * offset 384..392 — outside `_reserved`, which stays at [320..384] in both
+ * v2 and v3). The layout version is detected from the data length before
+ * reading the discriminator.
  *
- * v1 support exists only to decode legacy pools created before the
- * coordinated protocol-fee + stake-lineage redeploy — see the
- * `STAKE_POOL_SIZE_V1` doc for why the ADOPTED program never creates new v1
- * pools. See the `StakePoolState` interface doc for a known HWM /
- * cooldown-timelock byte-aliasing bug this decoder faithfully surfaces
- * (not an SDK bug — a real on-chain `_reserved` layout collision).
+ * v1/v2 support exists only to decode legacy pools created before the
+ * coordinated protocol-fee + stake-lineage redeploy (v1) or before the H-1
+ * re-review fix (v2) — see the `STAKE_POOL_SIZE_V1`/`STAKE_POOL_SIZE_V2` docs
+ * for why the ADOPTED program never creates new v1/v2 pools going forward.
+ * See the `StakePoolState` interface doc for a known HWM / cooldown-timelock
+ * byte-aliasing bug this decoder faithfully surfaces (not an SDK bug — a real
+ * on-chain `_reserved` layout collision).
  *
  * Uses DataView for all u64/u16 reads — browser-safe.
  */

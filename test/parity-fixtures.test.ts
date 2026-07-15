@@ -17,7 +17,7 @@ import {
   CTX_RETURN_OFFSET,
 } from "../src/abi/instructions.js";
 import { POSITION_NFT_STATE_LEN } from "../src/abi/nft.js";
-import { STAKE_IX, STAKE_POOL_SIZE } from "../src/solana/stake.js";
+import { STAKE_IX, STAKE_POOL_SIZE_V3 } from "../src/solana/stake.js";
 
 function loadJson<T>(filename: string): T {
   const fullPath = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "specs", filename);
@@ -139,9 +139,9 @@ describe("Rust parity fixtures", () => {
       SetMarketResolved: STAKE_IX.SetMarketResolved,
     };
 
-    expect(STAKE_POOL_SIZE).toBe(fixture.stake_pool_size);
+    expect(STAKE_POOL_SIZE_V3).toBe(fixture.stake_pool_size);
     // v2 StakePool: pending_admin [u8;32] added at offset 288; _reserved shifts to 320.
-    // All absolute offsets += 32 vs v1 (reserved_start was 288 in v1, now 320 in v2).
+    // All absolute offsets += 32 vs v1 (reserved_start was 288 in v1, now 320 in v2/v3).
     expect(fixture.layout.reserved_start).toBe(320);
     expect(fixture.layout.offsets.market_resolved).toBe(329);  // 320 + 9
     expect(fixture.layout.offsets.hwm_enabled).toBe(330);      // 320 + 10
@@ -152,6 +152,10 @@ describe("Rust parity fixtures", () => {
     expect(fixture.layout.offsets.junior_balance).toBe(353);   // 320 + 33
     expect(fixture.layout.offsets.junior_total_lp).toBe(361);  // 320 + 41
     expect(fixture.layout.offsets.junior_fee_mult_bps).toBe(369); // 320 + 49
+    // v3 (H-1 re-review fix): total_recovered_from_wrapper (u64) appended at the
+    // struct TAIL, offset 384 — outside _reserved (which stays fixed at [320..384]),
+    // NOT reserved_start-relative like the fields above.
+    expect(fixture.layout.offsets.total_recovered_from_wrapper).toBe(384);
 
     for (const entry of fixture.live_tags) {
       expect(sdkTags[entry.name]).toBe(entry.tag);

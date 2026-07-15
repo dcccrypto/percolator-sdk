@@ -34,20 +34,28 @@ import {
   STAKE_POOL_CURRENT_VERSION,
   STAKE_POOL_SIZE,
   STAKE_POOL_SIZE_V1,
+  STAKE_POOL_SIZE_V2,
+  STAKE_POOL_SIZE_V3,
   STAKE_DEPOSIT_DISCRIMINATOR,
 } from "../src/solana/stake.js";
 
-// v2 (384-byte) _reserved block starts at 320; v1 (352-byte) starts at 288.
+// v3 (392-byte) and v2 (384-byte) _reserved block both start at 320; v1 (352-byte) starts at 288.
 const STAKE_POOL_RESERVED_OFFSET_V2 = 320;
 const STAKE_POOL_RESERVED_OFFSET_V1 = 288;
 const STAKE_DEPOSIT_RESERVED_OFFSET = 88;
 const TEST_POOL = new PublicKey("FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD");
 const TEST_USER = new PublicKey("GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24");
 
-/** Stamp a v2 (384-byte) StakePool identity at the v2 reserved offset (320). */
+/** Stamp a v2 (384-byte) StakePool identity at the v2 reserved offset (320), version = 2. */
 function stampStakePoolIdentity(buf: Uint8Array): void {
   buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
-  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = STAKE_POOL_CURRENT_VERSION; // version = 2
+  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 2; // version = 2 (STAKE_POOL_CURRENT_VERSION is now 3)
+}
+
+/** Stamp a v3 (392-byte) StakePool identity at the v2/v3-shared reserved offset (320), version = 3. */
+function stampStakePoolV3Identity(buf: Uint8Array): void {
+  buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
+  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = STAKE_POOL_CURRENT_VERSION; // version = 3
 }
 
 /** Stamp a v1 (352-byte) StakePool identity at the v1 reserved offset (288). */
@@ -380,6 +388,84 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(pool.epochHighWaterTvl).toBe(123n);
     expect(pool.hwmFloorBps).toBe(777);
     expect(pool.hwmLastEpoch).toBe(456n);
+    // v2 pools have no total_recovered_from_wrapper field at all (added in v3).
+    expect(pool.totalRecoveredFromWrapper).toBeNull();
+  });
+
+  it("STAKE_POOL_SIZE_V1/V2/V3 constants and the STAKE_POOL_SIZE/CURRENT_VERSION aliases are wired to v3", () => {
+    expect(STAKE_POOL_SIZE_V1).toBe(352);
+    expect(STAKE_POOL_SIZE_V2).toBe(384);
+    expect(STAKE_POOL_SIZE_V3).toBe(392);
+    expect(STAKE_POOL_SIZE).toBe(STAKE_POOL_SIZE_V3);
+    expect(STAKE_POOL_CURRENT_VERSION).toBe(3);
+  });
+
+  it("decodes a v3 (392-byte) StakePool: totalRecoveredFromWrapper at the tail, all v2 fields intact, no offset shifts", () => {
+    // v3 StakePool: 392 bytes (was 384 in v2). total_recovered_from_wrapper (u64)
+    // appended at the struct TAIL, offset 384..392 — OUTSIDE _reserved, which stays
+    // fixed at [320..384] (identical to v2). Every field before offset 384 must
+    // decode at the EXACT same offset as v2 — this test asserts that explicitly.
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V3); // 392 bytes
+    const dv = new DataView(buf.buffer);
+    buf[0] = 1; // isInitialized
+    buf[1] = 2; // bump
+    buf.set(PublicKey.default.toBytes(), 8);   // slab @ 8
+    buf.set(PublicKey.default.toBytes(), 40);  // admin @ 40
+    buf.set(PublicKey.default.toBytes(), 72);  // collateralMint @ 72
+    buf.set(PublicKey.default.toBytes(), 104); // lpMint @ 104
+    buf.set(PublicKey.default.toBytes(), 136); // vault @ 136
+    dv.setBigUint64(168, 1n, true);  // totalDeposited
+    dv.setBigUint64(176, 2n, true);  // totalLpSupply
+    dv.setBigUint64(184, 3n, true);  // cooldownSlots
+    dv.setBigUint64(192, 4n, true);  // depositCap
+    dv.setBigUint64(200, 5n, true);  // totalFlushed
+    dv.setBigUint64(208, 6n, true);  // totalReturned
+    dv.setBigUint64(216, 7n, true);  // totalWithdrawn
+    buf.set(PublicKey.default.toBytes(), 224); // percolatorProgram @ 224
+    dv.setBigUint64(256, 8n, true);  // totalFeesEarned
+    dv.setBigUint64(264, 9n, true);  // lastFeeAccrualSlot
+    dv.setBigUint64(272, 10n, true); // lastVaultSnapshot
+    buf[280] = 1; // poolMode
+    // pending_admin [u8;32] @ 288..320 — non-zero, so pendingAdmin should decode as a real PublicKey
+    buf.set(TEST_USER.toBytes(), 288);
+    // _reserved (64 bytes) @ 320..384 — identical layout to v2
+    stampStakePoolV3Identity(buf);
+    buf[STAKE_POOL_RESERVED_OFFSET_V2 + 9] = 1;   // market_resolved = true
+    buf[STAKE_POOL_RESERVED_OFFSET_V2 + 32] = 1;  // tranche_enabled = true
+    dv.setBigUint64(STAKE_POOL_RESERVED_OFFSET_V2 + 33, 999n, true); // junior_balance
+    // v3 ONLY: total_recovered_from_wrapper (u64) @ 384..392, outside _reserved
+    dv.setBigUint64(384, 123_456_789n, true);
+
+    const pool = decodeStakePool(buf);
+
+    // The new v3 field decodes correctly.
+    expect(pool.totalRecoveredFromWrapper).toBe(123_456_789n);
+
+    // Every prior field is byte-identical to the v2 decode path — no offset shifts.
+    expect(pool.isInitialized).toBe(true);
+    expect(pool.bump).toBe(2);
+    expect(pool.totalDeposited).toBe(1n);
+    expect(pool.totalLpSupply).toBe(2n);
+    expect(pool.cooldownSlots).toBe(3n);
+    expect(pool.depositCap).toBe(4n);
+    expect(pool.totalFlushed).toBe(5n);
+    expect(pool.totalReturned).toBe(6n);
+    expect(pool.totalWithdrawn).toBe(7n);
+    expect(pool.totalFeesEarned).toBe(8n);
+    expect(pool.lastFeeAccrualSlot).toBe(9n);
+    expect(pool.lastVaultSnapshot).toBe(10n);
+    expect(pool.poolMode).toBe(1);
+    expect(pool.pendingAdmin?.toBase58()).toBe(TEST_USER.toBase58());
+    expect(pool.marketResolved).toBe(true);
+    expect(pool.trancheEnabled).toBe(true);
+    expect(pool.juniorBalance).toBe(999n);
+  });
+
+  it("decodeStakePool rejects v3 (392-byte) data with a bad version byte", () => {
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V3);
+    buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
+    buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 2; // stale v2 version byte on a v3-length buffer
+    expect(() => decodeStakePool(buf)).toThrow(/StakePool unsupported version: 2 !== 3/);
   });
 
   it("rejects stake-pool-shaped bytes with a missing discriminator", () => {

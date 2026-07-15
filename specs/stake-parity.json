@@ -9,6 +9,7 @@
       "junior_fee_mult_bps": 369,
       "junior_total_lp": 361,
       "market_resolved": 329,
+      "total_recovered_from_wrapper": 384,
       "tranche_enabled": 352
     },
     "reserved_start": 320
@@ -84,5 +85,5 @@
     86,
     49
   ],
-  "stake_pool_size": 384
+  "stake_pool_size": 392
 }
