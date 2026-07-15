@@ -3679,7 +3679,13 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
 }
 
 // =============================================================================
-// v17 (WrapperConfigV16) — 432-byte config block in the market group account
+// v17 (WrapperConfigV16) — 496-byte config block in the market group account
+//
+// Protocol-fee program change (feat/protocol-fee-taker-only, wrapper HEAD
+// 626fb617): WrapperConfigV16 grew 432 -> 496 bytes (three new tail fields,
+// see WrapperConfigV17 below) and the account VERSION bumped 16 -> 17. This
+// is a full account-layout break — every v16-version market account is
+// abandoned; only VERSION=17 accounts carry the 496-byte config block.
 // =============================================================================
 
 /**
@@ -3689,8 +3695,15 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
  */
 export const V17_MAGIC = 0x5045_5243_5631_3600n;
 
-/** v17 account version (u16 at offset 8). */
-export const V17_EXPECTED_VERSION = 16;
+/**
+ * v17 account version (u16 at offset 8).
+ *
+ * Bumped 16 -> 17 by the protocol-fee program change (WrapperConfigV16
+ * 432 -> 496 bytes; percolator-prog@626fb617, `v16_program.rs:51`
+ * `pub const VERSION: u16 = 17`). Fails closed on any pre-protocol-fee
+ * (VERSION=16) account — those must be re-seeded, not read with this parser.
+ */
+export const V17_EXPECTED_VERSION = 17;
 
 /**
  * v17 account-kind byte (offset 10 of the 16-byte header).
@@ -3708,8 +3721,17 @@ export const V17_KIND_MARKET = 1;
 /** Byte offset of the v17 account-kind discriminator within the header. */
 export const V17_KIND_OFF = 10;
 
-/** v17 wrapper config block length (WrapperConfigV16 = 432 bytes). */
-export const V17_WRAPPER_CONFIG_LEN = 432;
+/**
+ * v17 wrapper config block length (WrapperConfigV16 = 496 bytes).
+ *
+ * Grew from 432 by the protocol-fee program change: three new tail fields
+ * (`protocol_fee_authority` [32] @432, `protocol_fee_accrued_atoms` u128 @464,
+ * `protocol_fee_withdrawn_atoms` u128 @480 = 64 bytes total), offsets 0..431
+ * UNCHANGED. Verified against `percolator-prog/src/v16_program.rs:842-912`
+ * (`WRAPPER_CONFIG_LEN: usize = 496` at line 58, with a compile-time
+ * `size_of::<WrapperConfigV16>() == WRAPPER_CONFIG_LEN` assertion).
+ */
+export const V17_WRAPPER_CONFIG_LEN = 496;
 
 /** v17 AssetOracleProfileV16 length (400 bytes). */
 export const V17_ASSET_ORACLE_PROFILE_LEN = 400;
@@ -3717,8 +3739,11 @@ export const V17_ASSET_ORACLE_PROFILE_LEN = 400;
 /** v17 header length (16 bytes: magic[8] + version[2] + kind[1] + pad[1] + reserved[4]). */
 export const V17_HEADER_LEN = 16;
 
-/** v17 market group config offset = HEADER_LEN + WRAPPER_CONFIG_LEN = 448. */
-export const V17_MARKET_GROUP_OFF = V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN; // 448
+/**
+ * v17 market group config offset = HEADER_LEN + WRAPPER_CONFIG_LEN = 512
+ * (was 448 pre-protocol-fee, when WRAPPER_CONFIG_LEN was 432).
+ */
+export const V17_MARKET_GROUP_OFF = V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN; // 512
 
 /**
  * v17 MarketGroupV16HeaderAccount size (758 bytes) and per-asset slot stride (1797 bytes),
@@ -3751,10 +3776,11 @@ export function v17MarketAccountLen(maxPortfolioAssets: number): number {
 export const V17_PORTFOLIO_ACCOUNT_LEN = 9347;
 
 /**
- * Parsed WrapperConfigV16 — the 432-byte v17 market config block.
+ * Parsed WrapperConfigV16 — the 496-byte v17 market config block.
  *
  * Field offsets follow SBF alignment (u128 align=8, not 16).
- * Full offset table (verified against v17 wrapper source v16_program.rs):
+ * Full offset table (verified against v17 wrapper source v16_program.rs,
+ * protocol-fee branch feat/protocol-fee-taker-only@626fb617):
  *   0   marketauth [32]
  *   32  collateral_mint [32]
  *   64  secondary_collateral_mint [32]
@@ -3796,7 +3822,11 @@ export const V17_PORTFOLIO_ACCOUNT_LEN = 9347;
  *  426  backing_trade_fee_insurance_share_bps_long u16
  *  428  backing_trade_fee_insurance_share_bps_short u16
  *  430  fee_redirect_to_market_0_bps u16
- *  Total: 432
+ *  --- protocol-fee program change (additive tail, offsets 0..431 unchanged) ---
+ *  432  protocol_fee_authority [32]
+ *  464  protocol_fee_accrued_atoms u128
+ *  480  protocol_fee_withdrawn_atoms u128
+ *  Total: 496
  */
 export interface WrapperConfigV17 {
   marketauth: PublicKey;
@@ -3839,6 +3869,25 @@ export interface WrapperConfigV17 {
   backingTradeFeeInsuranceShareBpsLong: number;
   backingTradeFeeInsuranceShareBpsShort: number;
   feeRedirectToMarket0Bps: number;
+  /**
+   * Destination pubkey for the protocol's accrued fee share. Set to a
+   * hardcoded program-level constant at InitMarket; rotatable only via
+   * SetProtocolFeeAuthority (tag 84, upgrade-authority-gated). NOT settable
+   * by marketauth/insurance_authority/any creator-facing gate.
+   */
+  protocolFeeAuthority: PublicKey;
+  /**
+   * Cumulative atoms ever accrued to the protocol's claim (monotonic). Never
+   * itself credited into any domain's insurance budget — tracks an
+   * unbudgeted slice of header.insurance no insurance_operator can reach.
+   */
+  protocolFeeAccruedAtoms: bigint;
+  /**
+   * Cumulative atoms ever paid out via WithdrawProtocolFee (tag 83).
+   * Monotonic, always <= protocolFeeAccruedAtoms. Claim capacity =
+   * protocolFeeAccruedAtoms - protocolFeeWithdrawnAtoms.
+   */
+  protocolFeeWithdrawnAtoms: bigint;
 }
 
 /**
@@ -3847,7 +3896,7 @@ export interface WrapperConfigV17 {
  * The config block starts at offset `configOff` (default: V17_HEADER_LEN = 16).
  *
  * IMPORTANT: v17 uses a completely different account structure from v12.x slabs.
- * This function reads the 432-byte wrapper config block directly. It does NOT
+ * This function reads the 496-byte wrapper config block directly. It does NOT
  * validate the account header magic or version — callers must do that separately.
  *
  * @param data      Raw bytes of the market group account.
@@ -3935,6 +3984,11 @@ export function parseWrapperConfigV17(data: Uint8Array, configOff: number = V17_
   const backingTradeFeeInsuranceShareBpsShort = readU16LE(data, b + 428);
   const feeRedirectToMarket0Bps = readU16LE(data, b + 430);
 
+  // Protocol-fee program change (additive tail at b+432, WRAPPER_CONFIG_LEN 432 -> 496).
+  const protocolFeeAuthority = new PublicKey(data.subarray(b + 432, b + 464));
+  const protocolFeeAccruedAtoms = readU128LE(data, b + 464);
+  const protocolFeeWithdrawnAtoms = readU128LE(data, b + 480);
+
   return {
     marketauth,
     collateralMint,
@@ -3976,6 +4030,9 @@ export function parseWrapperConfigV17(data: Uint8Array, configOff: number = V17_
     backingTradeFeeInsuranceShareBpsLong,
     backingTradeFeeInsuranceShareBpsShort,
     feeRedirectToMarket0Bps,
+    protocolFeeAuthority,
+    protocolFeeAccruedAtoms,
+    protocolFeeWithdrawnAtoms,
   };
 }
 
@@ -4199,10 +4256,12 @@ export interface V17MarketGroupOI {
  * which follows the 512-byte wrapper T at the start of each slot).
  *
  * Absolute offsets (verified against `/tmp/percolator/src/v16.rs` struct layouts,
- * all `#[repr(C)]` with explicit `[u8;N]` fields — zero alignment padding):
- * - Insurance: V17_MARKET_GROUP_OFF(448) + 301 = 749
- * - oi_eff_long_q(i):  1206 + i×1797 + 512 + 273 = 1991 + i×1797
- * - oi_eff_short_q(i): 1206 + i×1797 + 512 + 289 = 2007 + i×1797
+ * all `#[repr(C)]` with explicit `[u8;N]` fields — zero alignment padding).
+ * Post-protocol-fee (WRAPPER_CONFIG_LEN 432 -> 496, V17_MARKET_GROUP_OFF
+ * 448 -> 512; the header/asset-slot structs themselves are unchanged):
+ * - Insurance: V17_MARKET_GROUP_OFF(512) + 301 = 813
+ * - oi_eff_long_q(i):  1270 + i×1797 + 512 + 273 = 2055 + i×1797
+ * - oi_eff_short_q(i): 1270 + i×1797 + 512 + 289 = 2071 + i×1797
  *
  * @param data  Raw bytes of the v17 market group account.
  * @returns Parsed V17MarketGroupOI — zero OI when no active positions exist.
@@ -4229,12 +4288,12 @@ export function parseMarketGroupV17OI(data: Uint8Array): V17MarketGroupOI {
     );
   }
 
-  // Read insurance u128 from MarketGroupV16HeaderAccount at absolute offset 749.
+  // Read insurance u128 from MarketGroupV16HeaderAccount at absolute offset 813.
   const insuranceOff = V17_MARKET_GROUP_OFF + V17_HEADER_INSURANCE_OFF;
   const insuranceBalance = readU128LE(data, insuranceOff);
 
   // Iterate asset slots.  Slots start immediately after MarketGroupV16HeaderAccount.
-  const slotsBase = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN; // 1206
+  const slotsBase = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN; // 1270
   const numSlots = Math.floor(
     (data.length - slotsBase) / V17_MARKET_ASSET_SLOT_LEN,
   );

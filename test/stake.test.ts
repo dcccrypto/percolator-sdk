@@ -199,12 +199,18 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(data.length).toBe(1 + 1 + 2);
   });
 
-  it("encodeStakeAdminSetTrancheConfig throws (collides with BindInsuranceAuthority at tag 15)", () => {
-    expect(() => encodeStakeAdminSetTrancheConfig(2000)).toThrow(/tag 15|BindInsuranceAuthority/i);
+  it("encodeStakeAdminSetTrancheConfig — tag 15 + junior_fee_mult_bps(u16); no longer collides with BindInsuranceAuthority (moved to tag 19)", () => {
+    const data = encodeStakeAdminSetTrancheConfig(2000);
+    expect(data).toBeInstanceOf(Uint8Array);
+    expect(data[0]).toBe(15);
+    expect(data.length).toBe(1 + 2);
   });
 
-  it("encodeStakeDepositJunior throws (tag 16 not in deployed v39 program)", () => {
-    expect(() => encodeStakeDepositJunior(1_000_000n)).toThrow(/tag 16/i);
+  it("encodeStakeDepositJunior — tag 16 + amount(u64), live on the adopted percolator-stake lineage", () => {
+    const data = encodeStakeDepositJunior(1_000_000n);
+    expect(data).toBeInstanceOf(Uint8Array);
+    expect(data[0]).toBe(16);
+    expect(data.length).toBe(1 + 8);
   });
 
   it("encodeStakeAdminSetInsurancePolicy", () => {
@@ -212,21 +218,26 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(() => encodeStakeAdminSetInsurancePolicy(auth, 100n, 5000, 86400n)).toThrow(/tag 11/i);
   });
 
-  it("encodeStakeSetMarketResolved throws (tag 18 not in deployed v39 program)", () => {
-    expect(() => encodeStakeSetMarketResolved()).toThrow(/tag 18/i);
+  it("encodeStakeSetMarketResolved — tag 18, no payload, live on the adopted percolator-stake lineage", () => {
+    const data = encodeStakeSetMarketResolved();
+    expect(data).toBeInstanceOf(Uint8Array);
+    expect(data.length).toBe(1);
+    expect(data[0]).toBe(18);
+    expect(data[0]).toBe(STAKE_IX.SetMarketResolved);
   });
 
-  it("encodeStakeBindInsuranceAuthority emits 1-byte tag 0x0F", () => {
+  it("encodeStakeBindInsuranceAuthority emits 1-byte tag 0x13 (19) — MOVED from tag 15 (0x0F)", () => {
     const data = encodeStakeBindInsuranceAuthority();
     expect(data).toBeInstanceOf(Uint8Array);
     expect(data.length).toBe(1);
-    expect(data[0]).toBe(0x0F); // STAKE_IX.BindInsuranceAuthority = 15
+    expect(data[0]).toBe(0x13); // STAKE_IX.BindInsuranceAuthority = 19
     expect(data[0]).toBe(STAKE_IX.BindInsuranceAuthority);
   });
 
-  it("STAKE_IX.BindInsuranceAuthority is 15 and STAKE_IX.AdminSetTrancheConfig is also 15 (same tag, deprecated)", () => {
-    expect(STAKE_IX.BindInsuranceAuthority).toBe(15);
+  it("STAKE_IX.BindInsuranceAuthority (19) and STAKE_IX.AdminSetTrancheConfig (15) no longer collide", () => {
+    expect(STAKE_IX.BindInsuranceAuthority).toBe(19);
     expect(STAKE_IX.AdminSetTrancheConfig).toBe(15);
+    expect(STAKE_IX.BindInsuranceAuthority).not.toBe(STAKE_IX.AdminSetTrancheConfig);
   });
 
   it("bindInsuranceAuthorityAccounts returns 5 accounts in correct signer/writable order", () => {

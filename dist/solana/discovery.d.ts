@@ -30,7 +30,8 @@ export interface DiscoveredMarket {
      */
     params: RiskParams;
     /**
-     * v17 wrapper config (WrapperConfigV16 struct, 432 bytes at header offset 16).
+     * v17 wrapper config (WrapperConfigV16 struct, 496 bytes at header offset 16;
+     * post-protocol-fee — was 432 bytes / VERSION 16 pre-protocol-fee).
      * Present when the market is a v17 market group account (PERCV16\0 magic).
      * Absent for v12 slab accounts.
      *

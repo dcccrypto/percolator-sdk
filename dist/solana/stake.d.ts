@@ -3,15 +3,42 @@
  * Percolator Insurance LP Staking program — instruction encoders, PDA derivation, and account specs.
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
- * Deployed devnet:  6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k
- * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F
+ * Deployed devnet:  51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ
+ * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F (unverified — no confirmed
+ *   mainnet deployment of any stake/vault lineage found in the v17 planning docs as of
+ *   this writing; treat as a placeholder until DevOps confirms)
+ *
+ * LINEAGE (as of 2026-07-14, see ~/v17/RESEARCH-issue6-lineage.md): the devnet address
+ * 51CeUNpb... currently runs `percolator-vault@eb3ebe8` (`find4-insurance-authority-bind`).
+ * The ADOPTED go-forward lineage is `percolator-stake@feat/adopt-stake-lineage-plus-n7`
+ * (HEAD 9ec1c3a) — a same-address BPF upgrade of 51CeUNpb..., NOT a new deployment. This
+ * module's STAKE_IX tag table and decodeStakePool below already reflect the ADOPTED
+ * lineage's instruction set, which is a BREAKING change vs what 51CeUNpb... currently
+ * runs on-chain until that upgrade lands (coordinate with the wrapper protocol-fee
+ * redeploy — both require the same full market re-seed, see the RESEARCH doc §3).
  */
 import { PublicKey } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 export { TOKEN_2022_PROGRAM_ID };
-/** Known stake program addresses per network. Mainnet is empty until deployed. */
+/**
+ * Known stake program addresses per network.
+ *
+ * devnet: FIXED from the stale/wrong-lineage `6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k`
+ * (an address that does not match any pinned deployment in the v17 planning docs) to
+ * `51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ` — the actually-deployed devnet
+ * stake/vault program, cross-verified against `PROGRAM_IDS_V17.vault` in
+ * `src/config/program-ids.ts` ("v17 vault — deployed devnet 2026-06-26") and every
+ * pinned reference in `~/v17/DECISIONS-LEDGER.md` / `~/v17/CONSOLIDATED-PLAN.md` /
+ * `~/v17/RESEARCH-issue6-lineage.md`. This address currently runs
+ * `percolator-vault@eb3ebe8`; it will be upgraded IN PLACE (same address) to the
+ * ADOPTED `percolator-stake` lineage this module targets — see the module doc above.
+ *
+ * mainnet: UNVERIFIED — no confirmed mainnet stake/vault deployment found in any
+ * v17 planning doc (Percolator mainnet is still in prep). Do not treat this as ground
+ * truth; prefer the STAKE_PROGRAM_ID env override on mainnet until DevOps confirms.
+ */
 export declare const STAKE_PROGRAM_IDS: {
-    readonly devnet: "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k";
+    readonly devnet: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ";
     readonly mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F";
 };
 /**
@@ -40,51 +67,219 @@ export declare const STAKE_IX: {
     readonly Withdraw: 2;
     readonly FlushToInsurance: 3;
     readonly UpdateConfig: 4;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /**
+     * ProposeAdmin (tag 5) — step 1 of two-step `pool.admin` rotation. The
+     * CURRENT admin proposes a new admin (written to `pool.pending_admin`); the
+     * proposed admin gains no authority until AcceptAdmin (tag 6). Proposing the
+     * zero pubkey CANCELS an outstanding proposal.
+     *
+     * BREAKING vs the deployed percolator-vault program: tag 5 there is the
+     * removed `TransferAdmin` (one-step, rejects on-chain). Do NOT confuse with
+     * wrapper marketauth rotation (a completely different key, done via the
+     * wrapper's own UpdateAuthority tag 32, CPI'd from stake InitPool).
+     *
+     * Wire: tag(1) + new_admin(32) = 33 bytes.
+     * Accounts: [currentAdmin(signer), poolPda(writable)]
+     */
+    readonly ProposeAdmin: 5;
+    /**
+     * AcceptAdmin (tag 6) — step 2 of two-step `pool.admin` rotation. The
+     * PENDING admin signs to take ownership; requires an outstanding proposal
+     * and the signer to equal `pool.pending_admin`.
+     *
+     * BREAKING vs the deployed percolator-vault program: tag 6 there is the
+     * removed `AdminSetOracleAuthority` (rejects on-chain).
+     *
+     * Wire: tag(1) — no payload.
+     * Accounts: [pendingAdmin(signer), poolPda(writable)]
+     */
+    readonly AcceptAdmin: 6;
+    /**
+     * ProposeCooldownIncrease (tag 7) — step 1 of the #242 cooldown-increase
+     * timelock. Proposes a NEW (larger) `cooldown_slots`; takes effect only
+     * after CommitCooldownIncrease is called >= TIMELOCK_SLOTS later, guaranteeing
+     * LP holders an exit window. A decrease/unchanged value is rejected here
+     * (use UpdateConfig, which applies decreases immediately).
+     *
+     * BREAKING vs the deployed percolator-vault program: tag 7 there is the
+     * removed `AdminSetRiskThreshold` (rejects on-chain).
+     *
+     * Wire: tag(1) + new_cooldown_slots(u64) = 9 bytes.
+     * Accounts: [admin(signer), poolPda(writable), clockSysvar]
+     */
+    readonly ProposeCooldownIncrease: 7;
+    /**
+     * CommitCooldownIncrease (tag 8) — step 2 of the #242 timelock. Applies the
+     * pending cooldown increase; rejects if TIMELOCK_SLOTS has not elapsed.
+     *
+     * BREAKING vs the deployed percolator-vault program: tag 8 there is the
+     * removed `AdminSetMaintenanceFee` (rejects on-chain).
+     *
+     * Wire: tag(1) — no payload.
+     * Accounts: [admin(signer), poolPda(writable), clockSysvar]
+     */
+    readonly CommitCooldownIncrease: 8;
+    /**
+     * CancelCooldownIncrease (tag 9) — withdraws an outstanding #242 cooldown
+     * proposal.
+     *
+     * BREAKING vs the deployed percolator-vault program: tag 9 there is the
+     * removed `AdminResolveMarket` (rejects on-chain).
+     *
+     * Wire: tag(1) — no payload.
+     * Accounts: [admin(signer), poolPda(writable)]
+     */
+    readonly CancelCooldownIncrease: 9;
+    /** @deprecated Alias for ProposeAdmin — the OLD percolator-vault semantics
+     *  (one-step TransferAdmin) no longer apply; tag 5 is now ProposeAdmin. */
     readonly TransferAdmin: 5;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /** @deprecated Alias for AcceptAdmin — the OLD percolator-vault semantics
+     *  (AdminSetOracleAuthority) no longer apply; tag 6 is now AcceptAdmin. */
     readonly AdminSetOracleAuthority: 6;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /** @deprecated Alias for ProposeCooldownIncrease — the OLD percolator-vault
+     *  semantics (AdminSetRiskThreshold) no longer apply; tag 7 is now
+     *  ProposeCooldownIncrease with a DIFFERENT wire format (u64, not removed-stub). */
     readonly AdminSetRiskThreshold: 7;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /** @deprecated Alias for CommitCooldownIncrease — the OLD percolator-vault
+     *  semantics (AdminSetMaintenanceFee) no longer apply; tag 8 is now
+     *  CommitCooldownIncrease. */
     readonly AdminSetMaintenanceFee: 8;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /** @deprecated Alias for CancelCooldownIncrease — the OLD percolator-vault
+     *  semantics (AdminResolveMarket) no longer apply; tag 9 is now
+     *  CancelCooldownIncrease. */
     readonly AdminResolveMarket: 9;
-    /** Current on-chain tag 10: transfer withdrawn insurance back into the pool vault. */
+    /**
+     * ReturnInsurance (tag 10) — unchanged wire/semantics vs the deployed
+     * percolator-vault program: transfer withdrawn insurance back into the pool
+     * vault (admin calls wrapper WithdrawInsurance directly first, then this
+     * books admin-ATA -> pool-vault).
+     */
     readonly ReturnInsurance: 10;
     /** @deprecated Legacy alias for ReturnInsurance. */
     readonly AdminWithdrawInsurance: 10;
-    /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+    /** @deprecated Tombstoned in BOTH lineages (was an admin CPI proxy —
+     *  SetInsurancePolicy). This tag rejects on-chain in the adopted lineage too. */
     readonly AdminSetInsurancePolicy: 11;
-    /** PERC-272: Accrue trading fees to LP vault */
+    /** PERC-272: Accrue trading fees to LP vault. Unchanged vs deployed vault. */
     readonly AccrueFees: 12;
-    /** PERC-272: Init pool in trading LP mode */
+    /** PERC-272: Init pool in trading LP mode. Unchanged vs deployed vault. */
     readonly InitTradingPool: 13;
-    /** PERC-313: Set HWM config (enable + floor bps) */
+    /** PERC-313: Set HWM config (enable + floor bps). Unchanged vs deployed vault. */
     readonly AdminSetHwmConfig: 14;
     /**
-     * BindInsuranceAuthority (tag 15 / 0x0F) — FIND-4 fix.
+     * AdminSetTrancheConfig (tag 15) — enable/configure senior-junior LP
+     * tranches. Sets `junior_fee_mult_bps`.
      *
-     * Binds the vault_auth PDA as the wrapper's asset-0 insurance_authority via
-     * a CPI to UpdateAssetAuthority (tag 65, kind=INSURANCE=1). The human admin
-     * signs the outer tx as the current authority; vault_auth signs via
-     * invoke_signed inside the stake program.
+     * BREAKING vs the deployed percolator-vault program: tag 15 there is
+     * BindInsuranceAuthority (moved to tag 19 in the adopted lineage — see
+     * below). Sending this payload against the DEPLOYED vault program would
+     * execute BindInsuranceAuthority instead; only send it against the
+     * ADOPTED percolator-stake lineage.
      *
-     * Wire: tag(1) = 0x0F — no payload beyond the tag byte.
-     * Accounts: [admin(signer), pool_pda(w), vault_auth, slab(w), percolator_program]
-     */
-    readonly BindInsuranceAuthority: 15;
-    /**
-     * @deprecated Collides with BindInsuranceAuthority (tag 15) in the deployed
-     * percolator-stake v39 program. Sending AdminSetTrancheConfig data at tag 15
-     * would execute BindInsuranceAuthority instead. Use BindInsuranceAuthority.
+     * Wire: tag(1) + junior_fee_mult_bps(u16) = 3 bytes.
+     * Accounts: [admin(signer), poolPda(writable)]
      */
     readonly AdminSetTrancheConfig: 15;
-    /** @deprecated Not in the deployed percolator-stake v39 program (tag 16 is unhandled). */
+    /**
+     * DepositJunior (tag 16) — deposit into the junior (first-loss) tranche.
+     * Same account shape as Deposit (tag 1).
+     *
+     * BREAKING vs the deployed percolator-vault program: tag 16 is UNHANDLED
+     * there (rejects). Live only on the adopted lineage.
+     *
+     * Wire: tag(1) + amount(u64) = 9 bytes.
+     */
     readonly DepositJunior: 16;
-    /** @deprecated Not in the deployed percolator-stake v39 program (tag 18 is unhandled). */
+    /**
+     * BindInsuranceAuthority (tag 19 / 0x13) — FIND-4 fix, MOVED from tag 15
+     * (0x0F) in the deployed percolator-vault program.
+     *
+     * Binds the vault_auth PDA as BOTH the wrapper's asset-0 insurance_authority
+     * AND insurance_operator via two CPIs to UpdateAssetAuthority (tag 65,
+     * kind=1 INSURANCE then kind=2 INSURANCE_OPERATOR) — the adopted lineage
+     * binds both in one call, unlike the deployed vault program which only
+     * bound insurance_authority. The human admin signs the outer tx as the
+     * current authority/operator; vault_auth signs via invoke_signed.
+     *
+     * Wire: tag(1) = 0x13 — no payload beyond the tag byte.
+     * Accounts: [admin(signer), poolPda, vaultAuth, slab(writable), percolatorProgram]
+     */
+    readonly BindInsuranceAuthority: 19;
+    /**
+     * RotateInsuranceAuthority (tag 20) — admin-gated migration/incident
+     * escape that moves the market's `insurance_authority` OFF our vault_auth
+     * PDA to an admin-specified `newTarget`. The PDA signs as the CURRENT
+     * authority (invoke_signed); newTarget co-signs the outer tx as the NEW
+     * authority. NEW in the adopted lineage — no equivalent in the deployed
+     * percolator-vault program (which has no un-bind escape at all).
+     *
+     * Wire: tag(1) — no payload.
+     * Accounts: [admin(signer), poolPda, vaultAuth, newTarget(signer), slab(writable), percolatorProgram]
+     */
+    readonly RotateInsuranceAuthority: 20;
+    /**
+     * BurnAssetAdmin (tag 21) — IRREVERSIBLE removal of the admin's rotate-back
+     * capability. CPIs UpdateAssetAuthority(kind=0 ASSET_ADMIN, new_pubkey=[0;32]).
+     * After this, no key can rotate ANY per-asset authority back to an
+     * admin-controlled key. Call ONCE per market, only after BindInsuranceAuthority
+     * has completed. NEW in the adopted lineage.
+     *
+     * Wire: tag(1) — no payload.
+     * Accounts: [admin(signer, writable), poolPda(writable), vaultAuth(placeholder), slab(writable), percolatorProgram]
+     */
+    readonly BurnAssetAdmin: 21;
+    /**
+     * RotateInsuranceOperator (tag 22) — analogous to RotateInsuranceAuthority
+     * (tag 20) but for `insurance_operator` (kind=2). Part of the no-lockout
+     * migration sequence before a final BurnAssetAdmin. NEW in the adopted
+     * lineage.
+     *
+     * Wire: tag(1) — no payload.
+     * Accounts: [admin(signer), poolPda, vaultAuth, newTarget(signer), slab(writable), percolatorProgram]
+     */
+    readonly RotateInsuranceOperator: 22;
+    /**
+     * RecoverFlushedInsurance (tag 23) — PERMISSIONLESS recovery of tokens from
+     * the wrapper's insurance fund back into the stake pool vault, via a CPI to
+     * wrapper tag 57 `WithdrawInsuranceAsset` (gated on insurance_operator ==
+     * vault_auth PDA). Survives BurnAssetAdmin because tag 57 gates on
+     * insurance_operator, not asset_admin. `amount` capped to
+     * `total_flushed - total_returned`; funds can only land in `pool.vault`.
+     * NEW in the adopted lineage.
+     *
+     * Wire: tag(1) + amount(u64) = 9 bytes.
+     * Accounts: [caller(no signer check), poolPda(writable), poolVault(writable),
+     *   vaultAuth, wrapperMarket(writable), wrapperVault(writable), wrapperVaultAuth,
+     *   tokenProgram, percolatorProgram]
+     */
+    readonly RecoverFlushedInsurance: 23;
+    /**
+     * SetMarketResolved (tag 18) — admin marks the pool as market-resolved
+     * (blocks new deposits). Call after resolving the market on the wrapper
+     * directly.
+     *
+     * BREAKING vs the deployed percolator-vault program: tag 18 is UNHANDLED
+     * there (rejects). Live only on the adopted lineage.
+     *
+     * Wire: tag(1) — no payload.
+     * Accounts: [admin(signer), poolPda(writable)]
+     */
     readonly SetMarketResolved: 18;
 };
+/**
+ * User-facing hint text for `StakeError` custom program error codes
+ * (`ProgramError::Custom(code)`, `percolator-stake/src/error.rs`).
+ *
+ * Codes 0-24 mirror `error.rs`'s on-chain `error_hint()` fallback text.
+ * Codes 25-27 (#242 cooldown-increase timelock) and 28
+ * (`DepositBelowMinimumLiquidity`, N7 anti-inflation hardening) are new in
+ * the ADOPTED lineage — 28 is the entry this table exists to add. NOTE:
+ * the on-chain `error_hint()` itself has a gap (falls through to "Unknown
+ * error" for 25-27 despite them being named enum variants); the hints below
+ * for 25-27 are derived from `error.rs`'s doc comments, not copied from a
+ * (missing) on-chain string.
+ */
+export declare const STAKE_ERRORS: Record<number, string>;
 /** Derive the stake pool PDA for a given slab (market). */
 export declare function deriveStakePool(slab: PublicKey, programId?: PublicKey): [PublicKey, number];
 /** Derive the vault authority PDA (signs CPI, owns LP mint + vault). */
@@ -101,15 +296,77 @@ export declare function encodeStakeWithdraw(lpAmount: bigint | number): Uint8Arr
 export declare function encodeStakeFlushToInsurance(amount: bigint | number): Uint8Array;
 /** Tag 4: UpdateConfig — update cooldown and/or deposit cap. */
 export declare function encodeStakeUpdateConfig(newCooldownSlots?: bigint | number, newDepositCap?: bigint | number): Uint8Array;
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/**
+ * Tag 5: ProposeAdmin — step 1 of two-step `pool.admin` rotation. The
+ * CURRENT admin proposes `newAdmin` (written to `pool.pending_admin`); it
+ * does not gain any authority until AcceptAdmin (tag 6) is called by that
+ * key. Pass `PublicKey.default` (zero pubkey) to CANCEL an outstanding
+ * proposal.
+ *
+ * Accounts: [currentAdmin(signer), poolPda(writable)]
+ */
+export declare function encodeStakeProposeAdmin(newAdmin: PublicKey): Uint8Array;
+/**
+ * Tag 6: AcceptAdmin — step 2 of two-step `pool.admin` rotation. The
+ * PENDING admin signs to become admin. Requires an outstanding proposal.
+ *
+ * Accounts: [pendingAdmin(signer), poolPda(writable)]
+ */
+export declare function encodeStakeAcceptAdmin(): Uint8Array;
+/**
+ * Tag 7: ProposeCooldownIncrease — step 1 of the #242 cooldown-increase
+ * timelock. Proposes a NEW (larger) `cooldownSlots`; does not take effect
+ * until CommitCooldownIncrease is called after the on-chain timelock has
+ * elapsed. A decrease/unchanged value is rejected (use UpdateConfig instead).
+ *
+ * Accounts: [admin(signer), poolPda(writable), clockSysvar]
+ */
+export declare function encodeStakeProposeCooldownIncrease(newCooldownSlots: bigint | number): Uint8Array;
+/**
+ * Tag 8: CommitCooldownIncrease — step 2 of the #242 timelock. Applies the
+ * pending cooldown increase; rejects if the timelock has not yet elapsed.
+ *
+ * Accounts: [admin(signer), poolPda(writable), clockSysvar]
+ */
+export declare function encodeStakeCommitCooldownIncrease(): Uint8Array;
+/**
+ * Tag 9: CancelCooldownIncrease — withdraws an outstanding #242 cooldown
+ * increase proposal.
+ *
+ * Accounts: [admin(signer), poolPda(writable)]
+ */
+export declare function encodeStakeCancelCooldownIncrease(): Uint8Array;
+/**
+ * @deprecated The deployed percolator-vault program's one-step TransferAdmin
+ * (tag 5) was removed on-chain there too (rejects). On the ADOPTED
+ * percolator-stake lineage this module targets, tag 5 is the two-step
+ * ProposeAdmin — use `encodeStakeProposeAdmin(newAdmin)` followed by the
+ * proposed admin calling `encodeStakeAcceptAdmin()`. Throws.
+ */
 export declare function encodeStakeTransferAdmin(): Uint8Array;
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/**
+ * @deprecated Tag 6 is AcceptAdmin in the adopted percolator-stake lineage
+ * (this instruction, AdminSetOracleAuthority, was removed on-chain in both
+ * lineages). Throws.
+ */
 export declare function encodeStakeAdminSetOracleAuthority(newAuthority: PublicKey): Uint8Array;
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/**
+ * @deprecated Tag 7 is ProposeCooldownIncrease in the adopted percolator-stake
+ * lineage (this instruction, AdminSetRiskThreshold, was removed on-chain in
+ * both lineages). Throws.
+ */
 export declare function encodeStakeAdminSetRiskThreshold(newThreshold: bigint | number): Uint8Array;
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/**
+ * @deprecated Tag 8 is CommitCooldownIncrease in the adopted percolator-stake
+ * lineage (this instruction, AdminSetMaintenanceFee, was removed on-chain in
+ * both lineages). Throws.
+ */
 export declare function encodeStakeAdminSetMaintenanceFee(newFee: bigint | number): Uint8Array;
-/** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
+/**
+ * @deprecated Tag 9 is CancelCooldownIncrease in the adopted percolator-stake
+ * lineage (this instruction, AdminResolveMarket, was removed on-chain in both
+ * lineages). Throws.
+ */
 export declare function encodeStakeAdminResolveMarket(): Uint8Array;
 /** Tag 10: ReturnInsurance — transfer withdrawn insurance back into the stake pool vault. */
 export declare function encodeStakeReturnInsurance(amount: bigint | number): Uint8Array;
@@ -122,22 +379,53 @@ export declare function encodeStakeInitTradingPool(cooldownSlots: bigint | numbe
 /** Tag 14 (PERC-313): AdminSetHwmConfig — enable HWM protection and set floor BPS. */
 export declare function encodeStakeAdminSetHwmConfig(enabled: boolean, hwmFloorBps: number): Uint8Array;
 /**
- * @deprecated Collides with BindInsuranceAuthority at tag 15 in the deployed
- * percolator-stake v39 program. Calling this would silently execute
- * BindInsuranceAuthority on-chain instead of configuring tranches. Throws.
- * Use encodeStakeBindInsuranceAuthority() instead.
+ * Tag 15: AdminSetTrancheConfig — enable/configure senior-junior LP tranches.
+ *
+ * BREAKING vs the deployed percolator-vault program: tag 15 there is
+ * BindInsuranceAuthority (moved to tag 19 in the adopted lineage — see
+ * `encodeStakeBindInsuranceAuthority()`). Only send this against the ADOPTED
+ * percolator-stake lineage; sending it against the currently-deployed vault
+ * program would silently execute BindInsuranceAuthority instead.
+ *
+ * Wire: tag(1) + junior_fee_mult_bps(u16) = 3 bytes.
+ * Accounts: [admin(signer), poolPda(writable)]
  */
-export declare function encodeStakeAdminSetTrancheConfig(_juniorFeeMultBps: number): Uint8Array;
+export declare function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps: number): Uint8Array;
 /**
- * Tag 15 (0x0F): BindInsuranceAuthority — FIND-4 fix.
+ * Tag 16: DepositJunior — deposit into the junior (first-loss) tranche. Same
+ * account shape as Deposit (tag 1) — see `StakeAccounts['deposit']`.
  *
- * Binds the vault_auth PDA as the wrapper program's asset-0 insurance_authority
- * via a CPI from the stake program to the wrapper's UpdateAssetAuthority (tag 65).
- * Must be called once after InitPool, before FlushToInsurance will work.
+ * BREAKING vs the deployed percolator-vault program: tag 16 is UNHANDLED
+ * there (rejects). Live only on the ADOPTED percolator-stake lineage.
  *
- * Wire: tag(1) = 0x0F — no payload beyond the tag byte (1 byte total).
+ * Wire: tag(1) + amount(u64) = 9 bytes.
+ */
+export declare function encodeStakeDepositJunior(amount: bigint | number): Uint8Array;
+/**
+ * Tag 18: SetMarketResolved — admin marks the pool as market-resolved
+ * (blocks new deposits). Call after resolving the market on the wrapper
+ * directly.
  *
- * @returns 1-byte Uint8Array `[0x0F]`.
+ * BREAKING vs the deployed percolator-vault program: tag 18 is UNHANDLED
+ * there (rejects). Live only on the ADOPTED percolator-stake lineage.
+ *
+ * Wire: tag(1) — no payload.
+ * Accounts: [admin(signer), poolPda(writable)]
+ */
+export declare function encodeStakeSetMarketResolved(): Uint8Array;
+/**
+ * Tag 19 (0x13): BindInsuranceAuthority — FIND-4 fix, MOVED from tag 15
+ * (0x0F) in the deployed percolator-vault program.
+ *
+ * Binds the vault_auth PDA as BOTH the wrapper's asset-0 insurance_authority
+ * AND insurance_operator (two CPIs to UpdateAssetAuthority, tag 65, kind=1
+ * then kind=2) — a broader bind than the deployed vault program's
+ * single-CPI version (insurance_authority only). Must be called once after
+ * InitPool, before FlushToInsurance will work.
+ *
+ * Wire: tag(1) = 0x13 — no payload beyond the tag byte (1 byte total).
+ *
+ * @returns 1-byte Uint8Array `[0x13]`.
  *
  * @example
  * ```ts
@@ -147,9 +435,9 @@ export declare function encodeStakeAdminSetTrancheConfig(_juniorFeeMultBps: numb
  */
 export declare function encodeStakeBindInsuranceAuthority(): Uint8Array;
 /**
- * Account inputs for BindInsuranceAuthority (tag 15 / 0x0F).
+ * Account inputs for BindInsuranceAuthority (tag 19 / 0x13).
  *
- * @param admin               Current insurance_authority (human admin wallet; outer tx signer).
+ * @param admin               Current insurance_authority/insurance_operator (human admin wallet; outer tx signer).
  * @param poolPda             Stake pool PDA (derived via deriveStakePool()).
  * @param vaultAuth           Vault authority PDA (derived via deriveStakeVaultAuth()).
  * @param slab                Wrapper market-group slab (writable — needed for UpdateAssetAuthority CPI).
@@ -163,10 +451,12 @@ export interface BindInsuranceAuthorityAccounts {
     percolatorProgram: PublicKey;
 }
 /**
- * Build account keys for BindInsuranceAuthority (tag 15 / 0x0F).
+ * Build account keys for BindInsuranceAuthority (tag 19 / 0x13).
  *
- * Account order matches src/processor.rs process_bind_insurance_authority:
- *   [0] admin              signer, read-only  (current insurance_authority)
+ * Account order matches src/processor.rs process_bind_insurance_authority
+ * (adopted lineage — same account shape as the deployed vault program's tag
+ * 15, only the tag byte moved):
+ *   [0] admin              signer, read-only  (current insurance_authority/insurance_operator)
  *   [1] pool_pda           writable           (stake pool PDA)
  *   [2] vault_auth         read-only          (new authority; signs via invoke_signed)
  *   [3] slab               writable           (wrapper market; needed for CPI)
@@ -187,12 +477,196 @@ export declare function bindInsuranceAuthorityAccounts(a: BindInsuranceAuthority
     isSigner: boolean;
     isWritable: boolean;
 }[];
-/** @deprecated Not in the deployed percolator-stake v39 program (tag 16 is unhandled). Throws. */
-export declare function encodeStakeDepositJunior(amount: bigint | number): Uint8Array;
 /**
- * @deprecated Not in the deployed percolator-stake v39 program (tag 18 is unhandled). Throws.
+ * Tag 20: RotateInsuranceAuthority — admin-gated migration/incident escape
+ * that moves the market's `insurance_authority` OFF our vault_auth PDA to an
+ * admin-specified `newTarget`. NEW in the adopted lineage — no equivalent in
+ * the deployed percolator-vault program (which has no un-bind escape).
+ *
+ * Wire: tag(1) — no payload.
+ *
+ * @returns 1-byte Uint8Array.
+ *
+ * @example
+ * ```ts
+ * const data = encodeStakeRotateInsuranceAuthority();
+ * // accounts: rotateInsuranceAccounts({ admin, poolPda, vaultAuth, newTarget, slab, percolatorProgram })
+ * ```
  */
-export declare function encodeStakeSetMarketResolved(): Uint8Array;
+export declare function encodeStakeRotateInsuranceAuthority(): Uint8Array;
+/**
+ * Tag 22: RotateInsuranceOperator — analogous to RotateInsuranceAuthority
+ * (tag 20) but for `insurance_operator` (kind=2). Part of the no-lockout
+ * migration sequence before a final BurnAssetAdmin. NEW in the adopted
+ * lineage.
+ *
+ * Wire: tag(1) — no payload.
+ *
+ * @returns 1-byte Uint8Array.
+ *
+ * @example
+ * ```ts
+ * const data = encodeStakeRotateInsuranceOperator();
+ * // accounts: rotateInsuranceAccounts({ admin, poolPda, vaultAuth, newTarget, slab, percolatorProgram })
+ * ```
+ */
+export declare function encodeStakeRotateInsuranceOperator(): Uint8Array;
+/**
+ * Account inputs shared by RotateInsuranceAuthority (tag 20) and
+ * RotateInsuranceOperator (tag 22) — identical 6-account shape.
+ *
+ * @param admin               Pool admin (outer tx signer; == pool.admin).
+ * @param poolPda             Stake pool PDA.
+ * @param vaultAuth           Vault authority PDA — the CURRENT authority/operator, signs via invoke_signed.
+ * @param newTarget           The successor authority/operator — co-signs the outer tx.
+ * @param slab                Wrapper market-group slab (writable — needed for the CPI).
+ * @param percolatorProgram   Wrapper program ID.
+ */
+export interface RotateInsuranceAccounts {
+    admin: PublicKey;
+    poolPda: PublicKey;
+    vaultAuth: PublicKey;
+    newTarget: PublicKey;
+    slab: PublicKey;
+    percolatorProgram: PublicKey;
+}
+/**
+ * Build account keys for RotateInsuranceAuthority (tag 20) / RotateInsuranceOperator
+ * (tag 22) — identical account order in both (src/processor.rs
+ * process_rotate_insurance_authority / process_rotate_insurance_operator):
+ *   [0] admin              signer, read-only  (== pool.admin)
+ *   [1] pool_pda           read-only
+ *   [2] vault_auth         read-only          (current authority/operator; signs via invoke_signed)
+ *   [3] new_target         signer, read-only  (successor; co-signs the outer tx)
+ *   [4] slab               writable           (wrapper market; needed for CPI)
+ *   [5] percolator_program read-only          (wrapper program for CPI dispatch)
+ *
+ * @param a Named accounts.
+ * @returns Array of `{pubkey, isSigner, isWritable}` in program-expected order.
+ */
+export declare function rotateInsuranceAccounts(a: RotateInsuranceAccounts): {
+    pubkey: PublicKey;
+    isSigner: boolean;
+    isWritable: boolean;
+}[];
+/**
+ * Tag 21: BurnAssetAdmin — IRREVERSIBLE removal of the admin's rotate-back
+ * capability. CPIs UpdateAssetAuthority(kind=0 ASSET_ADMIN, new_pubkey=[0;32]).
+ * After this, no key can rotate ANY per-asset authority back to an
+ * admin-controlled key. Call ONCE per market, only after
+ * BindInsuranceAuthority has completed. NEW in the adopted lineage.
+ *
+ * Wire: tag(1) — no payload.
+ *
+ * @returns 1-byte Uint8Array.
+ *
+ * @example
+ * ```ts
+ * const data = encodeStakeBurnAssetAdmin();
+ * // accounts: burnAssetAdminAccounts({ admin, poolPda, vaultAuth, slab, percolatorProgram })
+ * ```
+ */
+export declare function encodeStakeBurnAssetAdmin(): Uint8Array;
+/**
+ * Account inputs for BurnAssetAdmin (tag 21).
+ *
+ * @param admin               Pool admin (outer tx signer; == pool.admin; current asset_admin).
+ * @param poolPda             Stake pool PDA (writable — records the burn).
+ * @param vaultAuth           Vault authority PDA (placeholder new_authority slot — not checked for the burn CPI).
+ * @param slab                Wrapper market-group slab (writable — needed for the CPI).
+ * @param percolatorProgram   Wrapper program ID.
+ */
+export interface BurnAssetAdminAccounts {
+    admin: PublicKey;
+    poolPda: PublicKey;
+    vaultAuth: PublicKey;
+    slab: PublicKey;
+    percolatorProgram: PublicKey;
+}
+/**
+ * Build account keys for BurnAssetAdmin (tag 21) — src/processor.rs
+ * process_burn_asset_admin:
+ *   [0] admin              signer, writable   (current asset_admin == pool.admin)
+ *   [1] pool_pda           writable           (records asset_admin_burned)
+ *   [2] vault_auth         read-only          (placeholder new_authority slot)
+ *   [3] slab               writable           (wrapper market; needed for CPI)
+ *   [4] percolator_program read-only          (wrapper program for CPI dispatch)
+ *
+ * @param a Named accounts.
+ * @returns Array of `{pubkey, isSigner, isWritable}` in program-expected order.
+ */
+export declare function burnAssetAdminAccounts(a: BurnAssetAdminAccounts): {
+    pubkey: PublicKey;
+    isSigner: boolean;
+    isWritable: boolean;
+}[];
+/**
+ * Tag 23: RecoverFlushedInsurance — PERMISSIONLESS recovery of tokens from
+ * the wrapper's insurance fund back into the stake pool vault, via a CPI to
+ * wrapper tag 57 `WithdrawInsuranceAsset` (gated on insurance_operator ==
+ * vault_auth PDA — set by BindInsuranceAuthority tag 19). Survives
+ * BurnAssetAdmin because tag 57 gates on insurance_operator, not asset_admin.
+ * `amount` is capped on-chain to `total_flushed - total_returned`; funds can
+ * only land in `pool.vault` (drain check on the CPI destination). NEW in the
+ * adopted lineage.
+ *
+ * Wire: tag(1) + amount(u64) = 9 bytes.
+ *
+ * @param amount Atoms to recover (u64, non-zero, <= outstanding).
+ *
+ * @example
+ * ```ts
+ * const data = encodeStakeRecoverFlushedInsurance(1_000_000n);
+ * // accounts: recoverFlushedInsuranceAccounts({ caller, poolPda, poolVault, vaultAuth,
+ * //   wrapperMarket, wrapperVault, wrapperVaultAuth, tokenProgram, percolatorProgram })
+ * ```
+ */
+export declare function encodeStakeRecoverFlushedInsurance(amount: bigint | number): Uint8Array;
+/**
+ * Account inputs for RecoverFlushedInsurance (tag 23).
+ *
+ * @param caller             Permissionless caller — no signer check required.
+ * @param poolPda             Stake pool PDA (writable).
+ * @param poolVault           Pool vault token account — destination (writable, must equal pool.vault).
+ * @param vaultAuth           Vault authority PDA — the insurance_operator; signs the CPI via invoke_signed.
+ * @param wrapperMarket       Wrapper market/slab account (writable).
+ * @param wrapperVault        Wrapper insurance vault token account — source (writable).
+ * @param wrapperVaultAuth    Wrapper vault authority PDA.
+ * @param tokenProgram        Token program.
+ * @param percolatorProgram   Wrapper program ID.
+ */
+export interface RecoverFlushedInsuranceAccounts {
+    caller: PublicKey;
+    poolPda: PublicKey;
+    poolVault: PublicKey;
+    vaultAuth: PublicKey;
+    wrapperMarket: PublicKey;
+    wrapperVault: PublicKey;
+    wrapperVaultAuth: PublicKey;
+    tokenProgram: PublicKey;
+    percolatorProgram: PublicKey;
+}
+/**
+ * Build account keys for RecoverFlushedInsurance (tag 23) — src/processor.rs
+ * process_recover_flushed_insurance:
+ *   [0] caller              (no signer check — permissionless)
+ *   [1] pool_pda            writable
+ *   [2] vault (pool vault)  writable   (destination; must equal pool.vault)
+ *   [3] vault_auth          read-only  (signs the wrapper CPI via invoke_signed)
+ *   [4] market (wrapper)    writable
+ *   [5] wrapper_vault       writable   (source — wrapper insurance vault)
+ *   [6] wrapper_vault_auth  read-only
+ *   [7] token_program       read-only
+ *   [8] percolator_program  read-only
+ *
+ * @param a Named accounts.
+ * @returns Array of `{pubkey, isSigner, isWritable}` in program-expected order.
+ */
+export declare function recoverFlushedInsuranceAccounts(a: RecoverFlushedInsuranceAccounts): {
+    pubkey: PublicKey;
+    isSigner: boolean;
+    isWritable: boolean;
+}[];
 /** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export declare function encodeStakeAdminSetInsurancePolicy(authority: PublicKey, minWithdrawBase: bigint | number, maxWithdrawBps: number, cooldownSlots: bigint | number): Uint8Array;
 /**
@@ -200,6 +674,31 @@ export declare function encodeStakeAdminSetInsurancePolicy(authority: PublicKey,
  * v2 adds `pending_admin` ([u8;32]) at offset 288 for the two-step admin-rotation
  * primitive (ProposeAdmin tag 5 / AcceptAdmin tag 6). Struct grew 352 → 384.
  * Includes PERC-272 (fee yield), PERC-313 (HWM), and PERC-303 (tranches).
+ *
+ * ⚠️ KNOWN BYTE-ALIASING BUG in the ADOPTED percolator-stake lineage's
+ * `_reserved` layout (verified against `state.rs` on
+ * feat/adopt-stake-lineage-plus-n7@9ec1c3a — this is a real on-chain bug, not
+ * an SDK bug; flagged upstream, not fixed here since this module only decodes
+ * whatever bytes the program actually writes):
+ *
+ *   - PERC-313 HWM fields (`hwm_enabled` @[10], `hwm_floor_bps` @[11..13],
+ *     `epoch_high_water_tvl` @[16..24], `hwm_last_epoch` @[24..32]) and the
+ *     #242 cooldown-increase timelock fields (`pending_cooldown_slots`
+ *     @[10..18], `cooldown_proposed_at_slot` @[18..26]) OVERLAP the SAME
+ *     `_reserved` bytes [10..26]. `state.rs`'s own doc comment for the HWM
+ *     block claims bytes [10..32] are HWM-only, but the timelock accessors
+ *     (added later, #242) write into [10..18]/[18..26] regardless.
+ *   - Practical effect: enabling HWM (`AdminSetHwmConfig`, tag 14) and using
+ *     the cooldown-increase timelock (tags 7/8/9) on the SAME pool will
+ *     corrupt each other's state — e.g. `hwm_floor_bps` (bytes [11..13]) sits
+ *     inside `pending_cooldown_slots`'s u64 (bytes [10..18]), so committing a
+ *     cooldown increase can silently rewrite the HWM floor, and vice versa.
+ *   - This decoder reads both field sets as the raw bytes currently define
+ *     them (matching on-chain reality); it does NOT attempt to reconcile or
+ *     invalidate one set when the other is in use. Callers combining HWM and
+ *     the cooldown timelock on one pool should treat both `hwm*` and
+ *     `pendingCooldownSlots`/`cooldownProposedAtSlot` as UNRELIABLE and verify
+ *     against a direct on-chain read before trusting either.
  */
 export interface StakePoolState {
     isInitialized: boolean;
@@ -238,17 +737,56 @@ export interface StakePoolState {
     juniorBalance: bigint;
     juniorTotalLp: bigint;
     juniorFeeMultBps: number;
+    /**
+     * #242 timelock: the `cooldown_slots` INCREASE awaiting commit (from
+     * _reserved[10..18]). Meaningful only while `cooldownProposedAtSlot !== 0n`.
+     * ⚠️ Aliases HWM bytes — see interface doc.
+     */
+    pendingCooldownSlots: bigint;
+    /**
+     * #242 timelock: the slot at which the pending cooldown increase was
+     * proposed (from _reserved[18..26]). `0n` = no active proposal.
+     * ⚠️ Aliases HWM bytes — see interface doc.
+     */
+    cooldownProposedAtSlot: bigint;
+    /**
+     * Cumulative insurance loss a fully-exited junior tranche permanently
+     * REALIZED (issue #161), from _reserved[51..59]. Subtracted from
+     * total_pool_value() so recovered tokens don't windfall senior.
+     */
+    realizedJuniorLoss: bigint;
+    /**
+     * Whether BurnAssetAdmin (tag 21) has completed for this pool's market
+     * (from _reserved[59]). Once true, stake-side rotate escapes (tags 20/22)
+     * stay disabled — the wrapper roles cannot be moved back to an
+     * admin-controlled key.
+     */
+    assetAdminBurned: boolean;
 }
 /**
  * Size of StakePool on-chain (bytes) — v1 layout.
  * v1: 352 bytes = 288 bytes of fields + 64 bytes _reserved (no pending_admin field).
  * The _reserved block in v1 starts at offset 288; version byte = 1.
+ *
+ * LINEAGE NOTE: the ADOPTED percolator-stake lineage this module targets has
+ * `CURRENT_VERSION = 2` unconditionally and is a "fresh-start cutover" (no
+ * migration path — `state.rs@9ec1c3a` comment: "no v1 pools exist, so no
+ * migration is needed"). v1/352-byte pools can only ever be observed as
+ * LEGACY accounts from BEFORE the coordinated protocol-fee + stake-lineage
+ * redeploy (which abandons every existing market/pool wholesale — VERSION
+ * bump 16->17 on the wrapper fails closed on old accounts). This dual-length
+ * detection exists purely to decode those pre-redeploy artifacts if you ever
+ * need to; the ADOPTED program itself never creates a v1 pool.
  */
 export declare const STAKE_POOL_SIZE_V1 = 352;
 /**
- * Size of StakePool on-chain (bytes) — v2 layout (current).
+ * Size of StakePool on-chain (bytes) — v2 layout (current, and the ONLY
+ * layout the ADOPTED percolator-stake lineage ever creates).
  * v2: 384 (stake v1 was 352; `pending_admin: [u8;32]` added at offset 288).
  * The _reserved block in v2 starts at offset 320; version byte = 2.
+ * Verified via `core::mem::size_of::<StakePool>()` field-by-field against
+ * `percolator-stake/src/state.rs@9ec1c3a` — 384 bytes exactly, no compiler
+ * padding (every u64 field lands on an 8-aligned cumulative offset).
  */
 export declare const STAKE_POOL_SIZE = 384;
 export declare const STAKE_POOL_DISCRIMINATOR: Uint8Array<ArrayBuffer>;
@@ -259,6 +797,13 @@ export declare const STAKE_POOL_CURRENT_VERSION = 2;
  * Supports both v1 (352 bytes, no pending_admin, _reserved starts at 288) and
  * v2 (384 bytes, pending_admin at 288..320, _reserved starts at 320). The layout
  * version is detected from the data length before reading the discriminator.
+ *
+ * v1 support exists only to decode legacy pools created before the
+ * coordinated protocol-fee + stake-lineage redeploy — see the
+ * `STAKE_POOL_SIZE_V1` doc for why the ADOPTED program never creates new v1
+ * pools. See the `StakePoolState` interface doc for a known HWM /
+ * cooldown-timelock byte-aliasing bug this decoder faithfully surfaces
+ * (not an SDK bug — a real on-chain `_reserved` layout collision).
  *
  * Uses DataView for all u64/u16 reads — browser-safe.
  */

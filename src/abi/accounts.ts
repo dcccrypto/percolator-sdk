@@ -1131,6 +1131,20 @@ export const ACCOUNTS_SET_DEX_POOL: readonly AccountSpec[] = [
 
 // ============================================================================
 // InitMatcherCtx (tag 83) — v17 wire
+//
+// ⚠️ TAG COLLISION on the protocol-fee wrapper lineage (feat/protocol-fee-taker-only,
+// VERSION 17, percolator-prog@626fb617): that wrapper's Instruction::decode has NO
+// InitMatcherCtx arm at all — tag 83 there is WithdrawProtocolFee (see
+// ACCOUNTS_WITHDRAW_PROTOCOL_FEE below), and the design doc's own free-tag audit
+// confirms tags 83-90 were free before the protocol-fee change
+// (~/v17/PROTOCOL-FEE-DESIGN.md §3: "Confirmed free tags up to 90: ... 83-90").
+// Grepping `InitMatcherCtx` in percolator-prog/src/v16_program.rs (both the
+// protocol-fee branch AND its 14440e0c parent) returns zero hits — this
+// instruction has never existed in this wrapper lineage. Do NOT call
+// encodeInitMatcherCtx()/ACCOUNTS_INIT_MATCHER_CTX against a VERSION=17
+// market — tag 83 will decode as WithdrawProtocolFee instead and either fail
+// signer/auth checks or (worse) attempt an unintended protocol-fee withdrawal.
+// Kept here only for whatever OTHER wrapper build originally defined it.
 // ============================================================================
 
 /**
@@ -1264,6 +1278,58 @@ export const ACCOUNTS_SET_MATCHER_CONFIG: readonly AccountSpec[] = [
   { name: "matcherProg", signer: false, writable: false },
   { name: "matcherCtx", signer: false, writable: false },
   { name: "matcherDelegate", signer: false, writable: false },
+] as const;
+
+// ============================================================================
+// Protocol-fee program change (tags 83/84) — v17 wire, WrapperConfigV16 496B
+// See ~/v17/PROTOCOL-FEE-DESIGN.md §3. Verified against
+// percolator-prog/src/v16_program.rs (feat/protocol-fee-taker-only@626fb617)
+// handle_withdraw_protocol_fee / handle_set_protocol_fee_authority.
+// ============================================================================
+
+/**
+ * WithdrawProtocolFee (tag 83): 6 accounts.
+ *
+ * v17 wire account layout (v16_program.rs handle_withdraw_protocol_fee):
+ *   [0] authority      signer, writable (must equal cfg.protocol_fee_authority)
+ *   [1] market         writable (program-owned market-group slab)
+ *   [2] destToken      writable (destination token account)
+ *   [3] vaultToken     writable (program vault token account — source)
+ *   [4] vaultAuthority read-only (PDA ["vault", market], derives via deriveVaultAuthority)
+ *   [5] tokenProgram   read-only
+ *
+ * Pays out from the accrued-but-unwithdrawn protocol claim
+ * (protocol_fee_accrued_atoms - protocol_fee_withdrawn_atoms). `amount == 0`
+ * in the instruction data means "withdraw all currently-available capacity".
+ * No insurance-withdraw-cooldown gate (that mechanism guards creator-facing
+ * domain budgets; the protocol's claim is a separate, non-domain balance).
+ */
+export const ACCOUNTS_WITHDRAW_PROTOCOL_FEE: readonly AccountSpec[] = [
+  { name: "authority", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "destToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+] as const;
+
+/**
+ * SetProtocolFeeAuthority (tag 84): 3 accounts.
+ *
+ * v17 wire account layout (v16_program.rs handle_set_protocol_fee_authority):
+ *   [0] upgradeAuthority signer (must equal the program's BPF upgrade authority)
+ *   [1] programData      read-only (ProgramData PDA under bpf_loader_upgradeable,
+ *                         seeds [program_id])
+ *   [2] market            writable (program-owned market-group slab)
+ *
+ * Rotates cfg.protocol_fee_authority. Gated on the program's upgrade
+ * authority — NOT marketauth, NOT insurance_authority, NOT any
+ * creator-facing gate. No global fan-out: call once per market.
+ */
+export const ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY: readonly AccountSpec[] = [
+  { name: "upgradeAuthority", signer: true, writable: false },
+  { name: "programData", signer: false, writable: false },
+  { name: "market", signer: false, writable: true },
 ] as const;
 
 // ============================================================================

@@ -619,6 +619,38 @@ export declare const ACCOUNTS_PUSH_AUTH_MARK: readonly AccountSpec[];
  * (v16_program.rs handle_set_matcher_config lines 7516-7557)
  */
 export declare const ACCOUNTS_SET_MATCHER_CONFIG: readonly AccountSpec[];
+/**
+ * WithdrawProtocolFee (tag 83): 6 accounts.
+ *
+ * v17 wire account layout (v16_program.rs handle_withdraw_protocol_fee):
+ *   [0] authority      signer, writable (must equal cfg.protocol_fee_authority)
+ *   [1] market         writable (program-owned market-group slab)
+ *   [2] destToken      writable (destination token account)
+ *   [3] vaultToken     writable (program vault token account — source)
+ *   [4] vaultAuthority read-only (PDA ["vault", market], derives via deriveVaultAuthority)
+ *   [5] tokenProgram   read-only
+ *
+ * Pays out from the accrued-but-unwithdrawn protocol claim
+ * (protocol_fee_accrued_atoms - protocol_fee_withdrawn_atoms). `amount == 0`
+ * in the instruction data means "withdraw all currently-available capacity".
+ * No insurance-withdraw-cooldown gate (that mechanism guards creator-facing
+ * domain budgets; the protocol's claim is a separate, non-domain balance).
+ */
+export declare const ACCOUNTS_WITHDRAW_PROTOCOL_FEE: readonly AccountSpec[];
+/**
+ * SetProtocolFeeAuthority (tag 84): 3 accounts.
+ *
+ * v17 wire account layout (v16_program.rs handle_set_protocol_fee_authority):
+ *   [0] upgradeAuthority signer (must equal the program's BPF upgrade authority)
+ *   [1] programData      read-only (ProgramData PDA under bpf_loader_upgradeable,
+ *                         seeds [program_id])
+ *   [2] market            writable (program-owned market-group slab)
+ *
+ * Rotates cfg.protocol_fee_authority. Gated on the program's upgrade
+ * authority — NOT marketauth, NOT insurance_authority, NOT any
+ * creator-facing gate. No global fan-out: call once per market.
+ */
+export declare const ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY: readonly AccountSpec[];
 export declare const WELL_KNOWN: {
     readonly tokenProgram: PublicKey;
     readonly clock: PublicKey;

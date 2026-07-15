@@ -58,7 +58,8 @@ export interface DiscoveredMarket {
    */
   params: RiskParams;
   /**
-   * v17 wrapper config (WrapperConfigV16 struct, 432 bytes at header offset 16).
+   * v17 wrapper config (WrapperConfigV16 struct, 496 bytes at header offset 16;
+   * post-protocol-fee — was 432 bytes / VERSION 16 pre-protocol-fee).
    * Present when the market is a v17 market group account (PERCV16\0 magic).
    * Absent for v12 slab accounts.
    *
@@ -884,8 +885,8 @@ export async function discoverMarkets(
     const data = new Uint8Array(account.data);
 
     // Check for v17 market group account (magic = "PERCV16\0", kind == KIND_MARKET).
-    // The data slice is HEADER_SLICE_LENGTH=1940 bytes, which exceeds the 448-byte
-    // minimum needed by parseWrapperConfigV17. V17 accounts have dynamic sizes and
+    // The data slice is HEADER_SLICE_LENGTH=1940 bytes, which exceeds the 512-byte
+    // minimum needed by parseWrapperConfigV17 (post-protocol-fee; was 448). V17 accounts have dynamic sizes and
     // do NOT appear in the fixed-size tier queries; they reach this loop only via the
     // memcmp fallback or if the account happens to match a tier size by coincidence.
     // #264: gate on isV17MarketAccount (kind byte @10 == 1) so portfolio/ledger/

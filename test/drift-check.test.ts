@@ -372,10 +372,13 @@ describe("SDK drift guards", () => {
     expect(() => encodeSetPythOracle({ feedId: new Uint8Array(32), maxStalenessSecs: 1n, confFilterBps: 1 })).toThrow(/tag 20/i);
   });
 
-  it("stake tags reflect the current on-chain mapping", () => {
+  it("stake tags reflect the ADOPTED percolator-stake lineage mapping", () => {
     expect(STAKE_IX.ReturnInsurance).toBe(10);
     expect(encodeStakeReturnInsurance(55n)[0]).toBe(10);
-    expect(() => encodeStakeSetMarketResolved()).toThrow(/tag 18/i);
+    // SetMarketResolved (tag 18) is LIVE on the adopted lineage (was unhandled
+    // on the currently-deployed percolator-vault program).
+    expect(encodeStakeSetMarketResolved()[0]).toBe(18);
+    // TransferAdmin (tag 5) no longer exists — tag 5 is now ProposeAdmin.
     expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
   });
 
@@ -574,8 +577,8 @@ describe("V12_1 slab — layout detection and field offsets", () => {
 // ===========================================================================
 
 describe("STAKE_PROGRAM_ID — address constants", () => {
-  it("STAKE_PROGRAM_ID exports the devnet address 6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k", () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe("6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k");
+  it("STAKE_PROGRAM_ID exports the deployed devnet address 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ (matches PROGRAM_IDS_V17.vault)", () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe("51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ");
   });
 
   it("STAKE_PROGRAM_ID equals STAKE_PROGRAM_IDS.devnet", () => {
@@ -593,19 +596,19 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     }
   });
 
-  it("getStakeProgramId('devnet') returns 6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k", () => {
+  it("getStakeProgramId('devnet') returns 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ", () => {
     const saved = process.env.STAKE_PROGRAM_ID;
     delete process.env.STAKE_PROGRAM_ID;
     try {
       const pk = getStakeProgramId("devnet");
-      expect(pk.toBase58()).toBe("6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k");
+      expect(pk.toBase58()).toBe("51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ");
     } finally {
       if (saved !== undefined) process.env.STAKE_PROGRAM_ID = saved;
     }
   });
 
-  it("STAKE_PROGRAM_IDS.devnet constant is 6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k", () => {
-    expect(STAKE_PROGRAM_IDS.devnet).toBe("6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k");
+  it("STAKE_PROGRAM_IDS.devnet constant is 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ", () => {
+    expect(STAKE_PROGRAM_IDS.devnet).toBe("51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ");
   });
 
   it("mainnet and devnet addresses are different", () => {

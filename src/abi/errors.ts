@@ -28,7 +28,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   1: {
     name: "InvalidVersion",
-    hint: "Account version mismatch. Expected EXPECTED_SLAB_VERSION=16. The program may need upgrading.",
+    hint: "Account version mismatch. Expected VERSION=17 (protocol-fee wrapper, WrapperConfigV16 496B). The program may need upgrading, or the account predates the protocol-fee redeploy.",
   },
   2: {
     name: "AlreadyInitialized",

@@ -385,8 +385,41 @@ var IX_TAG = {
    * PREREQUISITE: SetMatcherConfig (tag 68, enabled=1) must be called first to store
    * (matcherProg, matcherCtx, matcherDelegate) in the LP portfolio's matcher config tail.
    * InitMatcherCtx verifies the stored triple matches the accounts supplied here.
+   *
+   * @deprecated ⚠️ TAG COLLIDES with WithdrawProtocolFee on the protocol-fee wrapper
+   * lineage (feat/protocol-fee-taker-only, VERSION 17, percolator-prog@626fb617).
+   * That wrapper's Instruction::decode has NO InitMatcherCtx arm — confirmed by
+   * grepping `InitMatcherCtx` in v16_program.rs on both the protocol-fee branch and
+   * its 14440e0c parent (zero hits), and by the design doc's own free-tag audit
+   * ("Confirmed free tags up to 90: ... 83-90", ~/v17/PROTOCOL-FEE-DESIGN.md §3).
+   * Do NOT call encodeInitMatcherCtx() against a VERSION=17 market — tag 83 decodes
+   * as WithdrawProtocolFee there instead. Safe only against whatever OTHER wrapper
+   * build originally defined this instruction.
    */
   InitMatcherCtx: 83,
+  /**
+   * WithdrawProtocolFee (tag 83) — v17 protocol-fee wrapper (VERSION 17,
+   * percolator-prog@626fb617, feat/protocol-fee-taker-only).
+   *
+   * ⚠️ SAME NUMERIC VALUE as the (deprecated, unrelated-lineage) InitMatcherCtx
+   * above — see its deprecation note. On the protocol-fee wrapper, tag 83 is
+   * WithdrawProtocolFee and InitMatcherCtx does not exist.
+   *
+   * Wire: tag(1) + amount(u128) = 17 bytes. `amount == 0` withdraws all
+   * currently-available capacity. Accounts: see ACCOUNTS_WITHDRAW_PROTOCOL_FEE
+   * in abi/accounts.ts. Signer-gated on cfg.protocol_fee_authority.
+   */
+  WithdrawProtocolFee: 83,
+  /**
+   * SetProtocolFeeAuthority (tag 84) — v17 protocol-fee wrapper (VERSION 17,
+   * percolator-prog@626fb617, feat/protocol-fee-taker-only). Rotates
+   * cfg.protocol_fee_authority.
+   *
+   * Wire: tag(1) + new_authority(32) = 33 bytes. Accounts: see
+   * ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY in abi/accounts.ts. Gated on the
+   * program's BPF upgrade authority — NOT marketauth, NOT any creator-facing gate.
+   */
+  SetProtocolFeeAuthority: 84,
   /** @deprecated v12.x tag 85. Not in v17. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
@@ -1302,6 +1335,18 @@ function encodeMatcherInitPassive(args) {
   buf.set(u128Bytes, 34);
   return buf;
 }
+function encodeWithdrawProtocolFee(args) {
+  return concatBytes(
+    encU8(IX_TAG.WithdrawProtocolFee),
+    encU128(args.amount)
+  );
+}
+function encodeSetProtocolFeeAuthority(args) {
+  return concatBytes(
+    encU8(IX_TAG.SetProtocolFeeAuthority),
+    encPubkey(args.newAuthority)
+  );
+}
 
 // src/abi/accounts.ts
 import {
@@ -1873,6 +1918,19 @@ var ACCOUNTS_SET_MATCHER_CONFIG = [
   { name: "matcherCtx", signer: false, writable: false },
   { name: "matcherDelegate", signer: false, writable: false }
 ];
+var ACCOUNTS_WITHDRAW_PROTOCOL_FEE = [
+  { name: "authority", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "destToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false }
+];
+var ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY = [
+  { name: "upgradeAuthority", signer: true, writable: false },
+  { name: "programData", signer: false, writable: false },
+  { name: "market", signer: false, writable: true }
+];
 var WELL_KNOWN = {
   tokenProgram: TOKEN_PROGRAM_ID,
   clock: SYSVAR_CLOCK_PUBKEY,
@@ -1889,7 +1947,7 @@ var PERCOLATOR_ERRORS = {
   },
   1: {
     name: "InvalidVersion",
-    hint: "Account version mismatch. Expected EXPECTED_SLAB_VERSION=16. The program may need upgrading."
+    hint: "Account version mismatch. Expected VERSION=17 (protocol-fee wrapper, WrapperConfigV16 496B). The program may need upgrading, or the account predates the protocol-fee redeploy."
   },
   2: {
     name: "AlreadyInitialized",
@@ -4751,10 +4809,10 @@ function parseAccount(data, idx) {
   };
 }
 var V17_MAGIC = 0x5045524356313600n;
-var V17_EXPECTED_VERSION = 16;
+var V17_EXPECTED_VERSION = 17;
 var V17_KIND_MARKET = 1;
 var V17_KIND_OFF = 10;
-var V17_WRAPPER_CONFIG_LEN = 432;
+var V17_WRAPPER_CONFIG_LEN = 496;
 var V17_ASSET_ORACLE_PROFILE_LEN = 400;
 var V17_HEADER_LEN = 16;
 var V17_MARKET_GROUP_OFF = V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN;
@@ -4825,6 +4883,9 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const backingTradeFeeInsuranceShareBpsLong = readU16LE(data, b + 426);
   const backingTradeFeeInsuranceShareBpsShort = readU16LE(data, b + 428);
   const feeRedirectToMarket0Bps = readU16LE(data, b + 430);
+  const protocolFeeAuthority = new PublicKey5(data.subarray(b + 432, b + 464));
+  const protocolFeeAccruedAtoms = readU128LE(data, b + 464);
+  const protocolFeeWithdrawnAtoms = readU128LE(data, b + 480);
   return {
     marketauth,
     collateralMint,
@@ -4865,7 +4926,10 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
     backingTradeFeePolicyCount,
     backingTradeFeeInsuranceShareBpsLong,
     backingTradeFeeInsuranceShareBpsShort,
-    feeRedirectToMarket0Bps
+    feeRedirectToMarket0Bps,
+    protocolFeeAuthority,
+    protocolFeeAccruedAtoms,
+    protocolFeeWithdrawnAtoms
   };
 }
 function parseAssetOracleProfileV17(data, profileOff) {
@@ -6357,7 +6421,7 @@ function isStandardToken(tokenProgramId) {
 import { PublicKey as PublicKey11, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4, TOKEN_2022_PROGRAM_ID as TOKEN_2022_PROGRAM_ID2 } from "@solana/spl-token";
 var STAKE_PROGRAM_IDS = {
-  devnet: "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k",
+  devnet: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ",
   mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F"
 };
 Object.freeze(STAKE_PROGRAM_IDS);
@@ -6393,52 +6457,238 @@ var STAKE_IX = {
   Withdraw: 2,
   FlushToInsurance: 3,
   UpdateConfig: 4,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /**
+   * ProposeAdmin (tag 5) — step 1 of two-step `pool.admin` rotation. The
+   * CURRENT admin proposes a new admin (written to `pool.pending_admin`); the
+   * proposed admin gains no authority until AcceptAdmin (tag 6). Proposing the
+   * zero pubkey CANCELS an outstanding proposal.
+   *
+   * BREAKING vs the deployed percolator-vault program: tag 5 there is the
+   * removed `TransferAdmin` (one-step, rejects on-chain). Do NOT confuse with
+   * wrapper marketauth rotation (a completely different key, done via the
+   * wrapper's own UpdateAuthority tag 32, CPI'd from stake InitPool).
+   *
+   * Wire: tag(1) + new_admin(32) = 33 bytes.
+   * Accounts: [currentAdmin(signer), poolPda(writable)]
+   */
+  ProposeAdmin: 5,
+  /**
+   * AcceptAdmin (tag 6) — step 2 of two-step `pool.admin` rotation. The
+   * PENDING admin signs to take ownership; requires an outstanding proposal
+   * and the signer to equal `pool.pending_admin`.
+   *
+   * BREAKING vs the deployed percolator-vault program: tag 6 there is the
+   * removed `AdminSetOracleAuthority` (rejects on-chain).
+   *
+   * Wire: tag(1) — no payload.
+   * Accounts: [pendingAdmin(signer), poolPda(writable)]
+   */
+  AcceptAdmin: 6,
+  /**
+   * ProposeCooldownIncrease (tag 7) — step 1 of the #242 cooldown-increase
+   * timelock. Proposes a NEW (larger) `cooldown_slots`; takes effect only
+   * after CommitCooldownIncrease is called >= TIMELOCK_SLOTS later, guaranteeing
+   * LP holders an exit window. A decrease/unchanged value is rejected here
+   * (use UpdateConfig, which applies decreases immediately).
+   *
+   * BREAKING vs the deployed percolator-vault program: tag 7 there is the
+   * removed `AdminSetRiskThreshold` (rejects on-chain).
+   *
+   * Wire: tag(1) + new_cooldown_slots(u64) = 9 bytes.
+   * Accounts: [admin(signer), poolPda(writable), clockSysvar]
+   */
+  ProposeCooldownIncrease: 7,
+  /**
+   * CommitCooldownIncrease (tag 8) — step 2 of the #242 timelock. Applies the
+   * pending cooldown increase; rejects if TIMELOCK_SLOTS has not elapsed.
+   *
+   * BREAKING vs the deployed percolator-vault program: tag 8 there is the
+   * removed `AdminSetMaintenanceFee` (rejects on-chain).
+   *
+   * Wire: tag(1) — no payload.
+   * Accounts: [admin(signer), poolPda(writable), clockSysvar]
+   */
+  CommitCooldownIncrease: 8,
+  /**
+   * CancelCooldownIncrease (tag 9) — withdraws an outstanding #242 cooldown
+   * proposal.
+   *
+   * BREAKING vs the deployed percolator-vault program: tag 9 there is the
+   * removed `AdminResolveMarket` (rejects on-chain).
+   *
+   * Wire: tag(1) — no payload.
+   * Accounts: [admin(signer), poolPda(writable)]
+   */
+  CancelCooldownIncrease: 9,
+  /** @deprecated Alias for ProposeAdmin — the OLD percolator-vault semantics
+   *  (one-step TransferAdmin) no longer apply; tag 5 is now ProposeAdmin. */
   TransferAdmin: 5,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Alias for AcceptAdmin — the OLD percolator-vault semantics
+   *  (AdminSetOracleAuthority) no longer apply; tag 6 is now AcceptAdmin. */
   AdminSetOracleAuthority: 6,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Alias for ProposeCooldownIncrease — the OLD percolator-vault
+   *  semantics (AdminSetRiskThreshold) no longer apply; tag 7 is now
+   *  ProposeCooldownIncrease with a DIFFERENT wire format (u64, not removed-stub). */
   AdminSetRiskThreshold: 7,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Alias for CommitCooldownIncrease — the OLD percolator-vault
+   *  semantics (AdminSetMaintenanceFee) no longer apply; tag 8 is now
+   *  CommitCooldownIncrease. */
   AdminSetMaintenanceFee: 8,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Alias for CancelCooldownIncrease — the OLD percolator-vault
+   *  semantics (AdminResolveMarket) no longer apply; tag 9 is now
+   *  CancelCooldownIncrease. */
   AdminResolveMarket: 9,
-  /** Current on-chain tag 10: transfer withdrawn insurance back into the pool vault. */
+  /**
+   * ReturnInsurance (tag 10) — unchanged wire/semantics vs the deployed
+   * percolator-vault program: transfer withdrawn insurance back into the pool
+   * vault (admin calls wrapper WithdrawInsurance directly first, then this
+   * books admin-ATA -> pool-vault).
+   */
   ReturnInsurance: 10,
   /** @deprecated Legacy alias for ReturnInsurance. */
   AdminWithdrawInsurance: 10,
-  /** @deprecated Removed on-chain in stake v3. This tag now rejects. */
+  /** @deprecated Tombstoned in BOTH lineages (was an admin CPI proxy —
+   *  SetInsurancePolicy). This tag rejects on-chain in the adopted lineage too. */
   AdminSetInsurancePolicy: 11,
-  /** PERC-272: Accrue trading fees to LP vault */
+  /** PERC-272: Accrue trading fees to LP vault. Unchanged vs deployed vault. */
   AccrueFees: 12,
-  /** PERC-272: Init pool in trading LP mode */
+  /** PERC-272: Init pool in trading LP mode. Unchanged vs deployed vault. */
   InitTradingPool: 13,
-  /** PERC-313: Set HWM config (enable + floor bps) */
+  /** PERC-313: Set HWM config (enable + floor bps). Unchanged vs deployed vault. */
   AdminSetHwmConfig: 14,
   /**
-   * BindInsuranceAuthority (tag 15 / 0x0F) — FIND-4 fix.
+   * AdminSetTrancheConfig (tag 15) — enable/configure senior-junior LP
+   * tranches. Sets `junior_fee_mult_bps`.
    *
-   * Binds the vault_auth PDA as the wrapper's asset-0 insurance_authority via
-   * a CPI to UpdateAssetAuthority (tag 65, kind=INSURANCE=1). The human admin
-   * signs the outer tx as the current authority; vault_auth signs via
-   * invoke_signed inside the stake program.
+   * BREAKING vs the deployed percolator-vault program: tag 15 there is
+   * BindInsuranceAuthority (moved to tag 19 in the adopted lineage — see
+   * below). Sending this payload against the DEPLOYED vault program would
+   * execute BindInsuranceAuthority instead; only send it against the
+   * ADOPTED percolator-stake lineage.
    *
-   * Wire: tag(1) = 0x0F — no payload beyond the tag byte.
-   * Accounts: [admin(signer), pool_pda(w), vault_auth, slab(w), percolator_program]
-   */
-  BindInsuranceAuthority: 15,
-  /**
-   * @deprecated Collides with BindInsuranceAuthority (tag 15) in the deployed
-   * percolator-stake v39 program. Sending AdminSetTrancheConfig data at tag 15
-   * would execute BindInsuranceAuthority instead. Use BindInsuranceAuthority.
+   * Wire: tag(1) + junior_fee_mult_bps(u16) = 3 bytes.
+   * Accounts: [admin(signer), poolPda(writable)]
    */
   AdminSetTrancheConfig: 15,
-  /** @deprecated Not in the deployed percolator-stake v39 program (tag 16 is unhandled). */
+  /**
+   * DepositJunior (tag 16) — deposit into the junior (first-loss) tranche.
+   * Same account shape as Deposit (tag 1).
+   *
+   * BREAKING vs the deployed percolator-vault program: tag 16 is UNHANDLED
+   * there (rejects). Live only on the adopted lineage.
+   *
+   * Wire: tag(1) + amount(u64) = 9 bytes.
+   */
   DepositJunior: 16,
-  /** @deprecated Not in the deployed percolator-stake v39 program (tag 18 is unhandled). */
+  /**
+   * BindInsuranceAuthority (tag 19 / 0x13) — FIND-4 fix, MOVED from tag 15
+   * (0x0F) in the deployed percolator-vault program.
+   *
+   * Binds the vault_auth PDA as BOTH the wrapper's asset-0 insurance_authority
+   * AND insurance_operator via two CPIs to UpdateAssetAuthority (tag 65,
+   * kind=1 INSURANCE then kind=2 INSURANCE_OPERATOR) — the adopted lineage
+   * binds both in one call, unlike the deployed vault program which only
+   * bound insurance_authority. The human admin signs the outer tx as the
+   * current authority/operator; vault_auth signs via invoke_signed.
+   *
+   * Wire: tag(1) = 0x13 — no payload beyond the tag byte.
+   * Accounts: [admin(signer), poolPda, vaultAuth, slab(writable), percolatorProgram]
+   */
+  BindInsuranceAuthority: 19,
+  /**
+   * RotateInsuranceAuthority (tag 20) — admin-gated migration/incident
+   * escape that moves the market's `insurance_authority` OFF our vault_auth
+   * PDA to an admin-specified `newTarget`. The PDA signs as the CURRENT
+   * authority (invoke_signed); newTarget co-signs the outer tx as the NEW
+   * authority. NEW in the adopted lineage — no equivalent in the deployed
+   * percolator-vault program (which has no un-bind escape at all).
+   *
+   * Wire: tag(1) — no payload.
+   * Accounts: [admin(signer), poolPda, vaultAuth, newTarget(signer), slab(writable), percolatorProgram]
+   */
+  RotateInsuranceAuthority: 20,
+  /**
+   * BurnAssetAdmin (tag 21) — IRREVERSIBLE removal of the admin's rotate-back
+   * capability. CPIs UpdateAssetAuthority(kind=0 ASSET_ADMIN, new_pubkey=[0;32]).
+   * After this, no key can rotate ANY per-asset authority back to an
+   * admin-controlled key. Call ONCE per market, only after BindInsuranceAuthority
+   * has completed. NEW in the adopted lineage.
+   *
+   * Wire: tag(1) — no payload.
+   * Accounts: [admin(signer, writable), poolPda(writable), vaultAuth(placeholder), slab(writable), percolatorProgram]
+   */
+  BurnAssetAdmin: 21,
+  /**
+   * RotateInsuranceOperator (tag 22) — analogous to RotateInsuranceAuthority
+   * (tag 20) but for `insurance_operator` (kind=2). Part of the no-lockout
+   * migration sequence before a final BurnAssetAdmin. NEW in the adopted
+   * lineage.
+   *
+   * Wire: tag(1) — no payload.
+   * Accounts: [admin(signer), poolPda, vaultAuth, newTarget(signer), slab(writable), percolatorProgram]
+   */
+  RotateInsuranceOperator: 22,
+  /**
+   * RecoverFlushedInsurance (tag 23) — PERMISSIONLESS recovery of tokens from
+   * the wrapper's insurance fund back into the stake pool vault, via a CPI to
+   * wrapper tag 57 `WithdrawInsuranceAsset` (gated on insurance_operator ==
+   * vault_auth PDA). Survives BurnAssetAdmin because tag 57 gates on
+   * insurance_operator, not asset_admin. `amount` capped to
+   * `total_flushed - total_returned`; funds can only land in `pool.vault`.
+   * NEW in the adopted lineage.
+   *
+   * Wire: tag(1) + amount(u64) = 9 bytes.
+   * Accounts: [caller(no signer check), poolPda(writable), poolVault(writable),
+   *   vaultAuth, wrapperMarket(writable), wrapperVault(writable), wrapperVaultAuth,
+   *   tokenProgram, percolatorProgram]
+   */
+  RecoverFlushedInsurance: 23,
+  /**
+   * SetMarketResolved (tag 18) — admin marks the pool as market-resolved
+   * (blocks new deposits). Call after resolving the market on the wrapper
+   * directly.
+   *
+   * BREAKING vs the deployed percolator-vault program: tag 18 is UNHANDLED
+   * there (rejects). Live only on the adopted lineage.
+   *
+   * Wire: tag(1) — no payload.
+   * Accounts: [admin(signer), poolPda(writable)]
+   */
   SetMarketResolved: 18
 };
 Object.freeze(STAKE_IX);
+var STAKE_ERRORS = {
+  0: "Pool already initialized \u2014 use a different slab address or check if InitPool was already called",
+  1: "Pool not initialized \u2014 call InitPool first to create the stake pool",
+  2: "Unauthorized \u2014 you must be the pool admin to perform this action",
+  3: "Cooldown not elapsed \u2014 wait for the cooldown period before withdrawing again",
+  4: "Insufficient LP tokens \u2014 you don't have enough LP tokens to burn",
+  5: "Zero amount \u2014 deposit and withdrawal amounts must be greater than zero",
+  6: "Arithmetic overflow \u2014 pool values exceeded u64 bounds, operation blocked",
+  7: "Invalid mint \u2014 LP mint doesn't match the pool's LP mint",
+  8: "Market is resolved \u2014 no new deposits allowed after resolution",
+  9: "Deposit cap exceeded \u2014 pool has reached its maximum deposit limit",
+  10: "Invalid PDA \u2014 account is not a valid PDA for the expected seed",
+  11: "Deprecated (was AdminAlreadyTransferred) \u2014 code kept for stable numbering; should not occur",
+  12: "Deprecated (was AdminNotTransferred) \u2014 code kept for stable numbering; should not occur",
+  13: "Insufficient vault balance \u2014 vault doesn't have enough collateral for this withdrawal",
+  14: "Invalid percolator program \u2014 percolator program ID doesn't match",
+  15: "CPI to percolator failed \u2014 the cross-program invoke to percolator failed",
+  16: "Invalid account \u2014 account is not owned by the expected program or is not writable",
+  17: "Pool mode mismatch \u2014 operation not valid for this pool's mode (e.g., AccrueFees on insurance pool)",
+  18: "Withdrawal blocked \u2014 would breach high-water mark floor protection",
+  19: "Tranches not enabled \u2014 senior/junior tranches are not enabled on this pool",
+  20: "Junior balance insufficient \u2014 junior tranche doesn't have enough balance for this operation",
+  21: "Wrong tranche \u2014 deposit already belongs to a different tranche",
+  22: "Zero shares minted \u2014 deposit amount too small to mint any LP at the current share price; increase the amount",
+  23: "No pending admin \u2014 there is no admin transfer to accept (propose one first, or it was cancelled)",
+  24: "Insurance loss outstanding \u2014 junior tranche deposits are paused until the flushed insurance is returned (total_flushed > total_returned)",
+  25: "Cooldown increase requires timelock \u2014 a cooldown_slots INCREASE must go through ProposeCooldownIncrease -> wait -> CommitCooldownIncrease, not UpdateConfig (decreases are still immediate via UpdateConfig)",
+  26: "Timelock not elapsed \u2014 CommitCooldownIncrease was called before the required timelock window had passed since ProposeCooldownIncrease; LP holders are still inside their exit window",
+  27: "No pending cooldown proposal \u2014 CommitCooldownIncrease / CancelCooldownIncrease called with no active ProposeCooldownIncrease proposal outstanding",
+  28: "Deposit below minimum liquidity \u2014 the pool's first-ever deposit must exceed MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening); deposit a larger amount"
+};
+Object.freeze(STAKE_ERRORS);
 var TEXT2 = new TextEncoder();
 function deriveStakePool(slab, programId) {
   return PublicKey11.findProgramAddressSync(
@@ -6528,23 +6778,54 @@ function removedStakeInstruction(name, tag) {
     `${name} (stake tag ${tag}) was removed on-chain in percolator-stake v3 and must not be sent.`
   );
 }
+function encodeStakeProposeAdmin(newAdmin) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.ProposeAdmin]),
+    newAdmin.toBytes()
+  );
+}
+function encodeStakeAcceptAdmin() {
+  return new Uint8Array([STAKE_IX.AcceptAdmin]);
+}
+function encodeStakeProposeCooldownIncrease(newCooldownSlots) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.ProposeCooldownIncrease]),
+    u64Le(newCooldownSlots)
+  );
+}
+function encodeStakeCommitCooldownIncrease() {
+  return new Uint8Array([STAKE_IX.CommitCooldownIncrease]);
+}
+function encodeStakeCancelCooldownIncrease() {
+  return new Uint8Array([STAKE_IX.CancelCooldownIncrease]);
+}
 function encodeStakeTransferAdmin() {
-  return removedStakeInstruction("encodeStakeTransferAdmin", STAKE_IX.TransferAdmin);
+  throw new Error(
+    "encodeStakeTransferAdmin: tag 5 is ProposeAdmin (two-step rotation) in the adopted percolator-stake lineage \u2014 use encodeStakeProposeAdmin(newAdmin) + encodeStakeAcceptAdmin() instead."
+  );
 }
 function encodeStakeAdminSetOracleAuthority(newAuthority) {
   void newAuthority;
-  return removedStakeInstruction("encodeStakeAdminSetOracleAuthority", STAKE_IX.AdminSetOracleAuthority);
+  throw new Error(
+    "encodeStakeAdminSetOracleAuthority: tag 6 is AcceptAdmin in the adopted percolator-stake lineage \u2014 use encodeStakeAcceptAdmin() instead."
+  );
 }
 function encodeStakeAdminSetRiskThreshold(newThreshold) {
   void newThreshold;
-  return removedStakeInstruction("encodeStakeAdminSetRiskThreshold", STAKE_IX.AdminSetRiskThreshold);
+  throw new Error(
+    "encodeStakeAdminSetRiskThreshold: tag 7 is ProposeCooldownIncrease in the adopted percolator-stake lineage \u2014 use encodeStakeProposeCooldownIncrease(newCooldownSlots) instead."
+  );
 }
 function encodeStakeAdminSetMaintenanceFee(newFee) {
   void newFee;
-  return removedStakeInstruction("encodeStakeAdminSetMaintenanceFee", STAKE_IX.AdminSetMaintenanceFee);
+  throw new Error(
+    "encodeStakeAdminSetMaintenanceFee: tag 8 is CommitCooldownIncrease in the adopted percolator-stake lineage \u2014 use encodeStakeCommitCooldownIncrease() instead."
+  );
 }
 function encodeStakeAdminResolveMarket() {
-  return removedStakeInstruction("encodeStakeAdminResolveMarket", STAKE_IX.AdminResolveMarket);
+  throw new Error(
+    "encodeStakeAdminResolveMarket: tag 9 is CancelCooldownIncrease in the adopted percolator-stake lineage \u2014 use encodeStakeCancelCooldownIncrease() instead."
+  );
 }
 function encodeStakeReturnInsurance(amount) {
   return concatBytes(
@@ -6572,10 +6853,17 @@ function encodeStakeAdminSetHwmConfig(enabled, hwmFloorBps) {
     u16Le(hwmFloorBps)
   );
 }
-function encodeStakeAdminSetTrancheConfig(_juniorFeeMultBps) {
-  throw new Error(
-    "encodeStakeAdminSetTrancheConfig: tag 15 is BindInsuranceAuthority in the deployed percolator-stake v39 program \u2014 sending AdminSetTrancheConfig data would silently execute BindInsuranceAuthority. Use encodeStakeBindInsuranceAuthority() instead."
+function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminSetTrancheConfig]),
+    u16Le(juniorFeeMultBps)
   );
+}
+function encodeStakeDepositJunior(amount) {
+  return concatBytes(new Uint8Array([STAKE_IX.DepositJunior]), u64Le(amount));
+}
+function encodeStakeSetMarketResolved() {
+  return new Uint8Array([STAKE_IX.SetMarketResolved]);
 }
 function encodeStakeBindInsuranceAuthority() {
   return new Uint8Array([STAKE_IX.BindInsuranceAuthority]);
@@ -6589,16 +6877,52 @@ function bindInsuranceAuthorityAccounts(a) {
     { pubkey: a.percolatorProgram, isSigner: false, isWritable: false }
   ];
 }
-function encodeStakeDepositJunior(amount) {
-  void amount;
-  throw new Error(
-    "encodeStakeDepositJunior: tag 16 is not handled by the deployed percolator-stake v39 program."
+function encodeStakeRotateInsuranceAuthority() {
+  return new Uint8Array([STAKE_IX.RotateInsuranceAuthority]);
+}
+function encodeStakeRotateInsuranceOperator() {
+  return new Uint8Array([STAKE_IX.RotateInsuranceOperator]);
+}
+function rotateInsuranceAccounts(a) {
+  return [
+    { pubkey: a.admin, isSigner: true, isWritable: false },
+    { pubkey: a.poolPda, isSigner: false, isWritable: false },
+    { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
+    { pubkey: a.newTarget, isSigner: true, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: true },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false }
+  ];
+}
+function encodeStakeBurnAssetAdmin() {
+  return new Uint8Array([STAKE_IX.BurnAssetAdmin]);
+}
+function burnAssetAdminAccounts(a) {
+  return [
+    { pubkey: a.admin, isSigner: true, isWritable: true },
+    { pubkey: a.poolPda, isSigner: false, isWritable: true },
+    { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: true },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false }
+  ];
+}
+function encodeStakeRecoverFlushedInsurance(amount) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.RecoverFlushedInsurance]),
+    u64Le(amount)
   );
 }
-function encodeStakeSetMarketResolved() {
-  throw new Error(
-    "encodeStakeSetMarketResolved: tag 18 is not handled by the deployed percolator-stake v39 program."
-  );
+function recoverFlushedInsuranceAccounts(a) {
+  return [
+    { pubkey: a.caller, isSigner: false, isWritable: false },
+    { pubkey: a.poolPda, isSigner: false, isWritable: true },
+    { pubkey: a.poolVault, isSigner: false, isWritable: true },
+    { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
+    { pubkey: a.wrapperMarket, isSigner: false, isWritable: true },
+    { pubkey: a.wrapperVault, isSigner: false, isWritable: true },
+    { pubkey: a.wrapperVaultAuth, isSigner: false, isWritable: false },
+    { pubkey: a.tokenProgram, isSigner: false, isWritable: false },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false }
+  ];
 }
 function encodeStakeAdminSetInsurancePolicy(authority, minWithdrawBase, maxWithdrawBps, cooldownSlots) {
   void authority;
@@ -6686,6 +7010,10 @@ function decodeStakePool(data) {
   const juniorBalance = readU64LE4(bytes, reservedStart + 33);
   const juniorTotalLp = readU64LE4(bytes, reservedStart + 41);
   const juniorFeeMultBps = readU16LE3(bytes, reservedStart + 49);
+  const pendingCooldownSlots = readU64LE4(bytes, reservedStart + 10);
+  const cooldownProposedAtSlot = readU64LE4(bytes, reservedStart + 18);
+  const realizedJuniorLoss = readU64LE4(bytes, reservedStart + 51);
+  const assetAdminBurned = bytes[reservedStart + 59] === 1;
   return {
     isInitialized,
     bump,
@@ -6717,7 +7045,11 @@ function decodeStakePool(data) {
     trancheEnabled,
     juniorBalance,
     juniorTotalLp,
-    juniorFeeMultBps
+    juniorFeeMultBps,
+    pendingCooldownSlots,
+    cooldownProposedAtSlot,
+    realizedJuniorLoss,
+    assetAdminBurned
   };
 }
 var STAKE_DEPOSIT_SIZE = 152;
@@ -8274,6 +8606,7 @@ export {
   ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK,
   ACCOUNTS_SET_ORACLE_PRICE_CAP,
   ACCOUNTS_SET_PENDING_SETTLEMENT,
+  ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY,
   ACCOUNTS_SET_RISK_THRESHOLD,
   ACCOUNTS_SET_WALLET_CAP,
   ACCOUNTS_TOPUP_INSURANCE,
@@ -8293,6 +8626,7 @@ export {
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
   ACCOUNTS_WITHDRAW_INSURANCE_LP,
   ACCOUNTS_WITHDRAW_LP_COLLATERAL,
+  ACCOUNTS_WITHDRAW_PROTOCOL_FEE,
   ASSET_AUTH_KIND,
   AccountKind,
   CHAINLINK_ANSWER_OFFSET,
@@ -8369,6 +8703,7 @@ export {
   SPL_MINT_DECIMALS_OFFSET,
   STAKE_DEPOSIT_DISCRIMINATOR,
   STAKE_DEPOSIT_SIZE,
+  STAKE_ERRORS,
   STAKE_IX,
   STAKE_POOL_CURRENT_VERSION,
   STAKE_POOL_DISCRIMINATOR,
@@ -8400,6 +8735,7 @@ export {
   buildAdlInstruction,
   buildAdlTransaction,
   buildIx,
+  burnAssetAdminAccounts,
   checkPhaseTransition,
   checkRpcHealth,
   classifyLighthouseError,
@@ -8548,11 +8884,13 @@ export {
   encodeSetOiImbalanceHardBlock,
   encodeSetOraclePriceCap,
   encodeSetPendingSettlement,
+  encodeSetProtocolFeeAuthority,
   encodeSetPythOracle,
   encodeSetRiskThreshold,
   encodeSetWalletCap,
   encodeSettleAccount,
   encodeSlashCreationDeposit,
+  encodeStakeAcceptAdmin,
   encodeStakeAccrueFees,
   encodeStakeAdminResolveMarket,
   encodeStakeAdminSetHwmConfig,
@@ -8563,12 +8901,20 @@ export {
   encodeStakeAdminSetTrancheConfig,
   encodeStakeAdminWithdrawInsurance,
   encodeStakeBindInsuranceAuthority,
+  encodeStakeBurnAssetAdmin,
+  encodeStakeCancelCooldownIncrease,
+  encodeStakeCommitCooldownIncrease,
   encodeStakeDeposit,
   encodeStakeDepositJunior,
   encodeStakeFlushToInsurance,
   encodeStakeInitPool,
   encodeStakeInitTradingPool,
+  encodeStakeProposeAdmin,
+  encodeStakeProposeCooldownIncrease,
+  encodeStakeRecoverFlushedInsurance,
   encodeStakeReturnInsurance,
+  encodeStakeRotateInsuranceAuthority,
+  encodeStakeRotateInsuranceOperator,
   encodeStakeSetMarketResolved,
   encodeStakeTransferAdmin,
   encodeStakeUpdateConfig,
@@ -8596,6 +8942,7 @@ export {
   encodeWithdrawInsuranceLP,
   encodeWithdrawInsuranceLimited,
   encodeWithdrawLpCollateral,
+  encodeWithdrawProtocolFee,
   fetchAdlRankedPositions,
   fetchAdlRankings,
   fetchMintDecimals,
@@ -8648,9 +8995,11 @@ export {
   rankAdlPositions,
   readLastThrUpdateSlot,
   readNonce,
+  recoverFlushedInsuranceAccounts,
   registerStaticMarkets,
   requireDecimalUIntString,
   resolvePrice,
+  rotateInsuranceAccounts,
   safeBigInt,
   safeEnv,
   simulateOrSend,

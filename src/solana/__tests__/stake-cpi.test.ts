@@ -44,6 +44,10 @@ import {
   encodeStakeDepositJunior,
   encodeStakeSetMarketResolved,
   encodeStakeBindInsuranceAuthority,
+  encodeStakeRotateInsuranceAuthority,
+  encodeStakeBurnAssetAdmin,
+  encodeStakeRotateInsuranceOperator,
+  encodeStakeRecoverFlushedInsurance,
   initPoolAccounts,
   depositAccounts,
   withdrawAccounts,
@@ -394,8 +398,10 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       expect(neither[10]).toBe(0);
     });
 
-    it('SetMarketResolved throws (tag 18 not in deployed v39 program)', () => {
-      expect(() => encodeStakeSetMarketResolved()).toThrow(/tag 18/i);
+    it('SetMarketResolved — tag 18, live on the adopted percolator-stake lineage', () => {
+      const data = encodeStakeSetMarketResolved();
+      expect(data.length).toBe(1);
+      expect(data[0]).toBe(18);
     });
   });
 });
@@ -448,25 +454,41 @@ describe('Stake PDA Chain — Multi-Market Isolation', () => {
 // Instruction Tag Consistency
 // ═══════════════════════════════════════════════════════════════
 
-describe('Stake Instruction Tags — No Gaps or Conflicts', () => {
-  it('tags match the live on-chain mapping, including tombstones and aliases', () => {
+describe('Stake Instruction Tags — No Gaps or Conflicts (ADOPTED percolator-stake lineage)', () => {
+  it('tags match the adopted lineage mapping, including tombstones and aliases', () => {
     const tags = Object.values(STAKE_IX);
-    // BindInsuranceAuthority(15) and AdminSetTrancheConfig(15) are both 15 in the object
-    // (same deployed tag; AdminSetTrancheConfig is deprecated). ReturnInsurance and
-    // AdminWithdrawInsurance both map to 10. DepositJunior(16) and SetMarketResolved(18)
-    // are deprecated (not in deployed v39 program) but still in STAKE_IX for reference.
+    // BindInsuranceAuthority MOVED to 19 (no longer collides with AdminSetTrancheConfig
+    // at 15). ReturnInsurance and AdminWithdrawInsurance both map to 10 (alias).
+    // TransferAdmin/AdminSetOracleAuthority/AdminSetRiskThreshold/AdminSetMaintenanceFee/
+    // AdminResolveMarket are deprecated aliases for the REPURPOSED tags 5-9
+    // (ProposeAdmin/AcceptAdmin/ProposeCooldownIncrease/CommitCooldownIncrease/
+    // CancelCooldownIncrease) — still in STAKE_IX for reference, so tags 5-9 each
+    // appear twice (the live name + the deprecated alias).
     expect(tags).toContain(0);
     expect(tags).toContain(1);
-    expect(tags).toContain(15); // BindInsuranceAuthority
-    expect(tags.filter(t => t === 15).length).toBe(2); // BindInsuranceAuthority + AdminSetTrancheConfig alias
+    expect(tags).toContain(15); // AdminSetTrancheConfig
+    expect(tags).toContain(19); // BindInsuranceAuthority (moved from 15)
+    expect(tags.filter(t => t === 15).length).toBe(1); // AdminSetTrancheConfig only — no longer aliased
+    expect(tags.filter(t => t === 19).length).toBe(1); // BindInsuranceAuthority only
     expect(tags.filter(t => t === 10).length).toBe(2); // ReturnInsurance + AdminWithdrawInsurance alias
+    expect(tags.filter(t => t === 5).length).toBe(2);  // ProposeAdmin + TransferAdmin alias
+    expect(tags.filter(t => t === 6).length).toBe(2);  // AcceptAdmin + AdminSetOracleAuthority alias
+    expect(tags.filter(t => t === 7).length).toBe(2);  // ProposeCooldownIncrease + AdminSetRiskThreshold alias
+    expect(tags.filter(t => t === 8).length).toBe(2);  // CommitCooldownIncrease + AdminSetMaintenanceFee alias
+    expect(tags.filter(t => t === 9).length).toBe(2);  // CancelCooldownIncrease + AdminResolveMarket alias
     expect(tags).toContain(12); // AccrueFees
     expect(tags).toContain(13); // InitTradingPool
     expect(tags).toContain(14); // AdminSetHwmConfig
+    expect(tags).toContain(16); // DepositJunior
+    expect(tags).toContain(18); // SetMarketResolved
+    expect(tags).toContain(20); // RotateInsuranceAuthority
+    expect(tags).toContain(21); // BurnAssetAdmin
+    expect(tags).toContain(22); // RotateInsuranceOperator
+    expect(tags).toContain(23); // RecoverFlushedInsurance
   });
 
-  it('live encoders produce the correct tag byte and deprecated encoders throw', () => {
-    // These encoders are live in the deployed v39 program
+  it('live encoders produce the correct tag byte and deprecated (repurposed-tag) encoders throw', () => {
+    // These encoders are live on the adopted percolator-stake lineage
     const liveTagMap: [number, Uint8Array][] = [
       [STAKE_IX.InitPool, encodeStakeInitPool(0n, 0n)],
       [STAKE_IX.Deposit, encodeStakeDeposit(0n)],
@@ -478,22 +500,30 @@ describe('Stake Instruction Tags — No Gaps or Conflicts', () => {
       [STAKE_IX.AccrueFees, encodeStakeAccrueFees()],
       [STAKE_IX.InitTradingPool, encodeStakeInitTradingPool(0n, 0n)],
       [STAKE_IX.AdminSetHwmConfig, encodeStakeAdminSetHwmConfig(false, 0)],
+      [STAKE_IX.AdminSetTrancheConfig, encodeStakeAdminSetTrancheConfig(0)],
+      [STAKE_IX.DepositJunior, encodeStakeDepositJunior(0n)],
+      [STAKE_IX.SetMarketResolved, encodeStakeSetMarketResolved()],
       [STAKE_IX.BindInsuranceAuthority, encodeStakeBindInsuranceAuthority()],
+      [STAKE_IX.RotateInsuranceAuthority, encodeStakeRotateInsuranceAuthority()],
+      [STAKE_IX.BurnAssetAdmin, encodeStakeBurnAssetAdmin()],
+      [STAKE_IX.RotateInsuranceOperator, encodeStakeRotateInsuranceOperator()],
+      [STAKE_IX.RecoverFlushedInsurance, encodeStakeRecoverFlushedInsurance(0n)],
     ];
 
     for (const [expectedTag, data] of liveTagMap) {
       expect(data[0]).toBe(expectedTag);
     }
 
-    // Deprecated / not-in-deployed-program encoders must throw
+    // BindInsuranceAuthority is now at tag 19, distinct from AdminSetTrancheConfig (15)
+    expect(STAKE_IX.BindInsuranceAuthority).toBe(19);
+    expect(STAKE_IX.AdminSetTrancheConfig).toBe(15);
+
+    // Repurposed-tag encoders (old percolator-vault semantics) must throw
     expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
     expect(() => encodeStakeAdminSetOracleAuthority(PublicKey.default)).toThrow(/tag 6/i);
     expect(() => encodeStakeAdminSetRiskThreshold(0n)).toThrow(/tag 7/i);
     expect(() => encodeStakeAdminSetMaintenanceFee(0n)).toThrow(/tag 8/i);
     expect(() => encodeStakeAdminResolveMarket()).toThrow(/tag 9/i);
     expect(() => encodeStakeAdminSetInsurancePolicy(PublicKey.default, 0n, 0, 0n)).toThrow(/tag 11/i);
-    expect(() => encodeStakeAdminSetTrancheConfig(0)).toThrow(/tag 15|BindInsuranceAuthority/i);
-    expect(() => encodeStakeDepositJunior(0n)).toThrow(/tag 16/i);
-    expect(() => encodeStakeSetMarketResolved()).toThrow(/tag 18/i);
   });
 });

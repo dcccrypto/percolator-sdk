@@ -14,6 +14,7 @@ import {
   parsePortfolioV17,
   parseLpVaultRegistry,
   parseLpRedemption,
+  V17_EXPECTED_VERSION,
 } from "../src/solana/slab.js";
 
 function assert(cond: boolean, msg: string): void {
@@ -32,7 +33,7 @@ function assertThrows(fn: () => unknown, msg: string): void {
 
 function writeV17Header(buf: Buffer, kind: number): void {
   buf.writeBigUInt64LE(0x5045_5243_5631_3600n, 0);
-  buf.writeUInt16LE(16, 8);
+  buf.writeUInt16LE(V17_EXPECTED_VERSION, 8); // 17 post-protocol-fee (was 16)
   buf.writeUInt8(kind, 10);
 }
 

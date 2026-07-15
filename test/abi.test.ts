@@ -57,8 +57,15 @@ import {
   encodePushAuthMark,
   encodeMatcherInitPassive,
   derivePythPriceUpdateAccount,
+  encodeWithdrawProtocolFee,
+  encodeSetProtocolFeeAuthority,
   IX_TAG,
 } from "../src/abi/instructions.js";
+import {
+  parseWrapperConfigV17,
+  V17_WRAPPER_CONFIG_LEN,
+  V17_HEADER_LEN,
+} from "../src/solana/slab.js";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`FAIL: ${msg}`);
@@ -1242,6 +1249,105 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   const loBytes = new Uint8Array(expectedLo.buffer);
   assert(data.subarray(34, 42).every((v, i) => v === loBytes[i]), "encodeMatcherInitPassive finite max_fill_abs low bytes");
   console.log("✓ encodeMatcherInitPassive finite max_fill_abs");
+}
+
+// ── Protocol-fee program change (tags 83/84) ─────────────────────────────────
+
+// WithdrawProtocolFee (tag 83)
+// Wire: tag(1) + amount(u128) = 17 bytes
+{
+  const data = encodeWithdrawProtocolFee({ amount: 1_000_000n });
+  assert(data.length === 17, `WithdrawProtocolFee length: expected 17, got ${data.length}`);
+  assert(data[0] === IX_TAG.WithdrawProtocolFee, "WithdrawProtocolFee tag = 83");
+  assert(data[0] === 83, "WithdrawProtocolFee tag literal = 83");
+  assertBuf(
+    data.subarray(1, 17),
+    [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "WithdrawProtocolFee amount=1_000_000"
+  );
+  console.log("✓ encodeWithdrawProtocolFee (v17 17-byte wire, tag 83)");
+}
+
+// WithdrawProtocolFee (tag 83) — amount=0 means "withdraw all"
+{
+  const data = encodeWithdrawProtocolFee({ amount: 0n });
+  assert(data.length === 17, "WithdrawProtocolFee amount=0 length=17");
+  assert(data[0] === 83, "WithdrawProtocolFee amount=0 tag=83");
+  assert(data.subarray(1, 17).every(v => v === 0), "WithdrawProtocolFee amount=0 payload all zero");
+  console.log("✓ encodeWithdrawProtocolFee amount=0 (withdraw-all sentinel)");
+}
+
+// SetProtocolFeeAuthority (tag 84)
+// Wire: tag(1) + new_authority(32) = 33 bytes
+{
+  const newAuthority = new PublicKey("11111111111111111111111111111111");
+  const data = encodeSetProtocolFeeAuthority({ newAuthority });
+  assert(data.length === 33, `SetProtocolFeeAuthority length: expected 33, got ${data.length}`);
+  assert(data[0] === IX_TAG.SetProtocolFeeAuthority, "SetProtocolFeeAuthority tag = 84");
+  assert(data[0] === 84, "SetProtocolFeeAuthority tag literal = 84");
+  const pkBytes = newAuthority.toBytes();
+  assert(
+    data.subarray(1, 33).every((v, i) => v === pkBytes[i]),
+    "SetProtocolFeeAuthority new_authority bytes"
+  );
+  console.log("✓ encodeSetProtocolFeeAuthority (v17 33-byte wire, tag 84)");
+}
+
+// Tags 83/84 are distinct values despite IX_TAG.InitMatcherCtx also being 83
+// (a different, non-protocol-fee wrapper lineage — see the deprecation note
+// on IX_TAG.InitMatcherCtx).
+{
+  assert(IX_TAG.WithdrawProtocolFee === 83, "IX_TAG.WithdrawProtocolFee === 83");
+  assert(IX_TAG.SetProtocolFeeAuthority === 84, "IX_TAG.SetProtocolFeeAuthority === 84");
+  assert(IX_TAG.WithdrawProtocolFee !== IX_TAG.SetProtocolFeeAuthority, "83 !== 84");
+  console.log("✓ IX_TAG.WithdrawProtocolFee (83) / SetProtocolFeeAuthority (84) distinct");
+}
+
+// ── Protocol-fee WrapperConfigV17 tail fields (offsets 432/464/480, config len 496) ──
+{
+  assert(V17_WRAPPER_CONFIG_LEN === 496, `V17_WRAPPER_CONFIG_LEN: expected 496, got ${V17_WRAPPER_CONFIG_LEN}`);
+
+  const buf = new Uint8Array(V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN);
+  const dv = new DataView(buf.buffer);
+  const configOff = V17_HEADER_LEN;
+
+  const protocolFeeAuthority = new PublicKey("So11111111111111111111111111111111111111112");
+  buf.set(protocolFeeAuthority.toBytes(), configOff + 432);
+
+  const accrued = 123_456_789_012_345_678_901n; // > u64::MAX, exercises the high u64 word
+  const withdrawn = 999_999n;
+  dv.setBigUint64(configOff + 464, accrued & 0xffff_ffff_ffff_ffffn, true);
+  dv.setBigUint64(configOff + 464 + 8, accrued >> 64n, true);
+  dv.setBigUint64(configOff + 480, withdrawn & 0xffff_ffff_ffff_ffffn, true);
+  dv.setBigUint64(configOff + 480 + 8, withdrawn >> 64n, true);
+
+  const cfg = parseWrapperConfigV17(buf);
+  assert(
+    cfg.protocolFeeAuthority.equals(protocolFeeAuthority),
+    "parseWrapperConfigV17 protocolFeeAuthority @432"
+  );
+  assert(
+    cfg.protocolFeeAccruedAtoms === accrued,
+    `parseWrapperConfigV17 protocolFeeAccruedAtoms @464: expected ${accrued}, got ${cfg.protocolFeeAccruedAtoms}`
+  );
+  assert(
+    cfg.protocolFeeWithdrawnAtoms === withdrawn,
+    `parseWrapperConfigV17 protocolFeeWithdrawnAtoms @480: expected ${withdrawn}, got ${cfg.protocolFeeWithdrawnAtoms}`
+  );
+  console.log("✓ parseWrapperConfigV17 protocol-fee tail fields (432/464/480, 496-byte config)");
+}
+
+// parseWrapperConfigV17 rejects a pre-protocol-fee-sized (432-byte config / 448-byte total) buffer
+{
+  const shortBuf = new Uint8Array(V17_HEADER_LEN + 432); // old WRAPPER_CONFIG_LEN
+  let threw = false;
+  try {
+    parseWrapperConfigV17(shortBuf);
+  } catch {
+    threw = true;
+  }
+  assert(threw, "parseWrapperConfigV17 rejects a 448-byte (pre-protocol-fee) buffer as too short");
+  console.log("✓ parseWrapperConfigV17 rejects pre-protocol-fee-sized (432B config) buffers");
 }
 
 console.log("\n✅ All tests passed!");

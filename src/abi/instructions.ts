@@ -307,8 +307,41 @@ export const IX_TAG = {
    * PREREQUISITE: SetMatcherConfig (tag 68, enabled=1) must be called first to store
    * (matcherProg, matcherCtx, matcherDelegate) in the LP portfolio's matcher config tail.
    * InitMatcherCtx verifies the stored triple matches the accounts supplied here.
+   *
+   * @deprecated ⚠️ TAG COLLIDES with WithdrawProtocolFee on the protocol-fee wrapper
+   * lineage (feat/protocol-fee-taker-only, VERSION 17, percolator-prog@626fb617).
+   * That wrapper's Instruction::decode has NO InitMatcherCtx arm — confirmed by
+   * grepping `InitMatcherCtx` in v16_program.rs on both the protocol-fee branch and
+   * its 14440e0c parent (zero hits), and by the design doc's own free-tag audit
+   * ("Confirmed free tags up to 90: ... 83-90", ~/v17/PROTOCOL-FEE-DESIGN.md §3).
+   * Do NOT call encodeInitMatcherCtx() against a VERSION=17 market — tag 83 decodes
+   * as WithdrawProtocolFee there instead. Safe only against whatever OTHER wrapper
+   * build originally defined this instruction.
    */
   InitMatcherCtx: 83,
+  /**
+   * WithdrawProtocolFee (tag 83) — v17 protocol-fee wrapper (VERSION 17,
+   * percolator-prog@626fb617, feat/protocol-fee-taker-only).
+   *
+   * ⚠️ SAME NUMERIC VALUE as the (deprecated, unrelated-lineage) InitMatcherCtx
+   * above — see its deprecation note. On the protocol-fee wrapper, tag 83 is
+   * WithdrawProtocolFee and InitMatcherCtx does not exist.
+   *
+   * Wire: tag(1) + amount(u128) = 17 bytes. `amount == 0` withdraws all
+   * currently-available capacity. Accounts: see ACCOUNTS_WITHDRAW_PROTOCOL_FEE
+   * in abi/accounts.ts. Signer-gated on cfg.protocol_fee_authority.
+   */
+  WithdrawProtocolFee: 83,
+  /**
+   * SetProtocolFeeAuthority (tag 84) — v17 protocol-fee wrapper (VERSION 17,
+   * percolator-prog@626fb617, feat/protocol-fee-taker-only). Rotates
+   * cfg.protocol_fee_authority.
+   *
+   * Wire: tag(1) + new_authority(32) = 33 bytes. Accounts: see
+   * ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY in abi/accounts.ts. Gated on the
+   * program's BPF upgrade authority — NOT marketauth, NOT any creator-facing gate.
+   */
+  SetProtocolFeeAuthority: 84,
   /** @deprecated v12.x tag 85. Not in v17. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
@@ -3655,4 +3688,80 @@ export function encodeMatcherInitPassive(args: MatcherInitPassiveArgs): Uint8Arr
   const u128Bytes = encU128(args.maxFillAbs);
   buf.set(u128Bytes, 34);
   return buf;
+}
+
+// ============================================================================
+// Protocol-fee program change (tags 83/84) — v17 wire, WrapperConfigV16 496B.
+// See ~/v17/PROTOCOL-FEE-DESIGN.md §3. Verified against
+// percolator-prog/src/v16_program.rs (feat/protocol-fee-taker-only@626fb617)
+// Instruction::decode arms 83/84 and handle_withdraw_protocol_fee /
+// handle_set_protocol_fee_authority.
+//
+// ⚠️ Only valid against VERSION=17 markets (protocol-fee wrapper). The
+// pre-protocol-fee (VERSION=16) wrapper has no decode arm at tag 83/84 at
+// all, and a DIFFERENT wrapper lineage assigns tag 83 to InitMatcherCtx
+// (see the @deprecated note on IX_TAG.InitMatcherCtx above) — sending this
+// encoded data to either would either be rejected or misinterpreted.
+// ============================================================================
+
+/**
+ * WithdrawProtocolFee instruction data (tag 83).
+ *
+ * v17 wire: tag(1) + amount(u128 LE) = 17 bytes.
+ *
+ * Pays out from the accrued-but-unwithdrawn protocol claim
+ * (`protocol_fee_accrued_atoms - protocol_fee_withdrawn_atoms` on
+ * WrapperConfigV17) to an external token account. Signer-gated on
+ * `cfg.protocolFeeAuthority` (see `parseWrapperConfigV17`). The transfer is
+ * clamped to what's actually available on-chain (engine surplus, vault
+ * balance) and only the actually-transferred amount is marked withdrawn —
+ * this never errors solely because the ledger raced ahead of availability.
+ *
+ * @param amount Atoms to withdraw (u128). Pass `0n` to withdraw all
+ *               currently-available capacity.
+ *
+ * @example
+ * ```ts
+ * const data = encodeWithdrawProtocolFee({ amount: 0n }); // withdraw-all
+ * // accounts: ACCOUNTS_WITHDRAW_PROTOCOL_FEE from abi/accounts.ts
+ * ```
+ */
+export interface WithdrawProtocolFeeArgs {
+  amount: bigint | string;
+}
+
+export function encodeWithdrawProtocolFee(args: WithdrawProtocolFeeArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.WithdrawProtocolFee),
+    encU128(args.amount),
+  );
+}
+
+/**
+ * SetProtocolFeeAuthority instruction data (tag 84).
+ *
+ * v17 wire: tag(1) + new_authority(32) = 33 bytes.
+ *
+ * Rotates `cfg.protocolFeeAuthority` on a single market. Gated on the
+ * program's BPF upgrade authority (a `ProgramData` PDA read, NOT
+ * marketauth/insurance_authority/any creator-facing gate) — see
+ * ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY in abi/accounts.ts. No global fan-out;
+ * a keeper script iterates markets for a mass rotation.
+ *
+ * @param newAuthority New protocol-fee-authority pubkey.
+ *
+ * @example
+ * ```ts
+ * const data = encodeSetProtocolFeeAuthority({ newAuthority: newTreasury });
+ * ```
+ */
+export interface SetProtocolFeeAuthorityArgs {
+  newAuthority: PublicKey;
+}
+
+export function encodeSetProtocolFeeAuthority(args: SetProtocolFeeAuthorityArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.SetProtocolFeeAuthority),
+    encPubkey(args.newAuthority),
+  );
 }
