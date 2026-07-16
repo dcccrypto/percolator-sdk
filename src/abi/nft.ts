@@ -92,6 +92,44 @@ export function encodeNftReconcile(): Uint8Array {
 type AccountMeta = "s" | "w" | "sw" | "r";
 
 /**
+ * BUG FOUND + FIXED (2026-07-16, uncommitted, branch feat/protocol-fee-v17):
+ * the shorthand `AccountMeta` codes above ("s"|"w"|"sw"|"r") are a DIFFERENT,
+ * incompatible type from `AccountSpec` (`{name, signer, writable}`) used by
+ * `buildAccountMetas()` in `./accounts.js`. Passing `ACCOUNTS_NFT_MINT` /
+ * `ACCOUNTS_NFT_BURN` / etc. into `buildAccountMetas()` silently produces
+ * `isSigner: undefined` and `isWritable: undefined` for every account
+ * (`spec.signer` / `spec.writable` read off a plain string) — Solana coerces
+ * both to falsy, so EVERY account in the built instruction ends up
+ * non-signer/read-only. The NFT program's own writable/signer checks then
+ * reject the transaction (confirmed live against the deployed NFT program:
+ * MintPositionNft fails with `InvalidAccountData` at ~2.4k CU, before any
+ * CPI — matching its `if !nft_pda.is_writable { return
+ * Err(InvalidAccountData) }`-style guards in percolator-nft/src/processor.rs).
+ *
+ * Use `buildNftAccountMetas()` below with these shorthand arrays instead of
+ * `buildAccountMetas()` from `./accounts.js`. No consumer in this repo (or
+ * percolator-launch, grepped) was actually calling `buildAccountMetas()` with
+ * these arrays and working — the only prior working reference
+ * (playground/flowtest/07-nft-mint.ts) builds the account list by hand,
+ * bypassing the mismatch entirely.
+ */
+export function buildNftAccountMetas(
+  spec: readonly AccountMeta[],
+  keys: readonly PublicKey[],
+): { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] {
+  if (keys.length !== spec.length) {
+    throw new Error(
+      `buildNftAccountMetas: account count mismatch: expected ${spec.length}, got ${keys.length}`,
+    );
+  }
+  return spec.map((code, i) => ({
+    pubkey: keys[i],
+    isSigner: code === "s" || code === "sw",
+    isWritable: code === "w" || code === "sw",
+  }));
+}
+
+/**
  * Account metas for MintPositionNft (tag 0). 12 accounts.
  *
  *   0. [signer, writable]  payer / position owner

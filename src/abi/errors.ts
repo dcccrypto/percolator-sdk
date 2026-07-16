@@ -4,7 +4,11 @@
  * Source: v16_program.rs PercolatorError enum (lines 174-226 in v17 wrapper).
  * Ordinals 0-29 = toly base errors; 30-41 = fork LP-vault; 42-46 = fork NFT/B-3;
  * 47-48 = insurance withdrawal policy (F-1/F-2); 49 = EngineInsufficientInitialMargin
- * (discriminant tentative — TODO: confirm once percolator-anchor ships it).
+ * (discriminant tentative — TODO: confirm once percolator-anchor ships it);
+ * 50 = LpVaultDepositBelowMinimumLiquidity (N7 dead-share floor); 51 =
+ * FeeSplitFloorViolation (creator/LP/insurance split floor) — both confirmed
+ * on-chain 2026-07-16 against fresh wrapper
+ * DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj, commit a3cb4390.
  *
  * INVARIANT: ordinals must NOT be reordered (Rust enum discriminants are
  * sequential from 0). CI asserts each ordinal in tests/v16_kani.rs.
@@ -231,6 +235,29 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   49: {
     name: "EngineInsufficientInitialMargin",
     hint: "Insufficient initial margin for this trade or position open. Deposit more collateral or reduce the position size.",
+  },
+  // ── BUG-2 / N7: LP vault genesis dead-share floor (50) ───────────────────
+  // Source: v16_program.rs PercolatorError variant appended after
+  // EngineInsufficientInitialMargin=49 (confirmed on-chain 2026-07-16 against
+  // fresh wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj, commit a3cb4390).
+  50: {
+    name: "LpVaultDepositBelowMinimumLiquidity",
+    hint: "The LP vault's true first deposit must exceed LP_VAULT_MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening). Increase the first deposit amount.",
+  },
+  // ── Fee-split floor enforcement (51) ──────────────────────────────────────
+  // Source: v16_program.rs PercolatorError variant appended after
+  // LpVaultDepositBelowMinimumLiquidity=50 (confirmed on-chain 2026-07-16
+  // against fresh wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj, commit
+  // a3cb4390). Enforced by UpdateBackingFeePolicy (tag 51) and
+  // UpdateTradeFeePolicy against policy_v16::fee_split_floor_ok: creator
+  // <=45%, LP >=40%, insurance >=15% of (trade_fee_base_bps + backing_fee_bps),
+  // within a documented rounding tolerance. NOTE: this means the 3-way split
+  // floors ARE now enforced on-chain, not wizard/app-policy-only as earlier
+  // sessions found (see v17_fee_split_decision_2026_07_14 memory) — that
+  // finding is now superseded by this build.
+  51: {
+    name: "FeeSplitFloorViolation",
+    hint: "This backing/trade fee split violates the on-chain floor (creator <=45%, LP >=40%, insurance >=15% of trade_fee_base_bps + backing_fee_bps). Adjust fee_bps/insurance_share_bps to satisfy the floor.",
   },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
