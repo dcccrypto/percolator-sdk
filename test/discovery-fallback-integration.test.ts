@@ -1087,11 +1087,13 @@ describe("Error codes — v17 NFT/LP-vault boundary parsing in discovery/fallbac
     expect(result!.name).toBe("NftPortfolioProvenance");
   });
 
-  it("codes 47-49 are now defined (insurance withdraw + EngineInsufficientInitialMargin), 50+ undefined", () => {
+  it("codes 47-51 are now defined (insurance withdraw + EngineInsufficientInitialMargin + LP-vault dead-share floor + FeeSplitFloorViolation), 52+ undefined", () => {
     expect(decodeError(47)?.name).toBe("InsuranceWithdrawCooldownActive");
     expect(decodeError(48)?.name).toBe("InsuranceWithdrawCeilingExceeded");
     expect(decodeError(49)?.name).toBe("EngineInsufficientInitialMargin");
-    expect(decodeError(50)).toBeUndefined();
+    expect(decodeError(50)?.name).toBe("LpVaultDepositBelowMinimumLiquidity");
+    expect(decodeError(51)?.name).toBe("FeeSplitFloorViolation");
+    expect(decodeError(52)).toBeUndefined();
     expect(decodeError(61)).toBeUndefined();
     expect(decodeError(65)).toBeUndefined();
   });

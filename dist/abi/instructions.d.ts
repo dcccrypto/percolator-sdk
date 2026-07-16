@@ -925,6 +925,86 @@ export interface TopUpBackingBucketArgs {
 }
 export declare function encodeTopUpBackingBucket(args: TopUpBackingBucketArgs): Uint8Array;
 /**
+ * WithdrawBackingBucket instruction data (tag 50).
+ *
+ * v17 wire: tag(1) + domain(u16 LE) + amount(u128 LE) = 19 bytes.
+ *
+ * Withdraws `amount` quote atoms of backing-bucket PRINCIPAL from a domain
+ * back to the authority's token account. Gated by the asset's
+ * `backing_bucket_authority` (or marketauth) — v16_program.rs
+ * `handle_withdraw_backing_bucket` → `verify_domain_withdrawal_preflight`
+ * with DOMAIN_WITHDRAW_AUTH_BACKING. The destination token account must be
+ * OWNED by the signing authority (verify_withdrawable_token_accounts).
+ *
+ * Together with TopUpBackingBucket (24, deposit) and
+ * WithdrawBackingBucketEarnings (52, fee earnings) this completes the
+ * LP-provider backing-bucket loop.
+ *
+ * @param domain Backing-bucket domain index (2*assetIndex for long,
+ *               2*assetIndex+1 for short).
+ * @param amount Quote atoms to withdraw (u128; must be > 0).
+ */
+export interface WithdrawBackingBucketArgs {
+    domain: number;
+    amount: bigint | string;
+}
+export declare function encodeWithdrawBackingBucket(args: WithdrawBackingBucketArgs): Uint8Array;
+/**
+ * UpdateBackingFeePolicy instruction data (tag 51).
+ *
+ * v17 wire: tag(1) + domain(u16 LE) + fee_bps(u16 LE) +
+ *   insurance_share_bps(u16 LE) = 7 bytes.
+ *
+ * THE switch that turns on LP-vault yield for a domain: sets the
+ * backing-trade fee charged on that domain's fills, of which
+ * `insurance_share_bps` is diverted to the insurance budget and the
+ * remainder accrues to the domain's backing-bucket providers as
+ * `utilization_fee_earnings` (withdrawable via tag 52). Every live market
+ * currently has this at 0 — which is why LP APY is 0%.
+ *
+ * Gated by the asset's `insurance_authority` (v16_program.rs
+ * `handle_update_backing_fee_policy`, gate at ~10492) — NOT marketauth, so
+ * the market creator can call it even after the launch flow rotates
+ * marketauth to the stake-pool PDA. Market must be Live.
+ *
+ * Handler-side validation (reverts InvalidInstruction otherwise):
+ * fee_bps ≤ 10_000, insurance_share_bps ≤ 10_000, fee_bps == 0 implies
+ * insurance_share_bps == 0, fee_bps ≤ the market's max_trading_fee_bps and
+ * ≤ MAX_DYNAMIC_TRADE_FEE_BPS.
+ *
+ * @param domain            Domain index (2*assetIndex long, 2*assetIndex+1 short).
+ * @param feeBps            Backing-trade fee in bps (0 turns the fee off).
+ * @param insuranceShareBps Share of that fee diverted to insurance, in bps
+ *                          of the fee (the rest goes to backing providers).
+ */
+export interface UpdateBackingFeePolicyArgs {
+    domain: number;
+    feeBps: number;
+    insuranceShareBps: number;
+}
+export declare function encodeUpdateBackingFeePolicy(args: UpdateBackingFeePolicyArgs): Uint8Array;
+/**
+ * WithdrawBackingBucketEarnings instruction data (tag 52).
+ *
+ * v17 wire: tag(1) + domain(u16 LE) + amount(u128 LE) = 19 bytes.
+ *
+ * Withdraws accrued `utilization_fee_earnings` (the LP-provider share of the
+ * backing-trade fee enabled via tag 51) from a domain's backing bucket to
+ * the authority's token account. Gated by the asset's
+ * `backing_bucket_authority` (or marketauth) — v16_program.rs
+ * `handle_withdraw_backing_bucket_earnings` → same
+ * DOMAIN_WITHDRAW_AUTH_BACKING preflight as tag 50. Unlike tag 50, the
+ * per-domain ledger account is REQUIRED (account [2]).
+ *
+ * @param domain Domain index (2*assetIndex long, 2*assetIndex+1 short).
+ * @param amount Earnings quote atoms to withdraw (u128; must be > 0).
+ */
+export interface WithdrawBackingBucketEarningsArgs {
+    domain: number;
+    amount: bigint | string;
+}
+export declare function encodeWithdrawBackingBucketEarnings(args: WithdrawBackingBucketEarningsArgs): Uint8Array;
+/**
  * TradeCpi instruction data (v17 wire format).
  *
  * v17 wire: tag(1) + asset_index(u16) + size_q(i128) + fee_bps(u64) + limit_price(u64)

@@ -674,6 +674,28 @@ function encodeTopUpBackingBucket(args) {
     encU64(args.expirySlot)
   );
 }
+function encodeWithdrawBackingBucket(args) {
+  return concatBytes(
+    encU8(IX_TAG.WithdrawBackingBucket),
+    encU16(args.domain),
+    encU128(args.amount)
+  );
+}
+function encodeUpdateBackingFeePolicy(args) {
+  return concatBytes(
+    encU8(IX_TAG.UpdateBackingFeePolicy),
+    encU16(args.domain),
+    encU16(args.feeBps),
+    encU16(args.insuranceShareBps)
+  );
+}
+function encodeWithdrawBackingBucketEarnings(args) {
+  return concatBytes(
+    encU8(IX_TAG.WithdrawBackingBucketEarnings),
+    encU16(args.domain),
+    encU128(args.amount)
+  );
+}
 function encodeTradeCpi(args) {
   const data = concatBytes(
     encU8(IX_TAG.TradeCpi),
@@ -1453,6 +1475,27 @@ var ACCOUNTS_TOP_UP_BACKING_BUCKET = [
   { name: "vaultToken", signer: false, writable: true },
   { name: "tokenProgram", signer: false, writable: false }
 ];
+var ACCOUNTS_WITHDRAW_BACKING_BUCKET = [
+  { name: "authority", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "destToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false }
+];
+var ACCOUNTS_UPDATE_BACKING_FEE_POLICY = [
+  { name: "authority", signer: true, writable: true },
+  { name: "market", signer: false, writable: true }
+];
+var ACCOUNTS_WITHDRAW_BACKING_BUCKET_EARNINGS = [
+  { name: "authority", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "ledger", signer: false, writable: true },
+  { name: "destToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false }
+];
 var ACCOUNTS_TRADE_CPI = [
   { name: "signerA", signer: true, writable: false },
   { name: "market", signer: false, writable: true },
@@ -2152,6 +2195,29 @@ var PERCOLATOR_ERRORS = {
   49: {
     name: "EngineInsufficientInitialMargin",
     hint: "Insufficient initial margin for this trade or position open. Deposit more collateral or reduce the position size."
+  },
+  // ── BUG-2 / N7: LP vault genesis dead-share floor (50) ───────────────────
+  // Source: v16_program.rs PercolatorError variant appended after
+  // EngineInsufficientInitialMargin=49 (confirmed on-chain 2026-07-16 against
+  // fresh wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj, commit a3cb4390).
+  50: {
+    name: "LpVaultDepositBelowMinimumLiquidity",
+    hint: "The LP vault's true first deposit must exceed LP_VAULT_MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening). Increase the first deposit amount."
+  },
+  // ── Fee-split floor enforcement (51) ──────────────────────────────────────
+  // Source: v16_program.rs PercolatorError variant appended after
+  // LpVaultDepositBelowMinimumLiquidity=50 (confirmed on-chain 2026-07-16
+  // against fresh wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj, commit
+  // a3cb4390). Enforced by UpdateBackingFeePolicy (tag 51) and
+  // UpdateTradeFeePolicy against policy_v16::fee_split_floor_ok: creator
+  // <=45%, LP >=40%, insurance >=15% of (trade_fee_base_bps + backing_fee_bps),
+  // within a documented rounding tolerance. NOTE: this means the 3-way split
+  // floors ARE now enforced on-chain, not wizard/app-policy-only as earlier
+  // sessions found (see v17_fee_split_decision_2026_07_14 memory) — that
+  // finding is now superseded by this build.
+  51: {
+    name: "FeeSplitFloorViolation",
+    hint: "This backing/trade fee split violates the on-chain floor (creator <=45%, LP >=40%, insurance >=15% of trade_fee_base_bps + backing_fee_bps). Adjust fee_bps/insurance_share_bps to satisfy the floor."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -2310,6 +2376,18 @@ function encodeNftEmergencyBurn() {
 }
 function encodeNftReconcile() {
   return new Uint8Array([NFT_IX_TAG.ReconcileBurnedNft]);
+}
+function buildNftAccountMetas(spec, keys) {
+  if (keys.length !== spec.length) {
+    throw new Error(
+      `buildNftAccountMetas: account count mismatch: expected ${spec.length}, got ${keys.length}`
+    );
+  }
+  return spec.map((code, i) => ({
+    pubkey: keys[i],
+    isSigner: code === "s" || code === "sw",
+    isWritable: code === "w" || code === "sw"
+  }));
 }
 var ACCOUNTS_NFT_MINT = [
   "sw",
@@ -8659,8 +8737,11 @@ export {
   ACCOUNTS_UNPAUSE_MARKET,
   ACCOUNTS_UPDATE_ADMIN,
   ACCOUNTS_UPDATE_AUTHORITY,
+  ACCOUNTS_UPDATE_BACKING_FEE_POLICY,
   ACCOUNTS_UPDATE_CONFIG,
   ACCOUNTS_UPDATE_HYPERP_MARK,
+  ACCOUNTS_WITHDRAW_BACKING_BUCKET,
+  ACCOUNTS_WITHDRAW_BACKING_BUCKET_EARNINGS,
   ACCOUNTS_WITHDRAW_COLLATERAL,
   ACCOUNTS_WITHDRAW_INSURANCE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE,
@@ -8779,6 +8860,7 @@ export {
   buildAdlInstruction,
   buildAdlTransaction,
   buildIx,
+  buildNftAccountMetas,
   burnAssetAdminAccounts,
   checkPhaseTransition,
   checkRpcHealth,
@@ -8977,10 +9059,13 @@ export {
   encodeUpdateAdmin,
   encodeUpdateAssetAuthority,
   encodeUpdateAuthority,
+  encodeUpdateBackingFeePolicy,
   encodeUpdateConfig,
   encodeUpdateHyperpMark,
   encodeUpdateMarkPrice,
   encodeUpdateRiskParams,
+  encodeWithdrawBackingBucket,
+  encodeWithdrawBackingBucketEarnings,
   encodeWithdrawCollateral,
   encodeWithdrawInsurance,
   encodeWithdrawInsuranceAsset,

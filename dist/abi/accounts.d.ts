@@ -186,6 +186,43 @@ export declare const ACCOUNTS_TOPUP_INSURANCE: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_TOP_UP_BACKING_BUCKET: readonly AccountSpec[];
 /**
+ * WithdrawBackingBucket (tag 50): 6 fixed accounts + optional ledger.
+ *
+ * v17 wire account layout (v16_program.rs handle_withdraw_backing_bucket):
+ *   [0] authority      signer — the asset's backing_bucket_authority (or marketauth)
+ *   [1] market         writable (market-group slab; program-owned)
+ *   [2] destToken      writable (authority-OWNED token account — destination)
+ *   [3] vaultToken     writable (program vault token account — source)
+ *   [4] vaultAuthority read-only (PDA that signs the token CPI)
+ *   [5] tokenProgram   read-only
+ *   [6] ledger         writable, optional (per-domain BackingDomainLedger PDA)
+ */
+export declare const ACCOUNTS_WITHDRAW_BACKING_BUCKET: readonly AccountSpec[];
+/**
+ * UpdateBackingFeePolicy (tag 51): 2 accounts — the LP-yield on/off switch.
+ *
+ * v17 wire account layout (v16_program.rs handle_update_backing_fee_policy):
+ *   [0] authority signer — the asset's insurance_authority (NOT marketauth,
+ *                 so it stays callable by the creator wallet after the
+ *                 launch flow rotates marketauth to the stake-pool PDA)
+ *   [1] market    writable (market-group slab; program-owned)
+ */
+export declare const ACCOUNTS_UPDATE_BACKING_FEE_POLICY: readonly AccountSpec[];
+/**
+ * WithdrawBackingBucketEarnings (tag 52): 7 accounts — ledger REQUIRED.
+ *
+ * v17 wire account layout (v16_program.rs handle_withdraw_backing_bucket_earnings):
+ *   [0] authority      signer — the asset's backing_bucket_authority (or marketauth)
+ *   [1] market         writable (market-group slab; program-owned)
+ *   [2] ledger         writable, REQUIRED (per-domain BackingDomainLedger PDA;
+ *                      unlike tag 50 where it is an optional tail)
+ *   [3] destToken      writable (authority-OWNED token account — destination)
+ *   [4] vaultToken     writable (program vault token account — source)
+ *   [5] vaultAuthority read-only (PDA that signs the token CPI)
+ *   [6] tokenProgram   read-only
+ */
+export declare const ACCOUNTS_WITHDRAW_BACKING_BUCKET_EARNINGS: readonly AccountSpec[];
+/**
  * TradeCpi (tag 10): 7 fixed accounts + optional tail.
  *
  * v17 wire account layout (v16_program.rs handle_trade_cpi):

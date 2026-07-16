@@ -16,7 +16,11 @@ import {
  *   42-46 = fork NFT/B-3 errors
  *   47-48 = insurance withdrawal policy (F-1/F-2) — in deployed wrapper
  *   49    = EngineInsufficientInitialMargin (discriminant tentative — TODO)
- *   50+   = undefined (should be undefined in the table)
+ *   50    = LpVaultDepositBelowMinimumLiquidity (BUG-2/N7 dead-share floor)
+ *   51    = FeeSplitFloorViolation (creator/LP/insurance floor, added commit
+ *           a3cb4390 — confirmed on-chain 2026-07-16 against fresh wrapper
+ *           DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj)
+ *   52+   = undefined (should be undefined in the table)
  */
 
 // ============================================================================
@@ -24,16 +28,16 @@ import {
 // ============================================================================
 
 describe("PERCOLATOR_ERRORS table", () => {
-  it("has contiguous error codes from 0 to 49", () => {
-    for (let i = 0; i <= 49; i++) {
+  it("has contiguous error codes from 0 to 51", () => {
+    for (let i = 0; i <= 51; i++) {
       expect(PERCOLATOR_ERRORS[i], `error ${i} should be defined`).toBeDefined();
       expect(PERCOLATOR_ERRORS[i].name).toBeTruthy();
       expect(PERCOLATOR_ERRORS[i].hint).toBeTruthy();
     }
   });
 
-  it("error codes 50+ are not defined", () => {
-    expect(PERCOLATOR_ERRORS[50]).toBeUndefined();
+  it("error codes 52+ are not defined", () => {
+    expect(PERCOLATOR_ERRORS[52]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[65]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[100]).toBeUndefined();
   });
@@ -147,8 +151,18 @@ describe("decodeError", () => {
     expect(decodeError(47)!.name).toBe("InsuranceWithdrawCooldownActive");
   });
 
-  it("returns undefined for unknown code 50 (beyond current table)", () => {
-    expect(decodeError(50)).toBeUndefined();
+  it("returns defined info for code 50 (LpVaultDepositBelowMinimumLiquidity)", () => {
+    expect(decodeError(50)).toBeDefined();
+    expect(decodeError(50)!.name).toBe("LpVaultDepositBelowMinimumLiquidity");
+  });
+
+  it("returns defined info for code 51 (FeeSplitFloorViolation)", () => {
+    expect(decodeError(51)).toBeDefined();
+    expect(decodeError(51)!.name).toBe("FeeSplitFloorViolation");
+  });
+
+  it("returns undefined for unknown code 52 (beyond current table)", () => {
+    expect(decodeError(52)).toBeUndefined();
   });
 
   it("returns undefined for unknown code 10_000", () => {
@@ -180,7 +194,7 @@ describe("getErrorName", () => {
   });
 
   it("returns Unknown(...) for unknown codes beyond the table", () => {
-    expect(getErrorName(50)).toBe("Unknown(50)");
+    expect(getErrorName(52)).toBe("Unknown(52)");
     expect(getErrorName(999)).toBe("Unknown(999)");
     expect(getErrorName(100)).toBe("Unknown(100)");
   });
