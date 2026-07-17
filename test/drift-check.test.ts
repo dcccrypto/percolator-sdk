@@ -427,7 +427,7 @@ describe("SDK drift guards", () => {
 
 describe("encodeKeeperCrank — deprecated in v17 (throws removedInstruction)", () => {
   // encodeKeeperCrank() now throws in v17 — v12 wire format not accepted.
-  // Use encodePermissionlessCrank() instead (tag 5, 53-byte wire).
+  // Use encodePermissionlessCrank() instead (tag 5, 29-byte wire post-W3).
   it("encodeKeeperCrank throws removedInstruction (v12 wire not in v17)", () => {
     expect(() => encodeKeeperCrank({ callerIdx: 7 })).toThrow("encodePermissionlessCrank");
   });

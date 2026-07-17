@@ -359,20 +359,22 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeKeeperCrank rejects removed v12 wire");
 }
 
-// Test encodePermissionlessCrank (v17 wire: 53 bytes)
+// Test encodePermissionlessCrank (v17 W3 wire: 29 bytes)
+// FIX W3 (upstream wrapper #206): close_q(u128)/fee_bps(u64) are REMOVED from
+// the wire — liquidation size/fee are engine-selected, not caller-supplied.
 // Wire: tag(1) + action(u8) + asset_index(u16) + now_slot(u64) +
-//       funding_rate_e9=0n(i128) + close_q(u128) + fee_bps(u64) + recovery_reason(u8)
-// Total: 1+1+2+8+16+16+8+1 = 53 bytes
+//       funding_rate_e9=0n(i128) + recovery_reason(u8)
+// Total: 1+1+2+8+16+1 = 29 bytes
+// PINNED: this must stay 29 bytes. A regression back to the pre-W3 53-byte
+// layout (re-adding close_q/fee_bps) MUST fail this assertion.
 {
   const data = encodePermissionlessCrank({
     action: CrankAction.FeeSweep,
     assetIndex: 0,
     nowSlot: 1000n,
-    closeQ: 0n,
-    feeBps: 0n,
     recoveryReason: 0,
   });
-  assert(data.length === 53, `PermissionlessCrank length: expected 53, got ${data.length}`);
+  assert(data.length === 29, `PermissionlessCrank length: expected 29 (W3 wire), got ${data.length}`);
   assert(data[0] === IX_TAG.PermissionlessCrank, "PermissionlessCrank tag byte = 5");
   assert(data[1] === CrankAction.FeeSweep, "PermissionlessCrank action = 0 (FeeSweep)");
   assertBuf(data.subarray(2, 4), [0, 0], "PermissionlessCrank assetIndex=0 LE");
@@ -384,17 +386,20 @@ console.log("\nTesting instruction encoders...\n");
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "PermissionlessCrank fundingRateE9=0n (hardcoded)"
   );
-  // close_q=0n (u128 LE = 16 zero bytes) at [28..44]
+  // recovery_reason=0 at [28] (close_q/fee_bps no longer on the wire — W3)
+  assert(data[28] === 0, "PermissionlessCrank recoveryReason=0");
+  // Exact-bytes pin: the full 29-byte payload, byte for byte.
   assertBuf(
-    data.subarray(28, 44),
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "PermissionlessCrank closeQ=0"
+    data,
+    [
+      IX_TAG.PermissionlessCrank, CrankAction.FeeSweep, 0, 0,      // tag, action, assetIndex(u16)
+      0xe8, 0x03, 0, 0, 0, 0, 0, 0,                                 // nowSlot=1000 (u64)
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,               // fundingRateE9=0 (i128)
+      0,                                                             // recoveryReason
+    ],
+    "PermissionlessCrank full 29-byte wire pin"
   );
-  // fee_bps=0n (u64 LE = 8 zero bytes) at [44..52]
-  assertBuf(data.subarray(44, 52), [0, 0, 0, 0, 0, 0, 0, 0], "PermissionlessCrank feeBps=0");
-  // recovery_reason=0 at [52]
-  assert(data[52] === 0, "PermissionlessCrank recoveryReason=0");
-  console.log("✓ encodePermissionlessCrank (v17 53-byte wire)");
+  console.log("✓ encodePermissionlessCrank (v17 W3 29-byte wire)");
 }
 
 // Test TradeNoCpi encoding (v17 wire: 28 bytes)

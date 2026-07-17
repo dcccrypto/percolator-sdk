@@ -741,9 +741,23 @@ export declare const CrankAction: {
 /**
  * PermissionlessCrank (tag 5) instruction args.
  *
+ * FIX W3 (upstream wrapper #206, pairs with engine E3 / upstream #92):
+ * BREAKING wire change. `close_q`/`fee_bps` are NO LONGER caller-supplied —
+ * liquidation size is engine-selected (`liquidation_engine_close_request_q`)
+ * and the fee rate is always read from config inside
+ * `liquidate_account_not_atomic`. This closes the "min-fee chunking" exploit
+ * where a keeper could pick a tiny close_q to under-pay the liquidation fee
+ * while still making forward progress. Any client still encoding the old
+ * 53-byte layout (with close_q/fee_bps) will be rejected by the v17 program
+ * as a decode error — this is a compile-time-shaped guarantee on the Rust
+ * side, not a runtime check.
+ *
  * v17 wire: tag(1) + action(u8) + asset_index(u16) + now_slot(u64) +
- *   funding_rate_e9(i128 HARDCODED=0) + close_q(u128) + fee_bps(u64) +
- *   recovery_reason(u8) = 47 bytes.
+ *   funding_rate_e9(i128 HARDCODED=0) + recovery_reason(u8) = 29 bytes.
+ *
+ * Source: v16_program.rs Instruction::PermissionlessCrank decode/encode
+ * (tag 5), verified byte-for-byte against the Rust `read_u8`/`read_u16`/
+ * `read_u64`/`read_i128`/`push_*` call sequence.
  *
  * CRITICAL: funding_rate_e9 is always hardcoded to 0n by this encoder.
  * The program hard-rejects any nonzero value with InvalidInstructionData.
@@ -753,8 +767,6 @@ export declare const CrankAction: {
  * @param action       CrankAction.FeeSweep or CrankAction.Liquidate.
  * @param assetIndex   Asset/domain index to operate on.
  * @param nowSlot      Current slot (for crank freshness check).
- * @param closeQ       Quantity to close (0 for FeeSweep).
- * @param feeBps       Fee in basis points.
  * @param recoveryReason Recovery reason byte (0 for normal operations).
  *
  * @example
@@ -764,8 +776,6 @@ export declare const CrankAction: {
  *   action: CrankAction.FeeSweep,
  *   assetIndex: 0,
  *   nowSlot: currentSlot,
- *   closeQ: 0n,
- *   feeBps: 0n,
  *   recoveryReason: 0,
  * });
  * ```
@@ -774,8 +784,6 @@ export interface PermissionlessCrankArgs {
     action: number;
     assetIndex: number;
     nowSlot: bigint | string;
-    closeQ: bigint | string;
-    feeBps: bigint | string;
     recoveryReason: number;
 }
 export declare function encodePermissionlessCrank(args: PermissionlessCrankArgs): Uint8Array;

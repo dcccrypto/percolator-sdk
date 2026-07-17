@@ -627,8 +627,6 @@ function encodePermissionlessCrank(args) {
     encU64(args.nowSlot),
     encI128(0n),
     // funding_rate_e9 HARDCODED=0n (program rejects nonzero)
-    encU128(args.closeQ),
-    encU64(args.feeBps),
     encU8(args.recoveryReason)
   );
 }
