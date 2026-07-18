@@ -3,21 +3,20 @@
  * Percolator Insurance LP Staking program — instruction encoders, PDA derivation, and account specs.
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
- * Deployed devnet:  51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ
+ * Deployed devnet:  GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3 (fresh v17 triple,
+ *   deployed 2026-07-17, hash-verified — see PROGRAM_IDS_V17.vault in
+ *   `src/config/program-ids.ts`)
  * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F (unverified — no confirmed
  *   mainnet deployment of any stake/vault lineage found in the v17 planning docs as of
  *   this writing; treat as a placeholder until DevOps confirms)
  *
- * LINEAGE (as of 2026-07-15, see ~/v17/RESEARCH-issue6-lineage.md): the devnet address
- * 51CeUNpb... currently runs `percolator-vault@eb3ebe8` (`find4-insurance-authority-bind`).
- * The ADOPTED go-forward lineage is `percolator-stake@feat/adopt-stake-lineage-plus-n7`
- * (HEAD c5a901f — includes the H-1 re-review fix that bumps StakePool 384->392 bytes /
- * CURRENT_VERSION 2->3, see STAKE_POOL_SIZE_V3) — a same-address BPF upgrade of
- * 51CeUNpb..., NOT a new deployment. This module's STAKE_IX tag table and decodeStakePool
- * below already reflect the ADOPTED lineage's instruction set, which is a BREAKING change
- * vs what 51CeUNpb... currently runs on-chain until that upgrade lands (coordinate with
- * the wrapper protocol-fee redeploy — both require the same full market re-seed, see the
- * RESEARCH doc §3).
+ * LINEAGE (as of 2026-07-17): the devnet address GCHhcgw... was deployed FRESH from
+ * `~/v17/percolator-stake@1e08d35` (hash `0e9c2572...`) — the ADOPTED
+ * `percolator-stake@feat/adopt-stake-lineage-plus-n7` lineage's instruction set, matching
+ * this module's STAKE_IX tag table and decodeStakePool below exactly (no on-chain drift).
+ * This is a NEW address, NOT an in-place upgrade of the old `51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ`
+ * (which ran `percolator-vault@eb3ebe8` and is now SUPERSEDED / no longer the SDK default —
+ * do not use it for new integrations).
  */
 import { PublicKey } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
@@ -25,22 +24,22 @@ export { TOKEN_2022_PROGRAM_ID };
 /**
  * Known stake program addresses per network.
  *
- * devnet: FIXED from the stale/wrong-lineage `6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k`
- * (an address that does not match any pinned deployment in the v17 planning docs) to
- * `51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ` — the actually-deployed devnet
- * stake/vault program, cross-verified against `PROGRAM_IDS_V17.vault` in
- * `src/config/program-ids.ts` ("v17 vault — deployed devnet 2026-06-26") and every
- * pinned reference in `~/v17/DECISIONS-LEDGER.md` / `~/v17/CONSOLIDATED-PLAN.md` /
- * `~/v17/RESEARCH-issue6-lineage.md`. This address currently runs
- * `percolator-vault@eb3ebe8`; it will be upgraded IN PLACE (same address) to the
- * ADOPTED `percolator-stake` lineage this module targets — see the module doc above.
+ * devnet: UPDATED from the SUPERSEDED `51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ`
+ * (the old `percolator-vault@eb3ebe8` deployment) to the FRESH v17 devnet triple's
+ * stake address `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3`, deployed 2026-07-17
+ * from `~/v17/percolator-stake@1e08d35` (hash `0e9c2572...`), cross-verified against
+ * `PROGRAM_IDS_V17.vault` in `src/config/program-ids.ts` ("v17 vault — deployed
+ * devnet 2026-07-17, hash-verified"). This is a NEW address (not an in-place upgrade
+ * of the old 51CeUNpb... address, which is now superseded and should not be used for
+ * new integrations) and already runs the ADOPTED `percolator-stake` lineage this
+ * module targets — see the module doc above.
  *
  * mainnet: UNVERIFIED — no confirmed mainnet stake/vault deployment found in any
  * v17 planning doc (Percolator mainnet is still in prep). Do not treat this as ground
  * truth; prefer the STAKE_PROGRAM_ID env override on mainnet until DevOps confirms.
  */
 export declare const STAKE_PROGRAM_IDS: {
-    readonly devnet: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ";
+    readonly devnet: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3";
     readonly mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F";
 };
 /**

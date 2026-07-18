@@ -577,8 +577,13 @@ describe("V12_1 slab — layout detection and field offsets", () => {
 // ===========================================================================
 
 describe("STAKE_PROGRAM_ID — address constants", () => {
-  it("STAKE_PROGRAM_ID exports the deployed devnet address 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ (matches PROGRAM_IDS_V17.vault)", () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe("51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ");
+  it("STAKE_PROGRAM_ID exports the fresh devnet address GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3 (matches PROGRAM_IDS_V17.vault)", () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
+  });
+
+  it("STAKE_PROGRAM_ID does NOT export the OLD superseded address 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ", () => {
+    // Non-vacuity guard: catches a revert to the old percolator-vault@eb3ebe8 address.
+    expect(STAKE_PROGRAM_ID.toBase58()).not.toBe("51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ");
   });
 
   it("STAKE_PROGRAM_ID equals STAKE_PROGRAM_IDS.devnet", () => {
@@ -596,19 +601,30 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     }
   });
 
-  it("getStakeProgramId('devnet') returns 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ", () => {
+  it("getStakeProgramId('devnet') returns GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
     const saved = process.env.STAKE_PROGRAM_ID;
     delete process.env.STAKE_PROGRAM_ID;
     try {
       const pk = getStakeProgramId("devnet");
-      expect(pk.toBase58()).toBe("51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ");
+      expect(pk.toBase58()).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
     } finally {
       if (saved !== undefined) process.env.STAKE_PROGRAM_ID = saved;
     }
   });
 
-  it("STAKE_PROGRAM_IDS.devnet constant is 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ", () => {
-    expect(STAKE_PROGRAM_IDS.devnet).toBe("51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ");
+  it("getStakeProgramId('devnet') does NOT return the OLD superseded address (revert guard)", () => {
+    const saved = process.env.STAKE_PROGRAM_ID;
+    delete process.env.STAKE_PROGRAM_ID;
+    try {
+      const pk = getStakeProgramId("devnet");
+      expect(pk.toBase58()).not.toBe("51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ");
+    } finally {
+      if (saved !== undefined) process.env.STAKE_PROGRAM_ID = saved;
+    }
+  });
+
+  it("STAKE_PROGRAM_IDS.devnet constant is GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
+    expect(STAKE_PROGRAM_IDS.devnet).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
   });
 
   it("mainnet and devnet addresses are different", () => {

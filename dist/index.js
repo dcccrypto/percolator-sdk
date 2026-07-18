@@ -6501,7 +6501,7 @@ function isStandardToken(tokenProgramId) {
 import { PublicKey as PublicKey11, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4, TOKEN_2022_PROGRAM_ID as TOKEN_2022_PROGRAM_ID2 } from "@solana/spl-token";
 var STAKE_PROGRAM_IDS = {
-  devnet: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ",
+  devnet: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3",
   mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F"
 };
 Object.freeze(STAKE_PROGRAM_IDS);

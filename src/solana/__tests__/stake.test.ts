@@ -61,8 +61,14 @@ const slab = Keypair.generate().publicKey;
 const user = Keypair.generate().publicKey;
 
 describe('STAKE_PROGRAM_ID', () => {
-  it('is a valid public key pointing at the deployed devnet stake/vault program (51CeUNpb...), matching PROGRAM_IDS_V17.vault', () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe('51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ');
+  it('is a valid public key pointing at the fresh devnet stake program (GCHhcgw...), matching PROGRAM_IDS_V17.vault', () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe('GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3');
+  });
+
+  it('does NOT point at the OLD superseded stake/vault address (51CeUNpb...)', () => {
+    // Non-vacuity guard: if someone reverts STAKE_PROGRAM_IDS.devnet back to the old
+    // percolator-vault@eb3ebe8 address, this must fail.
+    expect(STAKE_PROGRAM_ID.toBase58()).not.toBe('51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ');
   });
 });
 
