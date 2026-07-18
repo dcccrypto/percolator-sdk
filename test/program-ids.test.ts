@@ -6,6 +6,8 @@ import {
   getMatcherProgramId,
   getCurrentNetwork,
   PROGRAM_IDS,
+  PROGRAM_IDS_V17,
+  PROGRAM_ID_V17,
 } from "../src/config/program-ids.js";
 
 describe("safeEnv", () => {
@@ -44,6 +46,61 @@ describe("getMatcherProgramId", () => {
     const pk = getMatcherProgramId("devnet");
     expect(pk).toBeInstanceOf(PublicKey);
     expect(pk.toBase58()).toBe(PROGRAM_IDS.devnet.matcher);
+  });
+});
+
+// ===========================================================================
+// Fresh v17 devnet triple — deployed + upgraded 2026-07-17, hash-verified.
+// These assertions are pinned to literal, hardcoded expected values (not
+// self-referential comparisons against the module's own constants) so that
+// a regression to the stale 2026-06-26 triple (69VUZ7a2..., 51CeUNpb...,
+// 5TnritLt...) fails loudly instead of silently passing.
+// ===========================================================================
+describe("v17 fresh devnet triple (2026-07-17)", () => {
+  it("getProgramId('devnet') resolves to the fresh wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj", () => {
+    const pk = getProgramId("devnet");
+    expect(pk.toBase58()).toBe("DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj");
+  });
+
+  it("PROGRAM_IDS.devnet.percolator is the fresh wrapper (cutover default)", () => {
+    expect(PROGRAM_IDS.devnet.percolator).toBe(
+      "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+    );
+  });
+
+  it("PROGRAM_IDS_V17.percolator is the fresh wrapper", () => {
+    expect(PROGRAM_IDS_V17.percolator).toBe(
+      "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+    );
+  });
+
+  it("PROGRAM_ID_V17 PublicKey matches the fresh wrapper", () => {
+    expect(PROGRAM_ID_V17.toBase58()).toBe(
+      "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+    );
+  });
+
+  it("PROGRAM_IDS_V17.vault is the fresh stake/vault program GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
+    expect(PROGRAM_IDS_V17.vault).toBe(
+      "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3",
+    );
+  });
+
+  it("PROGRAM_IDS_V17.nft is the fresh nft program CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3", () => {
+    expect(PROGRAM_IDS_V17.nft).toBe(
+      "CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3",
+    );
+  });
+
+  it("PROGRAM_IDS_V17.matcher is unchanged (upgraded in place, same address)", () => {
+    expect(PROGRAM_IDS_V17.matcher).toBe(
+      "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
+    );
+  });
+
+  it("does NOT resolve to the superseded 2026-06-26 wrapper address", () => {
+    const pk = getProgramId("devnet");
+    expect(pk.toBase58()).not.toBe("69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9");
   });
 });
 

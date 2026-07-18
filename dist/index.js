@@ -2273,8 +2273,10 @@ function safeEnv(key) {
 }
 var PROGRAM_IDS = {
   devnet: {
-    // v17 deployed devnet programs (2026-06-26)
-    percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
+    // v17 deployed devnet programs — fresh triple, deployed + upgraded 2026-07-17,
+    // hash-verified on-chain. Supersedes the 2026-06-26 wrapper (69VUZ7a2...), which
+    // remains live on devnet with ~152 existing markets but is no longer the SDK default.
+    percolator: "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
     matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT"
   },
   mainnet: {
@@ -2286,14 +2288,14 @@ Object.freeze(PROGRAM_IDS.devnet);
 Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 var PROGRAM_IDS_V17 = {
-  /** v17 wrapper — deployed devnet 2026-06-26. */
-  percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
-  /** v17 matcher — deployed devnet 2026-06-26. */
+  /** v17 wrapper — deployed devnet 2026-07-17, hash-verified. */
+  percolator: "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+  /** v17 matcher — deployed devnet 2026-06-26, unchanged (same address). */
   matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
-  /** v17 nft — deployed devnet 2026-06-26. */
-  nft: "5TnritLtHS76s5iV8axqDmqhcmJKMRUekMGrk9rBTqSP",
-  /** v17 vault — deployed devnet 2026-06-26. */
-  vault: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ"
+  /** v17 nft — deployed devnet 2026-07-17, hash-verified. */
+  nft: "CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3",
+  /** v17 vault — deployed devnet 2026-07-17, hash-verified. */
+  vault: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3"
 };
 Object.freeze(PROGRAM_IDS_V17);
 var PROGRAM_ID_V17 = new PublicKey3(PROGRAM_IDS_V17.percolator);

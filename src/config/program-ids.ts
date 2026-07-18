@@ -24,8 +24,10 @@ export function safeEnv(key: string): string | undefined {
 
 export const PROGRAM_IDS = {
   devnet: {
-    // v17 deployed devnet programs (2026-06-26)
-    percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
+    // v17 deployed devnet programs — fresh triple, deployed + upgraded 2026-07-17,
+    // hash-verified on-chain. Supersedes the 2026-06-26 wrapper (69VUZ7a2...), which
+    // remains live on devnet with ~152 existing markets but is no longer the SDK default.
+    percolator: "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
     matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
   },
   mainnet: {
@@ -38,26 +40,31 @@ Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 
 /**
- * v17 program IDs — placeholder until the v17 converged program is deployed.
+ * v17 program IDs — fresh devnet triple, deployed + upgraded 2026-07-17,
+ * hash-verified on-chain (wrapper + stake/vault + nft; matcher was already live
+ * and upgraded in place at the same address).
  *
- * The v17 program uses `declare_id!("Perco1ator111111111111111111111111111111111")`
- * in its source. This will be replaced with the real on-chain address when deployed.
- *
- * v17 converged programs are NOT deployed (cutover is Phase 7 gate).
+ * This supersedes the 2026-06-26 triple (wrapper 69VUZ7a2..., vault 51CeUNpb...,
+ * nft 5TnritLt...). Those OLD addresses are STILL LIVE on devnet with ~152 existing
+ * markets — they were not migrated in place, so anything still pointed at them
+ * (e.g. the percolator-launch playground config, which hardcodes its own program
+ * ID rather than reading this module) keeps working against the old markets until
+ * it is explicitly cut over to this fresh triple. That playground cutover is a
+ * separate, later step — NOT performed by this change.
  */
 export const PROGRAM_IDS_V17 = {
-  /** v17 wrapper — deployed devnet 2026-06-26. */
-  percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
-  /** v17 matcher — deployed devnet 2026-06-26. */
+  /** v17 wrapper — deployed devnet 2026-07-17, hash-verified. */
+  percolator: "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+  /** v17 matcher — deployed devnet 2026-06-26, unchanged (same address). */
   matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
-  /** v17 nft — deployed devnet 2026-06-26. */
-  nft: "5TnritLtHS76s5iV8axqDmqhcmJKMRUekMGrk9rBTqSP",
-  /** v17 vault — deployed devnet 2026-06-26. */
-  vault: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ",
+  /** v17 nft — deployed devnet 2026-07-17, hash-verified. */
+  nft: "CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3",
+  /** v17 vault — deployed devnet 2026-07-17, hash-verified. */
+  vault: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3",
 } as const;
 Object.freeze(PROGRAM_IDS_V17);
 
-/** The v17 wrapper PublicKey (devnet deployed 2026-06-26). */
+/** The v17 wrapper PublicKey (devnet deployed + upgraded 2026-07-17, hash-verified). */
 export const PROGRAM_ID_V17 = new PublicKey(PROGRAM_IDS_V17.percolator);
 
 export type Network = "devnet" | "mainnet";
