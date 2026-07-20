@@ -7,6 +7,96 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.0.0] — 2026-07-20
+
+v17 fee-collection split client surface. Wrapper instruction tags 86/87/88,
+percolator-stake CPI proxy tags 25-28, error ordinals 52-60, and the
+`WrapperConfigV16` growth 496 → 576 bytes.
+
+Sources: `percolator-prog` `feat/protocol-fee-taker-only@2b3a6a65` and
+`percolator-stake` `feat/adopt-stake-lineage-plus-n7@474079f`. Wire formats
+were read off each program's own decode arms and struct layouts.
+
+**NOT YET DEPLOYED.** The devnet wrapper
+`DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj` still writes a 496-byte
+config and does not accept tags 86/87/88. This release is ahead of chain.
+
+### BREAKING
+
+- **`V17_WRAPPER_CONFIG_LEN` 496 → 576.** `parseWrapperConfigV17` now
+  requires 576 config bytes and throws a length error against any market
+  created by the currently-deployed wrapper. This is deliberate: a short
+  read fails loudly rather than silently misparsing. Every downstream offset
+  derives from the constant, so `V17_MARKET_GROUP_OFF` moves 512 → 592 and
+  the asset-slot base 1270 → 1350 automatically. Portfolio lengths are
+  independent and unchanged (`V17_PORTFOLIO_ACCOUNT_LEN` stays 9347).
+- **`WrapperConfigV17` gained seven required fields** — `lpFeeAccruedAtoms`,
+  `lpFeeWithdrawnAtoms`, `insuranceReserveAccruedAtoms`,
+  `insuranceReserveWithdrawnAtoms` (all `bigint`), then `creatorShareBps`,
+  `lpShareBps`, `insuranceShareBps` (all `number`). Anything constructing
+  this type literally must be updated.
+- **Error table extended 51 → 60.** `decodeError(52..60)` and
+  `getErrorName(52..60)` now return real values instead of
+  `undefined`/`Unknown(N)`. Consumers asserting the old upper bound will
+  need updating.
+
+### Added
+
+- `encodeUpdateFeeSplit` (tag 86) — `tag(1) + u16 × 3` = 7 B, marketauth-gated.
+- `encodeWithdrawInsuranceReserveToStake` (tag 87) — `tag(1)` = 1 B,
+  permissionless, Live-only. The destination is derived from the pinned stake
+  program, never caller-supplied.
+- `encodeUpdateMaintenanceFeePerSlot` (tag 88) — `tag(1) + u128` = 17 B.
+  **The payload is `u128`, not `u64`**: the wrapper decodes with `read_u128`,
+  matching the storage type and InitMarket's own encoding. A `u64` payload
+  leaves 8 bytes unconsumed and is rejected outright.
+- `encodeUpdateTradeFeePolicy` (tag 55) — `tag(1) + u64` = 9 B. Closes a
+  pre-existing gap: `IX_TAG.UpdateTradeFeePolicy` existed with no encoder,
+  which left stake tag 28's CPI target unrepresentable. Note the deliberate
+  type asymmetry with tag 88.
+- Account specs `ACCOUNTS_UPDATE_FEE_SPLIT`,
+  `ACCOUNTS_WITHDRAW_INSURANCE_RESERVE_TO_STAKE`,
+  `ACCOUNTS_UPDATE_MAINTENANCE_FEE_PER_SLOT`,
+  `ACCOUNTS_UPDATE_TRADE_FEE_POLICY`.
+- Stake CPI proxy encoders `encodeStakeAdminUpdateFeeSplit` (25 → wrapper 86),
+  `encodeStakeAdminUpdateMaintenanceFeePerSlot` (26 → 88),
+  `encodeStakeAdminUpdateBackingFeePolicy` (27 → 51),
+  `encodeStakeAdminUpdateTradeFeePolicy` (28 → 55), with
+  `stakeGroupAProxyAccounts` (4 accounts, pool PDA signs) and
+  `stakeGroupBProxyAccounts` (5 accounts, `vault_auth` signs and the pool PDA
+  does **not**), plus per-tag aliases.
+- `FEE_SPLIT` constants and `validateFeeSplit()`, a client mirror of
+  `policy_v16::validate_fee_split`. Convenience only — the wrapper enforces
+  the same rules regardless.
+
+### Why these proxies exist
+
+`StakeInitPool` irreversibly rotates `cfg.marketauth` to the stake-pool PDA
+and `BindInsuranceAuthority` hands asset 0's `insurance_authority` to
+`vault_auth`. A PDA cannot sign a top-level transaction, so the affected
+wrapper setters are reachable **only** through a stake-program CPI. Before
+tags 25-28 exactly one proxy existed, leaving 1 of 16 marketauth-gated
+handlers reachable — the mechanical reason the fee split was unachievable on
+a staked market.
+
+### Notes on ordinal 55
+
+Ordinal 55 changed meaning during development
+(`StakePoolAssetAdminNotBurned` → `StakePoolOwnerMismatch`). The old variant
+existed only on an unmerged branch and never shipped on-chain, so the SDK
+carries only the current meaning; a test asserts the dead name is absent from
+the table.
+
+### Sequencing (nothing enforces this on-chain)
+
+`InitMarket` (defaults are already correct) → `UpdateFeeSplit` **only if a
+non-default split is wanted, and only before `StakeInitPool`** →
+`CreateLpVault` + `DepositToLpVault` → `StakeInitPool` →
+`BindInsuranceAuthority`, which is **required** or the insurance/staker leg
+has no exit.
+
+---
+
 ## [3.1.0] — 2026-07-09
 
 PumpSwap (pump.fun AMM) DEX-oracle parser fix. `dex-oracle.ts` had three
