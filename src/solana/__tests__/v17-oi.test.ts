@@ -16,7 +16,7 @@ const V17_KIND_OFF = 10;
 const INS_ABS_OFF = V17_MARKET_GROUP_OFF + 301;
 
 // Slot base starts at V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN
-const SLOTS_BASE = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN; // 1270 post-protocol-fee (was 1206)
+const SLOTS_BASE = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN; // 1350 post-fee-split (was 1270, was 1206)
 
 // EngineAssetSlotV16Account starts after wrapper T (512 bytes).
 // oi_eff_long_q is at AssetStateV16Account+273, oi_eff_short_q at +289.

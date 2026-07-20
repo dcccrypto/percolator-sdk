@@ -1093,7 +1093,11 @@ describe("Error codes — v17 NFT/LP-vault boundary parsing in discovery/fallbac
     expect(decodeError(49)?.name).toBe("EngineInsufficientInitialMargin");
     expect(decodeError(50)?.name).toBe("LpVaultDepositBelowMinimumLiquidity");
     expect(decodeError(51)?.name).toBe("FeeSplitFloorViolation");
-    expect(decodeError(52)).toBeUndefined();
+    // Fee-collection split (percolator-prog feat/protocol-fee-taker-only@2b3a6a65)
+    // extended the table 51 -> 60. 61+ remain undefined.
+    expect(decodeError(52)?.name).toBe("FeeSplitSumInvalid");
+    expect(decodeError(53)?.name).toBe("NoInsuranceReserveToClaim");
+    expect(decodeError(60)?.name).toBe("StakeProgramNotPinned");
     expect(decodeError(61)).toBeUndefined();
     expect(decodeError(65)).toBeUndefined();
   });

@@ -20,7 +20,15 @@ import {
  *   51    = FeeSplitFloorViolation (creator/LP/insurance floor, added commit
  *           a3cb4390 — confirmed on-chain 2026-07-16 against fresh wrapper
  *           DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj)
- *   52+   = undefined (should be undefined in the table)
+ *   52-53 = fee-collection split (FeeSplitSumInvalid, NoInsuranceReserveToClaim)
+ *   54-60 = load_bound_stake_pool diagnostics for wrapper tag 87; ordinal 55
+ *           was briefly StakePoolAssetAdminNotBurned on an unmerged branch and
+ *           NEVER deployed, so only StakePoolOwnerMismatch is valid
+ *   61+   = undefined (should be undefined in the table)
+ *
+ * 52-60 come from percolator-prog feat/protocol-fee-taker-only@2b3a6a65, which
+ * is NOT YET DEPLOYED — the devnet wrapper predates it, so these codes cannot
+ * yet be observed on-chain.
  */
 
 // ============================================================================
@@ -28,18 +36,49 @@ import {
 // ============================================================================
 
 describe("PERCOLATOR_ERRORS table", () => {
-  it("has contiguous error codes from 0 to 51", () => {
-    for (let i = 0; i <= 51; i++) {
+  it("has contiguous error codes from 0 to 60", () => {
+    for (let i = 0; i <= 60; i++) {
       expect(PERCOLATOR_ERRORS[i], `error ${i} should be defined`).toBeDefined();
       expect(PERCOLATOR_ERRORS[i].name).toBeTruthy();
       expect(PERCOLATOR_ERRORS[i].hint).toBeTruthy();
     }
   });
 
-  it("error codes 52+ are not defined", () => {
-    expect(PERCOLATOR_ERRORS[52]).toBeUndefined();
+  it("error codes 61+ are not defined", () => {
+    expect(PERCOLATOR_ERRORS[61]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[65]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[100]).toBeUndefined();
+  });
+
+  // Fee-collection split ordinals, pinned by name against v16_program.rs's
+  // PercolatorError enum on feat/protocol-fee-taker-only@2b3a6a65. These are
+  // wire-visible: a rename that shifts an ordinal silently mislabels every
+  // error a client surfaces, so assert the exact mapping rather than presence.
+  it("fee-collection-split error ordinals 52-60 match the program enum", () => {
+    expect(PERCOLATOR_ERRORS[52].name).toBe("FeeSplitSumInvalid");
+    expect(PERCOLATOR_ERRORS[53].name).toBe("NoInsuranceReserveToClaim");
+    expect(PERCOLATOR_ERRORS[54].name).toBe("StakePoolNotBound");
+    expect(PERCOLATOR_ERRORS[55].name).toBe("StakePoolOwnerMismatch");
+    expect(PERCOLATOR_ERRORS[56].name).toBe("StakePoolAuthorityMismatch");
+    expect(PERCOLATOR_ERRORS[57].name).toBe("StakePoolMarketMismatch");
+    expect(PERCOLATOR_ERRORS[58].name).toBe("StakePoolWrapperMismatch");
+    expect(PERCOLATOR_ERRORS[59].name).toBe("StakePoolModeMismatch");
+    expect(PERCOLATOR_ERRORS[60].name).toBe("StakeProgramNotPinned");
+  });
+
+  // 51 pre-existed the fee-collection split and is REUSED, not redefined.
+  // A duplicate entry for it would be a regression.
+  it("51 remains FeeSplitFloorViolation (pre-existing, reused)", () => {
+    expect(PERCOLATOR_ERRORS[51].name).toBe("FeeSplitFloorViolation");
+  });
+
+  // Ordinal 55 changed meaning during development: StakePoolAssetAdminNotBurned
+  // (an ineffective mitigation) -> StakePoolOwnerMismatch. The old variant
+  // existed only on an unmerged branch and NEVER shipped on-chain, so the SDK
+  // must carry only the current meaning.
+  it("55 does not carry the never-deployed StakePoolAssetAdminNotBurned meaning", () => {
+    const names = Object.values(PERCOLATOR_ERRORS).map((e) => e.name);
+    expect(names).not.toContain("StakePoolAssetAdminNotBurned");
   });
 
   it("every error has a non-empty name", () => {
@@ -161,8 +200,18 @@ describe("decodeError", () => {
     expect(decodeError(51)!.name).toBe("FeeSplitFloorViolation");
   });
 
-  it("returns undefined for unknown code 52 (beyond current table)", () => {
-    expect(decodeError(52)).toBeUndefined();
+  it("returns defined info for code 52 (FeeSplitSumInvalid)", () => {
+    expect(decodeError(52)).toBeDefined();
+    expect(decodeError(52)!.name).toBe("FeeSplitSumInvalid");
+  });
+
+  it("returns defined info for code 60 (StakeProgramNotPinned, current tail)", () => {
+    expect(decodeError(60)).toBeDefined();
+    expect(decodeError(60)!.name).toBe("StakeProgramNotPinned");
+  });
+
+  it("returns undefined for unknown code 61 (beyond current table)", () => {
+    expect(decodeError(61)).toBeUndefined();
   });
 
   it("returns undefined for unknown code 10_000", () => {
@@ -194,7 +243,9 @@ describe("getErrorName", () => {
   });
 
   it("returns Unknown(...) for unknown codes beyond the table", () => {
-    expect(getErrorName(52)).toBe("Unknown(52)");
+    // The fee-collection split extended the table 51 -> 60, so 52 is now a
+    // real code (FeeSplitSumInvalid); 61 is the first unknown.
+    expect(getErrorName(61)).toBe("Unknown(61)");
     expect(getErrorName(999)).toBe("Unknown(999)");
     expect(getErrorName(100)).toBe("Unknown(100)");
   });

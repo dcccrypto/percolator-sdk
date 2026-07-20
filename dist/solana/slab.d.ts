@@ -504,23 +504,45 @@ export declare const V17_KIND_MARKET = 1;
 /** Byte offset of the v17 account-kind discriminator within the header. */
 export declare const V17_KIND_OFF = 10;
 /**
- * v17 wrapper config block length (WrapperConfigV16 = 496 bytes).
+ * v17 wrapper config block length (WrapperConfigV16 = 576 bytes).
  *
- * Grew from 432 by the protocol-fee program change: three new tail fields
- * (`protocol_fee_authority` [32] @432, `protocol_fee_accrued_atoms` u128 @464,
- * `protocol_fee_withdrawn_atoms` u128 @480 = 64 bytes total), offsets 0..431
- * UNCHANGED. Verified against `percolator-prog/src/v16_program.rs:842-912`
- * (`WRAPPER_CONFIG_LEN: usize = 496` at line 58, with a compile-time
- * `size_of::<WrapperConfigV16>() == WRAPPER_CONFIG_LEN` assertion).
+ * Growth history, each stage purely additive at the tail with all earlier
+ * offsets UNCHANGED:
+ *   432 -> 496  protocol-fee program change: `protocol_fee_authority` [32]
+ *               @432, `protocol_fee_accrued_atoms` u128 @464,
+ *               `protocol_fee_withdrawn_atoms` u128 @480.
+ *   496 -> 576  fee-collection split (percolator-prog
+ *               feat/protocol-fee-taker-only@2b3a6a65): four u128 counters
+ *               @496/512/528/544, three u16 shares @560/562/564, then
+ *               `_padding_split` [u8;10] @566.
+ *
+ * ⚠ FIELD ORDER IN THE 496->576 BLOCK IS LOAD-BEARING. The struct derives
+ * `bytemuck::Pod`, which forbids IMPLICIT padding. 496 is a multiple of 16, so
+ * it is u128-aligned; placing the u16 shares first would push the u128s to
+ * offset 502 and force the compiler to insert implicit padding, failing the
+ * Pod derive. Counters therefore come first, then the shares, then EXPLICIT
+ * padding out to the 16-byte alignment boundary.
+ *
+ * Verified against `percolator-prog/src/v16_program.rs` — `WRAPPER_CONFIG_LEN:
+ * usize = 576` at line 58, struct `WrapperConfigV16` at line 1057, with a
+ * compile-time `assert!(size_of::<WrapperConfigV16>() == WRAPPER_CONFIG_LEN)`
+ * at line 1159.
+ *
+ * ⚠ NOT YET DEPLOYED. The devnet wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj
+ * still carries the 496-byte layout. Reading a market created by that build
+ * with this decoder will throw "data too short"; a 576-byte read against a
+ * 496-byte account is a length error, not a silent misparse.
  */
-export declare const V17_WRAPPER_CONFIG_LEN = 496;
+export declare const V17_WRAPPER_CONFIG_LEN = 576;
 /** v17 AssetOracleProfileV16 length (400 bytes). */
 export declare const V17_ASSET_ORACLE_PROFILE_LEN = 400;
 /** v17 header length (16 bytes: magic[8] + version[2] + kind[1] + pad[1] + reserved[4]). */
 export declare const V17_HEADER_LEN = 16;
 /**
- * v17 market group config offset = HEADER_LEN + WRAPPER_CONFIG_LEN = 512
- * (was 448 pre-protocol-fee, when WRAPPER_CONFIG_LEN was 432).
+ * v17 market group config offset = HEADER_LEN + WRAPPER_CONFIG_LEN = 592
+ * (was 512 pre-fee-split when WRAPPER_CONFIG_LEN was 496, and 448 before the
+ * protocol-fee change when it was 432). DERIVED, never hardcoded — every
+ * downstream offset in this file chains off it.
  */
 export declare const V17_MARKET_GROUP_OFF: number;
 /**
@@ -596,7 +618,17 @@ export declare const V17_PORTFOLIO_ACCOUNT_LEN = 9347;
  *  432  protocol_fee_authority [32]
  *  464  protocol_fee_accrued_atoms u128
  *  480  protocol_fee_withdrawn_atoms u128
- *  Total: 496
+ *  --- fee-collection split (additive tail, offsets 0..495 unchanged) ---
+ *  --- ORDER IS LOAD-BEARING: u128 counters MUST precede the u16 shares ---
+ *  496  lp_fee_accrued_atoms u128
+ *  512  lp_fee_withdrawn_atoms u128
+ *  528  insurance_reserve_accrued_atoms u128
+ *  544  insurance_reserve_withdrawn_atoms u128
+ *  560  creator_share_bps u16
+ *  562  lp_share_bps u16
+ *  564  insurance_share_bps u16
+ *  566  _padding_split [u8;10]
+ *  Total: 576
  */
 export interface WrapperConfigV17 {
     marketauth: PublicKey;
@@ -658,6 +690,47 @@ export interface WrapperConfigV17 {
      * protocolFeeAccruedAtoms - protocolFeeWithdrawnAtoms.
      */
     protocolFeeWithdrawnAtoms: bigint;
+    /**
+     * Cumulative atoms accrued to the LP vault's claim (monotonic). Claimed via
+     * LpVaultCrankFees (tag 78), which reclassifies them into LP backing
+     * principal.
+     *
+     * ⚠ LP yield is JUNIOR at-risk backing capital, not a senior earnings claim:
+     * it can be impaired by backing losses between crank and redemption.
+     *
+     * ⚠ Tag 78 is Live-only, so LP fees accrued on a market that later Resolves
+     * can never be cranked. Outstanding = accrued - withdrawn.
+     */
+    lpFeeAccruedAtoms: bigint;
+    /** Cumulative atoms already credited to the LP vault. <= lpFeeAccruedAtoms. */
+    lpFeeWithdrawnAtoms: bigint;
+    /**
+     * Cumulative atoms accrued to the insurance/staker leg (monotonic). Claimed
+     * via WithdrawInsuranceReserveToStake (tag 87), which transfers them to the
+     * bound stake pool's vault.
+     *
+     * ⚠ Tag 87 is Live-only and ResolveMarket is one-way, so any
+     * accrued-but-unwithdrawn amount is PERMANENTLY FORFEITED once the market
+     * resolves — WithdrawInsuranceAsset cannot recover it, because this leg is
+     * unbudgeted by construction. Keepers should crank before resolution.
+     */
+    insuranceReserveAccruedAtoms: bigint;
+    /** Cumulative atoms already pushed to the stake vault. <= insuranceReserveAccruedAtoms. */
+    insuranceReserveWithdrawnAtoms: bigint;
+    /**
+     * Creator's share of T in bps. Default 1600, ceiling MAX_CREATOR_SHARE_BPS
+     * (3600). Lands in insurance_domain_budget; claimed via
+     * WithdrawInsuranceAsset (tag 57).
+     */
+    creatorShareBps: number;
+    /** LP vault's share of T in bps. Default 4800, floor MIN_LP_SHARE_BPS (3200). */
+    lpShareBps: number;
+    /**
+     * Insurance/staker share of T in bps. Default 1600, floor
+     * MIN_INSURANCE_SHARE_BPS (1200). Also absorbs all sub-atom rounding, since
+     * split_trade_fee computes this leg as the remainder.
+     */
+    insuranceShareBps: number;
 }
 /**
  * Parse a v17 WrapperConfigV16 block from raw account data.

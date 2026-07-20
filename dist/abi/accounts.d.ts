@@ -688,6 +688,78 @@ export declare const ACCOUNTS_WITHDRAW_PROTOCOL_FEE: readonly AccountSpec[];
  * creator-facing gate. No global fan-out: call once per market.
  */
 export declare const ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY: readonly AccountSpec[];
+/**
+ * UpdateFeeSplit (tag 86): 2 accounts.
+ *
+ * v17 wire account layout (v16_program.rs handle_update_fee_split):
+ *   [0] admin  signer   (must match cfg.marketauth via expect_live_authority)
+ *   [1] market writable (program-owned market-group slab)
+ *
+ * Mirrors the neighbouring marketauth-gated single-field setters
+ * (handle_update_fee_redirect_policy, handle_update_market_init_fee_policy) —
+ * signer/writable/owner checks, then `expect_live_authority(&cfg.marketauth)`.
+ *
+ * ⚠ After `StakeInitPool` rotates cfg.marketauth to the stake-pool PDA, this
+ * layout is unreachable at top level; use the stake CPI proxy (stake tag 25),
+ * whose layout is ACCOUNTS_STAKE_ADMIN_UPDATE_FEE_SPLIT in solana/stake.ts.
+ */
+export declare const ACCOUNTS_UPDATE_FEE_SPLIT: readonly AccountSpec[];
+/**
+ * WithdrawInsuranceReserveToStake (tag 87): 7 accounts.
+ *
+ * v17 wire account layout (v16_program.rs
+ * handle_withdraw_insurance_reserve_to_stake):
+ *   [0] cranker         signer   (permissionless — any signer, pays fees only)
+ *   [1] market          writable (program-owned market-group slab)
+ *   [2] stakePool       read-only (PDA ["stake_pool", market] under the
+ *                        wrapper's PINNED stake program id; its owner is
+ *                        asserted BEFORE any byte is read — the forgery gate)
+ *   [3] stakeVault      writable (must equal pool.vault, read out of [2])
+ *   [4] vaultToken      writable (this market's collateral vault token acct)
+ *   [5] vaultAuthority  read-only (PDA derived by derive_vault_authority)
+ *   [6] tokenProgram    read-only
+ *
+ * Note [2] is NOT writable — the wrapper only reads the pool to derive the
+ * destination; percolator-stake's own AccrueFees is what later credits it.
+ *
+ * Failure codes are deliberately distinct so a keeper can tell the cases
+ * apart: Custom(53) NoInsuranceReserveToClaim, Custom(54) StakePoolNotBound,
+ * Custom(55) StakePoolOwnerMismatch, Custom(56) StakePoolAuthorityMismatch,
+ * Custom(57) StakePoolMarketMismatch, Custom(58) StakePoolWrapperMismatch,
+ * Custom(59) StakePoolModeMismatch, Custom(60) StakeProgramNotPinned.
+ */
+export declare const ACCOUNTS_WITHDRAW_INSURANCE_RESERVE_TO_STAKE: readonly AccountSpec[];
+/**
+ * UpdateMaintenanceFeePerSlot (tag 88): 2 accounts.
+ *
+ * v17 wire account layout (v16_program.rs
+ * handle_update_maintenance_fee_per_slot) — identical to tag 86:
+ *   [0] admin  signer   (must match cfg.marketauth)
+ *   [1] market writable (program-owned market-group slab)
+ *
+ * ⚠ The instruction payload is a u128, not a u64. See
+ * encodeUpdateMaintenanceFeePerSlot in abi/instructions.ts.
+ *
+ * Same StakeInitPool reachability caveat as tag 86; proxy is stake tag 26.
+ */
+export declare const ACCOUNTS_UPDATE_MAINTENANCE_FEE_PER_SLOT: readonly AccountSpec[];
+/**
+ * UpdateTradeFeePolicy (tag 55): 2 accounts.
+ *
+ * v17 wire account layout (v16_program.rs handle_update_trade_fee_policy):
+ *   [0] authority signer (must match ASSET 0's insurance_authority — NOT
+ *                  cfg.marketauth)
+ *   [1] market    writable (program-owned market-group slab)
+ *
+ * Mirrors ACCOUNTS_UPDATE_BACKING_FEE_POLICY (tag 51), which shares the
+ * asset-0 insurance_authority gate. Stranded by BindInsuranceAuthority rather
+ * than by StakeInitPool; proxy is stake tag 28.
+ *
+ * NOTE: `writable: true` on [0] matches the existing tag-51 spec and reflects
+ * the authority normally also being the fee payer. The program itself only
+ * calls `expect_signer(authority)` — it never writes to this account.
+ */
+export declare const ACCOUNTS_UPDATE_TRADE_FEE_POLICY: readonly AccountSpec[];
 export declare const WELL_KNOWN: {
     readonly tokenProgram: PublicKey;
     readonly clock: PublicKey;

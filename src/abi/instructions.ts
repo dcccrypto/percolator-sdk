@@ -344,6 +344,64 @@ export const IX_TAG = {
    * program's BPF upgrade authority — NOT marketauth, NOT any creator-facing gate.
    */
   SetProtocolFeeAuthority: 85,
+  /**
+   * UpdateFeeSplit (tag 86) — v17 fee-collection split (percolator-prog
+   * feat/protocol-fee-taker-only@2b3a6a65). Sets the three stored fee shares.
+   *
+   * Wire: tag(1) + creator_share_bps(u16) + lp_share_bps(u16) +
+   * insurance_share_bps(u16) = 7 bytes. Accounts: see ACCOUNTS_UPDATE_FEE_SPLIT
+   * in abi/accounts.ts. Gated on `cfg.marketauth`.
+   *
+   * The three shares are bps *of T* (`trade_fee_base_bps`) and must sum to
+   * exactly FEE_SHARE_TOTAL_BPS (8000 = 10_000 - PROTOCOL_FEE_BPS), else
+   * Custom(52) FeeSplitSumInvalid. They must also satisfy the floors
+   * (creator <= 3600, LP >= 3200, insurance >= 1200), else Custom(51)
+   * FeeSplitFloorViolation.
+   *
+   * REACHABILITY: `StakeInitPool` irreversibly rotates `cfg.marketauth` to the
+   * stake-pool PDA, after which this tag is reachable ONLY via the stake
+   * program's CPI proxy (stake tag 25). Call it before StakeInitPool or use
+   * `encodeStakeAdminUpdateFeeSplit`.
+   */
+  UpdateFeeSplit: 86,
+  /**
+   * WithdrawInsuranceReserveToStake (tag 87) — v17 fee-collection split.
+   * Permissionless. Pushes the accrued insurance/staker leg out of the market
+   * vault and into the bound stake pool's vault, where percolator-stake's
+   * AccrueFees measures it as surplus and distributes it to stakers.
+   *
+   * Wire: tag(1) = 1 byte, no arguments. Accounts: see
+   * ACCOUNTS_WITHDRAW_INSURANCE_RESERVE_TO_STAKE in abi/accounts.ts.
+   *
+   * The destination is NOT caller-chosen: it is `pool.vault`, read out of the
+   * pool at `["stake_pool", market]` under the wrapper's PINNED stake program
+   * id. The only thing a caller decides is *when* the push happens.
+   *
+   * ⚠ Live-only (mode 0), and stricter than tag 84: rejects Recovery, Resolved
+   * and matured-Live. ResolveMarket is one-way and tag 41 cannot reach this
+   * unbudgeted leg, so any accrued-but-unpushed reserve is PERMANENTLY
+   * FORFEITED once a market resolves. Keepers should crank tag 87 *before*
+   * ResolveMarket, not after.
+   */
+  WithdrawInsuranceReserveToStake: 87,
+  /**
+   * UpdateMaintenanceFeePerSlot (tag 88) — v17 fee-collection split. Sets
+   * `cfg.maintenance_fee_per_slot`, which was an InitMarket constructor
+   * argument with no setter anywhere in the dispatch table and was therefore
+   * frozen for the life of the market.
+   *
+   * Wire: tag(1) + maintenance_fee_per_slot(u128) = 17 bytes. Accounts: see
+   * ACCOUNTS_UPDATE_MAINTENANCE_FEE_PER_SLOT. Gated on `cfg.marketauth`.
+   *
+   * ⚠ THE PAYLOAD IS u128, NOT u64. The wrapper decodes this with `read_u128`
+   * (v16_program.rs tag-88 arm), matching both the storage type
+   * (`WrapperConfigV16::maintenance_fee_per_slot: u128`) and InitMarket's own
+   * wire encoding. A u64 payload leaves 8 bytes unconsumed and the wrapper
+   * rejects the whole instruction with InvalidInstructionData.
+   *
+   * Same StakeInitPool reachability caveat as tag 86 — proxy is stake tag 26.
+   */
+  UpdateMaintenanceFeePerSlot: 88,
   /** @deprecated v12.x tag 85. COLLIDES with v17 SetProtocolFeeAuthority(85). Do NOT use. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
@@ -3887,5 +3945,239 @@ export function encodeSetProtocolFeeAuthority(args: SetProtocolFeeAuthorityArgs)
   return concatBytes(
     encU8(IX_TAG.SetProtocolFeeAuthority),
     encPubkey(args.newAuthority),
+  );
+}
+
+// ============================================================================
+// v17 FEE-COLLECTION SPLIT (tags 86/87/88)
+// percolator-prog feat/protocol-fee-taker-only@2b3a6a65
+// ============================================================================
+
+/**
+ * On-chain fee-split constants, mirrored from `v16_program.rs::constants`.
+ *
+ * `T = trade_fee_base_bps` is the whole trade fee. It splits four ways at
+ * every trade-fee credit site: a constant 2000 bps protocol skim, then the
+ * three stored shares below, which are bps *of T* and must sum to exactly
+ * `FEE_SHARE_TOTAL_BPS`.
+ *
+ * The floors are percentages of the post-protocol remainder (creator <= 45%,
+ * LP >= 40%, insurance >= 15%) converted to bps-of-T by `pct * 8000`. They sum
+ * to exactly 8000, i.e. they are precisely complementary — pushing creator
+ * above its ceiling necessarily drags another leg under its floor.
+ *
+ * Defaults are written unconditionally at InitMarket and are never instruction
+ * arguments, so a market that never calls UpdateFeeSplit still pays all four
+ * legs correctly from its first trade.
+ */
+export const FEE_SPLIT = {
+  /** Constant protocol skim, bps of T. Compile-time in the program; not stored, not settable. */
+  PROTOCOL_FEE_BPS: 2000,
+  /** The three stored shares must sum to exactly this (= 10_000 - PROTOCOL_FEE_BPS). */
+  FEE_SHARE_TOTAL_BPS: 8000,
+  DEFAULT_CREATOR_SHARE_BPS: 1600,
+  DEFAULT_LP_SHARE_BPS: 4800,
+  DEFAULT_INSURANCE_SHARE_BPS: 1600,
+  /** Creator ceiling, bps of T (45% of the post-protocol remainder). */
+  MAX_CREATOR_SHARE_BPS: 3600,
+  /** LP floor, bps of T (40% of the post-protocol remainder). */
+  MIN_LP_SHARE_BPS: 3200,
+  /** Insurance/staker floor, bps of T (15% of the post-protocol remainder). */
+  MIN_INSURANCE_SHARE_BPS: 1200,
+} as const;
+Object.freeze(FEE_SPLIT);
+
+/**
+ * Client-side mirror of `policy_v16::validate_fee_split`. Returns `null` when
+ * the split would be accepted on-chain, otherwise a human-readable reason.
+ *
+ * Provided so a wizard/UI can reject a bad split before paying for a
+ * transaction; the wrapper enforces the same rules regardless (Custom(52)
+ * FeeSplitSumInvalid for the sum, Custom(51) FeeSplitFloorViolation for the
+ * floors), so this is a convenience, never the security boundary.
+ *
+ * @param args The three candidate shares, in bps of T.
+ * @returns `null` if valid, else a string describing the first violation.
+ *
+ * @example
+ * ```ts
+ * validateFeeSplit({ creatorShareBps: 1600, lpShareBps: 4800, insuranceShareBps: 1600 });
+ * // => null (these are the on-chain defaults)
+ * validateFeeSplit({ creatorShareBps: 4000, lpShareBps: 3200, insuranceShareBps: 800 });
+ * // => "creatorShareBps 4000 exceeds MAX_CREATOR_SHARE_BPS 3600"
+ * ```
+ */
+export function validateFeeSplit(args: UpdateFeeSplitArgs): string | null {
+  const { creatorShareBps, lpShareBps, insuranceShareBps } = args;
+  const sum = creatorShareBps + lpShareBps + insuranceShareBps;
+  if (sum !== FEE_SPLIT.FEE_SHARE_TOTAL_BPS) {
+    return `shares sum to ${sum}, must sum to exactly FEE_SHARE_TOTAL_BPS ${FEE_SPLIT.FEE_SHARE_TOTAL_BPS}`;
+  }
+  if (creatorShareBps > FEE_SPLIT.MAX_CREATOR_SHARE_BPS) {
+    return `creatorShareBps ${creatorShareBps} exceeds MAX_CREATOR_SHARE_BPS ${FEE_SPLIT.MAX_CREATOR_SHARE_BPS}`;
+  }
+  if (lpShareBps < FEE_SPLIT.MIN_LP_SHARE_BPS) {
+    return `lpShareBps ${lpShareBps} is below MIN_LP_SHARE_BPS ${FEE_SPLIT.MIN_LP_SHARE_BPS}`;
+  }
+  if (insuranceShareBps < FEE_SPLIT.MIN_INSURANCE_SHARE_BPS) {
+    return `insuranceShareBps ${insuranceShareBps} is below MIN_INSURANCE_SHARE_BPS ${FEE_SPLIT.MIN_INSURANCE_SHARE_BPS}`;
+  }
+  return null;
+}
+
+/**
+ * UpdateFeeSplit instruction data (tag 86).
+ *
+ * v17 wire: tag(1) + creator_share_bps(u16 LE) + lp_share_bps(u16 LE) +
+ * insurance_share_bps(u16 LE) = 7 bytes.
+ *
+ * Sets the three stored fee shares. Gated on `cfg.marketauth` — see
+ * ACCOUNTS_UPDATE_FEE_SPLIT in abi/accounts.ts. Shares are bps of T and must
+ * sum to FEE_SHARE_TOTAL_BPS (8000) while satisfying the floors; use
+ * {@link validateFeeSplit} to check before sending.
+ *
+ * ⚠ ORDERING: call this BEFORE `StakeInitPool`, which irreversibly rotates
+ * `cfg.marketauth` to the stake-pool PDA. Afterwards a PDA cannot sign a
+ * top-level transaction and this tag is reachable only via the stake program's
+ * CPI proxy — see {@link encodeStakeAdminUpdateFeeSplit} (stake tag 25).
+ *
+ * @param creatorShareBps Creator's share of T in bps. Must be <= 3600.
+ * @param lpShareBps LP vault's share of T in bps. Must be >= 3200.
+ * @param insuranceShareBps Insurance/staker share of T in bps. Must be >= 1200.
+ * @returns 7-byte instruction data buffer.
+ *
+ * @example
+ * ```ts
+ * // Restore the on-chain defaults explicitly.
+ * const data = encodeUpdateFeeSplit({
+ *   creatorShareBps: 1600,
+ *   lpShareBps: 4800,
+ *   insuranceShareBps: 1600,
+ * });
+ * // accounts: ACCOUNTS_UPDATE_FEE_SPLIT from abi/accounts.ts
+ * ```
+ */
+export interface UpdateFeeSplitArgs {
+  creatorShareBps: number;
+  lpShareBps: number;
+  insuranceShareBps: number;
+}
+
+export function encodeUpdateFeeSplit(args: UpdateFeeSplitArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.UpdateFeeSplit),
+    encU16(args.creatorShareBps),
+    encU16(args.lpShareBps),
+    encU16(args.insuranceShareBps),
+  );
+}
+
+/**
+ * WithdrawInsuranceReserveToStake instruction data (tag 87).
+ *
+ * v17 wire: tag(1) = 1 byte. No arguments — the amount is
+ * `insurance_reserve_accrued_atoms - insurance_reserve_withdrawn_atoms`,
+ * clamped on-chain to engine-available surplus, and the destination is derived
+ * rather than passed.
+ *
+ * Permissionless: any signer may crank it. The destination is `pool.vault`,
+ * read out of the stake pool at `["stake_pool", market]` under the wrapper's
+ * PINNED stake program id, so there is nothing for a caller to redirect.
+ *
+ * ⚠ Live-only. Rejects Recovery and Resolved (Custom 21 EngineLockActive) and
+ * matured-Live. `ResolveMarket` is one-way and `WithdrawInsuranceAsset` (tag
+ * 41/57) cannot reach this unbudgeted leg, so anything accrued but not pushed
+ * before a market resolves is PERMANENTLY FORFEITED by stakers. Crank before
+ * resolution.
+ *
+ * ⚠ A default (non-devnet) wrapper build has no pinned stake program id and
+ * fails closed with Custom(60) StakeProgramNotPinned. There is no v17 mainnet
+ * stake deployment.
+ *
+ * @returns 1-byte instruction data buffer.
+ *
+ * @example
+ * ```ts
+ * const data = encodeWithdrawInsuranceReserveToStake();
+ * // accounts: ACCOUNTS_WITHDRAW_INSURANCE_RESERVE_TO_STAKE from abi/accounts.ts
+ * ```
+ */
+export function encodeWithdrawInsuranceReserveToStake(): Uint8Array {
+  return encU8(IX_TAG.WithdrawInsuranceReserveToStake);
+}
+
+/**
+ * UpdateMaintenanceFeePerSlot instruction data (tag 88).
+ *
+ * v17 wire: tag(1) + maintenance_fee_per_slot(u128 LE) = 17 bytes.
+ *
+ * ⚠ THE PAYLOAD IS u128, NOT u64. The wrapper decodes it with `read_u128`,
+ * matching the storage type (`WrapperConfigV16::maintenance_fee_per_slot`) and
+ * InitMarket's own encoding. A u64 payload leaves 8 bytes unconsumed and the
+ * wrapper rejects the instruction outright.
+ *
+ * Gated on `cfg.marketauth`. The wrapper range-checks against
+ * `MAX_PROTOCOL_FEE_ABS` (1e36) and returns Custom(14) EngineInvalidConfig if
+ * exceeded — the same bound InitMarket applies.
+ *
+ * Same StakeInitPool ordering caveat as tag 86; the proxy is
+ * {@link encodeStakeAdminUpdateMaintenanceFeePerSlot} (stake tag 26).
+ *
+ * @param maintenanceFeePerSlot Fee charged per slot, u128. Default is 0
+ *                              (maintenance fee disabled).
+ * @returns 17-byte instruction data buffer.
+ *
+ * @example
+ * ```ts
+ * const data = encodeUpdateMaintenanceFeePerSlot({ maintenanceFeePerSlot: 0n });
+ * // accounts: ACCOUNTS_UPDATE_MAINTENANCE_FEE_PER_SLOT from abi/accounts.ts
+ * ```
+ */
+export interface UpdateMaintenanceFeePerSlotArgs {
+  maintenanceFeePerSlot: bigint | string;
+}
+
+export function encodeUpdateMaintenanceFeePerSlot(
+  args: UpdateMaintenanceFeePerSlotArgs,
+): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.UpdateMaintenanceFeePerSlot),
+    encU128(args.maintenanceFeePerSlot),
+  );
+}
+
+/**
+ * UpdateTradeFeePolicy instruction data (tag 55).
+ *
+ * v17 wire: tag(1) + trade_fee_base_bps(u64 LE) = 9 bytes.
+ *
+ * Sets `T`, the base trade fee that the four-way split divides. Gated on
+ * ASSET 0's `insurance_authority`, NOT on `marketauth` — so unlike tags 86/88
+ * this survives `StakeInitPool` but is stranded by `BindInsuranceAuthority`,
+ * after which the proxy is {@link encodeStakeAdminUpdateTradeFeePolicy}
+ * (stake tag 28).
+ *
+ * ⚠ Note the type asymmetry with tag 88: this decodes with `read_u64`, tag 88
+ * with `read_u128`.
+ *
+ * Added 2026-07-20: IX_TAG.UpdateTradeFeePolicy existed but had no encoder,
+ * which left stake tag 28's CPI target unrepresentable from the SDK.
+ *
+ * @param tradeFeeBaseBps Base trade fee in bps (u64).
+ * @returns 9-byte instruction data buffer.
+ *
+ * @example
+ * ```ts
+ * const data = encodeUpdateTradeFeePolicy({ tradeFeeBaseBps: 30n });
+ * ```
+ */
+export interface UpdateTradeFeePolicyArgs {
+  tradeFeeBaseBps: bigint | string;
+}
+
+export function encodeUpdateTradeFeePolicy(args: UpdateTradeFeePolicyArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.UpdateTradeFeePolicy),
+    encU64(args.tradeFeeBaseBps),
   );
 }

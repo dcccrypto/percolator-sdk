@@ -353,6 +353,59 @@ export const STAKE_IX = {
    * Accounts: [admin(signer), poolPda(writable)]
    */
   SetMarketResolved: 18,
+  /**
+   * AdminUpdateFeeSplit (tag 25) — CPI proxy for the wrapper's UpdateFeeSplit
+   * (wrapper tag 86). GROUP A: the wrapper gate is `cfg.marketauth`, which
+   * `StakeInitPool` irreversibly rotates to the pool PDA, so the pool PDA
+   * signs the CPI via invoke_signed.
+   *
+   * Wire: tag(1) + creator_share_bps(u16) + lp_share_bps(u16) +
+   * insurance_share_bps(u16) = 7 bytes.
+   * Accounts: [admin(signer), poolPda, slab(writable), percolatorProgram]
+   *
+   * Share validation is the WRAPPER's (`policy_v16::validate_fee_split`) and is
+   * deliberately not duplicated stake-side — a bad split surfaces as wrapper
+   * Custom(52)/Custom(51) through the CPI.
+   */
+  AdminUpdateFeeSplit: 25,
+  /**
+   * AdminUpdateMaintenanceFeePerSlot (tag 26) — CPI proxy for the wrapper's
+   * UpdateMaintenanceFeePerSlot (wrapper tag 88). GROUP A, same accounts and
+   * signer model as tag 25.
+   *
+   * Wire: tag(1) + maintenance_fee_per_slot(u128) = 17 bytes.
+   * Accounts: [admin(signer), poolPda, slab(writable), percolatorProgram]
+   *
+   * ⚠ THE PAYLOAD IS u128, NOT u64 — the stake program itself rejects a
+   * payload whose `rest.len() != 16`, and the wrapper decodes tag 88 with
+   * `read_u128`.
+   */
+  AdminUpdateMaintenanceFeePerSlot: 26,
+  /**
+   * AdminUpdateBackingFeePolicy (tag 27) — CPI proxy for the wrapper's
+   * UpdateBackingFeePolicy (wrapper tag 51). GROUP B: the wrapper gate is
+   * ASSET 0's `insurance_authority`, which `BindInsuranceAuthority` moves to
+   * the `vault_auth` PDA, so `vault_auth` (not the pool PDA) signs the CPI.
+   *
+   * THE FEE-SPLIT UNBLOCKER: wrapper tag 51 is the setter for
+   * `backing_trade_fee_bps`. Once bound, this CPI is the only way to reach it.
+   *
+   * Wire: tag(1) + domain(u16) + fee_bps(u16) + insurance_share_bps(u16) = 7 bytes.
+   * Accounts: [admin(signer), poolPda, vaultAuth, slab(writable), percolatorProgram]
+   */
+  AdminUpdateBackingFeePolicy: 27,
+  /**
+   * AdminUpdateTradeFeePolicy (tag 28) — CPI proxy for the wrapper's
+   * UpdateTradeFeePolicy (wrapper tag 55). GROUP B, same accounts and signer
+   * model as tag 27.
+   *
+   * Wire: tag(1) + trade_fee_base_bps(u64) = 9 bytes.
+   * Accounts: [admin(signer), poolPda, vaultAuth, slab(writable), percolatorProgram]
+   *
+   * ⚠ Note the type asymmetry with tag 26: wrapper tag 55 decodes with
+   * `read_u64`, wrapper tag 88 with `read_u128`.
+   */
+  AdminUpdateTradeFeePolicy: 28,
 } as const;
 Object.freeze(STAKE_IX);
 
@@ -1117,6 +1170,259 @@ export function adminResolveMarketCpiAccounts(
     { pubkey: a.percolatorProgram, isSigner: false, isWritable: false },
   ];
 }
+
+// ═══════════════════════════════════════════════════════════════
+// CPI proxies for wrapper setters stranded by staking (tags 25-28)
+// percolator-stake feat/adopt-stake-lineage-plus-n7@474079f
+//
+// WHY THESE EXIST. `StakeInitPool` irreversibly rotates `cfg.marketauth` to
+// the stake-pool PDA, and `BindInsuranceAuthority` hands asset 0's
+// `insurance_authority` to `vault_auth`. A PDA cannot sign a top-level
+// transaction, so the affected wrapper setters become reachable ONLY through a
+// stake-program CPI proxy. Before these four, exactly one proxy existed
+// (AdminResolveMarket -> wrapper tag 19), leaving 1 of 16 marketauth-gated
+// wrapper handlers reachable — which is the mechanical reason the fee split
+// was unachievable on a staked market.
+//
+// GROUP A (tags 25, 26): wrapper gate is `cfg.marketauth`; the POOL PDA signs.
+//   Accounts: [admin(signer), poolPda, slab(writable), percolatorProgram]
+// GROUP B (tags 27, 28): wrapper gate is asset 0's `insurance_authority`; the
+//   VAULT_AUTH PDA signs.
+//   Accounts: [admin(signer), poolPda, vaultAuth, slab(writable), percolatorProgram]
+//
+// All four are gated stake-side on `pool.admin`, matching AdminResolveMarket.
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Encode AdminUpdateFeeSplit (stake tag 25) — CPI proxy for wrapper tag 86.
+ *
+ * Wire: tag(1) + creator_share_bps(u16 LE) + lp_share_bps(u16 LE) +
+ * insurance_share_bps(u16 LE) = 7 bytes. The stake program rejects any payload
+ * whose length is not exactly 6 bytes after the tag.
+ *
+ * Use this instead of `encodeUpdateFeeSplit` once `StakeInitPool` has rotated
+ * `cfg.marketauth` to the pool PDA. Before that, call the wrapper directly.
+ *
+ * Share validation happens in the WRAPPER, not here: a split that does not sum
+ * to 8000 surfaces as wrapper Custom(52) FeeSplitSumInvalid through the CPI,
+ * and a floor breach as Custom(51) FeeSplitFloorViolation.
+ *
+ * @param creatorShareBps Creator's share of T in bps (<= 3600).
+ * @param lpShareBps LP vault's share of T in bps (>= 3200).
+ * @param insuranceShareBps Insurance/staker share of T in bps (>= 1200).
+ * @returns 7-byte instruction data buffer.
+ *
+ * @example
+ * ```ts
+ * const data = encodeStakeAdminUpdateFeeSplit(1600, 4800, 1600);
+ * const keys = adminUpdateFeeSplitAccounts({ admin, poolPda, slab, percolatorProgram });
+ * ```
+ */
+export function encodeStakeAdminUpdateFeeSplit(
+  creatorShareBps: number,
+  lpShareBps: number,
+  insuranceShareBps: number,
+): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminUpdateFeeSplit]),
+    u16Le(creatorShareBps),
+    u16Le(lpShareBps),
+    u16Le(insuranceShareBps),
+  );
+}
+
+/**
+ * Encode AdminUpdateMaintenanceFeePerSlot (stake tag 26) — CPI proxy for
+ * wrapper tag 88.
+ *
+ * Wire: tag(1) + maintenance_fee_per_slot(u128 LE) = 17 bytes.
+ *
+ * ⚠ THE PAYLOAD IS u128, NOT u64. The stake program checks `rest.len() == 16`
+ * and rejects otherwise; the wrapper then decodes with `read_u128`. Passing a
+ * u64 fails at the stake program before the CPI is even attempted.
+ *
+ * @param maintenanceFeePerSlot Fee charged per slot, u128. Default on-chain is
+ *                              0 (maintenance fee disabled). The wrapper
+ *                              range-checks against MAX_PROTOCOL_FEE_ABS.
+ * @returns 17-byte instruction data buffer.
+ *
+ * @example
+ * ```ts
+ * const data = encodeStakeAdminUpdateMaintenanceFeePerSlot(0n);
+ * ```
+ */
+export function encodeStakeAdminUpdateMaintenanceFeePerSlot(
+  maintenanceFeePerSlot: bigint | number,
+): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminUpdateMaintenanceFeePerSlot]),
+    u128Le(maintenanceFeePerSlot),
+  );
+}
+
+/**
+ * Encode AdminUpdateBackingFeePolicy (stake tag 27) — CPI proxy for wrapper
+ * tag 51, signed by the `vault_auth` PDA.
+ *
+ * Wire: tag(1) + domain(u16 LE) + fee_bps(u16 LE) + insurance_share_bps(u16 LE)
+ * = 7 bytes.
+ *
+ * @param domain Backing domain index (u16). `asset_index = domain / 2`.
+ * @param feeBps Backing fee in bps (u16).
+ * @param insuranceShareBps Insurance share of the backing fee in bps (u16).
+ * @returns 7-byte instruction data buffer.
+ *
+ * @example
+ * ```ts
+ * const data = encodeStakeAdminUpdateBackingFeePolicy(0, 30, 5000);
+ * const keys = adminUpdateBackingFeePolicyAccounts({
+ *   admin, poolPda, vaultAuth, slab, percolatorProgram,
+ * });
+ * ```
+ */
+export function encodeStakeAdminUpdateBackingFeePolicy(
+  domain: number,
+  feeBps: number,
+  insuranceShareBps: number,
+): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminUpdateBackingFeePolicy]),
+    u16Le(domain),
+    u16Le(feeBps),
+    u16Le(insuranceShareBps),
+  );
+}
+
+/**
+ * Encode AdminUpdateTradeFeePolicy (stake tag 28) — CPI proxy for wrapper tag
+ * 55, signed by the `vault_auth` PDA.
+ *
+ * Wire: tag(1) + trade_fee_base_bps(u64 LE) = 9 bytes. The stake program
+ * checks `rest.len() == 8`.
+ *
+ * Sets `T`, the base trade fee that the four-way split divides.
+ *
+ * @param tradeFeeBaseBps Base trade fee in bps (u64). The wrapper rejects
+ *                        values above the market's `max_trading_fee_bps` or
+ *                        above MAX_DYNAMIC_TRADE_FEE_BPS.
+ * @returns 9-byte instruction data buffer.
+ *
+ * @example
+ * ```ts
+ * const data = encodeStakeAdminUpdateTradeFeePolicy(30n);
+ * ```
+ */
+export function encodeStakeAdminUpdateTradeFeePolicy(
+  tradeFeeBaseBps: bigint | number,
+): Uint8Array {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminUpdateTradeFeePolicy]),
+    u64Le(tradeFeeBaseBps),
+  );
+}
+
+/**
+ * Account inputs for the GROUP A proxies (stake tags 25 and 26), where the
+ * wrapper gate is `cfg.marketauth` and the pool PDA signs the CPI.
+ *
+ * @param admin             Pool admin (outer tx signer; == pool.admin).
+ * @param poolPda           Stake pool PDA — the marketauth; signs via invoke_signed.
+ * @param slab              Wrapper market-group slab (writable — CPI target).
+ * @param percolatorProgram Wrapper program ID (CPI target).
+ */
+export interface StakeGroupAProxyAccounts {
+  admin: PublicKey;
+  poolPda: PublicKey;
+  slab: PublicKey;
+  percolatorProgram: PublicKey;
+}
+
+/**
+ * Build account keys for the GROUP A proxies — src/processor.rs
+ * `process_admin_update_fee_split` (tag 25) and
+ * `process_admin_update_maintenance_fee_per_slot` (tag 26), which share an
+ * identical layout:
+ *   [0] admin              signer, read-only  (== pool.admin)
+ *   [1] pool_pda           read-only          (marketauth; signs via invoke_signed)
+ *   [2] slab               writable           (wrapper market; CPI target)
+ *   [3] percolator_program read-only          (wrapper program for CPI dispatch)
+ *
+ * Identical to `adminResolveMarketCpiAccounts` (tag 24).
+ *
+ * @param a Named accounts.
+ * @returns Array of `{pubkey, isSigner, isWritable}` in program-expected order.
+ */
+export function stakeGroupAProxyAccounts(
+  a: StakeGroupAProxyAccounts,
+): { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] {
+  return [
+    { pubkey: a.admin,             isSigner: true,  isWritable: false },
+    { pubkey: a.poolPda,           isSigner: false, isWritable: false },
+    { pubkey: a.slab,              isSigner: false, isWritable: true  },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false },
+  ];
+}
+
+/** Account keys for AdminUpdateFeeSplit (stake tag 25). Alias of {@link stakeGroupAProxyAccounts}. */
+export const adminUpdateFeeSplitAccounts = stakeGroupAProxyAccounts;
+
+/** Account keys for AdminUpdateMaintenanceFeePerSlot (stake tag 26). Alias of {@link stakeGroupAProxyAccounts}. */
+export const adminUpdateMaintenanceFeePerSlotAccounts = stakeGroupAProxyAccounts;
+
+/**
+ * Account inputs for the GROUP B proxies (stake tags 27 and 28), where the
+ * wrapper gate is asset 0's `insurance_authority` and `vault_auth` signs.
+ *
+ * @param admin             Pool admin (outer tx signer; == pool.admin).
+ * @param poolPda           Stake pool PDA — used to DERIVE and verify vaultAuth; NOT a signer.
+ * @param vaultAuth         Vault authority PDA ['vault_auth', poolPda] — the
+ *                          insurance_authority; signs via invoke_signed.
+ * @param slab              Wrapper market-group slab (writable — CPI target).
+ * @param percolatorProgram Wrapper program ID (CPI target).
+ */
+export interface StakeGroupBProxyAccounts {
+  admin: PublicKey;
+  poolPda: PublicKey;
+  vaultAuth: PublicKey;
+  slab: PublicKey;
+  percolatorProgram: PublicKey;
+}
+
+/**
+ * Build account keys for the GROUP B proxies — src/processor.rs
+ * `process_admin_update_backing_fee_policy` (tag 27) and
+ * `process_admin_update_trade_fee_policy` (tag 28), which share an identical
+ * layout:
+ *   [0] admin              signer, read-only  (== pool.admin)
+ *   [1] pool_pda           read-only          (derives/verifies vault_auth; NOT a signer)
+ *   [2] vault_auth         read-only          (insurance_authority; signs via invoke_signed)
+ *   [3] slab               writable           (wrapper market; CPI target)
+ *   [4] percolator_program read-only          (wrapper program for CPI dispatch)
+ *
+ * Note the pool PDA sits at index 1 and does NOT sign here — that is the
+ * difference from GROUP A, and getting it wrong makes the CPI fail its
+ * authority check rather than fail loudly at the account level.
+ *
+ * @param a Named accounts.
+ * @returns Array of `{pubkey, isSigner, isWritable}` in program-expected order.
+ */
+export function stakeGroupBProxyAccounts(
+  a: StakeGroupBProxyAccounts,
+): { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] {
+  return [
+    { pubkey: a.admin,             isSigner: true,  isWritable: false },
+    { pubkey: a.poolPda,           isSigner: false, isWritable: false },
+    { pubkey: a.vaultAuth,         isSigner: false, isWritable: false },
+    { pubkey: a.slab,              isSigner: false, isWritable: true  },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false },
+  ];
+}
+
+/** Account keys for AdminUpdateBackingFeePolicy (stake tag 27). Alias of {@link stakeGroupBProxyAccounts}. */
+export const adminUpdateBackingFeePolicyAccounts = stakeGroupBProxyAccounts;
+
+/** Account keys for AdminUpdateTradeFeePolicy (stake tag 28). Alias of {@link stakeGroupBProxyAccounts}. */
+export const adminUpdateTradeFeePolicyAccounts = stakeGroupBProxyAccounts;
 
 /** @deprecated Removed on-chain in stake v3. Throws instead of emitting a dead instruction. */
 export function encodeStakeAdminSetInsurancePolicy(

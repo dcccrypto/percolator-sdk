@@ -26,6 +26,17 @@ import {
   deriveDepositPda,
   encodeStakeInitPool,
   encodeStakeDeposit,
+  STAKE_PROGRAM_IDS,
+  encodeStakeAdminUpdateFeeSplit,
+  encodeStakeAdminUpdateMaintenanceFeePerSlot,
+  encodeStakeAdminUpdateBackingFeePolicy,
+  encodeStakeAdminUpdateTradeFeePolicy,
+  stakeGroupAProxyAccounts,
+  stakeGroupBProxyAccounts,
+  adminUpdateFeeSplitAccounts,
+  adminUpdateMaintenanceFeePerSlotAccounts,
+  adminUpdateBackingFeePolicyAccounts,
+  adminUpdateTradeFeePolicyAccounts,
   encodeStakeWithdraw,
   encodeStakeFlushToInsurance,
   encodeStakeUpdateConfig,
@@ -53,7 +64,13 @@ import {
   depositAccounts,
   withdrawAccounts,
   flushToInsuranceAccounts,
+  adminResolveMarketCpiAccounts,
 } from '../stake.js';
+import {
+  encodeUpdateFeeSplit,
+  encodeUpdateMaintenanceFeePerSlot,
+  encodeUpdateTradeFeePolicy,
+} from '../../abi/instructions.js';
 
 // ── Uint8Array read helpers (replaces Buffer.readBigUInt64LE / readUInt16LE) ─
 function readU64LE(buf: Uint8Array, offset: number): bigint {
@@ -529,5 +546,159 @@ describe('Stake Instruction Tags — No Gaps or Conflicts (ADOPTED percolator-st
     expect(() => encodeStakeAdminSetMaintenanceFee(0n)).toThrow(/tag 8/i);
     expect(() => encodeStakeAdminResolveMarket()).toThrow(/tag 9/i);
     expect(() => encodeStakeAdminSetInsurancePolicy(PublicKey.default, 0n, 0, 0n)).toThrow(/tag 11/i);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// v17 fee-collection-split CPI proxies (stake tags 25-28)
+// percolator-stake feat/adopt-stake-lineage-plus-n7@474079f
+//
+// Byte layouts verified against src/instruction.rs's `unpack` arms, which
+// length-check `rest` exactly (6 / 16 / 6 / 8) and reject anything else.
+// ═══════════════════════════════════════════════════════════════
+
+describe('fee-split CPI proxies (stake tags 25-28)', () => {
+  const slab = Keypair.generate().publicKey;
+  const admin = Keypair.generate().publicKey;
+  const percolatorProgram = Keypair.generate().publicKey;
+  const [poolPda] = deriveStakePool(slab, STAKE_PROGRAM_ID);
+  const [vaultAuth] = deriveStakeVaultAuth(poolPda, STAKE_PROGRAM_ID);
+
+  it('tag numbers match the stake program dispatch table', () => {
+    expect(STAKE_IX.AdminUpdateFeeSplit).toBe(25);
+    expect(STAKE_IX.AdminUpdateMaintenanceFeePerSlot).toBe(26);
+    expect(STAKE_IX.AdminUpdateBackingFeePolicy).toBe(27);
+    expect(STAKE_IX.AdminUpdateTradeFeePolicy).toBe(28);
+  });
+
+  // tag 25 -> wrapper 86. Wire: tag(1) + u16 x3 = 7 bytes (rest.len() == 6).
+  it('encodeStakeAdminUpdateFeeSplit is 7 bytes, u16 x3 LE in creator/lp/insurance order', () => {
+    const data = encodeStakeAdminUpdateFeeSplit(1600, 4800, 1600);
+    expect(data.length).toBe(7);
+    expect(data[0]).toBe(STAKE_IX.AdminUpdateFeeSplit);
+    expect(data[0]).toBe(25);
+    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    expect(dv.getUint16(1, true)).toBe(1600); // creator_share_bps
+    expect(dv.getUint16(3, true)).toBe(4800); // lp_share_bps
+    expect(dv.getUint16(5, true)).toBe(1600); // insurance_share_bps
+  });
+
+  it('encodeStakeAdminUpdateFeeSplit preserves field order with distinct values', () => {
+    const data = encodeStakeAdminUpdateFeeSplit(0x1111, 0x2222, 0x3333);
+    expect(Array.from(data.subarray(1, 7))).toEqual([0x11, 0x11, 0x22, 0x22, 0x33, 0x33]);
+  });
+
+  // The stake payload must be byte-identical to the wrapper payload it proxies,
+  // because cpi.rs forwards the decoded args straight into wrapper tag 86.
+  it('stake tag 25 payload is byte-identical to wrapper tag 86 payload', () => {
+    const stakeData = encodeStakeAdminUpdateFeeSplit(1600, 4800, 1600);
+    const wrapperData = encodeUpdateFeeSplit({
+      creatorShareBps: 1600,
+      lpShareBps: 4800,
+      insuranceShareBps: 1600,
+    });
+    expect(Array.from(stakeData.subarray(1))).toEqual(Array.from(wrapperData.subarray(1)));
+  });
+
+  // tag 26 -> wrapper 88. Wire: tag(1) + u128 = 17 bytes (rest.len() == 16).
+  // ⚠ u128 NOT u64 — instruction.rs rejects rest.len() != 16 outright.
+  it('encodeStakeAdminUpdateMaintenanceFeePerSlot is 17 bytes (u128, NOT u64)', () => {
+    const data = encodeStakeAdminUpdateMaintenanceFeePerSlot(1_000_000n);
+    expect(data.length).toBe(17);
+    expect(data[0]).toBe(STAKE_IX.AdminUpdateMaintenanceFeePerSlot);
+    expect(data[0]).toBe(26);
+    expect(Array.from(data.subarray(1, 17))).toEqual([64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('encodeStakeAdminUpdateMaintenanceFeePerSlot carries values above u64::MAX', () => {
+    const big = (1n << 100n) + 5n;
+    const data = encodeStakeAdminUpdateMaintenanceFeePerSlot(big);
+    expect(data.length).toBe(17);
+    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    expect(dv.getBigUint64(1, true)).toBe(5n);
+    expect(dv.getBigUint64(9, true)).toBe(1n << 36n);
+  });
+
+  it('stake tag 26 payload is byte-identical to wrapper tag 88 payload', () => {
+    const stakeData = encodeStakeAdminUpdateMaintenanceFeePerSlot(1_000_000n);
+    const wrapperData = encodeUpdateMaintenanceFeePerSlot({ maintenanceFeePerSlot: 1_000_000n });
+    expect(Array.from(stakeData.subarray(1))).toEqual(Array.from(wrapperData.subarray(1)));
+  });
+
+  // tag 27 -> wrapper 51. Wire: tag(1) + u16 x3 = 7 bytes (rest.len() == 6).
+  it('encodeStakeAdminUpdateBackingFeePolicy is 7 bytes, domain/fee/insurance order', () => {
+    const data = encodeStakeAdminUpdateBackingFeePolicy(1, 30, 5000);
+    expect(data.length).toBe(7);
+    expect(data[0]).toBe(STAKE_IX.AdminUpdateBackingFeePolicy);
+    expect(data[0]).toBe(27);
+    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    expect(dv.getUint16(1, true)).toBe(1);    // domain
+    expect(dv.getUint16(3, true)).toBe(30);   // fee_bps
+    expect(dv.getUint16(5, true)).toBe(5000); // insurance_share_bps
+  });
+
+  // tag 28 -> wrapper 55. Wire: tag(1) + u64 = 9 bytes (rest.len() == 8).
+  // ⚠ Type asymmetry with tag 26: wrapper 55 decodes read_u64, wrapper 88 read_u128.
+  it('encodeStakeAdminUpdateTradeFeePolicy is 9 bytes (u64, NOT u128)', () => {
+    const data = encodeStakeAdminUpdateTradeFeePolicy(30n);
+    expect(data.length).toBe(9);
+    expect(data[0]).toBe(STAKE_IX.AdminUpdateTradeFeePolicy);
+    expect(data[0]).toBe(28);
+    expect(Array.from(data.subarray(1, 9))).toEqual([30, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('stake tag 28 payload is byte-identical to wrapper tag 55 payload', () => {
+    const stakeData = encodeStakeAdminUpdateTradeFeePolicy(30n);
+    const wrapperData = encodeUpdateTradeFeePolicy({ tradeFeeBaseBps: 30n });
+    expect(Array.from(stakeData.subarray(1))).toEqual(Array.from(wrapperData.subarray(1)));
+  });
+
+  // GROUP A (25, 26): pool PDA is the marketauth and SIGNS via invoke_signed.
+  it('GROUP A accounts: [admin(signer), poolPda, slab(writable), percolatorProgram]', () => {
+    const keys = stakeGroupAProxyAccounts({ admin, poolPda, slab, percolatorProgram });
+    expect(keys.length).toBe(4);
+    expect(keys[0]).toEqual({ pubkey: admin, isSigner: true, isWritable: false });
+    expect(keys[1]).toEqual({ pubkey: poolPda, isSigner: false, isWritable: false });
+    expect(keys[2]).toEqual({ pubkey: slab, isSigner: false, isWritable: true });
+    expect(keys[3]).toEqual({ pubkey: percolatorProgram, isSigner: false, isWritable: false });
+  });
+
+  it('GROUP A layout is identical to AdminResolveMarketCpi (tag 24)', () => {
+    const groupA = stakeGroupAProxyAccounts({ admin, poolPda, slab, percolatorProgram });
+    const tag24 = adminResolveMarketCpiAccounts({ admin, poolPda, slab, percolatorProgram });
+    expect(groupA).toEqual(tag24);
+  });
+
+  // GROUP B (27, 28): vault_auth is the insurance_authority and signs; the pool
+  // PDA sits at index 1 purely to derive/verify it, and does NOT sign.
+  it('GROUP B accounts: [admin(signer), poolPda, vaultAuth, slab(writable), percolatorProgram]', () => {
+    const keys = stakeGroupBProxyAccounts({ admin, poolPda, vaultAuth, slab, percolatorProgram });
+    expect(keys.length).toBe(5);
+    expect(keys[0]).toEqual({ pubkey: admin, isSigner: true, isWritable: false });
+    expect(keys[1]).toEqual({ pubkey: poolPda, isSigner: false, isWritable: false });
+    expect(keys[2]).toEqual({ pubkey: vaultAuth, isSigner: false, isWritable: false });
+    expect(keys[3]).toEqual({ pubkey: slab, isSigner: false, isWritable: true });
+    expect(keys[4]).toEqual({ pubkey: percolatorProgram, isSigner: false, isWritable: false });
+  });
+
+  it('GROUP B has exactly one signer (admin); the PDAs sign via invoke_signed, not as tx keys', () => {
+    const keys = stakeGroupBProxyAccounts({ admin, poolPda, vaultAuth, slab, percolatorProgram });
+    expect(keys.filter((k) => k.isSigner).length).toBe(1);
+    expect(keys.filter((k) => k.isSigner)[0].pubkey).toEqual(admin);
+  });
+
+  // The aliases must not drift from the shared builders they point at.
+  it('per-tag account aliases resolve to the right group builder', () => {
+    expect(adminUpdateFeeSplitAccounts).toBe(stakeGroupAProxyAccounts);
+    expect(adminUpdateMaintenanceFeePerSlotAccounts).toBe(stakeGroupAProxyAccounts);
+    expect(adminUpdateBackingFeePolicyAccounts).toBe(stakeGroupBProxyAccounts);
+    expect(adminUpdateTradeFeePolicyAccounts).toBe(stakeGroupBProxyAccounts);
+  });
+
+  // The canonical devnet stake program id is the wrapper's pin for tag 87.
+  // A mismatch here is exactly what wrapper Custom(55) StakePoolOwnerMismatch
+  // reports, so the SDK constant must match the pinned value.
+  it('devnet stake program id matches the wrapper pin used by tag 87', () => {
+    expect(STAKE_PROGRAM_IDS.devnet).toBe('GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3');
   });
 });

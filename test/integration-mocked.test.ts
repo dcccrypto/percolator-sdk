@@ -771,13 +771,14 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
   });
 
   // ---- Adjacent codes: code 46 IS in v17 (NftPortfolioProvenance), 47 is not ----
-  it("60 (0x3C) — parseErrorFromLogs returns Unknown(60) in v17 (no code 60)", () => {
+  it("60 (0x3C) — parseErrorFromLogs returns StakeProgramNotPinned (fee-collection split)", () => {
     const logs = makeErrorLogs("3C");
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
     expect(result!.code).toBe(60);
-    // v17 error table ends at 46; code 60 is undefined
-    expect(result!.name).toBe("Unknown(60)");
+    // The fee-collection split extended the table to 60; 60 is the tail
+    // variant (a non-devnet wrapper build with no pinned stake program id).
+    expect(result!.name).toBe("StakeProgramNotPinned");
   });
 
   it("all v12 ADL error codes 61-65 are NOT in the v17 PERCOLATOR_ERRORS table", () => {

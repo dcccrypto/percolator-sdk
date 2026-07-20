@@ -58,6 +58,12 @@ import {
   encodeMatcherInitPassive,
   derivePythPriceUpdateAccount,
   encodeWithdrawProtocolFee,
+  encodeUpdateFeeSplit,
+  encodeWithdrawInsuranceReserveToStake,
+  encodeUpdateMaintenanceFeePerSlot,
+  encodeUpdateTradeFeePolicy,
+  validateFeeSplit,
+  FEE_SPLIT,
   encodeSetProtocolFeeAuthority,
   IX_TAG,
 } from "../src/abi/instructions.js";
@@ -1314,9 +1320,9 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   console.log("✓ IX_TAG.InitMatcherCtx (83) / WithdrawProtocolFee (84) / SetProtocolFeeAuthority (85) distinct");
 }
 
-// ── Protocol-fee WrapperConfigV17 tail fields (offsets 432/464/480, config len 496) ──
+// ── Protocol-fee WrapperConfigV17 tail fields (offsets 432/464/480, config len 576) ──
 {
-  assert(V17_WRAPPER_CONFIG_LEN === 496, `V17_WRAPPER_CONFIG_LEN: expected 496, got ${V17_WRAPPER_CONFIG_LEN}`);
+  assert(V17_WRAPPER_CONFIG_LEN === 576, `V17_WRAPPER_CONFIG_LEN: expected 576, got ${V17_WRAPPER_CONFIG_LEN}`);
 
   const buf = new Uint8Array(V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN);
   const dv = new DataView(buf.buffer);
@@ -1345,7 +1351,7 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
     cfg.protocolFeeWithdrawnAtoms === withdrawn,
     `parseWrapperConfigV17 protocolFeeWithdrawnAtoms @480: expected ${withdrawn}, got ${cfg.protocolFeeWithdrawnAtoms}`
   );
-  console.log("✓ parseWrapperConfigV17 protocol-fee tail fields (432/464/480, 496-byte config)");
+  console.log("✓ parseWrapperConfigV17 protocol-fee tail fields (432/464/480, within the 576-byte config)");
 }
 
 // parseWrapperConfigV17 rejects a pre-protocol-fee-sized (432-byte config / 448-byte total) buffer
@@ -1359,6 +1365,283 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   }
   assert(threw, "parseWrapperConfigV17 rejects a 448-byte (pre-protocol-fee) buffer as too short");
   console.log("✓ parseWrapperConfigV17 rejects pre-protocol-fee-sized (432B config) buffers");
+}
+
+// ── Fee-collection-split WrapperConfigV17 tail (496 -> 576) ──────────────────
+//
+// FULL ROUND-TRIP against a hand-built 576-byte layout. Every one of the seven
+// new fields gets a DISTINCT value so a decoder that reads the right type at
+// the wrong offset cannot pass by coincidence. The four u128 counters all
+// exceed u64::MAX, which exercises the high word and would catch a u64 read.
+//
+// FIELD ORDER IS LOAD-BEARING and is the specific thing under test: the
+// counters MUST precede the u16 shares. If the decoder were written to the
+// intuitive order (shares first at 496, counters at 502), every value below
+// would land in the wrong place. Source of truth: v16_program.rs struct
+// WrapperConfigV16 @1057, which derives bytemuck::Pod and therefore forbids
+// the implicit padding that a shares-first order would require.
+{
+  const buf = new Uint8Array(V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN);
+  const dv = new DataView(buf.buffer);
+  const configOff = V17_HEADER_LEN;
+
+  const setU128 = (off: number, v: bigint) => {
+    dv.setBigUint64(configOff + off, v & 0xffff_ffff_ffff_ffffn, true);
+    dv.setBigUint64(configOff + off + 8, v >> 64n, true);
+  };
+
+  // Distinct, all > u64::MAX (18_446_744_073_709_551_615).
+  const lpAccrued = 111_111_111_111_111_111_111n;
+  const lpWithdrawn = 222_222_222_222_222_222_222n;
+  const insAccrued = 333_333_333_333_333_333_333n;
+  const insWithdrawn = 444_444_444_444_444_444_444n;
+  setU128(496, lpAccrued);
+  setU128(512, lpWithdrawn);
+  setU128(528, insAccrued);
+  setU128(544, insWithdrawn);
+
+  // Distinct, and NOT the on-chain defaults (1600/4800/1600) — using defaults
+  // here would let a decoder that returned hardcoded defaults pass.
+  const creatorShareBps = 3600;
+  const lpShareBps = 3200;
+  const insuranceShareBps = 1200;
+  dv.setUint16(configOff + 560, creatorShareBps, true);
+  dv.setUint16(configOff + 562, lpShareBps, true);
+  dv.setUint16(configOff + 564, insuranceShareBps, true);
+
+  // _padding_split [u8;10] @566..576 — fill with a nonzero sentinel to prove it
+  // is not being read into any field.
+  buf.fill(0xab, configOff + 566, configOff + 576);
+
+  const cfg = parseWrapperConfigV17(buf);
+
+  assert(
+    cfg.lpFeeAccruedAtoms === lpAccrued,
+    `lpFeeAccruedAtoms @496: expected ${lpAccrued}, got ${cfg.lpFeeAccruedAtoms}`
+  );
+  assert(
+    cfg.lpFeeWithdrawnAtoms === lpWithdrawn,
+    `lpFeeWithdrawnAtoms @512: expected ${lpWithdrawn}, got ${cfg.lpFeeWithdrawnAtoms}`
+  );
+  assert(
+    cfg.insuranceReserveAccruedAtoms === insAccrued,
+    `insuranceReserveAccruedAtoms @528: expected ${insAccrued}, got ${cfg.insuranceReserveAccruedAtoms}`
+  );
+  assert(
+    cfg.insuranceReserveWithdrawnAtoms === insWithdrawn,
+    `insuranceReserveWithdrawnAtoms @544: expected ${insWithdrawn}, got ${cfg.insuranceReserveWithdrawnAtoms}`
+  );
+  assert(
+    cfg.creatorShareBps === creatorShareBps,
+    `creatorShareBps @560: expected ${creatorShareBps}, got ${cfg.creatorShareBps}`
+  );
+  assert(
+    cfg.lpShareBps === lpShareBps,
+    `lpShareBps @562: expected ${lpShareBps}, got ${cfg.lpShareBps}`
+  );
+  assert(
+    cfg.insuranceShareBps === insuranceShareBps,
+    `insuranceShareBps @564: expected ${insuranceShareBps}, got ${cfg.insuranceShareBps}`
+  );
+  console.log("✓ parseWrapperConfigV17 fee-split tail (496/512/528/544 u128, 560/562/564 u16, 576-byte config)");
+}
+
+// The 496 -> 576 growth must not disturb ANY earlier offset. Decode the same
+// buffer twice — once at 576 and once with the fee-split tail zeroed — and
+// assert the protocol-fee fields (432/464/480) are identical. This is the
+// regression that a missed hardcoded 496 elsewhere would produce.
+{
+  const buf = new Uint8Array(V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN);
+  const dv = new DataView(buf.buffer);
+  const configOff = V17_HEADER_LEN;
+
+  const pfa = new PublicKey("So11111111111111111111111111111111111111112");
+  buf.set(pfa.toBytes(), configOff + 432);
+  dv.setBigUint64(configOff + 464, 7_777n, true);
+  dv.setBigUint64(configOff + 480, 3_333n, true);
+
+  // Populate the new tail with garbage that would corrupt an overlapping read.
+  buf.fill(0xff, configOff + 496, configOff + 576);
+
+  const cfg = parseWrapperConfigV17(buf);
+  assert(cfg.protocolFeeAuthority.equals(pfa), "protocolFeeAuthority @432 unaffected by the 576-byte tail");
+  assert(cfg.protocolFeeAccruedAtoms === 7_777n, "protocolFeeAccruedAtoms @464 unaffected by the 576-byte tail");
+  assert(cfg.protocolFeeWithdrawnAtoms === 3_333n, "protocolFeeWithdrawnAtoms @480 unaffected by the 576-byte tail");
+  console.log("✓ parseWrapperConfigV17 496->576 growth leaves offsets 0..495 untouched");
+}
+
+// parseWrapperConfigV17 rejects a pre-fee-split-sized (496-byte config) buffer.
+// This is the failure mode against the CURRENTLY DEPLOYED devnet wrapper
+// DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj, which still writes 496 bytes:
+// a loud length error, never a silent misparse.
+{
+  const shortBuf = new Uint8Array(V17_HEADER_LEN + 496); // pre-fee-split WRAPPER_CONFIG_LEN
+  let threw = false;
+  try {
+    parseWrapperConfigV17(shortBuf);
+  } catch {
+    threw = true;
+  }
+  assert(threw, "parseWrapperConfigV17 rejects a 512-byte (pre-fee-split) buffer as too short");
+  console.log("✓ parseWrapperConfigV17 rejects pre-fee-split-sized (496B config) buffers");
+}
+
+// ── v17 fee-split instruction encoders (wrapper tags 86/87/88, 55) ───────────
+
+// UpdateFeeSplit (tag 86)
+// Wire: tag(1) + creator_share_bps(u16) + lp_share_bps(u16) + insurance_share_bps(u16) = 7 bytes
+// Verified against v16_program.rs tag-86 decode arm: read_u16 x3, in this order.
+{
+  const data = encodeUpdateFeeSplit({
+    creatorShareBps: 1600,
+    lpShareBps: 4800,
+    insuranceShareBps: 1600,
+  });
+  assert(data.length === 7, `UpdateFeeSplit length: expected 7, got ${data.length}`);
+  assert(data[0] === IX_TAG.UpdateFeeSplit, "UpdateFeeSplit tag = IX_TAG.UpdateFeeSplit");
+  assert(data[0] === 86, "UpdateFeeSplit tag literal = 86");
+  // 1600 = 0x0640 -> 40 06 ; 4800 = 0x12C0 -> C0 12 ; 1600 -> 40 06
+  assertBuf(
+    data.subarray(1, 7),
+    [0x40, 0x06, 0xc0, 0x12, 0x40, 0x06],
+    "UpdateFeeSplit defaults 1600/4800/1600"
+  );
+  console.log("✓ encodeUpdateFeeSplit (v17 7-byte wire, tag 86)");
+}
+
+// Field ORDER within tag 86 — three distinct values so a swapped pair fails.
+{
+  const data = encodeUpdateFeeSplit({
+    creatorShareBps: 0x1111,
+    lpShareBps: 0x2222,
+    insuranceShareBps: 0x3333,
+  });
+  assertBuf(
+    data.subarray(1, 7),
+    [0x11, 0x11, 0x22, 0x22, 0x33, 0x33],
+    "UpdateFeeSplit field order creator/lp/insurance"
+  );
+  console.log("✓ encodeUpdateFeeSplit field order (creator, lp, insurance)");
+}
+
+// WithdrawInsuranceReserveToStake (tag 87)
+// Wire: tag(1) = 1 byte. Verified against v16_program.rs tag-87 decode arm,
+// which is a bare `87 => Self::WithdrawInsuranceReserveToStake` with no reads,
+// followed by the shared `if !rest.is_empty() { return Err(...) }` guard — so
+// ANY trailing byte makes the program reject the instruction.
+{
+  const data = encodeWithdrawInsuranceReserveToStake();
+  assert(data.length === 1, `WithdrawInsuranceReserveToStake length: expected 1, got ${data.length}`);
+  assert(data[0] === IX_TAG.WithdrawInsuranceReserveToStake, "tag = IX_TAG.WithdrawInsuranceReserveToStake");
+  assert(data[0] === 87, "WithdrawInsuranceReserveToStake tag literal = 87");
+  console.log("✓ encodeWithdrawInsuranceReserveToStake (v17 1-byte wire, tag 87)");
+}
+
+// UpdateMaintenanceFeePerSlot (tag 88)
+// Wire: tag(1) + maintenance_fee_per_slot(u128) = 17 bytes.
+// ⚠ u128, NOT u64 — v16_program.rs tag-88 arm uses read_u128, matching both
+// the storage type and InitMarket's encoding. A 9-byte (u64) payload would
+// leave 8 bytes unconsumed and be rejected.
+{
+  const data = encodeUpdateMaintenanceFeePerSlot({ maintenanceFeePerSlot: 1_000_000n });
+  assert(data.length === 17, `UpdateMaintenanceFeePerSlot length: expected 17, got ${data.length}`);
+  assert(data[0] === IX_TAG.UpdateMaintenanceFeePerSlot, "tag = IX_TAG.UpdateMaintenanceFeePerSlot");
+  assert(data[0] === 88, "UpdateMaintenanceFeePerSlot tag literal = 88");
+  assertBuf(
+    data.subarray(1, 17),
+    [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "UpdateMaintenanceFeePerSlot amount=1_000_000"
+  );
+  console.log("✓ encodeUpdateMaintenanceFeePerSlot (v17 17-byte wire, tag 88, u128 NOT u64)");
+}
+
+// The u128-not-u64 property, asserted directly: a value above u64::MAX must
+// survive the round trip into the high word. This is the single assertion that
+// would have caught the prior brief's u64 mistake.
+{
+  const big = (1n << 100n) + 5n; // needs bit 100 -> high u64 word
+  const data = encodeUpdateMaintenanceFeePerSlot({ maintenanceFeePerSlot: big });
+  assert(data.length === 17, "UpdateMaintenanceFeePerSlot stays 17 bytes for a >u64 value");
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const lo = dv.getBigUint64(1, true);
+  const hi = dv.getBigUint64(9, true);
+  assert(lo === 5n, `UpdateMaintenanceFeePerSlot low word: expected 5, got ${lo}`);
+  assert(hi === 1n << 36n, `UpdateMaintenanceFeePerSlot high word: expected ${1n << 36n}, got ${hi}`);
+  assert((hi << 64n) + lo === big, "UpdateMaintenanceFeePerSlot u128 round-trip");
+  console.log("✓ encodeUpdateMaintenanceFeePerSlot carries values above u64::MAX (proves u128)");
+}
+
+// UpdateTradeFeePolicy (tag 55)
+// Wire: tag(1) + trade_fee_base_bps(u64) = 9 bytes.
+// ⚠ Type asymmetry with tag 88: v16_program.rs tag-55 arm uses read_u64.
+{
+  const data = encodeUpdateTradeFeePolicy({ tradeFeeBaseBps: 30n });
+  assert(data.length === 9, `UpdateTradeFeePolicy length: expected 9, got ${data.length}`);
+  assert(data[0] === IX_TAG.UpdateTradeFeePolicy, "tag = IX_TAG.UpdateTradeFeePolicy");
+  assert(data[0] === 55, "UpdateTradeFeePolicy tag literal = 55");
+  assertBuf(data.subarray(1, 9), [30, 0, 0, 0, 0, 0, 0, 0], "UpdateTradeFeePolicy bps=30");
+  console.log("✓ encodeUpdateTradeFeePolicy (v17 9-byte wire, tag 55, u64 NOT u128)");
+}
+
+// Tag distinctness across the fee-split additions.
+{
+  assert(IX_TAG.UpdateFeeSplit === 86, "IX_TAG.UpdateFeeSplit === 86");
+  assert(IX_TAG.WithdrawInsuranceReserveToStake === 87, "IX_TAG.WithdrawInsuranceReserveToStake === 87");
+  assert(IX_TAG.UpdateMaintenanceFeePerSlot === 88, "IX_TAG.UpdateMaintenanceFeePerSlot === 88");
+  const tags = [
+    IX_TAG.WithdrawProtocolFee,
+    IX_TAG.SetProtocolFeeAuthority,
+    IX_TAG.UpdateFeeSplit,
+    IX_TAG.WithdrawInsuranceReserveToStake,
+    IX_TAG.UpdateMaintenanceFeePerSlot,
+  ];
+  assert(new Set(tags).size === tags.length, "tags 84/85/86/87/88 are pairwise distinct");
+  console.log("✓ IX_TAG 84/85/86/87/88 distinct");
+}
+
+// validateFeeSplit mirrors policy_v16::validate_fee_split.
+{
+  assert(
+    validateFeeSplit({ creatorShareBps: 1600, lpShareBps: 4800, insuranceShareBps: 1600 }) === null,
+    "validateFeeSplit accepts the on-chain defaults"
+  );
+  // The floors are precisely complementary (3600 + 3200 + 1200 === 8000), so
+  // the all-at-floor split is the unique extremal valid point.
+  assert(
+    validateFeeSplit({ creatorShareBps: 3600, lpShareBps: 3200, insuranceShareBps: 1200 }) === null,
+    "validateFeeSplit accepts the exact floors"
+  );
+  assert(
+    validateFeeSplit({ creatorShareBps: 1600, lpShareBps: 4800, insuranceShareBps: 1601 }) !== null,
+    "validateFeeSplit rejects a sum != 8000"
+  );
+  // Because the floors sum to exactly 8000, creator > 3600 ALWAYS drags another
+  // leg under its floor — a single-violation creator case does not exist.
+  const overCreator = validateFeeSplit({ creatorShareBps: 3601, lpShareBps: 3200, insuranceShareBps: 1199 });
+  assert(overCreator !== null, "validateFeeSplit rejects creator above MAX_CREATOR_SHARE_BPS");
+  assert(
+    validateFeeSplit({ creatorShareBps: 1600, lpShareBps: 3100, insuranceShareBps: 3300 }) !== null,
+    "validateFeeSplit rejects LP below MIN_LP_SHARE_BPS"
+  );
+  assert(
+    validateFeeSplit({ creatorShareBps: 3500, lpShareBps: 3400, insuranceShareBps: 1100 }) !== null,
+    "validateFeeSplit rejects insurance below MIN_INSURANCE_SHARE_BPS"
+  );
+  assert(
+    FEE_SPLIT.MAX_CREATOR_SHARE_BPS + FEE_SPLIT.MIN_LP_SHARE_BPS + FEE_SPLIT.MIN_INSURANCE_SHARE_BPS ===
+      FEE_SPLIT.FEE_SHARE_TOTAL_BPS,
+    "fee-split floors are precisely complementary (3600+3200+1200 === 8000)"
+  );
+  assert(
+    FEE_SPLIT.DEFAULT_CREATOR_SHARE_BPS + FEE_SPLIT.DEFAULT_LP_SHARE_BPS + FEE_SPLIT.DEFAULT_INSURANCE_SHARE_BPS ===
+      FEE_SPLIT.FEE_SHARE_TOTAL_BPS,
+    "fee-split defaults sum to FEE_SHARE_TOTAL_BPS"
+  );
+  assert(
+    FEE_SPLIT.PROTOCOL_FEE_BPS + FEE_SPLIT.FEE_SHARE_TOTAL_BPS === 10_000,
+    "PROTOCOL_FEE_BPS + FEE_SHARE_TOTAL_BPS === 10_000"
+  );
+  console.log("✓ validateFeeSplit + FEE_SPLIT constants match policy_v16::validate_fee_split");
 }
 
 console.log("\n✅ All tests passed!");

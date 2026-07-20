@@ -32,7 +32,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   1: {
     name: "InvalidVersion",
-    hint: "Account version mismatch. Expected VERSION=17 (protocol-fee wrapper, WrapperConfigV16 496B). The program may need upgrading, or the account predates the protocol-fee redeploy.",
+    hint: "Account version mismatch. Expected VERSION=17 (WrapperConfigV16 576B after the fee-collection split; 496B before it). The program may need upgrading, or the account predates the protocol-fee redeploy.",
   },
   2: {
     name: "AlreadyInitialized",
@@ -258,6 +258,58 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   51: {
     name: "FeeSplitFloorViolation",
     hint: "This backing/trade fee split violates the on-chain floor (creator <=45%, LP >=40%, insurance >=15% of trade_fee_base_bps + backing_fee_bps). Adjust fee_bps/insurance_share_bps to satisfy the floor.",
+  },
+  // ── Fee-collection split (52-53) ──────────────────────────────────────────
+  // Source: v16_program.rs PercolatorError variants appended after
+  // FeeSplitFloorViolation=51 on percolator-prog
+  // feat/protocol-fee-taker-only@2b3a6a65. NOT YET DEPLOYED — the fresh devnet
+  // wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj predates this branch,
+  // so these codes cannot be observed on-chain until it is upgraded.
+  52: {
+    name: "FeeSplitSumInvalid",
+    hint: "UpdateFeeSplit (tag 86) shares do not sum to exactly FEE_SHARE_TOTAL_BPS (8000 = 10_000 - PROTOCOL_FEE_BPS). creator_share_bps + lp_share_bps + insurance_share_bps must equal 8000. Use validateFeeSplit() before sending.",
+  },
+  53: {
+    name: "NoInsuranceReserveToClaim",
+    hint: "WithdrawInsuranceReserveToStake (tag 87) was called with nothing available (insurance_reserve_accrued_atoms == insurance_reserve_withdrawn_atoms). Not an error condition for a keeper — the leg is simply already fully pushed; back off and retry after more trade volume.",
+  },
+  // ── load_bound_stake_pool diagnostics (54-60) ─────────────────────────────
+  // Source: v16_program.rs, same branch. These seven previously ALL returned
+  // Unauthorized, which left a keeper unable to tell "this market never bound a
+  // pool" from "someone pointed a forged pool at us". Each failure of tag 87's
+  // destination-resolution now has its own code.
+  //
+  // ⚠ ORDINAL 55 CHANGED MEANING during development: it was briefly
+  // StakePoolAssetAdminNotBurned, an ineffective mitigation that has been
+  // removed. That variant existed only on an unmerged branch and was NEVER
+  // deployed, so no on-chain consumer has ever observed the old meaning.
+  54: {
+    name: "StakePoolNotBound",
+    hint: "Asset 0's insurance_authority is still zero: no stake pool has ever been bound to this market, so there is no staker constituency owed the insurance leg. Call the stake program's BindInsuranceAuthority (stake tag 19) first — it is required, or the insurance/staker leg has no exit.",
+  },
+  55: {
+    name: "StakePoolOwnerMismatch",
+    hint: "The supplied stake-pool account is not owned by the wrapper's pinned STAKE_PROGRAM_ID. THIS IS THE FORGERY GATE — it is checked before any byte of the account is read. Pass the pool PDA ['stake_pool', market] derived under the canonical stake program (devnet GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3).",
+  },
+  56: {
+    name: "StakePoolAuthorityMismatch",
+    hint: "The PDA ['vault_auth', pool] derived under the pool account's owning program does not equal the bound insurance_authority. The supplied pool is not the one that bound itself to this market.",
+  },
+  57: {
+    name: "StakePoolMarketMismatch",
+    hint: "The stake pool's own stored `slab` field does not name this market. You passed a pool belonging to a different market.",
+  },
+  58: {
+    name: "StakePoolWrapperMismatch",
+    hint: "The stake pool's stored `percolator_program` (its CPI target) is not this wrapper deployment. The pool was initialized against a different wrapper program id.",
+  },
+  59: {
+    name: "StakePoolModeMismatch",
+    hint: "The stake pool is not in insurance-LP mode (pool_mode != 0). Trading-mode pools carry no FlushToInsurance loss exposure, so they are not owed the insurance/staker fee leg.",
+  },
+  60: {
+    name: "StakeProgramNotPinned",
+    hint: "This wrapper build has no pinned stake program id, so WithdrawInsuranceReserveToStake (tag 87) has no destination it is willing to trust and refuses to move tokens. Emitted by every non-devnet build: v17 percolator-stake has no mainnet deployment. The atoms stay safe in header.insurance.",
   },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);

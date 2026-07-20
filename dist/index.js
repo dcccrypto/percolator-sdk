@@ -422,6 +422,64 @@ var IX_TAG = {
    * program's BPF upgrade authority — NOT marketauth, NOT any creator-facing gate.
    */
   SetProtocolFeeAuthority: 85,
+  /**
+   * UpdateFeeSplit (tag 86) — v17 fee-collection split (percolator-prog
+   * feat/protocol-fee-taker-only@2b3a6a65). Sets the three stored fee shares.
+   *
+   * Wire: tag(1) + creator_share_bps(u16) + lp_share_bps(u16) +
+   * insurance_share_bps(u16) = 7 bytes. Accounts: see ACCOUNTS_UPDATE_FEE_SPLIT
+   * in abi/accounts.ts. Gated on `cfg.marketauth`.
+   *
+   * The three shares are bps *of T* (`trade_fee_base_bps`) and must sum to
+   * exactly FEE_SHARE_TOTAL_BPS (8000 = 10_000 - PROTOCOL_FEE_BPS), else
+   * Custom(52) FeeSplitSumInvalid. They must also satisfy the floors
+   * (creator <= 3600, LP >= 3200, insurance >= 1200), else Custom(51)
+   * FeeSplitFloorViolation.
+   *
+   * REACHABILITY: `StakeInitPool` irreversibly rotates `cfg.marketauth` to the
+   * stake-pool PDA, after which this tag is reachable ONLY via the stake
+   * program's CPI proxy (stake tag 25). Call it before StakeInitPool or use
+   * `encodeStakeAdminUpdateFeeSplit`.
+   */
+  UpdateFeeSplit: 86,
+  /**
+   * WithdrawInsuranceReserveToStake (tag 87) — v17 fee-collection split.
+   * Permissionless. Pushes the accrued insurance/staker leg out of the market
+   * vault and into the bound stake pool's vault, where percolator-stake's
+   * AccrueFees measures it as surplus and distributes it to stakers.
+   *
+   * Wire: tag(1) = 1 byte, no arguments. Accounts: see
+   * ACCOUNTS_WITHDRAW_INSURANCE_RESERVE_TO_STAKE in abi/accounts.ts.
+   *
+   * The destination is NOT caller-chosen: it is `pool.vault`, read out of the
+   * pool at `["stake_pool", market]` under the wrapper's PINNED stake program
+   * id. The only thing a caller decides is *when* the push happens.
+   *
+   * ⚠ Live-only (mode 0), and stricter than tag 84: rejects Recovery, Resolved
+   * and matured-Live. ResolveMarket is one-way and tag 41 cannot reach this
+   * unbudgeted leg, so any accrued-but-unpushed reserve is PERMANENTLY
+   * FORFEITED once a market resolves. Keepers should crank tag 87 *before*
+   * ResolveMarket, not after.
+   */
+  WithdrawInsuranceReserveToStake: 87,
+  /**
+   * UpdateMaintenanceFeePerSlot (tag 88) — v17 fee-collection split. Sets
+   * `cfg.maintenance_fee_per_slot`, which was an InitMarket constructor
+   * argument with no setter anywhere in the dispatch table and was therefore
+   * frozen for the life of the market.
+   *
+   * Wire: tag(1) + maintenance_fee_per_slot(u128) = 17 bytes. Accounts: see
+   * ACCOUNTS_UPDATE_MAINTENANCE_FEE_PER_SLOT. Gated on `cfg.marketauth`.
+   *
+   * ⚠ THE PAYLOAD IS u128, NOT u64. The wrapper decodes this with `read_u128`
+   * (v16_program.rs tag-88 arm), matching both the storage type
+   * (`WrapperConfigV16::maintenance_fee_per_slot: u128`) and InitMarket's own
+   * wire encoding. A u64 payload leaves 8 bytes unconsumed and the wrapper
+   * rejects the whole instruction with InvalidInstructionData.
+   *
+   * Same StakeInitPool reachability caveat as tag 86 — proxy is stake tag 26.
+   */
+  UpdateMaintenanceFeePerSlot: 88,
   /** @deprecated v12.x tag 85. COLLIDES with v17 SetProtocolFeeAuthority(85). Do NOT use. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
@@ -1369,6 +1427,62 @@ function encodeSetProtocolFeeAuthority(args) {
     encPubkey(args.newAuthority)
   );
 }
+var FEE_SPLIT = {
+  /** Constant protocol skim, bps of T. Compile-time in the program; not stored, not settable. */
+  PROTOCOL_FEE_BPS: 2e3,
+  /** The three stored shares must sum to exactly this (= 10_000 - PROTOCOL_FEE_BPS). */
+  FEE_SHARE_TOTAL_BPS: 8e3,
+  DEFAULT_CREATOR_SHARE_BPS: 1600,
+  DEFAULT_LP_SHARE_BPS: 4800,
+  DEFAULT_INSURANCE_SHARE_BPS: 1600,
+  /** Creator ceiling, bps of T (45% of the post-protocol remainder). */
+  MAX_CREATOR_SHARE_BPS: 3600,
+  /** LP floor, bps of T (40% of the post-protocol remainder). */
+  MIN_LP_SHARE_BPS: 3200,
+  /** Insurance/staker floor, bps of T (15% of the post-protocol remainder). */
+  MIN_INSURANCE_SHARE_BPS: 1200
+};
+Object.freeze(FEE_SPLIT);
+function validateFeeSplit(args) {
+  const { creatorShareBps, lpShareBps, insuranceShareBps } = args;
+  const sum = creatorShareBps + lpShareBps + insuranceShareBps;
+  if (sum !== FEE_SPLIT.FEE_SHARE_TOTAL_BPS) {
+    return `shares sum to ${sum}, must sum to exactly FEE_SHARE_TOTAL_BPS ${FEE_SPLIT.FEE_SHARE_TOTAL_BPS}`;
+  }
+  if (creatorShareBps > FEE_SPLIT.MAX_CREATOR_SHARE_BPS) {
+    return `creatorShareBps ${creatorShareBps} exceeds MAX_CREATOR_SHARE_BPS ${FEE_SPLIT.MAX_CREATOR_SHARE_BPS}`;
+  }
+  if (lpShareBps < FEE_SPLIT.MIN_LP_SHARE_BPS) {
+    return `lpShareBps ${lpShareBps} is below MIN_LP_SHARE_BPS ${FEE_SPLIT.MIN_LP_SHARE_BPS}`;
+  }
+  if (insuranceShareBps < FEE_SPLIT.MIN_INSURANCE_SHARE_BPS) {
+    return `insuranceShareBps ${insuranceShareBps} is below MIN_INSURANCE_SHARE_BPS ${FEE_SPLIT.MIN_INSURANCE_SHARE_BPS}`;
+  }
+  return null;
+}
+function encodeUpdateFeeSplit(args) {
+  return concatBytes(
+    encU8(IX_TAG.UpdateFeeSplit),
+    encU16(args.creatorShareBps),
+    encU16(args.lpShareBps),
+    encU16(args.insuranceShareBps)
+  );
+}
+function encodeWithdrawInsuranceReserveToStake() {
+  return encU8(IX_TAG.WithdrawInsuranceReserveToStake);
+}
+function encodeUpdateMaintenanceFeePerSlot(args) {
+  return concatBytes(
+    encU8(IX_TAG.UpdateMaintenanceFeePerSlot),
+    encU128(args.maintenanceFeePerSlot)
+  );
+}
+function encodeUpdateTradeFeePolicy(args) {
+  return concatBytes(
+    encU8(IX_TAG.UpdateTradeFeePolicy),
+    encU64(args.tradeFeeBaseBps)
+  );
+}
 
 // src/abi/accounts.ts
 import {
@@ -1974,6 +2088,27 @@ var ACCOUNTS_SET_PROTOCOL_FEE_AUTHORITY = [
   { name: "programData", signer: false, writable: false },
   { name: "market", signer: false, writable: true }
 ];
+var ACCOUNTS_UPDATE_FEE_SPLIT = [
+  { name: "admin", signer: true, writable: false },
+  { name: "market", signer: false, writable: true }
+];
+var ACCOUNTS_WITHDRAW_INSURANCE_RESERVE_TO_STAKE = [
+  { name: "cranker", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+  { name: "stakePool", signer: false, writable: false },
+  { name: "stakeVault", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false }
+];
+var ACCOUNTS_UPDATE_MAINTENANCE_FEE_PER_SLOT = [
+  { name: "admin", signer: true, writable: false },
+  { name: "market", signer: false, writable: true }
+];
+var ACCOUNTS_UPDATE_TRADE_FEE_POLICY = [
+  { name: "authority", signer: true, writable: true },
+  { name: "market", signer: false, writable: true }
+];
 var WELL_KNOWN = {
   tokenProgram: TOKEN_PROGRAM_ID,
   clock: SYSVAR_CLOCK_PUBKEY,
@@ -1990,7 +2125,7 @@ var PERCOLATOR_ERRORS = {
   },
   1: {
     name: "InvalidVersion",
-    hint: "Account version mismatch. Expected VERSION=17 (protocol-fee wrapper, WrapperConfigV16 496B). The program may need upgrading, or the account predates the protocol-fee redeploy."
+    hint: "Account version mismatch. Expected VERSION=17 (WrapperConfigV16 576B after the fee-collection split; 496B before it). The program may need upgrading, or the account predates the protocol-fee redeploy."
   },
   2: {
     name: "AlreadyInitialized",
@@ -2216,6 +2351,58 @@ var PERCOLATOR_ERRORS = {
   51: {
     name: "FeeSplitFloorViolation",
     hint: "This backing/trade fee split violates the on-chain floor (creator <=45%, LP >=40%, insurance >=15% of trade_fee_base_bps + backing_fee_bps). Adjust fee_bps/insurance_share_bps to satisfy the floor."
+  },
+  // ── Fee-collection split (52-53) ──────────────────────────────────────────
+  // Source: v16_program.rs PercolatorError variants appended after
+  // FeeSplitFloorViolation=51 on percolator-prog
+  // feat/protocol-fee-taker-only@2b3a6a65. NOT YET DEPLOYED — the fresh devnet
+  // wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj predates this branch,
+  // so these codes cannot be observed on-chain until it is upgraded.
+  52: {
+    name: "FeeSplitSumInvalid",
+    hint: "UpdateFeeSplit (tag 86) shares do not sum to exactly FEE_SHARE_TOTAL_BPS (8000 = 10_000 - PROTOCOL_FEE_BPS). creator_share_bps + lp_share_bps + insurance_share_bps must equal 8000. Use validateFeeSplit() before sending."
+  },
+  53: {
+    name: "NoInsuranceReserveToClaim",
+    hint: "WithdrawInsuranceReserveToStake (tag 87) was called with nothing available (insurance_reserve_accrued_atoms == insurance_reserve_withdrawn_atoms). Not an error condition for a keeper \u2014 the leg is simply already fully pushed; back off and retry after more trade volume."
+  },
+  // ── load_bound_stake_pool diagnostics (54-60) ─────────────────────────────
+  // Source: v16_program.rs, same branch. These seven previously ALL returned
+  // Unauthorized, which left a keeper unable to tell "this market never bound a
+  // pool" from "someone pointed a forged pool at us". Each failure of tag 87's
+  // destination-resolution now has its own code.
+  //
+  // ⚠ ORDINAL 55 CHANGED MEANING during development: it was briefly
+  // StakePoolAssetAdminNotBurned, an ineffective mitigation that has been
+  // removed. That variant existed only on an unmerged branch and was NEVER
+  // deployed, so no on-chain consumer has ever observed the old meaning.
+  54: {
+    name: "StakePoolNotBound",
+    hint: "Asset 0's insurance_authority is still zero: no stake pool has ever been bound to this market, so there is no staker constituency owed the insurance leg. Call the stake program's BindInsuranceAuthority (stake tag 19) first \u2014 it is required, or the insurance/staker leg has no exit."
+  },
+  55: {
+    name: "StakePoolOwnerMismatch",
+    hint: "The supplied stake-pool account is not owned by the wrapper's pinned STAKE_PROGRAM_ID. THIS IS THE FORGERY GATE \u2014 it is checked before any byte of the account is read. Pass the pool PDA ['stake_pool', market] derived under the canonical stake program (devnet GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3)."
+  },
+  56: {
+    name: "StakePoolAuthorityMismatch",
+    hint: "The PDA ['vault_auth', pool] derived under the pool account's owning program does not equal the bound insurance_authority. The supplied pool is not the one that bound itself to this market."
+  },
+  57: {
+    name: "StakePoolMarketMismatch",
+    hint: "The stake pool's own stored `slab` field does not name this market. You passed a pool belonging to a different market."
+  },
+  58: {
+    name: "StakePoolWrapperMismatch",
+    hint: "The stake pool's stored `percolator_program` (its CPI target) is not this wrapper deployment. The pool was initialized against a different wrapper program id."
+  },
+  59: {
+    name: "StakePoolModeMismatch",
+    hint: "The stake pool is not in insurance-LP mode (pool_mode != 0). Trading-mode pools carry no FlushToInsurance loss exposure, so they are not owed the insurance/staker fee leg."
+  },
+  60: {
+    name: "StakeProgramNotPinned",
+    hint: "This wrapper build has no pinned stake program id, so WithdrawInsuranceReserveToStake (tag 87) has no destination it is willing to trust and refuses to move tokens. Emitted by every non-devnet build: v17 percolator-stake has no mainnet deployment. The atoms stay safe in header.insurance."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -4892,7 +5079,7 @@ var V17_MAGIC = 0x5045524356313600n;
 var V17_EXPECTED_VERSION = 17;
 var V17_KIND_MARKET = 1;
 var V17_KIND_OFF = 10;
-var V17_WRAPPER_CONFIG_LEN = 496;
+var V17_WRAPPER_CONFIG_LEN = 576;
 var V17_ASSET_ORACLE_PROFILE_LEN = 400;
 var V17_HEADER_LEN = 16;
 var V17_MARKET_GROUP_OFF = V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN;
@@ -4966,6 +5153,13 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const protocolFeeAuthority = new PublicKey5(data.subarray(b + 432, b + 464));
   const protocolFeeAccruedAtoms = readU128LE(data, b + 464);
   const protocolFeeWithdrawnAtoms = readU128LE(data, b + 480);
+  const lpFeeAccruedAtoms = readU128LE(data, b + 496);
+  const lpFeeWithdrawnAtoms = readU128LE(data, b + 512);
+  const insuranceReserveAccruedAtoms = readU128LE(data, b + 528);
+  const insuranceReserveWithdrawnAtoms = readU128LE(data, b + 544);
+  const creatorShareBps = readU16LE(data, b + 560);
+  const lpShareBps = readU16LE(data, b + 562);
+  const insuranceShareBps = readU16LE(data, b + 564);
   return {
     marketauth,
     collateralMint,
@@ -5009,7 +5203,14 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
     feeRedirectToMarket0Bps,
     protocolFeeAuthority,
     protocolFeeAccruedAtoms,
-    protocolFeeWithdrawnAtoms
+    protocolFeeWithdrawnAtoms,
+    lpFeeAccruedAtoms,
+    lpFeeWithdrawnAtoms,
+    insuranceReserveAccruedAtoms,
+    insuranceReserveWithdrawnAtoms,
+    creatorShareBps,
+    lpShareBps,
+    insuranceShareBps
   };
 }
 function parseAssetOracleProfileV17(data, profileOff) {
@@ -6757,7 +6958,60 @@ var STAKE_IX = {
    * Wire: tag(1) — no payload.
    * Accounts: [admin(signer), poolPda(writable)]
    */
-  SetMarketResolved: 18
+  SetMarketResolved: 18,
+  /**
+   * AdminUpdateFeeSplit (tag 25) — CPI proxy for the wrapper's UpdateFeeSplit
+   * (wrapper tag 86). GROUP A: the wrapper gate is `cfg.marketauth`, which
+   * `StakeInitPool` irreversibly rotates to the pool PDA, so the pool PDA
+   * signs the CPI via invoke_signed.
+   *
+   * Wire: tag(1) + creator_share_bps(u16) + lp_share_bps(u16) +
+   * insurance_share_bps(u16) = 7 bytes.
+   * Accounts: [admin(signer), poolPda, slab(writable), percolatorProgram]
+   *
+   * Share validation is the WRAPPER's (`policy_v16::validate_fee_split`) and is
+   * deliberately not duplicated stake-side — a bad split surfaces as wrapper
+   * Custom(52)/Custom(51) through the CPI.
+   */
+  AdminUpdateFeeSplit: 25,
+  /**
+   * AdminUpdateMaintenanceFeePerSlot (tag 26) — CPI proxy for the wrapper's
+   * UpdateMaintenanceFeePerSlot (wrapper tag 88). GROUP A, same accounts and
+   * signer model as tag 25.
+   *
+   * Wire: tag(1) + maintenance_fee_per_slot(u128) = 17 bytes.
+   * Accounts: [admin(signer), poolPda, slab(writable), percolatorProgram]
+   *
+   * ⚠ THE PAYLOAD IS u128, NOT u64 — the stake program itself rejects a
+   * payload whose `rest.len() != 16`, and the wrapper decodes tag 88 with
+   * `read_u128`.
+   */
+  AdminUpdateMaintenanceFeePerSlot: 26,
+  /**
+   * AdminUpdateBackingFeePolicy (tag 27) — CPI proxy for the wrapper's
+   * UpdateBackingFeePolicy (wrapper tag 51). GROUP B: the wrapper gate is
+   * ASSET 0's `insurance_authority`, which `BindInsuranceAuthority` moves to
+   * the `vault_auth` PDA, so `vault_auth` (not the pool PDA) signs the CPI.
+   *
+   * THE FEE-SPLIT UNBLOCKER: wrapper tag 51 is the setter for
+   * `backing_trade_fee_bps`. Once bound, this CPI is the only way to reach it.
+   *
+   * Wire: tag(1) + domain(u16) + fee_bps(u16) + insurance_share_bps(u16) = 7 bytes.
+   * Accounts: [admin(signer), poolPda, vaultAuth, slab(writable), percolatorProgram]
+   */
+  AdminUpdateBackingFeePolicy: 27,
+  /**
+   * AdminUpdateTradeFeePolicy (tag 28) — CPI proxy for the wrapper's
+   * UpdateTradeFeePolicy (wrapper tag 55). GROUP B, same accounts and signer
+   * model as tag 27.
+   *
+   * Wire: tag(1) + trade_fee_base_bps(u64) = 9 bytes.
+   * Accounts: [admin(signer), poolPda, vaultAuth, slab(writable), percolatorProgram]
+   *
+   * ⚠ Note the type asymmetry with tag 26: wrapper tag 55 decodes with
+   * `read_u64`, wrapper tag 88 with `read_u128`.
+   */
+  AdminUpdateTradeFeePolicy: 28
 };
 Object.freeze(STAKE_IX);
 var STAKE_ERRORS = {
@@ -6843,6 +7097,19 @@ function u64Le(v) {
   if (big > 0xFFFFFFFFFFFFFFFFn) throw new Error(`u64Le: value exceeds u64 max`);
   const arr = new Uint8Array(8);
   new DataView(arr.buffer).setBigUint64(0, big, true);
+  return arr;
+}
+function u128Le(v) {
+  if (typeof v === "number" && !Number.isSafeInteger(v)) {
+    throw new Error(`u128Le: number ${v} exceeds Number.MAX_SAFE_INTEGER \u2014 use BigInt`);
+  }
+  const big = BigInt(v);
+  if (big < 0n) throw new Error(`u128Le: value must be non-negative, got ${big}`);
+  if (big > (1n << 128n) - 1n) throw new Error(`u128Le: value exceeds u128 max`);
+  const arr = new Uint8Array(16);
+  const view = new DataView(arr.buffer);
+  view.setBigUint64(0, big & 0xFFFFFFFFFFFFFFFFn, true);
+  view.setBigUint64(8, big >> 64n, true);
   return arr;
 }
 function u16Le(v) {
@@ -7038,6 +7305,55 @@ function adminResolveMarketCpiAccounts(a) {
     { pubkey: a.percolatorProgram, isSigner: false, isWritable: false }
   ];
 }
+function encodeStakeAdminUpdateFeeSplit(creatorShareBps, lpShareBps, insuranceShareBps) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminUpdateFeeSplit]),
+    u16Le(creatorShareBps),
+    u16Le(lpShareBps),
+    u16Le(insuranceShareBps)
+  );
+}
+function encodeStakeAdminUpdateMaintenanceFeePerSlot(maintenanceFeePerSlot) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminUpdateMaintenanceFeePerSlot]),
+    u128Le(maintenanceFeePerSlot)
+  );
+}
+function encodeStakeAdminUpdateBackingFeePolicy(domain, feeBps, insuranceShareBps) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminUpdateBackingFeePolicy]),
+    u16Le(domain),
+    u16Le(feeBps),
+    u16Le(insuranceShareBps)
+  );
+}
+function encodeStakeAdminUpdateTradeFeePolicy(tradeFeeBaseBps) {
+  return concatBytes(
+    new Uint8Array([STAKE_IX.AdminUpdateTradeFeePolicy]),
+    u64Le(tradeFeeBaseBps)
+  );
+}
+function stakeGroupAProxyAccounts(a) {
+  return [
+    { pubkey: a.admin, isSigner: true, isWritable: false },
+    { pubkey: a.poolPda, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: true },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false }
+  ];
+}
+var adminUpdateFeeSplitAccounts = stakeGroupAProxyAccounts;
+var adminUpdateMaintenanceFeePerSlotAccounts = stakeGroupAProxyAccounts;
+function stakeGroupBProxyAccounts(a) {
+  return [
+    { pubkey: a.admin, isSigner: true, isWritable: false },
+    { pubkey: a.poolPda, isSigner: false, isWritable: false },
+    { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: true },
+    { pubkey: a.percolatorProgram, isSigner: false, isWritable: false }
+  ];
+}
+var adminUpdateBackingFeePolicyAccounts = stakeGroupBProxyAccounts;
+var adminUpdateTradeFeePolicyAccounts = stakeGroupBProxyAccounts;
 function encodeStakeAdminSetInsurancePolicy(authority, minWithdrawBase, maxWithdrawBps, cooldownSlots) {
   void authority;
   void minWithdrawBase;
@@ -8739,7 +9055,10 @@ export {
   ACCOUNTS_UPDATE_AUTHORITY,
   ACCOUNTS_UPDATE_BACKING_FEE_POLICY,
   ACCOUNTS_UPDATE_CONFIG,
+  ACCOUNTS_UPDATE_FEE_SPLIT,
   ACCOUNTS_UPDATE_HYPERP_MARK,
+  ACCOUNTS_UPDATE_MAINTENANCE_FEE_PER_SLOT,
+  ACCOUNTS_UPDATE_TRADE_FEE_POLICY,
   ACCOUNTS_WITHDRAW_BACKING_BUCKET,
   ACCOUNTS_WITHDRAW_BACKING_BUCKET_EARNINGS,
   ACCOUNTS_WITHDRAW_COLLATERAL,
@@ -8747,6 +9066,7 @@ export {
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
   ACCOUNTS_WITHDRAW_INSURANCE_LP,
+  ACCOUNTS_WITHDRAW_INSURANCE_RESERVE_TO_STAKE,
   ACCOUNTS_WITHDRAW_LP_COLLATERAL,
   ACCOUNTS_WITHDRAW_PROTOCOL_FEE,
   ASSET_AUTH_KIND,
@@ -8763,6 +9083,7 @@ export {
   ENGINE_MARK_PRICE_OFF,
   ENGINE_OFF,
   EXPECTED_SLAB_VERSION,
+  FEE_SPLIT,
   HEX_RE,
   INIT_CTX_LEN,
   INIT_MATCHER_CTX_V17_LEN,
@@ -8855,6 +9176,10 @@ export {
   WSOL_MINT,
   _internal,
   adminResolveMarketCpiAccounts,
+  adminUpdateBackingFeePolicyAccounts,
+  adminUpdateFeeSplitAccounts,
+  adminUpdateMaintenanceFeePerSlotAccounts,
+  adminUpdateTradeFeePolicyAccounts,
   bindInsuranceAuthorityAccounts,
   buildAccountMetas,
   buildAdlInstruction,
@@ -9026,6 +9351,10 @@ export {
   encodeStakeAdminSetOracleAuthority,
   encodeStakeAdminSetRiskThreshold,
   encodeStakeAdminSetTrancheConfig,
+  encodeStakeAdminUpdateBackingFeePolicy,
+  encodeStakeAdminUpdateFeeSplit,
+  encodeStakeAdminUpdateMaintenanceFeePerSlot,
+  encodeStakeAdminUpdateTradeFeePolicy,
   encodeStakeAdminWithdrawInsurance,
   encodeStakeBindInsuranceAuthority,
   encodeStakeBurnAssetAdmin,
@@ -9061,9 +9390,12 @@ export {
   encodeUpdateAuthority,
   encodeUpdateBackingFeePolicy,
   encodeUpdateConfig,
+  encodeUpdateFeeSplit,
   encodeUpdateHyperpMark,
+  encodeUpdateMaintenanceFeePerSlot,
   encodeUpdateMarkPrice,
   encodeUpdateRiskParams,
+  encodeUpdateTradeFeePolicy,
   encodeWithdrawBackingBucket,
   encodeWithdrawBackingBucketEarnings,
   encodeWithdrawCollateral,
@@ -9071,6 +9403,7 @@ export {
   encodeWithdrawInsuranceAsset,
   encodeWithdrawInsuranceLP,
   encodeWithdrawInsuranceLimited,
+  encodeWithdrawInsuranceReserveToStake,
   encodeWithdrawLpCollateral,
   encodeWithdrawProtocolFee,
   fetchAdlRankedPositions,
@@ -9135,11 +9468,14 @@ export {
   simulateOrSend,
   slabDataSize,
   slabDataSizeV1,
+  stakeGroupAProxyAccounts,
+  stakeGroupBProxyAccounts,
   stripLighthouseFromTransaction,
   stripLighthouseInstructions,
   v17MarketAccountLen,
   validateAmount,
   validateBps,
+  validateFeeSplit,
   validateI128,
   validateI64,
   validateIndex,
