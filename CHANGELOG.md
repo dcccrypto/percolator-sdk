@@ -7,6 +7,109 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.2.0] — 2026-07-22
+
+Keeper read paths: backing-bucket lapse **detection** (the missing half of tag
+89) and canonical vault **derivation** (tags 84 / 87).
+
+Source: `percolator-prog@10acb5ae`, engine `percolator/src/v16.rs`. All layout
+offsets produced by `offset_of!` against the engine's own `#[repr(C)]` account
+structs, and independently re-derived in tests by walking the field
+declarations to the struct's separately-sourced length.
+
+4.1.0 shipped the tag-89 *encoder* with no way to tell whether a bucket had
+actually lapsed, so a keeper could only crank blindly or not at all. This
+release closes that, plus the vault derivation the keeper was carrying as an
+env override.
+
+### Added
+
+- **`parseBackingBucketsV17(data, { chainSlot })`** — per-domain backing-bucket
+  state from a raw v17 market account: `status`, `expirySlot`, all five u128
+  counters, `marketId`, plus derived `lapsed` and `expirable` flags. Also
+  reports `mode`, `headerCurrentSlot`, the resolved `nowSlot`, `maxMarketSlots`,
+  `physicalAssetSlots` and `addressableDomainCount`.
+
+- **`isBackingBucketExpirable(bucket, ctx)`** — the tag-89 acceptance predicate,
+  matching every gate on the on-chain path so a keeper never sends a doomed
+  transaction:
+
+  1. `mode === 0` (Live) — else `EngineLockActive` Custom(21).
+  2. `domain < max_market_slots * 2` — else `InvalidInstruction` Custom(9).
+  3. `assetIndex < physical slot count` — else the engine's `InvalidLeg`.
+     A market may be *configured* for more slots than its account was *sized*
+     for; (2) and (3) are folded into `addressableDomainCount`.
+  4. `status === Fresh && nowSlot >= expirySlot` — else `Stale` Custom(19).
+     Note `>=`, not `>`: at `nowSlot === expirySlot` the bucket is both
+     deadlocked and expirable, agreeing with the deadlock side's
+     `expiry_slot <= current_slot`.
+
+  `nowSlot` is `max(chainSlot, header.current_slot)`, mirroring
+  `authenticated_market_slot_or_fallback_view`. Using the chain slot alone is a
+  **false negative** whenever the engine counter runs ahead, and a false
+  negative leaves a domain bricked. Omitting `chainSlot` collapses to
+  `header.current_slot`, the program's own `Clock`-unavailable fallback.
+
+  ⚠ Does **not** model the engine's `CounterUnderflow` arm, which fires only on
+  a domain whose `SourceCreditState` has drifted below its own bucket totals —
+  a broken-invariant state, not a reachable steady state.
+
+- **`findExpirableBackingDomains(data, { chainSlot })`** — ascending domain
+  indices ready to feed `encodeExpireBackingBucket({ domain })`. Returns `[]`
+  when there is nothing to do, which is the common case and the case in which a
+  keeper must send nothing.
+
+- **`BackingBucketStatus`** enum (`Empty` 0 / `Fresh` 1 / `Expired` 2 /
+  `Impaired` 3) and **`backingBucketStatusName()`**, which reports
+  `Unknown(n)` rather than guessing at an unmapped byte.
+
+- Layout constants: `V17_GROUP_CONFIG_REL` (32),
+  `V17_GROUP_CURRENT_SLOT_REL` (613), `V17_GROUP_MODE_REL` (626),
+  `V17_CONFIG_MAX_MARKET_SLOTS_REL` (2), `V17_ASSET_SLOT_WRAPPER_LEN` (512),
+  `V17_ENGINE_BACKING_LONG_REL` (947), `V17_ENGINE_BACKING_SHORT_REL` (1044),
+  `V17_BACKING_BUCKET_LEN` (97), `V17_MARKET_MODE_LIVE` (0).
+
+- **`deriveCanonicalVault(programId, market, mint)`** — the market's vault token
+  account, mirroring `canonical_vault_address` (`v16_program.rs:17404-17415`):
+
+  ```text
+  vault_authority = PDA(["vault", market],                     wrapperProgramId)
+  vault           = PDA([vault_authority, SPL_TOKEN_ID, mint], ATA_PROGRAM_ID)
+  ```
+
+  ⚠ The middle seed is **always** legacy SPL Token, never Token-2022. The
+  wrapper hard-pins `spl_token::ID` in both `verify_token_program` and
+  `unpack_token_account`, so a Token-2022-derived ATA is simply the wrong
+  address and fails with `InvalidVaultAccount` — which reads as "bad vault"
+  rather than "wrong derivation". Do not resolve this with `detectTokenProgram`.
+
+  The wrapper pins this single address (finding F-VAULT-FRAG) rather than
+  accepting any `vault_authority`-owned token account, so there is exactly one
+  correct answer.
+
+- **`deriveCanonicalVaultForAuthority(vaultAuthority, mint)`** — same
+  derivation for callers that already hold the authority.
+
+- **`deriveMarketVaultAccounts(programId, market, mint)`** — `vaultAuthority`,
+  `vaultToken`, both bumps and `tokenProgram` in one call, for
+  `WithdrawProtocolFee` (tag 84, accounts 3/4/5) and
+  `WithdrawInsuranceReserveToStake` (tag 87, accounts 4/5/6).
+
+- **`ASSOCIATED_TOKEN_PROGRAM_ID`** and **`PERCOLATOR_VAULT_TOKEN_PROGRAM_ID`**
+  — the two program ids the vault derivation depends on, exported so a consumer
+  can assert them rather than re-type them.
+
+### Notes
+
+- Tag 87's stake-side accounts needed no new code: `deriveStakePool`,
+  `deriveStakeVaultAuth` and `decodeStakePool` already existed in
+  `src/solana/stake.ts` and are now pinned by tests against the program's own
+  `STAKE_POOL_SEED` / `STAKE_VAULT_AUTHORITY_SEED` constants.
+- `deriveVaultAuthority`'s doc now cites its program anchor
+  (`v16_program.rs:17339-17341`).
+
+---
+
 ## [4.1.0] — 2026-07-22
 
 Backing-bucket lapse recovery (wrapper tag 89) and error ordinal 61.
