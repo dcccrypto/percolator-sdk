@@ -7,6 +7,71 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.1.0] — 2026-07-22
+
+Backing-bucket lapse recovery (wrapper tag 89) and error ordinal 61.
+
+Source: `percolator-prog@10acb5ae`. Wire format read off the program's own
+tag-89 decode arm, `encode()` arm, and `handle_expire_backing_bucket`.
+
+**NOW DEPLOYED.** Devnet wrapper
+`DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj` is hash-verified at
+`6b2fda2363352aba0ef88abde0d398f9dd477b1208507e7e8393586ed5458931`, which is
+this commit. The 4.0.0 fee-collection surface (tags 86/87/88, the 576-byte
+config, error ordinals 52-60) is no longer ahead of chain — it is live. The
+"NOT YET DEPLOYED" warning on 4.0.0 above is superseded.
+
+### Added
+
+- `encodeExpireBackingBucket` (tag 89) — `tag(1) + domain(u16 LE)` = 3 B.
+  **PERMISSIONLESS**: `ACCOUNTS_EXPIRE_BACKING_BUCKET` is a single writable
+  market account and NO signer; the handler applies only `expect_writable` +
+  `expect_owner`.
+
+  Recovers a domain bricked by a backing-bucket lapse. Once a `Fresh` bucket's
+  `expiry_slot` passes, settling a gain fails `Custom(19)`, settling a loss
+  fails `Custom(21)`, and even `TopUpBackingBucket` fails `Custom(21)` — the
+  bucket cannot be paid to come back. The wrapper previously had no call site
+  reaching the engine's `expire_source_backing_bucket_not_atomic` on a LIVE
+  market, so the lapse was permanent. Tag 89 is that missing call site.
+
+  ⚠ **This is routine keeper maintenance, not an edge case.** The expiry is
+  fixed when the bucket opens and is never extended while it stays `Fresh`, so
+  **every backed market lapses eventually** — a longer horizon (even
+  `MAX_BACKING_BUCKET_EXPIRY_SLOT`) defers the lapse, it does not avoid it.
+  Keepers must scan live markets for `Fresh`-and-lapsed domains and expire
+  them, or the first lapse silently bricks the domain.
+
+  Safe to call speculatively: the engine fails closed with `Custom(19)` unless
+  the bucket is `Fresh` AND lapsed, and `now_slot` comes from the runtime
+  `Clock`, never from the caller, so no caller can force early forfeiture.
+
+- `ACCOUNTS_EXPIRE_BACKING_BUCKET` — 1 account, `[market]` writable, no signer.
+- `IX_TAG.ExpireBackingBucket = 89`.
+- **Error ordinal 61 `AssetSlotAlreadyConfigured`.** `UpdateAssetLifecycle`
+  ACTIVATE against a slot below `max_market_slots` that is already in service.
+  Replaces a misleading `Custom(21) EngineLockActive`, which read as "the
+  market is locked" and gave no hint the slot was simply already live.
+
+### Changed
+
+- **Error ordinal 61 is no longer free.** `decodeError(61)` /
+  `getErrorName(61)` now return `AssetSlotAlreadyConfigured` instead of
+  `undefined` / `Unknown(61)`. Consumers that pinned 61 as the table's upper
+  boundary — or that carried v12's ADL meaning for `0x3D`
+  (`EngineSideBlocked`) — need updating. The v12 meaning is still gone; the
+  ordinal has been reused for something unrelated.
+- **Ordinal 51 `FeeSplitFloorViolation` hint corrected.** It documented the
+  retired tolerance-based `policy_v16::fee_split_floor_ok` on the two-rate
+  split raised from tags 51/55. That function has no live call sites. The
+  ordinal is now raised only by `policy_v16::validate_fee_split` from
+  `UpdateFeeSplit` (tag 86), exactly and with no tolerance, against
+  creator ≤ 3600 / LP ≥ 3200 / insurance ≥ 1200 bps.
+- Ordinal 49 `EngineInsufficientInitialMargin` confirmed against the program
+  enum; the "discriminant tentative — TODO" note is resolved.
+
+---
+
 ## [4.0.0] — 2026-07-20
 
 v17 fee-collection split client surface. Wrapper instruction tags 86/87/88,
