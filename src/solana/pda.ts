@@ -27,6 +27,9 @@ function u16LE(value: number): Uint8Array {
 /**
  * Derive vault authority PDA.
  * Seeds: ["vault", slab_key]
+ *
+ * Mirrors `derive_vault_authority(program_id, market_key)` in
+ * `percolator-prog/src/v16_program.rs:17339-17341`.
  */
 export function deriveVaultAuthority(
   programId: PublicKey,
@@ -36,6 +39,175 @@ export function deriveVaultAuthority(
     [textEncoder.encode("vault"), slab.toBytes()],
     programId
   );
+}
+
+// ---------------------------------------------------------------------------
+// Canonical market vault (F-VAULT-FRAG) — tags 84, 87, and every token path
+// ---------------------------------------------------------------------------
+
+/**
+ * SPL Associated Token Account program.
+ *
+ * Mirrors `ASSOCIATED_TOKEN_PROGRAM_ID` in `v16_program.rs:17400-17401`, which the
+ * wrapper declares locally for exactly one purpose: deriving the canonical vault.
+ */
+export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+);
+
+/**
+ * The legacy SPL Token program — the ONLY token program the v17 wrapper accepts.
+ *
+ * This is not a default that a Token-2022 mint can override. `verify_token_program`
+ * (`v16_program.rs:17436-17441`) rejects any `token_program` account whose key is not
+ * `spl_token::ID`, and `unpack_token_account` (`17443-17455`) rejects any token account
+ * not *owned* by `spl_token::ID`. Token-2022 collateral is unusable end to end, so the
+ * ATA's middle seed is always this program id.
+ */
+export const PERCOLATOR_VAULT_TOKEN_PROGRAM_ID = new PublicKey(
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+);
+
+/**
+ * Derive the CANONICAL vault token account for a market + collateral mint.
+ *
+ * The vault is the Associated Token Account of the market's `vault_authority` PDA:
+ *
+ * ```text
+ * vault_authority = PDA(["vault", market],                          wrapperProgramId)
+ * vault           = PDA([vault_authority, SPL_TOKEN_ID, mint],      ATA_PROGRAM_ID)
+ * ```
+ *
+ * Mirrors `canonical_vault_address(vault_authority, mint)`
+ * (`v16_program.rs:17404-17415`). The wrapper PINS this single address rather than
+ * accepting any `vault_authority`-owned token account: `verify_vault_token_account`
+ * (`17543-17563`) rejects a token account whose key is not exactly this, on top of the
+ * mint/owner/state/delegate/close-authority checks. That pin is finding F-VAULT-FRAG —
+ * without it an attacker could route deposits to a second `vault_authority`-owned account
+ * and strand honest withdrawals against the canonical one.
+ *
+ * ⚠ The middle seed is ALWAYS the legacy SPL Token program
+ * ({@link PERCOLATOR_VAULT_TOKEN_PROGRAM_ID}), never Token-2022 — the wrapper hard-pins
+ * `spl_token::ID` in both `verify_token_program` and `unpack_token_account`. Deriving this
+ * address with a detected token program would produce a key the program rejects with
+ * `InvalidVaultAccount`, which reads as "bad vault" rather than "wrong derivation".
+ *
+ * Required by `WithdrawProtocolFee` (tag 84) at accounts[3] and
+ * `WithdrawInsuranceReserveToStake` (tag 87) at accounts[4], plus every deposit/withdraw
+ * token path.
+ *
+ * @param programId - The Percolator wrapper program ID (the market's owner).
+ * @param market    - The v17 market group (slab) public key.
+ * @param mint      - The market's collateral mint (`WrapperConfigV16::collateral_mint`).
+ * @returns `[vaultTokenAccount, bump]` — the ATA address and its bump.
+ *
+ * @example
+ * ```ts
+ * const cfg = parseWrapperConfigV17(marketData);
+ * const [vaultToken] = deriveCanonicalVault(WRAPPER_ID, marketPk, cfg.collateralMint);
+ * ```
+ */
+export function deriveCanonicalVault(
+  programId: PublicKey,
+  market: PublicKey,
+  mint: PublicKey
+): [PublicKey, number] {
+  const [vaultAuthority] = deriveVaultAuthority(programId, market);
+  return deriveCanonicalVaultForAuthority(vaultAuthority, mint);
+}
+
+/**
+ * Derive the canonical vault ATA from an already-derived `vault_authority`.
+ *
+ * Split out from {@link deriveCanonicalVault} so callers that already hold the authority
+ * (e.g. because they must also pass it as an account) do not re-run the "vault" PDA search.
+ * Same derivation, same program pins — see {@link deriveCanonicalVault} for the rationale.
+ *
+ * @param vaultAuthority - The `["vault", market]` PDA under the wrapper program.
+ * @param mint           - The market's collateral mint.
+ * @returns `[vaultTokenAccount, bump]`
+ *
+ * @example
+ * ```ts
+ * const [auth] = deriveVaultAuthority(WRAPPER_ID, marketPk);
+ * const [vault] = deriveCanonicalVaultForAuthority(auth, mintPk);
+ * ```
+ */
+export function deriveCanonicalVaultForAuthority(
+  vaultAuthority: PublicKey,
+  mint: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      vaultAuthority.toBytes(),
+      PERCOLATOR_VAULT_TOKEN_PROGRAM_ID.toBytes(),
+      mint.toBytes(),
+    ],
+    ASSOCIATED_TOKEN_PROGRAM_ID
+  );
+}
+
+/** Both halves of a market's vault, as required by tags 84 and 87. */
+export interface MarketVaultAccounts {
+  /** `PDA(["vault", market], wrapperProgramId)` — SPL owner of the vault, and CPI signer. */
+  vaultAuthority: PublicKey;
+  /** Bump for `vaultAuthority`. The program re-derives it; callers never pass it. */
+  vaultAuthorityBump: number;
+  /** The canonical vault token account — `ATA(vaultAuthority, SPL_TOKEN, mint)`. */
+  vaultToken: PublicKey;
+  /** Bump for `vaultToken`. */
+  vaultTokenBump: number;
+  /** The token program that must be passed alongside — always legacy SPL Token. */
+  tokenProgram: PublicKey;
+}
+
+/**
+ * Derive every vault-side account a fee-withdrawal instruction needs, in one call.
+ *
+ * `WithdrawProtocolFee` (tag 84) and `WithdrawInsuranceReserveToStake` (tag 87) each take
+ * the vault token account, the vault authority PDA and the token program as three separate
+ * accounts that must agree with one another; deriving them together makes disagreement
+ * impossible.
+ *
+ * Account positions:
+ * - tag 84 (`v16_program.rs:10796-10815`): `[3] vaultToken (w)`, `[4] vaultAuthority`, `[5] tokenProgram`
+ * - tag 87 (`v16_program.rs:11238-11258`): `[4] vaultToken (w)`, `[5] vaultAuthority`, `[6] tokenProgram`
+ *
+ * @param programId - The Percolator wrapper program ID.
+ * @param market    - The v17 market group (slab) public key.
+ * @param mint      - The market's collateral mint.
+ * @returns The vault authority, the canonical vault token account, both bumps, and the token program.
+ *
+ * @example
+ * ```ts
+ * const v = deriveMarketVaultAccounts(WRAPPER_ID, marketPk, cfg.collateralMint);
+ * const keys = [
+ *   { pubkey: cranker.publicKey, isSigner: true,  isWritable: false },
+ *   { pubkey: marketPk,          isSigner: false, isWritable: true  },
+ *   { pubkey: destToken,         isSigner: false, isWritable: true  },
+ *   { pubkey: v.vaultToken,      isSigner: false, isWritable: true  },
+ *   { pubkey: v.vaultAuthority,  isSigner: false, isWritable: false },
+ *   { pubkey: v.tokenProgram,    isSigner: false, isWritable: false },
+ * ];
+ * ```
+ */
+export function deriveMarketVaultAccounts(
+  programId: PublicKey,
+  market: PublicKey,
+  mint: PublicKey
+): MarketVaultAccounts {
+  const [vaultAuthority, vaultAuthorityBump] = deriveVaultAuthority(programId, market);
+  const [vaultToken, vaultTokenBump] = deriveCanonicalVaultForAuthority(
+    vaultAuthority,
+    mint
+  );
+  return {
+    vaultAuthority,
+    vaultAuthorityBump,
+    vaultToken,
+    vaultTokenBump,
+    tokenProgram: PERCOLATOR_VAULT_TOKEN_PROGRAM_ID,
+  };
 }
 
 /**

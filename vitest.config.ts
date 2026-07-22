@@ -9,6 +9,7 @@ export default defineConfig({
       "test/errors.test.ts",
       "test/instructions.test.ts",
       "test/pda.test.ts",
+      "test/backing-bucket.test.ts",
       "test/price-router.test.ts",
       "test/discovery.test.ts",      "test/slab-parser.test.ts",
       "test/adl.test.ts",
