@@ -1087,18 +1087,20 @@ describe("Error codes — v17 NFT/LP-vault boundary parsing in discovery/fallbac
     expect(result!.name).toBe("NftPortfolioProvenance");
   });
 
-  it("codes 47-51 are now defined (insurance withdraw + EngineInsufficientInitialMargin + LP-vault dead-share floor + FeeSplitFloorViolation), 52+ undefined", () => {
+  it("codes 47-61 are now defined (insurance withdraw + EngineInsufficientInitialMargin + LP-vault dead-share floor + FeeSplitFloorViolation + fee-collection split + AssetSlotAlreadyConfigured), 62+ undefined", () => {
     expect(decodeError(47)?.name).toBe("InsuranceWithdrawCooldownActive");
     expect(decodeError(48)?.name).toBe("InsuranceWithdrawCeilingExceeded");
     expect(decodeError(49)?.name).toBe("EngineInsufficientInitialMargin");
     expect(decodeError(50)?.name).toBe("LpVaultDepositBelowMinimumLiquidity");
     expect(decodeError(51)?.name).toBe("FeeSplitFloorViolation");
     // Fee-collection split (percolator-prog feat/protocol-fee-taker-only@2b3a6a65)
-    // extended the table 51 -> 60. 61+ remain undefined.
+    // extended the table 51 -> 60; the 2026-07-22 bug-fix pass
+    // (percolator-prog@10acb5ae) appended 61. 62+ remain undefined.
     expect(decodeError(52)?.name).toBe("FeeSplitSumInvalid");
     expect(decodeError(53)?.name).toBe("NoInsuranceReserveToClaim");
     expect(decodeError(60)?.name).toBe("StakeProgramNotPinned");
-    expect(decodeError(61)).toBeUndefined();
+    expect(decodeError(61)?.name).toBe("AssetSlotAlreadyConfigured");
+    expect(decodeError(62)).toBeUndefined();
     expect(decodeError(65)).toBeUndefined();
   });
 });

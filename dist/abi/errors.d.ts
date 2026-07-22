@@ -3,12 +3,18 @@
  *
  * Source: v16_program.rs PercolatorError enum (lines 174-226 in v17 wrapper).
  * Ordinals 0-29 = toly base errors; 30-41 = fork LP-vault; 42-46 = fork NFT/B-3;
- * 47-48 = insurance withdrawal policy (F-1/F-2); 49 = EngineInsufficientInitialMargin
- * (discriminant tentative — TODO: confirm once percolator-anchor ships it);
+ * 47-48 = insurance withdrawal policy (F-1/F-2); 49 = EngineInsufficientInitialMargin;
  * 50 = LpVaultDepositBelowMinimumLiquidity (N7 dead-share floor); 51 =
- * FeeSplitFloorViolation (creator/LP/insurance split floor) — both confirmed
- * on-chain 2026-07-16 against fresh wrapper
- * DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj, commit a3cb4390.
+ * FeeSplitFloorViolation (creator/LP/insurance split floor, meaning narrowed to
+ * tag 86 — see its entry); 52-53 = fee-collection split; 54-60 =
+ * load_bound_stake_pool diagnostics; 61 = AssetSlotAlreadyConfigured.
+ *
+ * Ordinals 0-61 read directly off the PercolatorError enum in
+ * percolator-prog@10acb5ae, which is the source deployed to devnet wrapper
+ * DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj (hash-verified
+ * 6b2fda2363352aba0ef88abde0d398f9dd477b1208507e7e8393586ed5458931).
+ * Ordinal 49 is CONFIRMED against that enum; an earlier "discriminant
+ * tentative" TODO here is resolved.
  *
  * INVARIANT: ordinals must NOT be reordered (Rust enum discriminants are
  * sequential from 0). CI asserts each ordinal in tests/v16_kani.rs.

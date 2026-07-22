@@ -480,6 +480,22 @@ var IX_TAG = {
    * Same StakeInitPool reachability caveat as tag 86 — proxy is stake tag 26.
    */
   UpdateMaintenanceFeePerSlot: 88,
+  /**
+   * ExpireBackingBucket (tag 89) — PERMISSIONLESS backing-bucket liveness
+   * repair. Advances a `Fresh`-but-LAPSED source-domain counterparty backing
+   * bucket to `Expired`/`Impaired` so settlement against that domain can
+   * proceed again.
+   *
+   * Wire: tag(1) + domain(u16 LE) = 3 bytes. Accounts: see
+   * ACCOUNTS_EXPIRE_BACKING_BUCKET — ONE account, the market, and NO signer.
+   *
+   * ⚠ ROUTINE KEEPER MAINTENANCE, NOT AN EDGE CASE. Every backed market
+   * reaches the lapse eventually: the bucket's `expiry_slot` is fixed when the
+   * bucket opens and is NEVER extended while it stays `Fresh`, so a longer
+   * horizon defers the lapse, it does not avoid it. See
+   * {@link encodeExpireBackingBucket} for the full keeper contract.
+   */
+  ExpireBackingBucket: 89,
   /** @deprecated v12.x tag 85. COLLIDES with v17 SetProtocolFeeAuthority(85). Do NOT use. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
@@ -1483,6 +1499,12 @@ function encodeUpdateTradeFeePolicy(args) {
     encU64(args.tradeFeeBaseBps)
   );
 }
+function encodeExpireBackingBucket(args) {
+  return concatBytes(
+    encU8(IX_TAG.ExpireBackingBucket),
+    encU16(args.domain)
+  );
+}
 
 // src/abi/accounts.ts
 import {
@@ -2109,6 +2131,9 @@ var ACCOUNTS_UPDATE_TRADE_FEE_POLICY = [
   { name: "authority", signer: true, writable: true },
   { name: "market", signer: false, writable: true }
 ];
+var ACCOUNTS_EXPIRE_BACKING_BUCKET = [
+  { name: "market", signer: false, writable: true }
+];
 var WELL_KNOWN = {
   tokenProgram: TOKEN_PROGRAM_ID,
   clock: SYSVAR_CLOCK_PUBKEY,
@@ -2320,11 +2345,11 @@ var PERCOLATOR_ERRORS = {
     hint: "Insurance withdrawal would exceed the deposits-only ceiling (F-2). Reduce the withdrawal amount or wait for more deposits."
   },
   // ── EngineInsufficientInitialMargin (49) ─────────────────────────────────────
-  // TODO: confirm discriminant once percolator-anchor ships EngineInsufficientInitialMargin.
-  // Tentative ordinal 49 (appended after InsuranceWithdrawCeilingExceeded=48).
-  // This is a distinct error for initial-margin failure (previously surfaced as
-  // the opaque EngineInvalidConfig=14). Update the ordinal key if the anchor
-  // agent places it at a different position in the PercolatorError enum.
+  // Ordinal 49 CONFIRMED against the PercolatorError enum in
+  // percolator-prog@10acb5ae (appended after InsuranceWithdrawCeilingExceeded=48,
+  // before LpVaultDepositBelowMinimumLiquidity=50). This is a distinct error for
+  // initial-margin failure, previously collapsed into the opaque
+  // EngineInvalidConfig=14.
   49: {
     name: "EngineInsufficientInitialMargin",
     hint: "Insufficient initial margin for this trade or position open. Deposit more collateral or reduce the position size."
@@ -2341,23 +2366,27 @@ var PERCOLATOR_ERRORS = {
   // Source: v16_program.rs PercolatorError variant appended after
   // LpVaultDepositBelowMinimumLiquidity=50 (confirmed on-chain 2026-07-16
   // against fresh wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj, commit
-  // a3cb4390). Enforced by UpdateBackingFeePolicy (tag 51) and
-  // UpdateTradeFeePolicy against policy_v16::fee_split_floor_ok: creator
-  // <=45%, LP >=40%, insurance >=15% of (trade_fee_base_bps + backing_fee_bps),
-  // within a documented rounding tolerance. NOTE: this means the 3-way split
-  // floors ARE now enforced on-chain, not wizard/app-policy-only as earlier
-  // sessions found (see v17_fee_split_decision_2026_07_14 memory) — that
-  // finding is now superseded by this build.
+  // a3cb4390).
+  //
+  // ⚠ MEANING NARROWED as of percolator-prog@10acb5ae (devnet 2026-07-22).
+  // This code originally came from `policy_v16::fee_split_floor_ok`, a
+  // TOLERANCE-based check on the two-rate (trade_fee_base_bps +
+  // backing_fee_bps) split raised from UpdateBackingFeePolicy (tag 51) /
+  // UpdateTradeFeePolicy. That function is RETIRED and has no live call sites.
+  // The ordinal is REUSED (not vacated — it is wire-visible) and is now raised
+  // only by `policy_v16::validate_fee_split` from UpdateFeeSplit (tag 86),
+  // EXACTLY and with no tolerance, against the bps floors below.
   51: {
     name: "FeeSplitFloorViolation",
-    hint: "This backing/trade fee split violates the on-chain floor (creator <=45%, LP >=40%, insurance >=15% of trade_fee_base_bps + backing_fee_bps). Adjust fee_bps/insurance_share_bps to satisfy the floor."
+    hint: "UpdateFeeSplit (tag 86) shares violate the on-chain floors: creator_share_bps must be <= 3600 (45% of the 8000 remainder), lp_share_bps >= 3200 (40%), insurance_share_bps >= 1200 (15%). Enforced exactly, with no rounding tolerance. Use validateFeeSplit() before sending. Note the shares must ALSO sum to exactly 8000 \u2014 that separate failure is Custom(52) FeeSplitSumInvalid."
   },
   // ── Fee-collection split (52-53) ──────────────────────────────────────────
   // Source: v16_program.rs PercolatorError variants appended after
   // FeeSplitFloorViolation=51 on percolator-prog
-  // feat/protocol-fee-taker-only@2b3a6a65. NOT YET DEPLOYED — the fresh devnet
-  // wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj predates this branch,
-  // so these codes cannot be observed on-chain until it is upgraded.
+  // feat/protocol-fee-taker-only@2b3a6a65. DEPLOYED as of 2026-07-22: the
+  // devnet wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj now carries
+  // percolator-prog@10acb5ae (hash 6b2fda2363352aba0ef88abde0d398f9dd477b12
+  // 08507e7e8393586ed5458931), so 52-61 are observable on-chain.
   52: {
     name: "FeeSplitSumInvalid",
     hint: "UpdateFeeSplit (tag 86) shares do not sum to exactly FEE_SHARE_TOTAL_BPS (8000 = 10_000 - PROTOCOL_FEE_BPS). creator_share_bps + lp_share_bps + insurance_share_bps must equal 8000. Use validateFeeSplit() before sending."
@@ -2403,6 +2432,15 @@ var PERCOLATOR_ERRORS = {
   60: {
     name: "StakeProgramNotPinned",
     hint: "This wrapper build has no pinned stake program id, so WithdrawInsuranceReserveToStake (tag 87) has no destination it is willing to trust and refuses to move tokens. Emitted by every non-devnet build: v17 percolator-stake has no mainnet deployment. The atoms stay safe in header.insurance."
+  },
+  // ── Program bug fixes, 2026-07-22 (61) ────────────────────────────────────
+  // Source: v16_program.rs PercolatorError variant appended after
+  // StakeProgramNotPinned=60, percolator-prog@10acb5ae. DEPLOYED to devnet
+  // wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj (hash-verified
+  // 6b2fda2363352aba0ef88abde0d398f9dd477b1208507e7e8393586ed5458931).
+  61: {
+    name: "AssetSlotAlreadyConfigured",
+    hint: "UpdateAssetLifecycle(ACTIVATE) named an asset slot BELOW max_market_slots that is already configured and live (Active / DrainOnly / Recovery). Only two activations are legal: APPEND at asset_index == max_market_slots, or RE-ACTIVATE a slot whose lifecycle is Retired. InitMarket pre-configures slots 0..max_portfolio_assets, so on a market created with max_portfolio_assets > 1 every one of those slots hits this. Previously surfaced as the misleading Custom(21) EngineLockActive."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -8998,6 +9036,7 @@ export {
   ACCOUNTS_DEPOSIT_INSURANCE_LP,
   ACCOUNTS_DEPOSIT_LP_COLLATERAL,
   ACCOUNTS_EXECUTE_ADL,
+  ACCOUNTS_EXPIRE_BACKING_BUCKET,
   ACCOUNTS_FORCE_CLOSE_RESOLVED,
   ACCOUNTS_FUND_MARKET_INSURANCE,
   ACCOUNTS_INIT_LP,
@@ -9285,6 +9324,7 @@ export {
   encodeDepositToLpVault,
   encodeExecuteAdl,
   encodeExecuteRedemption,
+  encodeExpireBackingBucket,
   encodeFeedId,
   encodeForceCloseResolved,
   encodeFundMarketInsurance,

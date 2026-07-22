@@ -293,10 +293,12 @@ describe("parseErrorFromLogs — error code extraction", () => {
     expect(result!.name).toBe("EngineProvenanceMismatch");
   });
 
-  it("v17: Percolator errors 61-65 return Unknown(...) — not in v17 error table", () => {
+  it("v17: Percolator errors 62-65 return Unknown(...) — not in v17 error table", () => {
     // In v12.x, codes 61-65 were ADL-specific errors (EngineSideBlocked etc.).
-    // In v17, the error table ends at 46. Codes 61-65 are undefined → Unknown(N).
-    for (const code of [61, 62, 63, 64, 65]) {
+    // In v17 none of those MEANINGS survive, but ordinal 61 has since been
+    // reused by AssetSlotAlreadyConfigured (percolator-prog@10acb5ae), so only
+    // 62-65 are still undefined → Unknown(N).
+    for (const code of [62, 63, 64, 65]) {
       const hex = code.toString(16);
       const logs = [
         `Program failed: custom program error: 0x${hex}`,
@@ -304,9 +306,15 @@ describe("parseErrorFromLogs — error code extraction", () => {
       const result = parseErrorFromLogs(logs);
       expect(result).not.toBeNull();
       expect(result!.code).toBe(code);
-      // v17: codes 61-65 are NOT known → name is Unknown(N)
       expect(result!.name).toBe(`Unknown(${code})`);
     }
+  });
+
+  it("v17: code 61 (0x3d) resolves to AssetSlotAlreadyConfigured, not the v12 ADL meaning", () => {
+    const result = parseErrorFromLogs(["Program failed: custom program error: 0x3d"]);
+    expect(result).not.toBeNull();
+    expect(result!.code).toBe(61);
+    expect(result!.name).toBe("AssetSlotAlreadyConfigured");
   });
 
   it("returns Unknown name for codes not in PERCOLATOR_ERRORS", () => {

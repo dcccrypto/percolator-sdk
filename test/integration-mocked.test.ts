@@ -662,11 +662,15 @@ describe("fetchAdlRankings — mocked HTTP fetch (PERC-8339)", () => {
 // ============================================================================
 
 describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-8339)", () => {
-  // NOTE: In v17, the PercolatorError enum only defines codes 0-46.
-  // The v12-specific ADL error codes (61-65: EngineSideBlocked, EngineCorruptState,
-  // InsuranceFundNotDepleted, NoAdlCandidates, BankruptPositionAlreadyClosed) no longer exist.
-  // Codes 47+ return undefined from decodeError/getErrorName/PERCOLATOR_ERRORS.
-  // These tests verify the v17 boundary behavior.
+  // NOTE: the v12-specific ADL error codes (61-65: EngineSideBlocked,
+  // EngineCorruptState, InsuranceFundNotDepleted, NoAdlCandidates,
+  // BankruptPositionAlreadyClosed) do not exist in v17.
+  //
+  // ⚠ ORDINAL 61 IS NO LONGER FREE. percolator-prog@10acb5ae appended
+  // AssetSlotAlreadyConfigured at 61, so 0x3D now decodes to a REAL v17 error
+  // with a completely different meaning from v12's EngineSideBlocked. A client
+  // must never carry the v12 interpretation of 0x3D forward. 62-65 remain
+  // undefined. These tests verify that boundary.
 
   // Helper: build a realistic Solana failed transaction log for a given error code
   function makeErrorLogs(hexCode: string): string[] {
@@ -677,20 +681,21 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
     ];
   }
 
-  // ---- v17: codes 61-65 are undefined (not in v17 error table) ----
-  it("61 (0x3D) — parseErrorFromLogs returns code=61 but Unknown name (not in v17)", () => {
+  // ---- v17: code 61 IS defined (AssetSlotAlreadyConfigured); 62-65 are not ----
+  it("61 (0x3D) — parseErrorFromLogs returns AssetSlotAlreadyConfigured, NOT the v12 ADL meaning", () => {
     const logs = makeErrorLogs("3D");
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
     expect(result!.code).toBe(61);
-    // v17: code 61 is not in the table → Unknown(61)
-    expect(result!.name).toBe("Unknown(61)");
-    expect(result!.hint).toBeUndefined();
+    // v17 reuses ordinal 61 for a wholly unrelated error.
+    expect(result!.name).toBe("AssetSlotAlreadyConfigured");
+    expect(result!.name).not.toBe("EngineSideBlocked");
+    expect(result!.hint).toBeDefined();
   });
 
-  it("61 — decodeError returns undefined (not in v17 error table)", () => {
-    expect(decodeError(61)).toBeUndefined();
-    expect(PERCOLATOR_ERRORS[61]).toBeUndefined();
+  it("61 — decodeError returns AssetSlotAlreadyConfigured (v17 tail ordinal)", () => {
+    expect(decodeError(61)?.name).toBe("AssetSlotAlreadyConfigured");
+    expect(PERCOLATOR_ERRORS[61]).toBeDefined();
   });
 
   it("62 — decodeError returns undefined (not in v17)", () => {
@@ -781,20 +786,23 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
     expect(result!.name).toBe("StakeProgramNotPinned");
   });
 
-  it("all v12 ADL error codes 61-65 are NOT in the v17 PERCOLATOR_ERRORS table", () => {
-    for (let code = 61; code <= 65; code++) {
+  it("v12 ADL error codes 62-65 are NOT in the v17 PERCOLATOR_ERRORS table", () => {
+    // 61 is deliberately excluded: v17 reuses that ordinal for
+    // AssetSlotAlreadyConfigured. The v12 MEANING is still gone.
+    for (let code = 62; code <= 65; code++) {
       expect(PERCOLATOR_ERRORS[code], `code ${code} should NOT be in v17 table`).toBeUndefined();
     }
+    expect(PERCOLATOR_ERRORS[61].name).toBe("AssetSlotAlreadyConfigured");
   });
 
-  it("uppercase hex (0x3D vs 0x3d) handled identically — both return Unknown(61)", () => {
+  it("uppercase hex (0x3D vs 0x3d) handled identically — both AssetSlotAlreadyConfigured", () => {
     const lower = parseErrorFromLogs(makeErrorLogs("3d"));
     const upper = parseErrorFromLogs(makeErrorLogs("3D"));
     expect(lower).not.toBeNull();
     expect(upper).not.toBeNull();
     expect(lower!.code).toBe(upper!.code);
     expect(lower!.name).toBe(upper!.name);
-    expect(lower!.name).toBe("Unknown(61)");
+    expect(lower!.name).toBe("AssetSlotAlreadyConfigured");
   });
 
   it("returns null when logs have no error line (successful tx)", () => {

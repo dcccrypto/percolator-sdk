@@ -24,11 +24,15 @@ import {
  *   54-60 = load_bound_stake_pool diagnostics for wrapper tag 87; ordinal 55
  *           was briefly StakePoolAssetAdminNotBurned on an unmerged branch and
  *           NEVER deployed, so only StakePoolOwnerMismatch is valid
- *   61+   = undefined (should be undefined in the table)
+ *   61    = AssetSlotAlreadyConfigured (UpdateAssetLifecycle ACTIVATE against a
+ *           slot below max_market_slots that is already in service; replaces a
+ *           misleading Custom(21) EngineLockActive)
+ *   62+   = undefined (should be undefined in the table)
  *
- * 52-60 come from percolator-prog feat/protocol-fee-taker-only@2b3a6a65, which
- * is NOT YET DEPLOYED — the devnet wrapper predates it, so these codes cannot
- * yet be observed on-chain.
+ * 52-61 are DEPLOYED as of 2026-07-22: devnet wrapper
+ * DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj carries percolator-prog@10acb5ae
+ * (hash 6b2fda2363352aba0ef88abde0d398f9dd477b1208507e7e8393586ed5458931), so
+ * every one of these codes is observable on-chain.
  */
 
 // ============================================================================
@@ -36,18 +40,25 @@ import {
 // ============================================================================
 
 describe("PERCOLATOR_ERRORS table", () => {
-  it("has contiguous error codes from 0 to 60", () => {
-    for (let i = 0; i <= 60; i++) {
+  it("has contiguous error codes from 0 to 61", () => {
+    for (let i = 0; i <= 61; i++) {
       expect(PERCOLATOR_ERRORS[i], `error ${i} should be defined`).toBeDefined();
       expect(PERCOLATOR_ERRORS[i].name).toBeTruthy();
       expect(PERCOLATOR_ERRORS[i].hint).toBeTruthy();
     }
   });
 
-  it("error codes 61+ are not defined", () => {
-    expect(PERCOLATOR_ERRORS[61]).toBeUndefined();
+  it("error codes 62+ are not defined", () => {
+    expect(PERCOLATOR_ERRORS[62]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[65]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[100]).toBeUndefined();
+  });
+
+  // Ordinal 61 is the current tail. It is wire-visible and was appended after
+  // StakeProgramNotPinned=60 in percolator-prog@10acb5ae, so pin it by name:
+  // a shift here silently mislabels an error every consumer surfaces.
+  it("AssetSlotAlreadyConfigured is ordinal 61", () => {
+    expect(PERCOLATOR_ERRORS[61].name).toBe("AssetSlotAlreadyConfigured");
   });
 
   // Fee-collection split ordinals, pinned by name against v16_program.rs's
@@ -205,13 +216,18 @@ describe("decodeError", () => {
     expect(decodeError(52)!.name).toBe("FeeSplitSumInvalid");
   });
 
-  it("returns defined info for code 60 (StakeProgramNotPinned, current tail)", () => {
+  it("returns defined info for code 60 (StakeProgramNotPinned)", () => {
     expect(decodeError(60)).toBeDefined();
     expect(decodeError(60)!.name).toBe("StakeProgramNotPinned");
   });
 
-  it("returns undefined for unknown code 61 (beyond current table)", () => {
-    expect(decodeError(61)).toBeUndefined();
+  it("returns defined info for code 61 (AssetSlotAlreadyConfigured, current tail)", () => {
+    expect(decodeError(61)).toBeDefined();
+    expect(decodeError(61)!.name).toBe("AssetSlotAlreadyConfigured");
+  });
+
+  it("returns undefined for unknown code 62 (beyond current table)", () => {
+    expect(decodeError(62)).toBeUndefined();
   });
 
   it("returns undefined for unknown code 10_000", () => {
@@ -243,9 +259,10 @@ describe("getErrorName", () => {
   });
 
   it("returns Unknown(...) for unknown codes beyond the table", () => {
-    // The fee-collection split extended the table 51 -> 60, so 52 is now a
-    // real code (FeeSplitSumInvalid); 61 is the first unknown.
-    expect(getErrorName(61)).toBe("Unknown(61)");
+    // The fee-collection split extended the table 51 -> 60, and the 2026-07-22
+    // bug-fix pass added 61 (AssetSlotAlreadyConfigured); 62 is the first
+    // unknown.
+    expect(getErrorName(62)).toBe("Unknown(62)");
     expect(getErrorName(999)).toBe("Unknown(999)");
     expect(getErrorName(100)).toBe("Unknown(100)");
   });

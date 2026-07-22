@@ -383,6 +383,22 @@ export declare const IX_TAG: {
      * Same StakeInitPool reachability caveat as tag 86 — proxy is stake tag 26.
      */
     readonly UpdateMaintenanceFeePerSlot: 88;
+    /**
+     * ExpireBackingBucket (tag 89) — PERMISSIONLESS backing-bucket liveness
+     * repair. Advances a `Fresh`-but-LAPSED source-domain counterparty backing
+     * bucket to `Expired`/`Impaired` so settlement against that domain can
+     * proceed again.
+     *
+     * Wire: tag(1) + domain(u16 LE) = 3 bytes. Accounts: see
+     * ACCOUNTS_EXPIRE_BACKING_BUCKET — ONE account, the market, and NO signer.
+     *
+     * ⚠ ROUTINE KEEPER MAINTENANCE, NOT AN EDGE CASE. Every backed market
+     * reaches the lapse eventually: the bucket's `expiry_slot` is fixed when the
+     * bucket opens and is NEVER extended while it stays `Fresh`, so a longer
+     * horizon defers the lapse, it does not avoid it. See
+     * {@link encodeExpireBackingBucket} for the full keeper contract.
+     */
+    readonly ExpireBackingBucket: 89;
     /** @deprecated v12.x tag 85. COLLIDES with v17 SetProtocolFeeAuthority(85). Do NOT use. */
     readonly ReclaimEmptyAccount: 85;
     /** @deprecated v12.x tag 86. Not in v17. */
@@ -2975,3 +2991,84 @@ export interface UpdateTradeFeePolicyArgs {
     tradeFeeBaseBps: bigint | string;
 }
 export declare function encodeUpdateTradeFeePolicy(args: UpdateTradeFeePolicyArgs): Uint8Array;
+/**
+ * ExpireBackingBucket instruction data (tag 89).
+ *
+ * v17 wire: tag(1) + domain(u16 LE) = 3 bytes. Verified against
+ * v16_program.rs's tag-89 decode arm (`89 => Self::ExpireBackingBucket {
+ * domain: read_u16(&mut rest)? }`) followed by the shared
+ * `if !rest.is_empty()` guard — any trailing byte is rejected.
+ *
+ * PERMISSIONLESS. One account, the market, writable, and NO signer at all
+ * (see ACCOUNTS_EXPIRE_BACKING_BUCKET). Any keeper can call it; there is no
+ * authority to hold.
+ *
+ * ## Why this exists
+ *
+ * A realized loss reserves capital as counterparty backing, which opens the
+ * source domain's bucket as `Fresh` with a fixed `expiry_slot`. Once that
+ * expiry passes while the bucket is still `Fresh`, the domain becomes a DEAD
+ * END in all three directions, permanently:
+ *
+ *   - settling a GAIN against it     -> Custom(19) EngineStale
+ *   - reserving a further LOSS       -> Custom(21) EngineLockActive
+ *   - `TopUpBackingBucket` to re-fund it -> Custom(21) EngineLockActive
+ *
+ * The bucket cannot even be paid to come back. Before tag 89 the wrapper had
+ * no call site that reached the engine's own escape hatch
+ * (`expire_source_backing_bucket_not_atomic`) on a LIVE market — the engine
+ * used it only on the RESOLVED close path — so a lapse bricked the domain for
+ * good. Tag 89 IS that missing call site.
+ *
+ * ## ⚠ This is routine maintenance, not an edge case — wire a keeper
+ *
+ * EVERY BACKED MARKET LAPSES EVENTUALLY. `fresh_counterparty_backing_expiry_slot`
+ * returns the stored expiry unchanged on a live bucket, so the expiry is set
+ * once when the bucket opens and is never extended. Seeding a long horizon
+ * (e.g. MAX_BACKING_BUCKET_EXPIRY_SLOT) DEFERS the lapse; it does not prevent
+ * it. Treat tag 89 as a standing keeper duty alongside the crank, not as an
+ * incident-response tool: a keeper should scan live markets for domains whose
+ * bucket is `Fresh` with `current_slot >= expiry_slot` and expire them. If
+ * nobody cranks it, the first lapse silently bricks the domain and the failure
+ * surfaces to users as an unexplained Custom(19)/Custom(21) on ordinary
+ * settlement.
+ *
+ * ## Safety
+ *
+ * Permissionless is not an authority hole. The engine refuses the transition
+ * unless the bucket is `Fresh` AND `now_slot >= expiry_slot`, and `now_slot`
+ * is read from the runtime `Clock` (via
+ * `authenticated_market_slot_or_fallback_view`), NEVER from a caller argument
+ * — so no caller can force an early forfeiture. Moves no tokens.
+ *
+ * Expiry forfeits the lapsed principal to the junior pool. That is the
+ * engine's documented expiry semantics, not a haircut invented by this
+ * instruction; the alternative is the account never settling at all.
+ *
+ * ## Failure modes
+ *
+ * - Custom(21) EngineLockActive — the market is not Live (`mode != 0`). The
+ *   resolved/wound-down path reaches the transition through the engine's own
+ *   resolved-close sweep, so re-entering it from outside is refused.
+ * - Custom(9) InvalidInstruction — `domain >= 2 * max_market_slots`.
+ * - Custom(19) EngineStale — the engine declined: the bucket is not `Fresh`,
+ *   or it is `Fresh` but has NOT yet lapsed. Fails closed, so calling this
+ *   speculatively on a healthy domain is safe (it just reverts).
+ *
+ * @param domain Backing-bucket domain index (2*assetIndex for long,
+ *               2*assetIndex+1 for short), u16. Must be
+ *               `< 2 * max_market_slots`.
+ * @returns 3-byte instruction data buffer.
+ *
+ * @example
+ * ```ts
+ * // Keeper: unbrick the long domain of asset 0 after its bucket lapsed.
+ * const data = encodeExpireBackingBucket({ domain: 0 });
+ * // accounts: ACCOUNTS_EXPIRE_BACKING_BUCKET — [market] writable, no signer
+ * // beyond the fee payer.
+ * ```
+ */
+export interface ExpireBackingBucketArgs {
+    domain: number;
+}
+export declare function encodeExpireBackingBucket(args: ExpireBackingBucketArgs): Uint8Array;

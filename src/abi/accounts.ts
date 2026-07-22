@@ -1486,6 +1486,31 @@ export const ACCOUNTS_UPDATE_TRADE_FEE_POLICY: readonly AccountSpec[] = [
   { name: "market", signer: false, writable: true },
 ] as const;
 
+/**
+ * ExpireBackingBucket (tag 89): 1 account. PERMISSIONLESS.
+ *
+ * v17 wire account layout (v16_program.rs handle_expire_backing_bucket):
+ *   [0] market writable (program-owned market-group slab)
+ *
+ * That is the WHOLE list. The handler reads `account(accounts, 0)` and applies
+ * exactly `expect_writable` + `expect_owner(market, program_id)`. There is NO
+ * `expect_signer` anywhere in it, and no token/vault/authority account — the
+ * instruction moves no tokens. The transaction still needs a fee payer, but
+ * that signer is not an account of this instruction and is not checked against
+ * anything.
+ *
+ * This is deliberate: a bricked market must be recoverable by ANY keeper, not
+ * only by an authority that may be a cold key or a stake-pool PDA. The
+ * safety gate is the engine's own precondition (bucket `Fresh` AND lapsed
+ * against the runtime `Clock`), not an authority check. See
+ * encodeExpireBackingBucket in abi/instructions.ts for the keeper contract and
+ * the failure codes — Custom(21) not-Live, Custom(9) domain out of range,
+ * Custom(19) bucket not `Fresh`-and-lapsed.
+ */
+export const ACCOUNTS_EXPIRE_BACKING_BUCKET: readonly AccountSpec[] = [
+  { name: "market", signer: false, writable: true },
+] as const;
+
 // ============================================================================
 // WELL-KNOWN PROGRAM/SYSVAR KEYS
 // ============================================================================

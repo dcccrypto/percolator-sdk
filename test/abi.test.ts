@@ -62,6 +62,7 @@ import {
   encodeWithdrawInsuranceReserveToStake,
   encodeUpdateMaintenanceFeePerSlot,
   encodeUpdateTradeFeePolicy,
+  encodeExpireBackingBucket,
   validateFeeSplit,
   FEE_SPLIT,
   encodeSetProtocolFeeAuthority,
@@ -72,6 +73,7 @@ import {
   V17_WRAPPER_CONFIG_LEN,
   V17_HEADER_LEN,
 } from "../src/solana/slab.js";
+import { ACCOUNTS_EXPIRE_BACKING_BUCKET } from "../src/abi/accounts.js";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`FAIL: ${msg}`);
@@ -1597,6 +1599,105 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   ];
   assert(new Set(tags).size === tags.length, "tags 84/85/86/87/88 are pairwise distinct");
   console.log("✓ IX_TAG 84/85/86/87/88 distinct");
+}
+
+// ── ExpireBackingBucket (tag 89) ─────────────────────────────────────────────
+// Wire: tag(1) + domain(u16 LE) = 3 bytes.
+//
+// Verified byte-for-byte against the program's ACTUAL decode expectations in
+// percolator-prog@10acb5ae src/v16_program.rs:
+//
+//   decode arm:  89 => Self::ExpireBackingBucket { domain: read_u16(&mut rest)? }
+//   read_u16:    u16::from_le_bytes(..)          -> LITTLE-endian, 2 bytes
+//   tail guard:  if !rest.is_empty() { return Err(InvalidInstructionData) }
+//                -> total length is EXACTLY 3; any trailing byte is rejected
+//   encode arm:  out.push(89); push_u16(&mut out, domain)
+//
+// The program's own encode() is the authoritative round-trip partner, and it
+// emits precisely [89, lo, hi] — which is what these assertions pin.
+{
+  const data = encodeExpireBackingBucket({ domain: 0 });
+  assert(data.length === 3, `ExpireBackingBucket length: expected 3, got ${data.length}`);
+  assert(data[0] === IX_TAG.ExpireBackingBucket, "tag = IX_TAG.ExpireBackingBucket");
+  assert(data[0] === 89, "ExpireBackingBucket tag literal = 89");
+  assertBuf(data, [89, 0x00, 0x00], "ExpireBackingBucket domain=0 (asset 0 LONG)");
+  console.log("✓ encodeExpireBackingBucket (v17 3-byte wire, tag 89)");
+}
+
+// Endianness, pinned with an asymmetric value so a big-endian encoder fails.
+// 0x0102 = 258 -> LE [0x02, 0x01]; BE would be [0x01, 0x02].
+{
+  const data = encodeExpireBackingBucket({ domain: 0x0102 });
+  assertBuf(data, [89, 0x02, 0x01], "ExpireBackingBucket domain=258 is LITTLE-endian");
+  console.log("✓ encodeExpireBackingBucket domain is u16 LE (asymmetric value)");
+}
+
+// Domain numbering: for asset i, LONG = 2i, SHORT = 2i+1. Assert the SHORT
+// domain of asset 0 is distinguishable from the LONG domain of asset 0 — a
+// keeper that expires the wrong leg is a real, silent failure mode.
+{
+  const long0 = encodeExpireBackingBucket({ domain: 0 });
+  const short0 = encodeExpireBackingBucket({ domain: 1 });
+  assertBuf(short0, [89, 0x01, 0x00], "ExpireBackingBucket domain=1 (asset 0 SHORT)");
+  assert(long0[1] !== short0[1], "asset 0 LONG and SHORT domains encode differently");
+  console.log("✓ encodeExpireBackingBucket distinguishes LONG (2i) from SHORT (2i+1)");
+}
+
+// Full u16 range reaches the wire: max_market_slots can be large enough that
+// domain = 2*i exceeds a u8, so the top byte must actually be populated.
+{
+  const data = encodeExpireBackingBucket({ domain: 65_535 });
+  assertBuf(data, [89, 0xff, 0xff], "ExpireBackingBucket domain=u16::MAX");
+  console.log("✓ encodeExpireBackingBucket carries the full u16 domain range");
+}
+
+// Out-of-range domains are refused client-side rather than being silently
+// truncated into a DIFFERENT valid domain — truncation would expire the wrong
+// bucket, forfeiting live principal to the junior pool.
+{
+  assertThrows(() => encodeExpireBackingBucket({ domain: 65_536 }), "domain > u16::MAX throws");
+  assertThrows(() => encodeExpireBackingBucket({ domain: -1 }), "negative domain throws");
+  assertThrows(() => encodeExpireBackingBucket({ domain: 1.5 }), "non-integer domain throws");
+  console.log("✓ encodeExpireBackingBucket rejects out-of-range domains (no silent truncation)");
+}
+
+// Tag 89 must not collide with any other v17 tag the SDK encodes.
+{
+  assert(IX_TAG.ExpireBackingBucket === 89, "IX_TAG.ExpireBackingBucket === 89");
+  const neighbours = [
+    IX_TAG.WithdrawProtocolFee,
+    IX_TAG.SetProtocolFeeAuthority,
+    IX_TAG.UpdateFeeSplit,
+    IX_TAG.WithdrawInsuranceReserveToStake,
+    IX_TAG.UpdateMaintenanceFeePerSlot,
+    IX_TAG.ExpireBackingBucket,
+  ];
+  assert(new Set(neighbours).size === neighbours.length, "tags 84-89 are pairwise distinct");
+  // Distinct from the other backing-bucket tags it will sit beside in a keeper.
+  assert(IX_TAG.ExpireBackingBucket !== IX_TAG.TopUpBackingBucket, "89 !== TopUpBackingBucket(24)");
+  assert(
+    IX_TAG.ExpireBackingBucket !== IX_TAG.WithdrawBackingBucket,
+    "89 !== WithdrawBackingBucket(50)"
+  );
+  console.log("✓ IX_TAG.ExpireBackingBucket (89) distinct from 84-88 and the backing-bucket tags");
+}
+
+// Account layout: PERMISSIONLESS. handle_expire_backing_bucket reads
+// account(accounts, 0) and applies ONLY expect_writable + expect_owner. There
+// is no expect_signer anywhere in the handler. A consumer that adds a signer
+// account here would build an instruction the program rejects on account count.
+{
+  assert(
+    ACCOUNTS_EXPIRE_BACKING_BUCKET.length === 1,
+    `ExpireBackingBucket accounts: expected 1, got ${ACCOUNTS_EXPIRE_BACKING_BUCKET.length}`
+  );
+  assert(ACCOUNTS_EXPIRE_BACKING_BUCKET[0].name === "market", "account[0] is the market");
+  assert(ACCOUNTS_EXPIRE_BACKING_BUCKET[0].writable === true, "market is writable");
+  assert(
+    ACCOUNTS_EXPIRE_BACKING_BUCKET.every((a) => a.signer === false),
+    "ExpireBackingBucket requires NO signer — it is permissionless"
+  );
+  console.log("✓ ACCOUNTS_EXPIRE_BACKING_BUCKET is 1 writable market account, no signer");
 }
 
 // validateFeeSplit mirrors policy_v16::validate_fee_split.
