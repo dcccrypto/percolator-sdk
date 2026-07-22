@@ -4347,13 +4347,25 @@ export interface V17MarketGroupOI {
  * from AssetStateV16Account (the first sub-struct of EngineAssetSlotV16Account
  * which follows the 512-byte wrapper T at the start of each slot).
  *
- * Absolute offsets (verified against `/tmp/percolator/src/v16.rs` struct layouts,
- * all `#[repr(C)]` with explicit `[u8;N]` fields — zero alignment padding).
- * Post-protocol-fee (WRAPPER_CONFIG_LEN 432 -> 496, V17_MARKET_GROUP_OFF
- * 448 -> 512; the header/asset-slot structs themselves are unchanged):
- * - Insurance: V17_MARKET_GROUP_OFF(512) + 301 = 813
- * - oi_eff_long_q(i):  1270 + i×1797 + 512 + 273 = 2055 + i×1797
- * - oi_eff_short_q(i): 1270 + i×1797 + 512 + 289 = 2071 + i×1797
+ * Relative offsets verified with `offset_of!` against the engine's own `#[repr(C)]`
+ * structs (`percolator/src/v16.rs`): `MarketGroupV16HeaderAccount::insurance` @ 301,
+ * `AssetStateV16Account::oi_eff_long_q` @ 273, `oi_eff_short_q` @ 289. Every
+ * `V16Pod*` field is an align-1 `[u8; N]` and the structs derive `bytemuck::Pod`
+ * (which forbids implicit padding), so these are exact byte offsets.
+ *
+ * The absolute offsets below follow from the CURRENT wrapper layout —
+ * WRAPPER_CONFIG_LEN = 576 and V17_MARKET_GROUP_OFF = 16 + 576 = 592
+ * (`v16_program.rs` HEADER_LEN/WRAPPER_CONFIG_LEN, with a compile-time
+ * `assert!(size_of::<WrapperConfigV16>() == WRAPPER_CONFIG_LEN)`):
+ * - slots base:        V17_MARKET_GROUP_OFF(592) + V17_MARKET_GROUP_LEN(758) = 1350
+ * - insurance:         592 + 301 = 893
+ * - oi_eff_long_q(i):  1350 + i×1797 + 512 + 273 = 2135 + i×1797
+ * - oi_eff_short_q(i): 1350 + i×1797 + 512 + 289 = 2151 + i×1797
+ *
+ * (This block previously quoted 432/496 and 448/512 from a pre-fee-split layout,
+ * giving insurance @ 813. The CODE was always correct — it composes the named
+ * constants — but the stated numbers were stale. Verified against the first real
+ * v17 market on the new devnet deployment.)
  *
  * @param data  Raw bytes of the v17 market group account.
  * @returns Parsed V17MarketGroupOI — zero OI when no active positions exist.
