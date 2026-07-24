@@ -418,11 +418,37 @@ export const IX_TAG = {
    * {@link encodeExpireBackingBucket} for the full keeper contract.
    */
   ExpireBackingBucket: 89,
+  /**
+   * WithdrawCreatorFee (tag 90) — v17 creator fee claim (percolator-prog
+   * feat/protocol-fee-taker-only, 2026-07-23 creator-fee-claim design §3).
+   * Pays the market creator's accrued trade-fee share out of the vault and
+   * decrements `creator_fee_claimable_atoms` (WrapperConfigV17, byte 568) by
+   * EXACTLY `amount`.
+   *
+   * Wire: tag(1) + amount(u128 LE) = 17 bytes. Accounts: see
+   * ACCOUNTS_WITHDRAW_CREATOR_FEE in abi/accounts.ts (same 6-account shape as
+   * tag 84).
+   *
+   * ⚠ `amount == 0` is REJECTED (InvalidInstruction), which is the OPPOSITE of
+   * tag 84's "0 means withdraw-all" sentinel. This instruction is an exact
+   * debit of the counter, so read `creatorFeeClaimableAtoms` off the parsed
+   * config and pass that to drain it.
+   *
+   * ⚠ Authority is asset 0's `insurance_operator` and ONLY that — NOT
+   * `cfg.marketauth`. On a staked market `StakeInitPool` has irreversibly
+   * rotated `marketauth` to the stake-pool PDA but leaves `insurance_operator`
+   * alone, so this deliberate divergence is what lets the creator still claim
+   * after staking (and stops the pool PDA claiming creator revenue).
+   *
+   * ⚠ Over-claim (`amount > creatorFeeClaimableAtoms`) is rejected, never
+   * saturated — there is no partial fill. Nothing is debited on failure.
+   */
+  WithdrawCreatorFee: 90,
   /** @deprecated v12.x tag 85. COLLIDES with v17 SetProtocolFeeAuthority(85). Do NOT use. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
   SettleAccount: 86,
-  /** @deprecated v12.x tag 90. Not in v17. */
+  /** @deprecated v12.x tag 90. COLLIDES with v17 WithdrawCreatorFee(90). Do NOT use. */
   UpdateMarkPrice: 90,
   /** @deprecated v12.x tag 91. Not in v17. */
   AuditCrank: 91,
@@ -4283,5 +4309,69 @@ export function encodeExpireBackingBucket(args: ExpireBackingBucketArgs): Uint8A
   return concatBytes(
     encU8(IX_TAG.ExpireBackingBucket),
     encU16(args.domain),
+  );
+}
+
+// ============================================================================
+// v17 CREATOR FEE CLAIM (tag 90)
+// percolator-prog, 2026-07-23 creator-fee-claim design §3.
+//
+// Companion read side: `creatorFeeClaimableAtoms` on WrapperConfigV17
+// (u64 LE at V17_CREATOR_FEE_CLAIMABLE_OFF = 568, inside the UNCHANGED
+// 576-byte config — see solana/slab.ts).
+// ============================================================================
+
+/**
+ * WithdrawCreatorFee instruction data (tag 90).
+ *
+ * v17 wire: tag(1) + amount(u128 LE) = 17 bytes. Verified against
+ * percolator-prog `src/v16_program.rs`:
+ *
+ *   decode arm:  90 => Self::WithdrawCreatorFee { amount: read_u128(&mut rest)? }
+ *   read_u128:   u128::from_le_bytes(..)   -> LITTLE-endian, 16 bytes
+ *   tail guard:  if !rest.is_empty() { return Err(InvalidInstructionData) }
+ *                -> total length is EXACTLY 17; any trailing byte is rejected
+ *   encode arm:  out.push(90); push_u128(&mut out, amount)
+ *
+ * Pays the market creator's accrued trade-fee share out of the market vault to
+ * an external token account, debiting `creatorFeeClaimableAtoms` by exactly
+ * `amount`. That counter is disjoint from the insurance domain budget (the loss
+ * backstop): before this change the creator leg was credited INTO the backstop,
+ * so a "claim fees" button was really a backstop withdrawal. Tag 90 cannot
+ * touch the backstop, and tag 57 (WithdrawInsuranceAsset) cannot touch this
+ * counter.
+ *
+ * ⚠ `amount: 0n` is REJECTED by the program (InvalidInstruction), NOT treated
+ * as the "withdraw all" sentinel that {@link encodeWithdrawProtocolFee} (tag
+ * 84) uses. To drain, read `creatorFeeClaimableAtoms` from
+ * `parseWrapperConfigV17` and pass that exact value.
+ *
+ * ⚠ Over-claim is rejected, not clamped — there is no partial fill, and nothing
+ * is debited on failure. If the vault's unbudgeted surplus is momentarily thin
+ * the whole instruction fails closed (EngineLockActive); retry with less.
+ *
+ * ⚠ Authority is asset 0's `insurance_operator` and ONLY that (never
+ * `cfg.marketauth`), so claiming still works on a staked market where
+ * StakeInitPool has rotated `marketauth` to the stake-pool PDA.
+ *
+ * @param amount Atoms to claim (u128 on the wire; the on-chain counter is a
+ *               u64, so anything above u64::MAX is an over-claim).
+ *
+ * @example
+ * ```ts
+ * const cfg = parseWrapperConfigV17(marketAccount.data);
+ * // Drain the full claimable balance:
+ * const data = encodeWithdrawCreatorFee({ amount: cfg.creatorFeeClaimableAtoms });
+ * // accounts: ACCOUNTS_WITHDRAW_CREATOR_FEE from abi/accounts.ts
+ * ```
+ */
+export interface WithdrawCreatorFeeArgs {
+  amount: bigint | string;
+}
+
+export function encodeWithdrawCreatorFee(args: WithdrawCreatorFeeArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.WithdrawCreatorFee),
+    encU128(args.amount),
   );
 }

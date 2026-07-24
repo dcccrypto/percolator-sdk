@@ -7,7 +7,8 @@
  * 50 = LpVaultDepositBelowMinimumLiquidity (N7 dead-share floor); 51 =
  * FeeSplitFloorViolation (creator/LP/insurance split floor, meaning narrowed to
  * tag 86 — see its entry); 52-53 = fee-collection split; 54-60 =
- * load_bound_stake_pool diagnostics; 61 = AssetSlotAlreadyConfigured.
+ * load_bound_stake_pool diagnostics; 61 = AssetSlotAlreadyConfigured;
+ * 62 = CreatorFeeOverClaim (creator fee claim, tag 90 — NOT yet deployed).
  *
  * Ordinals 0-61 read directly off the PercolatorError enum in
  * percolator-prog@10acb5ae, which is the source deployed to devnet wrapper

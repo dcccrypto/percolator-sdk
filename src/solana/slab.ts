@@ -3753,6 +3753,26 @@ export const V17_KIND_OFF = 10;
  */
 export const V17_WRAPPER_CONFIG_LEN = 576;
 
+/**
+ * Byte offset of `creator_fee_claimable_atoms` (u64 LE) RELATIVE TO THE START
+ * OF THE WrapperConfigV16 BLOCK. Absolute offset in a market-group account is
+ * `V17_HEADER_LEN + V17_CREATOR_FEE_CLAIMABLE_OFF` = 16 + 568 = 584.
+ *
+ * ADDITIVE AND IN-PLACE: the field was carved out of the existing 10-byte
+ * `_padding_split` tail at the only 8-aligned slot inside it, so
+ * {@link V17_WRAPPER_CONFIG_LEN} stays 576, {@link V17_MARKET_GROUP_OFF} stays
+ * 592, and NO pre-existing offset moves. Growing the config instead would have
+ * shifted every asset-profile offset and bricked the already-deployed 576-byte
+ * markets — a repeat of the 496→576 incident. If you ever find yourself
+ * changing V17_WRAPPER_CONFIG_LEN because of this field, something is wrong.
+ *
+ * Source of truth: percolator-prog `src/v16_program.rs` struct
+ * `WrapperConfigV16` (`creator_fee_claimable_atoms: u64` after
+ * `_padding_split: [u8; 2]`), guarded on the Rust side by
+ * `const _: () = assert!(size_of::<WrapperConfigV16>() == WRAPPER_CONFIG_LEN)`.
+ */
+export const V17_CREATOR_FEE_CLAIMABLE_OFF = 568;
+
 /** v17 AssetOracleProfileV16 length (400 bytes). */
 export const V17_ASSET_ORACLE_PROFILE_LEN = 400;
 
@@ -3857,7 +3877,9 @@ export const V17_PORTFOLIO_ACCOUNT_LEN = 9347;
  *  560  creator_share_bps u16
  *  562  lp_share_bps u16
  *  564  insurance_share_bps u16
- *  566  _padding_split [u8;10]
+ *  566  _padding_split [u8;2]              (was [u8;10] pre-creator-fee-claim)
+ *  --- creator fee claim (2026-07-23) — IN-PLACE, consumes the pad tail ---
+ *  568  creator_fee_claimable_atoms u64    (NEW; WRAPPER_CONFIG_LEN still 576)
  *  Total: 576
  */
 export interface WrapperConfigV17 {
@@ -3961,6 +3983,29 @@ export interface WrapperConfigV17 {
    * split_trade_fee computes this leg as the remainder.
    */
   insuranceShareBps: number;
+  /**
+   * Creator's UNCLAIMED trade-fee revenue, in collateral atoms (u64 at
+   * {@link V17_CREATOR_FEE_CLAIMABLE_OFF} = 568).
+   *
+   * This is the honest claimable balance a creator-claim UI should display.
+   * Before the creator-fee-claim change the creator leg was credited into the
+   * asset's insurance DOMAIN BUDGET — the loss backstop — so "creator earned X"
+   * had no on-chain representation at all and a claim button was really a
+   * backstop withdrawal. The leg now lands here instead and leaves the backstop
+   * alone.
+   *
+   * ⚠ NOT MONOTONIC and NOT an accrued/withdrawn pair. Unlike the protocol / LP
+   * / insurance legs above, this is a single live balance: trades add to it and
+   * WithdrawCreatorFee (tag 90) is the only thing that subtracts from it. It
+   * therefore CANNOT be used to derive lifetime creator revenue — only what is
+   * claimable right now. (Forced by the 10-byte pad budget; see
+   * V17_CREATOR_FEE_CLAIMABLE_OFF.)
+   *
+   * ⚠ Markets created by a pre-upgrade build read `0n` here: bytes 568..576
+   * were explicit padding, so the value is well-defined rather than garbage,
+   * and the counter simply accrues fresh after an in-place upgrade.
+   */
+  creatorFeeClaimableAtoms: bigint;
 }
 
 /**
@@ -4072,7 +4117,11 @@ export function parseWrapperConfigV17(data: Uint8Array, configOff: number = V17_
   const creatorShareBps = readU16LE(data, b + 560);
   const lpShareBps = readU16LE(data, b + 562);
   const insuranceShareBps = readU16LE(data, b + 564);
-  // _padding_split [u8;10] at b+566 .. b+576 — explicit, not read.
+  // _padding_split [u8;2] at b+566 .. b+568 — explicit, not read.
+
+  // Creator fee claim (2026-07-23): carved out of the old 10-byte pad IN PLACE.
+  // WRAPPER_CONFIG_LEN is STILL 576 — nothing above this line moved.
+  const creatorFeeClaimableAtoms = readU64LE(data, b + V17_CREATOR_FEE_CLAIMABLE_OFF);
 
   return {
     marketauth,
@@ -4125,6 +4174,7 @@ export function parseWrapperConfigV17(data: Uint8Array, configOff: number = V17_
     creatorShareBps,
     lpShareBps,
     insuranceShareBps,
+    creatorFeeClaimableAtoms,
   };
 }
 

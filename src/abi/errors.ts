@@ -7,7 +7,8 @@
  * 50 = LpVaultDepositBelowMinimumLiquidity (N7 dead-share floor); 51 =
  * FeeSplitFloorViolation (creator/LP/insurance split floor, meaning narrowed to
  * tag 86 — see its entry); 52-53 = fee-collection split; 54-60 =
- * load_bound_stake_pool diagnostics; 61 = AssetSlotAlreadyConfigured.
+ * load_bound_stake_pool diagnostics; 61 = AssetSlotAlreadyConfigured;
+ * 62 = CreatorFeeOverClaim (creator fee claim, tag 90 — NOT yet deployed).
  *
  * Ordinals 0-61 read directly off the PercolatorError enum in
  * percolator-prog@10acb5ae, which is the source deployed to devnet wrapper
@@ -329,6 +330,18 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   61: {
     name: "AssetSlotAlreadyConfigured",
     hint: "UpdateAssetLifecycle(ACTIVATE) named an asset slot BELOW max_market_slots that is already configured and live (Active / DrainOnly / Recovery). Only two activations are legal: APPEND at asset_index == max_market_slots, or RE-ACTIVATE a slot whose lifecycle is Retired. InitMarket pre-configures slots 0..max_portfolio_assets, so on a market created with max_portfolio_assets > 1 every one of those slots hits this. Previously surfaced as the misleading Custom(21) EngineLockActive.",
+  },
+  // ── Creator fee claim, 2026-07-24 (62) ────────────────────────────────────
+  // Source: v16_program.rs PercolatorError variant appended after
+  // AssetSlotAlreadyConfigured=61. Ordinals 0-61 are unmoved (pinned by
+  // v16_cu.rs::v17_new_error_ordinals_are_appended_at_the_tail and
+  // v16_fee_split.rs::fee_split_error_ordinals_are_pinned).
+  // ⚠ NOT YET DEPLOYED — this ships with the creator-fee-claim wrapper
+  // upgrade (tag 90 WithdrawCreatorFee). Against the currently-deployed
+  // wrapper this code is unreachable.
+  62: {
+    name: "CreatorFeeOverClaim",
+    hint: "WithdrawCreatorFee (tag 90) requested more than the market has accrued: amount > creator_fee_claimable_atoms (WrapperConfigV16 bytes 568..576, u64 LE). The claim is exact-amount — it does NOT partial-fill, and nothing is debited on rejection. Read the current claimable balance and retry with amount <= it. Note the distinct codes on this handler: Custom(9) InvalidInstruction for amount == 0 (tag 90 does not use tag 84's '0 means withdraw everything' convention), and Custom(25) EngineCounterUnderflow only for the fail-closed internal checked_sub, which is unreachable behind this check and would indicate a broken invariant.",
   },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);

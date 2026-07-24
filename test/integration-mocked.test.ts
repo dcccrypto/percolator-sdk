@@ -698,15 +698,17 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
     expect(PERCOLATOR_ERRORS[61]).toBeDefined();
   });
 
-  it("62 — decodeError returns undefined (not in v17)", () => {
-    expect(decodeError(62)).toBeUndefined();
-    expect(PERCOLATOR_ERRORS[62]).toBeUndefined();
+  it("62 — decodeError returns CreatorFeeOverClaim (v17 creator-fee claim)", () => {
+    // v17 now DEFINES 62. The v12 ADL meaning of 0x3E is still gone; this
+    // ordinal is reused by CreatorFeeOverClaim, exactly as 61 was reused.
+    expect(decodeError(62)!.name).toBe("CreatorFeeOverClaim");
+    expect(PERCOLATOR_ERRORS[62]).toBeDefined();
   });
 
-  it("62 (0x3E) — parseErrorFromLogs returns Unknown(62)", () => {
+  it("62 (0x3E) — parseErrorFromLogs resolves CreatorFeeOverClaim", () => {
     const result = parseErrorFromLogs(makeErrorLogs("3E"));
     expect(result).not.toBeNull();
-    expect(result!.name).toBe("Unknown(62)");
+    expect(result!.name).toBe("CreatorFeeOverClaim");
   });
 
   it("63 — decodeError returns undefined (not in v17)", () => {
@@ -786,13 +788,15 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
     expect(result!.name).toBe("StakeProgramNotPinned");
   });
 
-  it("v12 ADL error codes 62-65 are NOT in the v17 PERCOLATOR_ERRORS table", () => {
-    // 61 is deliberately excluded: v17 reuses that ordinal for
-    // AssetSlotAlreadyConfigured. The v12 MEANING is still gone.
-    for (let code = 62; code <= 65; code++) {
+  it("v12 ADL error codes 63-65 are NOT in the v17 PERCOLATOR_ERRORS table", () => {
+    // 61 and 62 are deliberately excluded: v17 reuses those ordinals for
+    // AssetSlotAlreadyConfigured and CreatorFeeOverClaim. The v12 MEANINGS
+    // are still gone -- that is the property under test.
+    for (let code = 63; code <= 65; code++) {
       expect(PERCOLATOR_ERRORS[code], `code ${code} should NOT be in v17 table`).toBeUndefined();
     }
     expect(PERCOLATOR_ERRORS[61].name).toBe("AssetSlotAlreadyConfigured");
+    expect(PERCOLATOR_ERRORS[62].name).toBe("CreatorFeeOverClaim");
   });
 
   it("uppercase hex (0x3D vs 0x3d) handled identically — both AssetSlotAlreadyConfigured", () => {

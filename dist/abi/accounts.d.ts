@@ -782,6 +782,38 @@ export declare const ACCOUNTS_UPDATE_TRADE_FEE_POLICY: readonly AccountSpec[];
  * Custom(19) bucket not `Fresh`-and-lapsed.
  */
 export declare const ACCOUNTS_EXPIRE_BACKING_BUCKET: readonly AccountSpec[];
+/**
+ * WithdrawCreatorFee (tag 90): 6 accounts.
+ *
+ * v17 wire account layout (v16_program.rs handle_withdraw_creator_fee) —
+ * BYTE-FOR-BYTE THE SAME SHAPE AS ACCOUNTS_WITHDRAW_PROTOCOL_FEE (tag 84);
+ * only the authority the program checks [0] against differs:
+ *   [0] authority      signer, writable (must equal ASSET 0's insurance_operator)
+ *   [1] market         writable (program-owned market-group slab)
+ *   [2] destToken      writable (destination token account, owned by [0])
+ *   [3] vaultToken     writable (program vault token account — source)
+ *   [4] vaultAuthority read-only (PDA ["vault", market], derives via deriveVaultAuthority)
+ *   [5] tokenProgram   read-only
+ *
+ * The handler applies expect_signer([0]) + expect_writable([1],[2],[3]) +
+ * expect_owner([1], program_id) + verify_token_program([5]) + expect_key on the
+ * derived vault authority. `writable: true` on [0] mirrors the tag-84 spec and
+ * reflects the authority normally also being the transaction fee payer; the
+ * program itself only calls expect_signer on it.
+ *
+ * ⚠ AUTHORITY IS asset 0's `insurance_operator`, NOT `cfg.marketauth` — and it
+ * does NOT accept marketauth as an alternate the way
+ * verify_domain_withdrawal_preflight does. That divergence is deliberate: on a
+ * staked market marketauth IS the stake-pool PDA, so accepting it would let the
+ * pool claim the creator's revenue. It also means claiming keeps working after
+ * StakeInitPool, since staking never rotates insurance_operator.
+ *
+ * Pays out of `creator_fee_claimable_atoms` (WrapperConfigV17 byte 568) by an
+ * EXACT debit — no withdraw-all sentinel, no partial fill, no
+ * insurance-withdraw cooldown or backstop-health gate (this counter is disjoint
+ * from the loss backstop, so backstop gating does not apply).
+ */
+export declare const ACCOUNTS_WITHDRAW_CREATOR_FEE: readonly AccountSpec[];
 export declare const WELL_KNOWN: {
     readonly tokenProgram: PublicKey;
     readonly clock: PublicKey;

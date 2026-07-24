@@ -293,12 +293,13 @@ describe("parseErrorFromLogs — error code extraction", () => {
     expect(result!.name).toBe("EngineProvenanceMismatch");
   });
 
-  it("v17: Percolator errors 62-65 return Unknown(...) — not in v17 error table", () => {
+  it("v17: Percolator errors 63-65 return Unknown(...) — not in v17 error table", () => {
     // In v12.x, codes 61-65 were ADL-specific errors (EngineSideBlocked etc.).
-    // In v17 none of those MEANINGS survive, but ordinal 61 has since been
-    // reused by AssetSlotAlreadyConfigured (percolator-prog@10acb5ae), so only
-    // 62-65 are still undefined → Unknown(N).
-    for (const code of [62, 63, 64, 65]) {
+    // In v17 none of those MEANINGS survive, but two of those ordinals have
+    // since been reused: 61 by AssetSlotAlreadyConfigured
+    // (percolator-prog@10acb5ae) and 62 by CreatorFeeOverClaim (creator-fee
+    // claim, tag 90). So only 63-65 are still undefined → Unknown(N).
+    for (const code of [63, 64, 65]) {
       const hex = code.toString(16);
       const logs = [
         `Program failed: custom program error: 0x${hex}`,

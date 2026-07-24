@@ -63,6 +63,7 @@ import {
   encodeUpdateMaintenanceFeePerSlot,
   encodeUpdateTradeFeePolicy,
   encodeExpireBackingBucket,
+  encodeWithdrawCreatorFee,
   validateFeeSplit,
   FEE_SPLIT,
   encodeSetProtocolFeeAuthority,
@@ -72,8 +73,15 @@ import {
   parseWrapperConfigV17,
   V17_WRAPPER_CONFIG_LEN,
   V17_HEADER_LEN,
+  V17_MARKET_GROUP_OFF,
+  V17_CREATOR_FEE_CLAIMABLE_OFF,
+  v17MarketAccountLen,
 } from "../src/solana/slab.js";
-import { ACCOUNTS_EXPIRE_BACKING_BUCKET } from "../src/abi/accounts.js";
+import {
+  ACCOUNTS_EXPIRE_BACKING_BUCKET,
+  ACCOUNTS_WITHDRAW_CREATOR_FEE,
+  ACCOUNTS_WITHDRAW_PROTOCOL_FEE,
+} from "../src/abi/accounts.js";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`FAIL: ${msg}`);
@@ -1411,9 +1419,12 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   dv.setUint16(configOff + 562, lpShareBps, true);
   dv.setUint16(configOff + 564, insuranceShareBps, true);
 
-  // _padding_split [u8;10] @566..576 — fill with a nonzero sentinel to prove it
-  // is not being read into any field.
-  buf.fill(0xab, configOff + 566, configOff + 576);
+  // _padding_split @566..568 — fill with a nonzero sentinel to prove it is not
+  // being read into any field. NOTE: this pad was [u8;10] (566..576) before the
+  // creator-fee-claim change carved creator_fee_claimable_atoms out of its
+  // 8-aligned tail at 568; 568..576 is a REAL FIELD now and is covered by its
+  // own block below, so the sentinel must stop at 568.
+  buf.fill(0xab, configOff + 566, configOff + 568);
 
   const cfg = parseWrapperConfigV17(buf);
 
@@ -1743,6 +1754,326 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
     "PROTOCOL_FEE_BPS + FEE_SHARE_TOTAL_BPS === 10_000"
   );
   console.log("✓ validateFeeSplit + FEE_SPLIT constants match policy_v16::validate_fee_split");
+}
+
+// ── v17 CREATOR FEE CLAIM (tag 90 + config byte 568) ─────────────────────────
+//
+// Source of truth: percolator-prog src/v16_program.rs.
+//   decode arm:  90 => Self::WithdrawCreatorFee { amount: read_u128(&mut rest)? }
+//   encode arm:  out.push(90); push_u128(&mut out, amount)
+//   tail guard:  !rest.is_empty() => InvalidInstructionData (length EXACTLY 17)
+//   storage:     WrapperConfigV16::creator_fee_claimable_atoms: u64 @568..576,
+//                carved IN PLACE out of the old `_padding_split: [u8; 10]`.
+//
+// The layout assertions below are the ones that would catch a repeat of the
+// 496->576 offset incident: this change must NOT move anything.
+
+// Layout constants: the whole point of the design is that these did not move.
+{
+  assert(
+    V17_CREATOR_FEE_CLAIMABLE_OFF === 568,
+    `V17_CREATOR_FEE_CLAIMABLE_OFF: expected 568, got ${V17_CREATOR_FEE_CLAIMABLE_OFF}`
+  );
+  assert(
+    V17_WRAPPER_CONFIG_LEN === 576,
+    `creator-fee-claim is IN-PLACE: V17_WRAPPER_CONFIG_LEN must STILL be 576, got ${V17_WRAPPER_CONFIG_LEN}`
+  );
+  assert(
+    V17_MARKET_GROUP_OFF === 592,
+    `V17_MARKET_GROUP_OFF must STILL be 592 (16+576), got ${V17_MARKET_GROUP_OFF}`
+  );
+  // The u64 must END exactly on the config boundary — it is the LAST 8 bytes.
+  // If it started at 566 (the old pad start, not 8-aligned) or ran past 576,
+  // the config would have had to grow.
+  assert(
+    V17_CREATOR_FEE_CLAIMABLE_OFF + 8 === V17_WRAPPER_CONFIG_LEN,
+    "creator_fee_claimable_atoms occupies 568..576, the exact tail of the 576-byte config"
+  );
+  assert(V17_CREATOR_FEE_CLAIMABLE_OFF % 8 === 0, "568 is 8-aligned (bytemuck::Pod requirement)");
+  assert(
+    V17_HEADER_LEN + V17_CREATOR_FEE_CLAIMABLE_OFF === 584,
+    "absolute offset in a market-group account is 584 (header 16 + 568)"
+  );
+  console.log("✓ creator-fee-claim layout constants (568, config STILL 576, group off STILL 592)");
+}
+
+// The counter reads at 568 as a u64 LE, from a buffer of EXACTLY the unchanged
+// 576-byte config length. All 8 bytes distinct so a wrong offset or a
+// big-endian read cannot pass by coincidence.
+{
+  const buf = new Uint8Array(V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN);
+  const configOff = V17_HEADER_LEN;
+
+  // 0x0807060504030201 -> LE bytes [01,02,03,04,05,06,07,08]
+  const claimable = 0x0807_0605_0403_0201n;
+  buf.set([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08], configOff + 568);
+
+  const cfg = parseWrapperConfigV17(buf);
+  assert(
+    cfg.creatorFeeClaimableAtoms === claimable,
+    `creatorFeeClaimableAtoms @568: expected ${claimable}, got ${cfg.creatorFeeClaimableAtoms}`
+  );
+  console.log("✓ parseWrapperConfigV17 creatorFeeClaimableAtoms is u64 LE @568 (asymmetric bytes)");
+}
+
+// Off-by-two guard: 568 is NOT 566 (the old pad start). Poison 560..568 with
+// 0xff so a decoder reading at 566 would return 131071 and one reading at 560
+// would return u64::MAX — neither of which is the 1n actually stored at 568.
+{
+  const buf = new Uint8Array(V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN);
+  const dv = new DataView(buf.buffer);
+  const configOff = V17_HEADER_LEN;
+
+  buf.fill(0xff, configOff + 560, configOff + 568);
+  dv.setBigUint64(configOff + 568, 1n, true);
+
+  const cfg = parseWrapperConfigV17(buf);
+  assert(
+    cfg.creatorFeeClaimableAtoms === 1n,
+    `creatorFeeClaimableAtoms must read at 568, not 566/560: got ${cfg.creatorFeeClaimableAtoms}`
+  );
+  console.log("✓ creatorFeeClaimableAtoms reads at 568 exactly (566/560 poison rejected)");
+}
+
+// Full u64 range reaches the parser — the counter is a u64, NOT a u128 (the
+// 10-byte pad budget forced that), so u64::MAX must round-trip and must not be
+// silently widened by reading 16 bytes past the end of the config.
+{
+  const buf = new Uint8Array(V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN);
+  const configOff = V17_HEADER_LEN;
+  buf.fill(0xff, configOff + 568, configOff + 576);
+
+  const cfg = parseWrapperConfigV17(buf);
+  assert(
+    cfg.creatorFeeClaimableAtoms === 0xffff_ffff_ffff_ffffn,
+    `creatorFeeClaimableAtoms u64::MAX: got ${cfg.creatorFeeClaimableAtoms}`
+  );
+  console.log("✓ creatorFeeClaimableAtoms carries the full u64 range (18446744073709551615)");
+}
+
+// The counter is the LAST field in the config, so a decoder that reads too
+// WIDE here silently eats the first bytes of the MarketGroup that follows at
+// V17_MARKET_GROUP_OFF. A minimally-sized buffer would mask that (the read
+// would run off the end and throw), so use a REAL market-account length and
+// poison the group's first 8 bytes. A u128 read would return
+// 0xffff_ffff_ffff_ffff_0000_0000_0000_0001 instead of 1n.
+{
+  const buf = new Uint8Array(v17MarketAccountLen(1));
+  const dv = new DataView(buf.buffer);
+  const configOff = V17_HEADER_LEN;
+
+  dv.setBigUint64(configOff + 568, 1n, true);
+  buf.fill(0xff, V17_MARKET_GROUP_OFF, V17_MARKET_GROUP_OFF + 8);
+
+  const cfg = parseWrapperConfigV17(buf);
+  assert(
+    cfg.creatorFeeClaimableAtoms === 1n,
+    `creatorFeeClaimableAtoms must stop at the 576-byte config boundary, got ${cfg.creatorFeeClaimableAtoms}`
+  );
+  console.log("✓ creatorFeeClaimableAtoms is 8 bytes wide — it does not bleed into the MarketGroup @592");
+}
+
+// BACKWARD COMPAT (design §Testing item 2): a market written by a PRE-upgrade
+// build has 566..576 zeroed, because those bytes were explicit padding. The
+// counter must therefore read a well-defined 0n, not garbage — no migration.
+{
+  const buf = new Uint8Array(V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN);
+  const dv = new DataView(buf.buffer);
+  const configOff = V17_HEADER_LEN;
+
+  // Populate everything BEFORE the pad, exactly as an old build would have.
+  dv.setUint16(configOff + 560, 1600, true); // creator_share_bps
+  dv.setUint16(configOff + 562, 4800, true); // lp_share_bps
+  dv.setUint16(configOff + 564, 1600, true); // insurance_share_bps
+  // 566..576 left zero — the old _padding_split [u8;10].
+
+  const cfg = parseWrapperConfigV17(buf);
+  assert(
+    cfg.creatorFeeClaimableAtoms === 0n,
+    `pre-upgrade market must read claimable 0n, got ${cfg.creatorFeeClaimableAtoms}`
+  );
+  assert(cfg.creatorShareBps === 1600, "pre-upgrade creatorShareBps still parses @560");
+  assert(cfg.lpShareBps === 4800, "pre-upgrade lpShareBps still parses @562");
+  assert(cfg.insuranceShareBps === 1600, "pre-upgrade insuranceShareBps still parses @564");
+  console.log("✓ pre-upgrade (zeroed pad) markets read creatorFeeClaimableAtoms === 0n");
+}
+
+// Isolation (design §Testing item 1): the counter must not cannibalise the
+// three share fields. Give the shares distinct NON-DEFAULT values and the
+// counter a value whose bytes would corrupt them if the offsets overlapped.
+{
+  const buf = new Uint8Array(V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN);
+  const dv = new DataView(buf.buffer);
+  const configOff = V17_HEADER_LEN;
+
+  dv.setUint16(configOff + 560, 3600, true);
+  dv.setUint16(configOff + 562, 3200, true);
+  dv.setUint16(configOff + 564, 1200, true);
+  dv.setBigUint64(configOff + 568, 777_777_777_777n, true);
+
+  const cfg = parseWrapperConfigV17(buf);
+  assert(cfg.creatorShareBps === 3600, `creatorShareBps @560: got ${cfg.creatorShareBps}`);
+  assert(cfg.lpShareBps === 3200, `lpShareBps @562: got ${cfg.lpShareBps}`);
+  assert(cfg.insuranceShareBps === 1200, `insuranceShareBps @564: got ${cfg.insuranceShareBps}`);
+  assert(
+    cfg.creatorFeeClaimableAtoms === 777_777_777_777n,
+    `creatorFeeClaimableAtoms: got ${cfg.creatorFeeClaimableAtoms}`
+  );
+  console.log("✓ creatorFeeClaimableAtoms @568 does not disturb the shares @560/562/564");
+}
+
+// WithdrawCreatorFee (tag 90) — wire: tag(1) + amount(u128 LE) = 17 bytes.
+{
+  const data = encodeWithdrawCreatorFee({ amount: 1_000_000n });
+  assert(data.length === 17, `WithdrawCreatorFee length: expected 17, got ${data.length}`);
+  assert(data[0] === IX_TAG.WithdrawCreatorFee, "tag = IX_TAG.WithdrawCreatorFee");
+  assert(data[0] === 90, "WithdrawCreatorFee tag literal = 90");
+  // 1_000_000 = 0x0F4240 -> LE
+  assertBuf(
+    data,
+    [90, 0x40, 0x42, 0x0f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "WithdrawCreatorFee amount=1_000_000 full 17-byte wire"
+  );
+  console.log("✓ encodeWithdrawCreatorFee (v17 17-byte wire, tag 90)");
+}
+
+// Endianness pinned byte-for-byte with 16 DISTINCT payload bytes. A big-endian
+// encoder, a byte-swapped word pair, or a 16-byte payload written in any other
+// order all fail this single assertion.
+{
+  const amount = 0x0f0e_0d0c_0b0a_0908_0706_0504_0302_0100n;
+  const data = encodeWithdrawCreatorFee({ amount });
+  assertBuf(
+    data,
+    [90, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f],
+    "WithdrawCreatorFee payload is u128 LITTLE-endian, all 16 bytes distinct"
+  );
+  console.log("✓ encodeWithdrawCreatorFee amount is u128 LE (16 distinct bytes)");
+}
+
+// u128-not-u64: a value needing bit 100 must survive into the high word. This
+// is the assertion that catches an encU64 payload (which would also make the
+// instruction 9 bytes and the program reject it outright).
+{
+  const big = (1n << 100n) + 5n;
+  const data = encodeWithdrawCreatorFee({ amount: big });
+  assert(data.length === 17, "WithdrawCreatorFee stays 17 bytes for a >u64 value");
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const lo = dv.getBigUint64(1, true);
+  const hi = dv.getBigUint64(9, true);
+  assert(lo === 5n, `WithdrawCreatorFee low word: expected 5, got ${lo}`);
+  assert(hi === 1n << 36n, `WithdrawCreatorFee high word: expected ${1n << 36n}, got ${hi}`);
+  assert((hi << 64n) + lo === big, "WithdrawCreatorFee u128 round-trip");
+  console.log("✓ encodeWithdrawCreatorFee carries values above u64::MAX (proves u128)");
+}
+
+// Decimal-string args must encode identically to the bigint form — a claim
+// amount read out of JSON must not silently differ from the parsed balance.
+{
+  const fromBigint = encodeWithdrawCreatorFee({ amount: 123_456_789n });
+  const fromString = encodeWithdrawCreatorFee({ amount: "123456789" });
+  assertBuf(fromString, [...fromBigint], "WithdrawCreatorFee string arg === bigint arg");
+  console.log("✓ encodeWithdrawCreatorFee accepts decimal strings identically");
+}
+
+// amount=0 encodes (the SDK does not pre-validate), but it is NOT tag 84's
+// withdraw-all sentinel — the program REJECTS it with InvalidInstruction. Pin
+// the bytes so nobody "helpfully" turns 0 into a u128::MAX drain.
+{
+  const data = encodeWithdrawCreatorFee({ amount: 0n });
+  assert(data.length === 17, "WithdrawCreatorFee amount=0 length=17");
+  assert(data[0] === 90, "WithdrawCreatorFee amount=0 tag=90");
+  assert(
+    data.subarray(1, 17).every((v) => v === 0),
+    "WithdrawCreatorFee amount=0 payload is all zero (NOT a withdraw-all sentinel)"
+  );
+  console.log("✓ encodeWithdrawCreatorFee amount=0 encodes literally (rejected on-chain, not withdraw-all)");
+}
+
+// Tag 90 and tag 84 share a payload shape but MUST differ in dispatch. Assert
+// the two encodings differ in exactly one byte — index 0 — for the same amount.
+{
+  const amount = 42_424_242n;
+  const creator = encodeWithdrawCreatorFee({ amount });
+  const protocol = encodeWithdrawProtocolFee({ amount });
+  assert(creator.length === protocol.length, "tag 90 and tag 84 are both 17 bytes");
+  const differing: number[] = [];
+  for (let i = 0; i < creator.length; i++) {
+    if (creator[i] !== protocol[i]) differing.push(i);
+  }
+  assert(
+    differing.length === 1 && differing[0] === 0,
+    `tag 90 vs tag 84 must differ ONLY at the tag byte, differed at [${differing.join(", ")}]`
+  );
+  assert(creator[0] === 90 && protocol[0] === 84, "the differing byte is 90 vs 84");
+  console.log("✓ WithdrawCreatorFee(90) and WithdrawProtocolFee(84) differ only in the tag byte");
+}
+
+// Out-of-range amounts are refused client-side rather than silently truncated
+// into a DIFFERENT valid claim.
+{
+  assertThrows(() => encodeWithdrawCreatorFee({ amount: -1n }), "negative amount throws");
+  assertThrows(() => encodeWithdrawCreatorFee({ amount: 1n << 128n }), "amount > u128::MAX throws");
+  console.log("✓ encodeWithdrawCreatorFee rejects out-of-range amounts (no silent truncation)");
+}
+
+// Tag 90 must not collide with any other v17 tag the SDK encodes.
+{
+  assert(IX_TAG.WithdrawCreatorFee === 90, "IX_TAG.WithdrawCreatorFee === 90");
+  const neighbours = [
+    IX_TAG.WithdrawProtocolFee,
+    IX_TAG.SetProtocolFeeAuthority,
+    IX_TAG.UpdateFeeSplit,
+    IX_TAG.WithdrawInsuranceReserveToStake,
+    IX_TAG.UpdateMaintenanceFeePerSlot,
+    IX_TAG.ExpireBackingBucket,
+    IX_TAG.WithdrawCreatorFee,
+  ];
+  assert(new Set(neighbours).size === neighbours.length, "tags 84-90 are pairwise distinct");
+  // The other two ways a creator's money leaves a market must stay distinct.
+  assert(
+    IX_TAG.WithdrawCreatorFee !== IX_TAG.WithdrawInsuranceAsset,
+    "90 !== WithdrawInsuranceAsset(57) — the backstop path is a DIFFERENT instruction"
+  );
+  console.log("✓ IX_TAG.WithdrawCreatorFee (90) distinct from 84-89 and from WithdrawInsuranceAsset(57)");
+}
+
+// Account layout: 6 accounts, same shape as tag 84 (only the checked authority
+// differs, which is not expressible in an AccountSpec). A consumer that passed
+// tag-57's layout here would build an instruction the program rejects.
+{
+  assert(
+    ACCOUNTS_WITHDRAW_CREATOR_FEE.length === 6,
+    `WithdrawCreatorFee accounts: expected 6, got ${ACCOUNTS_WITHDRAW_CREATOR_FEE.length}`
+  );
+  const expected = [
+    { name: "authority", signer: true, writable: true },
+    { name: "market", signer: false, writable: true },
+    { name: "destToken", signer: false, writable: true },
+    { name: "vaultToken", signer: false, writable: true },
+    { name: "vaultAuthority", signer: false, writable: false },
+    { name: "tokenProgram", signer: false, writable: false },
+  ];
+  expected.forEach((e, i) => {
+    const a = ACCOUNTS_WITHDRAW_CREATOR_FEE[i];
+    assert(a.name === e.name, `WithdrawCreatorFee account[${i}].name: expected ${e.name}, got ${a.name}`);
+    assert(a.signer === e.signer, `WithdrawCreatorFee account[${i}] (${e.name}).signer must be ${e.signer}`);
+    assert(
+      a.writable === e.writable,
+      `WithdrawCreatorFee account[${i}] (${e.name}).writable must be ${e.writable}`
+    );
+  });
+  // Exactly one signer, at index 0 — the handler calls expect_signer(accounts[0]) only.
+  assert(
+    ACCOUNTS_WITHDRAW_CREATOR_FEE.filter((a) => a.signer).length === 1,
+    "WithdrawCreatorFee takes exactly one signer"
+  );
+  // Mirrors tag 84 exactly (the design says to model the token movement on it).
+  assert(
+    JSON.stringify(ACCOUNTS_WITHDRAW_CREATOR_FEE) === JSON.stringify(ACCOUNTS_WITHDRAW_PROTOCOL_FEE),
+    "ACCOUNTS_WITHDRAW_CREATOR_FEE must match ACCOUNTS_WITHDRAW_PROTOCOL_FEE shape exactly"
+  );
+  console.log("✓ ACCOUNTS_WITHDRAW_CREATOR_FEE is the 6-account tag-84 shape, one signer at [0]");
 }
 
 console.log("\n✅ All tests passed!");

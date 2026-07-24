@@ -27,7 +27,9 @@ import {
  *   61    = AssetSlotAlreadyConfigured (UpdateAssetLifecycle ACTIVATE against a
  *           slot below max_market_slots that is already in service; replaces a
  *           misleading Custom(21) EngineLockActive)
- *   62+   = undefined (should be undefined in the table)
+ *   62    = CreatorFeeOverClaim (tag 90 WithdrawCreatorFee over-claim; NOT
+ *           yet deployed — ships with the creator-fee-claim wrapper upgrade)
+ *   63+   = undefined (should be undefined in the table)
  *
  * 52-61 are DEPLOYED as of 2026-07-22: devnet wrapper
  * DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj carries percolator-prog@10acb5ae
@@ -48,8 +50,14 @@ describe("PERCOLATOR_ERRORS table", () => {
     }
   });
 
-  it("error codes 62+ are not defined", () => {
-    expect(PERCOLATOR_ERRORS[62]).toBeUndefined();
+  it("error code 62 is CreatorFeeOverClaim and 63+ are not defined", () => {
+    // Boundary moved 62 -> 63 by the creator-fee-claim wrapper change
+    // (PercolatorError::CreatorFeeOverClaim appended after
+    // AssetSlotAlreadyConfigured=61). Keep asserting the NEW boundary rather
+    // than deleting the guard: this test is what catches an accidental or
+    // mis-ordered ordinal addition.
+    expect(PERCOLATOR_ERRORS[62]!.name).toBe("CreatorFeeOverClaim");
+    expect(PERCOLATOR_ERRORS[63]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[65]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[100]).toBeUndefined();
   });
@@ -226,8 +234,9 @@ describe("decodeError", () => {
     expect(decodeError(61)!.name).toBe("AssetSlotAlreadyConfigured");
   });
 
-  it("returns undefined for unknown code 62 (beyond current table)", () => {
-    expect(decodeError(62)).toBeUndefined();
+  it("decodes 62 as CreatorFeeOverClaim and returns undefined for 63 (beyond current table)", () => {
+    expect(decodeError(62)!.name).toBe("CreatorFeeOverClaim");
+    expect(decodeError(63)).toBeUndefined();
   });
 
   it("returns undefined for unknown code 10_000", () => {
@@ -259,10 +268,11 @@ describe("getErrorName", () => {
   });
 
   it("returns Unknown(...) for unknown codes beyond the table", () => {
-    // The fee-collection split extended the table 51 -> 60, and the 2026-07-22
-    // bug-fix pass added 61 (AssetSlotAlreadyConfigured); 62 is the first
-    // unknown.
-    expect(getErrorName(62)).toBe("Unknown(62)");
+    // The fee-collection split extended the table 51 -> 60, the 2026-07-22
+    // bug-fix pass added 61 (AssetSlotAlreadyConfigured), and the creator-fee
+    // claim added 62 (CreatorFeeOverClaim); 63 is the first unknown.
+    expect(getErrorName(62)).toBe("CreatorFeeOverClaim");
+    expect(getErrorName(63)).toBe("Unknown(63)");
     expect(getErrorName(999)).toBe("Unknown(999)");
     expect(getErrorName(100)).toBe("Unknown(100)");
   });

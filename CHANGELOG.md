@@ -7,6 +7,84 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.3.0] — 2026-07-24
+
+Creator fee claim: the read side (`creatorFeeClaimableAtoms`) and the write side
+(`WithdrawCreatorFee`, tag 90).
+
+Source: `percolator-prog` `src/v16_program.rs`, branch
+`feat/protocol-fee-taker-only`, per the 2026-07-23 creator-fee-claim design.
+
+**ADDITIVE ONLY — no existing offset or tag changed.** `V17_WRAPPER_CONFIG_LEN`
+is **still 576** and `V17_MARKET_GROUP_OFF` is **still 592**. The new counter was
+carved *in place* out of the pre-existing `_padding_split` tail (which shrank
+`[u8;10]` → `[u8;2]`) at 568, the only 8-aligned slot inside it. Growing the
+config would have shifted every asset-profile offset and bricked the deployed
+576-byte markets — a repeat of the 496→576 incident.
+
+### Context — what this fixes
+
+The creator's fee leg used to be credited into the asset's **insurance domain
+budget**, which is the market's loss backstop. Two consequences: a "claim fees"
+button was really a *withdraw from the loss backstop* button (tag 57), and there
+was no on-chain figure for "creator earned X" at all, because creator revenue
+was commingled with the backstop. The leg now accrues to its own counter, and
+tag 90 is the only thing that drains it.
+
+### Added
+
+- **`WrapperConfigV17.creatorFeeClaimableAtoms`** — the creator's unclaimed
+  trade-fee revenue in collateral atoms, parsed by `parseWrapperConfigV17`. This
+  is the honest claimable balance for a creator-claim UI.
+
+  ⚠ **Not monotonic, and not an accrued/withdrawn pair** like the protocol / LP
+  / insurance legs. It is a single live balance — trades add, tag 90 subtracts —
+  so it *cannot* be used to derive lifetime creator revenue, only what is
+  claimable right now. Forced by the 10-byte pad budget (`u64`, not `u128`).
+
+- **`V17_CREATOR_FEE_CLAIMABLE_OFF = 568`** — offset relative to the start of the
+  `WrapperConfigV16` block; absolute offset in a market-group account is 584.
+
+- **`encodeWithdrawCreatorFee({ amount })`** / **`WithdrawCreatorFeeArgs`** —
+  tag 90. Wire: `tag(1) + amount(u128 LE)` = **17 bytes**.
+
+- **`ACCOUNTS_WITHDRAW_CREATOR_FEE`** — 6 accounts, the same shape as
+  `ACCOUNTS_WITHDRAW_PROTOCOL_FEE`: `authority` (signer), `market`, `destToken`,
+  `vaultToken`, `vaultAuthority`, `tokenProgram`.
+
+- **`IX_TAG.WithdrawCreatorFee = 90`**. The deprecated v12.x `UpdateMarkPrice`
+  alias also sits at 90 and is now annotated as colliding; it is not in v17.
+
+### Three ways tag 90 deliberately differs from tag 84
+
+1. **`amount: 0n` is REJECTED** (`InvalidInstruction`) — it is *not* tag 84's
+   "withdraw all available" sentinel. Tag 90's contract is an exact debit of the
+   counter. To drain, read `creatorFeeClaimableAtoms` and pass that value.
+2. **Over-claim is rejected, never clamped**, and there is **no partial fill**.
+   Nothing is debited on failure; if the vault's unbudgeted surplus is
+   momentarily thin the whole instruction fails closed and the creator retries
+   smaller.
+3. **Authority is asset 0's `insurance_operator` and ONLY that** — never
+   `cfg.marketauth`, and it does not reuse
+   `verify_domain_withdrawal_preflight`'s authority check, which accepts
+   `marketauth` as an alternate. On a staked market `marketauth` *is* the
+   stake-pool PDA, so accepting it would let the pool claim the creator's
+   revenue. Since `StakeInitPool` never rotates `insurance_operator`, claiming
+   keeps working after staking.
+
+### Compatibility
+
+- **No migration.** Markets created by a pre-upgrade build have bytes 566..576
+  zeroed (they were explicit padding), so `creatorFeeClaimableAtoms` reads a
+  well-defined `0n` and accrues fresh after an in-place program upgrade.
+- **Type note:** `WrapperConfigV17` gained a required property. Code that
+  *consumes* `parseWrapperConfigV17` is unaffected; only code that hand-builds a
+  `WrapperConfigV17` literal needs the new field.
+- Creator fees already sitting in the insurance budget from before the upgrade
+  are **not** migrated.
+
+---
+
 ## [4.2.0] — 2026-07-22
 
 Keeper read paths: backing-bucket lapse **detection** (the missing half of tag

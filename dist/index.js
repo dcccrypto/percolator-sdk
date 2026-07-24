@@ -496,11 +496,37 @@ var IX_TAG = {
    * {@link encodeExpireBackingBucket} for the full keeper contract.
    */
   ExpireBackingBucket: 89,
+  /**
+   * WithdrawCreatorFee (tag 90) — v17 creator fee claim (percolator-prog
+   * feat/protocol-fee-taker-only, 2026-07-23 creator-fee-claim design §3).
+   * Pays the market creator's accrued trade-fee share out of the vault and
+   * decrements `creator_fee_claimable_atoms` (WrapperConfigV17, byte 568) by
+   * EXACTLY `amount`.
+   *
+   * Wire: tag(1) + amount(u128 LE) = 17 bytes. Accounts: see
+   * ACCOUNTS_WITHDRAW_CREATOR_FEE in abi/accounts.ts (same 6-account shape as
+   * tag 84).
+   *
+   * ⚠ `amount == 0` is REJECTED (InvalidInstruction), which is the OPPOSITE of
+   * tag 84's "0 means withdraw-all" sentinel. This instruction is an exact
+   * debit of the counter, so read `creatorFeeClaimableAtoms` off the parsed
+   * config and pass that to drain it.
+   *
+   * ⚠ Authority is asset 0's `insurance_operator` and ONLY that — NOT
+   * `cfg.marketauth`. On a staked market `StakeInitPool` has irreversibly
+   * rotated `marketauth` to the stake-pool PDA but leaves `insurance_operator`
+   * alone, so this deliberate divergence is what lets the creator still claim
+   * after staking (and stops the pool PDA claiming creator revenue).
+   *
+   * ⚠ Over-claim (`amount > creatorFeeClaimableAtoms`) is rejected, never
+   * saturated — there is no partial fill. Nothing is debited on failure.
+   */
+  WithdrawCreatorFee: 90,
   /** @deprecated v12.x tag 85. COLLIDES with v17 SetProtocolFeeAuthority(85). Do NOT use. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
   SettleAccount: 86,
-  /** @deprecated v12.x tag 90. Not in v17. */
+  /** @deprecated v12.x tag 90. COLLIDES with v17 WithdrawCreatorFee(90). Do NOT use. */
   UpdateMarkPrice: 90,
   /** @deprecated v12.x tag 91. Not in v17. */
   AuditCrank: 91,
@@ -1505,6 +1531,12 @@ function encodeExpireBackingBucket(args) {
     encU16(args.domain)
   );
 }
+function encodeWithdrawCreatorFee(args) {
+  return concatBytes(
+    encU8(IX_TAG.WithdrawCreatorFee),
+    encU128(args.amount)
+  );
+}
 
 // src/abi/accounts.ts
 import {
@@ -2134,6 +2166,14 @@ var ACCOUNTS_UPDATE_TRADE_FEE_POLICY = [
 var ACCOUNTS_EXPIRE_BACKING_BUCKET = [
   { name: "market", signer: false, writable: true }
 ];
+var ACCOUNTS_WITHDRAW_CREATOR_FEE = [
+  { name: "authority", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "destToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false }
+];
 var WELL_KNOWN = {
   tokenProgram: TOKEN_PROGRAM_ID,
   clock: SYSVAR_CLOCK_PUBKEY,
@@ -2441,6 +2481,18 @@ var PERCOLATOR_ERRORS = {
   61: {
     name: "AssetSlotAlreadyConfigured",
     hint: "UpdateAssetLifecycle(ACTIVATE) named an asset slot BELOW max_market_slots that is already configured and live (Active / DrainOnly / Recovery). Only two activations are legal: APPEND at asset_index == max_market_slots, or RE-ACTIVATE a slot whose lifecycle is Retired. InitMarket pre-configures slots 0..max_portfolio_assets, so on a market created with max_portfolio_assets > 1 every one of those slots hits this. Previously surfaced as the misleading Custom(21) EngineLockActive."
+  },
+  // ── Creator fee claim, 2026-07-24 (62) ────────────────────────────────────
+  // Source: v16_program.rs PercolatorError variant appended after
+  // AssetSlotAlreadyConfigured=61. Ordinals 0-61 are unmoved (pinned by
+  // v16_cu.rs::v17_new_error_ordinals_are_appended_at_the_tail and
+  // v16_fee_split.rs::fee_split_error_ordinals_are_pinned).
+  // ⚠ NOT YET DEPLOYED — this ships with the creator-fee-claim wrapper
+  // upgrade (tag 90 WithdrawCreatorFee). Against the currently-deployed
+  // wrapper this code is unreachable.
+  62: {
+    name: "CreatorFeeOverClaim",
+    hint: "WithdrawCreatorFee (tag 90) requested more than the market has accrued: amount > creator_fee_claimable_atoms (WrapperConfigV16 bytes 568..576, u64 LE). The claim is exact-amount \u2014 it does NOT partial-fill, and nothing is debited on rejection. Read the current claimable balance and retry with amount <= it. Note the distinct codes on this handler: Custom(9) InvalidInstruction for amount == 0 (tag 90 does not use tag 84's '0 means withdraw everything' convention), and Custom(25) EngineCounterUnderflow only for the fail-closed internal checked_sub, which is unreachable behind this check and would indicate a broken invariant."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -5118,6 +5170,7 @@ var V17_EXPECTED_VERSION = 17;
 var V17_KIND_MARKET = 1;
 var V17_KIND_OFF = 10;
 var V17_WRAPPER_CONFIG_LEN = 576;
+var V17_CREATOR_FEE_CLAIMABLE_OFF = 568;
 var V17_ASSET_ORACLE_PROFILE_LEN = 400;
 var V17_HEADER_LEN = 16;
 var V17_MARKET_GROUP_OFF = V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN;
@@ -5198,6 +5251,7 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const creatorShareBps = readU16LE(data, b + 560);
   const lpShareBps = readU16LE(data, b + 562);
   const insuranceShareBps = readU16LE(data, b + 564);
+  const creatorFeeClaimableAtoms = readU64LE(data, b + V17_CREATOR_FEE_CLAIMABLE_OFF);
   return {
     marketauth,
     collateralMint,
@@ -5248,7 +5302,8 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
     insuranceReserveWithdrawnAtoms,
     creatorShareBps,
     lpShareBps,
-    insuranceShareBps
+    insuranceShareBps,
+    creatorFeeClaimableAtoms
   };
 }
 function parseAssetOracleProfileV17(data, profileOff) {
@@ -9275,6 +9330,7 @@ export {
   ACCOUNTS_WITHDRAW_BACKING_BUCKET,
   ACCOUNTS_WITHDRAW_BACKING_BUCKET_EARNINGS,
   ACCOUNTS_WITHDRAW_COLLATERAL,
+  ACCOUNTS_WITHDRAW_CREATOR_FEE,
   ACCOUNTS_WITHDRAW_INSURANCE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
@@ -9378,6 +9434,7 @@ export {
   V17_ASSET_SLOT_WRAPPER_LEN,
   V17_BACKING_BUCKET_LEN,
   V17_CONFIG_MAX_MARKET_SLOTS_REL,
+  V17_CREATOR_FEE_CLAIMABLE_OFF,
   V17_ENGINE_BACKING_LONG_REL,
   V17_ENGINE_BACKING_SHORT_REL,
   V17_EXPECTED_VERSION,
@@ -9629,6 +9686,7 @@ export {
   encodeWithdrawBackingBucket,
   encodeWithdrawBackingBucketEarnings,
   encodeWithdrawCollateral,
+  encodeWithdrawCreatorFee,
   encodeWithdrawInsurance,
   encodeWithdrawInsuranceAsset,
   encodeWithdrawInsuranceLP,
