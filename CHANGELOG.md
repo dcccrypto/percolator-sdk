@@ -7,6 +7,47 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.4.0] — 2026-08-08
+
+Dual-domain LP vault. The vault can now hold backing in EITHER pot of its asset,
+so every LP-vault instruction names the pot it acts on and NAV spans both.
+
+Source: `percolator-prog` `src/v16_program.rs` @ `19d5d932` (deployed to devnet
+`DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj`, slot 482154579).
+
+**BREAKING — wire format and account lists changed on three existing tags.**
+
+| tag | wire | accounts |
+|---|---|---|
+| 75 `DepositToLpVault` | 17 → **19** bytes (`+ domain: u16`) | 10 → **11** (`siblingLedger` at [10]) |
+| 77 `ExecuteRedemption` | 1 → **3** bytes (`+ domain: u16`) | 11 → **12** (`siblingLedger` at [11]) |
+| 78 `LpVaultCrankFees` | 1 → **3** bytes (`+ domain: u16`) | 4 → **6** (`siblingLedger` [4], `systemProgram` [5]; `cranker` is now WRITABLE) |
+
+### Added
+- `IX_TAG.RebalanceLpVaultBacking` (**tag 91**) and `encodeRebalanceLpVaultBacking({ fromDomain, toDomain, amount })` — 21-byte wire. Moves IDLE (fresh, unliened) backing between the two pots, carrying ledger principal in lockstep. No tokens move. Tag 91 is free in v17; the only prior use is a deprecated v12.x alias.
+- `ACCOUNTS_REBALANCE_LP_VAULT_BACKING`.
+
+### Why
+`CreateLpVault` binds the vault to one pot, but the house takes whichever side
+traders leave it and draws its gains from the OPPOSITE pot. `spec.md` L410
+requires refill be "source-domain local", so a vault that cannot reach both pots
+leaves one side permanently unfundable. `backing_bucket_authority` is stored PER
+ASSET, so the vault was already authorised over both.
+
+### Migration
+For all three changed tags, pass the vault's own `registry.domain` (do **not**
+assume 0 — a market that appends an asset binds its vault to that asset's domain)
+and append the sibling ledger, `deriveLpBackingLedger(programId, market, domain ^ 1)`.
+The sibling is required **even when uninitialised**: NAV and available-principal
+are summed across both pots, so omitting it understates NAV — minting free shares
+on deposit and underpaying on redemption.
+
+For tag 77, `domain` selects which pot the payout is DRAWN from; NAV stays
+combined, so it does not change what the redeemer is owed. A redemption draws
+from ONE pot and fails closed if that pot cannot cover it — rebalance first.
+
+---
+
 ## [4.3.0] — 2026-07-24
 
 Creator fee claim: the read side (`creatorFeeClaimableAtoms`) and the write side
