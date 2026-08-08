@@ -425,6 +425,17 @@ export declare const IX_TAG: {
      * saturated — there is no partial fill. Nothing is debited on failure.
      */
     readonly WithdrawCreatorFee: 90;
+    /**
+     * RebalanceLpVaultBacking (v17 tag 91) — move IDLE (fresh, unliened) backing
+     * between the two domains of the LP vault's asset, carrying ledger principal
+     * in lockstep. No tokens move: `header.vault` is untouched.
+     *
+     * The vault is welded to ONE domain at CreateLpVault, but the house draws its
+     * gains from the OPPOSITE domain, so without this the pot the house actually
+     * needs can never be refilled (spec.md L410 requires refill be source-domain
+     * local).
+     */
+    readonly RebalanceLpVaultBacking: 91;
     /** @deprecated v12.x tag 85. COLLIDES with v17 SetProtocolFeeAuthority(85). Do NOT use. */
     readonly ReclaimEmptyAccount: 85;
     /** @deprecated v12.x tag 86. Not in v17. */
@@ -2449,15 +2460,26 @@ export declare function encodeCreateLpVaultV17(args: CreateLpVaultArgs): Uint8Ar
 /**
  * DepositToLpVault (tag 75) — deposit collateral into the LP vault.
  *
- * Wire: tag(1) + amount(u128) = 17 bytes.
+ * Wire: tag(1) + amount(u128) + domain(u16) = 19 bytes.
+ *
+ * `domain` selects which pot of the vault's asset receives the backing and MUST
+ * satisfy `domain >> 1 === registry.domain >> 1`. Shares are priced off COMBINED
+ * NAV across both pots, so the depositor is indifferent to the choice; routing
+ * exists so new money can reach whichever pot the house is drawing on.
+ *
+ * ACCOUNTS (v17 dual-domain): index 10 is the SIBLING-domain backing ledger
+ * (`deriveLpBackingLedger(programId, market, domain ^ 1)`). It is required even
+ * when uninitialised — NAV spans both pots, and omitting it would understate NAV
+ * and mint the depositor free shares at existing holders' expense.
  *
  * @example
  * ```ts
- * const data = encodeDepositToLpVault({ amount: 1_000_000n });
+ * const data = encodeDepositToLpVault({ amount: 1_000_000n, domain: 2 });
  * ```
  */
 export declare function encodeDepositToLpVault(args: {
     amount: bigint | string;
+    domain: number;
 }): Uint8Array;
 /**
  * RequestRedeemLpShares (tag 76) — request redemption of LP vault shares.
@@ -2478,25 +2500,70 @@ export declare function encodeRequestRedeemLpShares(args: {
 /**
  * ExecuteRedemption (tag 77) — execute a pending LP redemption.
  *
- * Wire: tag(1) = 1 byte.
+ * Wire: tag(1) + domain(u16) = 3 bytes.
+ *
+ * `domain` selects which pot the payout is physically DRAWN from. NAV and
+ * available-principal stay COMBINED across both pots, so this does not change
+ * what the redeemer is owed — only where the atoms come from. A redemption draws
+ * from ONE pot and fails closed (EngineCounterUnderflow) if that pot cannot
+ * cover it; rebalance (tag 91) first.
+ *
+ * ACCOUNTS (v17 dual-domain): index 11 is the SIBLING-domain backing ledger.
  *
  * @example
  * ```ts
- * const data = encodeExecuteRedemption();
+ * const data = encodeExecuteRedemption({ domain: 2 });
  * ```
  */
-export declare function encodeExecuteRedemption(): Uint8Array;
+export declare function encodeExecuteRedemption(args: {
+    domain: number;
+}): Uint8Array;
 /**
  * LpVaultCrankFees (tag 78) — crank fee accrual for the LP vault.
  *
- * Wire: tag(1) = 1 byte.
+ * Wire: tag(1) + domain(u16) = 3 bytes.
+ *
+ * `domain` selects which pot receives the cranked fees. Mints no shares, so the
+ * choice cannot dilute; routing exists so fees can become backing in the pot
+ * that needs it. The target ledger is created on first use.
+ *
+ * ACCOUNTS (v17 dual-domain): index 4 is the SIBLING-domain backing ledger and
+ * index 5 is the system program (needed to create a missing target ledger).
  *
  * @example
  * ```ts
- * const data = encodeLpVaultCrankFees();
+ * const data = encodeLpVaultCrankFees({ domain: 2 });
  * ```
  */
-export declare function encodeLpVaultCrankFees(): Uint8Array;
+export declare function encodeLpVaultCrankFees(args: {
+    domain: number;
+}): Uint8Array;
+/**
+ * RebalanceLpVaultBacking (tag 91) — move IDLE backing between the two pots of
+ * the LP vault's asset.
+ *
+ * Wire: tag(1) + fromDomain(u16) + toDomain(u16) + amount(u128) = 21 bytes.
+ *
+ * Permissionless: both pots belong to the same vault, so the move cannot extract
+ * value, and the source-side gate refuses anything that would leave the source
+ * pot under-backed. Only `fresh_unliened` backing moves — backing pledged against
+ * open interest, already consumed, or impaired stays put.
+ *
+ * ACCOUNTS: [cranker(signer,w), market(w), registry, fromLedger(w), toLedger(w),
+ * systemProgram]. The destination ledger is created on first arrival.
+ *
+ * @example
+ * ```ts
+ * const data = encodeRebalanceLpVaultBacking({
+ *   fromDomain: 2, toDomain: 3, amount: 500_000n,
+ * });
+ * ```
+ */
+export declare function encodeRebalanceLpVaultBacking(args: {
+    fromDomain: number;
+    toDomain: number;
+    amount: bigint | string;
+}): Uint8Array;
 /**
  * SetLpVaultPaused (tag 79) — pause or unpause the LP vault.
  *

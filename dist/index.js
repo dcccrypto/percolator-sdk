@@ -522,6 +522,17 @@ var IX_TAG = {
    * saturated — there is no partial fill. Nothing is debited on failure.
    */
   WithdrawCreatorFee: 90,
+  /**
+   * RebalanceLpVaultBacking (v17 tag 91) — move IDLE (fresh, unliened) backing
+   * between the two domains of the LP vault's asset, carrying ledger principal
+   * in lockstep. No tokens move: `header.vault` is untouched.
+   *
+   * The vault is welded to ONE domain at CreateLpVault, but the house draws its
+   * gains from the OPPOSITE domain, so without this the pot the house actually
+   * needs can never be refilled (spec.md L410 requires refill be source-domain
+   * local).
+   */
+  RebalanceLpVaultBacking: 91,
   /** @deprecated v12.x tag 85. COLLIDES with v17 SetProtocolFeeAuthority(85). Do NOT use. */
   ReclaimEmptyAccount: 85,
   /** @deprecated v12.x tag 86. Not in v17. */
@@ -1348,16 +1359,28 @@ function encodeCreateLpVaultV17(args) {
   );
 }
 function encodeDepositToLpVault(args) {
-  return concatBytes(encU8(IX_TAG.DepositToLpVault), encU128(args.amount));
+  return concatBytes(
+    encU8(IX_TAG.DepositToLpVault),
+    encU128(args.amount),
+    encU16(args.domain)
+  );
 }
 function encodeRequestRedeemLpShares(args) {
   return concatBytes(encU8(IX_TAG.RequestRedeemLpShares), encU128(args.shares));
 }
-function encodeExecuteRedemption() {
-  return encU8(IX_TAG.ExecuteRedemption);
+function encodeExecuteRedemption(args) {
+  return concatBytes(encU8(IX_TAG.ExecuteRedemption), encU16(args.domain));
 }
-function encodeLpVaultCrankFees() {
-  return encU8(IX_TAG.LpVaultCrankFees);
+function encodeLpVaultCrankFees(args) {
+  return concatBytes(encU8(IX_TAG.LpVaultCrankFees), encU16(args.domain));
+}
+function encodeRebalanceLpVaultBacking(args) {
+  return concatBytes(
+    encU8(IX_TAG.RebalanceLpVaultBacking),
+    encU16(args.fromDomain),
+    encU16(args.toDomain),
+    encU128(args.amount)
+  );
 }
 function encodeSetLpVaultPaused(args) {
   return concatBytes(encU8(IX_TAG.SetLpVaultPaused), encU8(args.paused));
@@ -9598,6 +9621,7 @@ export {
   encodePushEwmaMark,
   encodeQueueWithdrawal,
   encodeQueueWithdrawalSV,
+  encodeRebalanceLpVaultBacking,
   encodeReclaimEmptyAccount,
   encodeReclaimSlabRent,
   encodeRenounceAdmin,
