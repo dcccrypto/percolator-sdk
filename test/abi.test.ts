@@ -47,6 +47,7 @@ import {
   encodeRequestRedeemLpShares,
   encodeExecuteRedemption,
   encodeLpVaultCrankFees,
+  encodeRebalanceLpVaultBacking,
   encodeSetLpVaultPaused,
   encodeCloseLpVault,
   encodeKeeperCrank,
@@ -877,17 +878,18 @@ console.log("\nTesting instruction encoders...\n");
 }
 
 // DepositToLpVault (tag 75)
-// Wire: tag(1) + amount(u128) = 17 bytes
+// Wire: tag(1) + amount(u128) + domain(u16) = 19 bytes
 {
-  const data = encodeDepositToLpVault({ amount: 1_000_000n });
-  assert(data.length === 17, `DepositToLpVault length: expected 17, got ${data.length}`);
+  const data = encodeDepositToLpVault({ amount: 1_000_000n, domain: 2 });
+  assert(data.length === 19, `DepositToLpVault length: expected 19, got ${data.length}`);
   assert(data[0] === IX_TAG.DepositToLpVault, "DepositToLpVault tag = 75");
   assertBuf(
     data.subarray(1, 17),
     [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "DepositToLpVault amount=1_000_000"
   );
-  console.log("✓ encodeDepositToLpVault (v17 17-byte wire)");
+  assertBuf(data.subarray(17, 19), [2, 0], "DepositToLpVault domain=2");
+  console.log("✓ encodeDepositToLpVault (v17 19-byte wire, dual-domain)");
 }
 
 // RequestRedeemLpShares (tag 76)
@@ -899,20 +901,38 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeRequestRedeemLpShares (v17 17-byte wire)");
 }
 
-// ExecuteRedemption (tag 77) — 1 byte
+// ExecuteRedemption (tag 77) — tag(1) + domain(u16) = 3 bytes
 {
-  const data = encodeExecuteRedemption();
-  assert(data.length === 1, "ExecuteRedemption length=1");
-  assertBuf(data, [77], "ExecuteRedemption tag=77");
-  console.log("✓ encodeExecuteRedemption (v17 1-byte wire)");
+  const data = encodeExecuteRedemption({ domain: 3 });
+  assert(data.length === 3, "ExecuteRedemption length=3");
+  assertBuf(data, [77, 3, 0], "ExecuteRedemption tag=77 domain=3");
+  console.log("✓ encodeExecuteRedemption (v17 3-byte wire, dual-domain)");
 }
 
-// LpVaultCrankFees (tag 78) — 1 byte
+// LpVaultCrankFees (tag 78) — tag(1) + domain(u16) = 3 bytes
 {
-  const data = encodeLpVaultCrankFees();
-  assert(data.length === 1, "LpVaultCrankFees length=1");
-  assertBuf(data, [78], "LpVaultCrankFees tag=78");
-  console.log("✓ encodeLpVaultCrankFees (v17 1-byte wire)");
+  const data = encodeLpVaultCrankFees({ domain: 2 });
+  assert(data.length === 3, "LpVaultCrankFees length=3");
+  assertBuf(data, [78, 2, 0], "LpVaultCrankFees tag=78 domain=2");
+  console.log("✓ encodeLpVaultCrankFees (v17 3-byte wire, dual-domain)");
+}
+
+// RebalanceLpVaultBacking (tag 91) — tag(1) + from(u16) + to(u16) + amount(u128) = 21 bytes
+{
+  const data = encodeRebalanceLpVaultBacking({
+    fromDomain: 2,
+    toDomain: 3,
+    amount: 1_000_000n,
+  });
+  assert(data.length === 21, `RebalanceLpVaultBacking length: expected 21, got ${data.length}`);
+  assert(data[0] === IX_TAG.RebalanceLpVaultBacking, "RebalanceLpVaultBacking tag = 91");
+  assertBuf(data.subarray(1, 5), [2, 0, 3, 0], "RebalanceLpVaultBacking from=2 to=3");
+  assertBuf(
+    data.subarray(5, 21),
+    [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "RebalanceLpVaultBacking amount=1_000_000"
+  );
+  console.log("✓ encodeRebalanceLpVaultBacking (v17 21-byte wire)");
 }
 
 // SetLpVaultPaused (tag 79) — 2 bytes
