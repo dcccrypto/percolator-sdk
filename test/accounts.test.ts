@@ -32,6 +32,7 @@ import {
   ACCOUNTS_CREATE_LP_VAULT,
   ACCOUNTS_LP_VAULT_DEPOSIT,
   ACCOUNTS_LP_VAULT_CRANK_FEES,
+  ACCOUNTS_REBALANCE_LP_VAULT_BACKING,
   ACCOUNTS_CHALLENGE_SETTLEMENT,
   ACCOUNTS_RESOLVE_DISPUTE,
   ACCOUNTS_DEPOSIT_LP_COLLATERAL,
@@ -553,9 +554,13 @@ describe("Pre-audit account count fixes", () => {
     // v17 BREAKING: CreateLpVault 8→6 (admin+market+registry+lpMint+systemProgram+tokenProgram)
     expect(ACCOUNTS_CREATE_LP_VAULT).toHaveLength(6);
     // v17 BREAKING: LpVaultDeposit 9→10 (ledger PDA added at [7]; systemProgram added at [9])
-    expect(ACCOUNTS_LP_VAULT_DEPOSIT).toHaveLength(10);
+    // v17 DUAL-DOMAIN: 10→11 (siblingLedger at [10]; NAV spans both pots)
+    expect(ACCOUNTS_LP_VAULT_DEPOSIT).toHaveLength(11);
     // v17 BREAKING: LpVaultCrankFees 2→4 (cranker+market+registry+ledger)
-    expect(ACCOUNTS_LP_VAULT_CRANK_FEES).toHaveLength(4);
+    // v17 DUAL-DOMAIN: 4→6 (siblingLedger at [4]; systemProgram at [5] so a
+    // missing target ledger can be created — which is also why cranker is writable)
+    expect(ACCOUNTS_LP_VAULT_CRANK_FEES).toHaveLength(6);
+    expect(ACCOUNTS_REBALANCE_LP_VAULT_BACKING).toHaveLength(6);
     expect(ACCOUNTS_CHALLENGE_SETTLEMENT).toHaveLength(7);
     expect(ACCOUNTS_RESOLVE_DISPUTE).toHaveLength(7);
     expect(ACCOUNTS_DEPOSIT_LP_COLLATERAL).toHaveLength(7);

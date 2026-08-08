@@ -1966,13 +1966,24 @@ var ACCOUNTS_LP_VAULT_DEPOSIT = [
   { name: "vaultToken", signer: false, writable: true },
   { name: "ledger", signer: false, writable: true },
   { name: "tokenProgram", signer: false, writable: false },
-  { name: "systemProgram", signer: false, writable: false }
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "siblingLedger", signer: false, writable: true }
 ];
 var ACCOUNTS_LP_VAULT_CRANK_FEES = [
-  { name: "cranker", signer: true, writable: false },
+  { name: "cranker", signer: true, writable: true },
   { name: "market", signer: false, writable: true },
   { name: "registry", signer: false, writable: true },
-  { name: "ledger", signer: false, writable: true }
+  { name: "ledger", signer: false, writable: true },
+  { name: "siblingLedger", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false }
+];
+var ACCOUNTS_REBALANCE_LP_VAULT_BACKING = [
+  { name: "cranker", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "registry", signer: false, writable: false },
+  { name: "fromLedger", signer: false, writable: true },
+  { name: "toLedger", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false }
 ];
 var ACCOUNTS_CHALLENGE_SETTLEMENT = [
   { name: "challenger", signer: true, writable: true },
@@ -9311,6 +9322,7 @@ export {
   ACCOUNTS_PUSH_AUTH_MARK,
   ACCOUNTS_PUSH_EWMA_MARK,
   ACCOUNTS_QUEUE_WITHDRAWAL,
+  ACCOUNTS_REBALANCE_LP_VAULT_BACKING,
   ACCOUNTS_RECLAIM_EMPTY_ACCOUNT,
   ACCOUNTS_RECLAIM_SLAB_RENT,
   ACCOUNTS_RESCUE_ORPHAN_VAULT,

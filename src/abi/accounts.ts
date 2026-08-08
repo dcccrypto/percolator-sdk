@@ -937,8 +937,15 @@ export const ACCOUNTS_CREATE_LP_VAULT: readonly AccountSpec[] = [
  *   [5] sourceToken    writable (depositor's collateral ATA — source)
  *   [6] vaultToken     writable (program vault token account — destination)
  *   [7] ledger         writable (LpBackingLedger PDA; lazily created on first deposit)
- *   [8] tokenProgram   read-only
- *   [9] systemProgram  read-only (required for ledger create_account CPI)
+ *   [8]  tokenProgram   read-only
+ *   [9]  systemProgram  read-only (required for ledger create_account CPI)
+ *   [10] siblingLedger  writable (LpBackingLedger PDA for `domain ^ 1`)
+ *
+ * v17 DUAL-DOMAIN: [10] is the OTHER pot's ledger. It is REQUIRED even when
+ * uninitialised — NAV is summed across both pots, so omitting it understates NAV
+ * and mints the depositor free shares at existing holders' expense. `ledger` at
+ * [7] is always `registry.domain`'s; the instruction's `domain` argument selects
+ * which of the two actually receives the backing.
  *
  * v12 stale accounts removed: vaultAuthority, lpVaultState. Added: ledger at [7],
  * systemProgram at [9]. registry replaces slab+lpVaultState. Reordered to match handler.
@@ -954,25 +961,56 @@ export const ACCOUNTS_LP_VAULT_DEPOSIT: readonly AccountSpec[] = [
   { name: "ledger", signer: false, writable: true },
   { name: "tokenProgram", signer: false, writable: false },
   { name: "systemProgram", signer: false, writable: false },
+  { name: "siblingLedger", signer: false, writable: true },
 ] as const;
 
 /**
- * LpVaultCrankFees (tag 78): 4 accounts.
+ * LpVaultCrankFees (tag 78): 6 accounts.
  *
  * v17 wire account layout (v16_program.rs handle_lp_vault_crank_fees):
- *   [0] cranker   signer, read-only (permissionless — any signer)
- *   [1] market    writable (market-group slab; program-owned)
- *   [2] registry  writable (LpVaultRegistry PDA)
- *   [3] ledger    writable (LpBackingLedger PDA)
+ *   [0] cranker       signer, WRITABLE (permissionless; pays rent if the target
+ *                     ledger must be created)
+ *   [1] market        writable (market-group slab; program-owned)
+ *   [2] registry      writable (LpVaultRegistry PDA)
+ *   [3] ledger        writable (LpBackingLedger PDA for `registry.domain`)
+ *   [4] siblingLedger writable (LpBackingLedger PDA for `domain ^ 1`)
+ *   [5] systemProgram read-only (required to create a missing target ledger)
  *
- * v12 stale accounts replaced: slab and lpVaultState were 2 accounts.
- * v17 requires 4: cranker signer + market + registry + ledger.
+ * v17 DUAL-DOMAIN: the instruction's `domain` argument picks which pot the fees
+ * land in, and that pot's ledger is created on first use. Once deposits can be
+ * routed, a vault whose money all went to the sibling has NO own-domain ledger,
+ * so cranker had to become writable and the system program is now required.
  */
 export const ACCOUNTS_LP_VAULT_CRANK_FEES: readonly AccountSpec[] = [
-  { name: "cranker", signer: true, writable: false },
+  { name: "cranker", signer: true, writable: true },
   { name: "market", signer: false, writable: true },
   { name: "registry", signer: false, writable: true },
   { name: "ledger", signer: false, writable: true },
+  { name: "siblingLedger", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false },
+] as const;
+
+/**
+ * RebalanceLpVaultBacking (tag 91): 6 accounts.
+ *
+ * Moves IDLE (fresh, unliened) backing between the two pots of the vault's asset,
+ * carrying ledger principal in lockstep. No tokens move.
+ *
+ *   [0] cranker       signer, WRITABLE (permissionless; pays rent if the
+ *                     destination ledger must be created)
+ *   [1] market        writable (market-group slab; program-owned)
+ *   [2] registry      read-only (LpVaultRegistry PDA)
+ *   [3] fromLedger    writable (LpBackingLedger PDA for `fromDomain`)
+ *   [4] toLedger      writable (LpBackingLedger PDA for `toDomain`)
+ *   [5] systemProgram read-only
+ */
+export const ACCOUNTS_REBALANCE_LP_VAULT_BACKING: readonly AccountSpec[] = [
+  { name: "cranker", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "registry", signer: false, writable: false },
+  { name: "fromLedger", signer: false, writable: true },
+  { name: "toLedger", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false },
 ] as const;
 
 export const ACCOUNTS_CHALLENGE_SETTLEMENT: readonly AccountSpec[] = [
