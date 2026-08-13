@@ -29,22 +29,27 @@ export declare const PROGRAM_IDS: {
     };
 };
 /**
- * v17 program IDs — placeholder until the v17 converged program is deployed.
+ * v17 program IDs — fresh devnet triple, deployed + upgraded 2026-07-17,
+ * hash-verified on-chain (re-verified 2026-08-13). Supersedes the 2026-06-26
+ * triple (wrapper 69VUZ7a2…, vault 51CeUNpb…, nft 5TnritLt…), which remains live
+ * on devnet with ~152 legacy markets but is NO LONGER the SDK default.
  *
- * The v17 program uses `declare_id!("Perco1ator111111111111111111111111111111111")`
- * in its source. This will be replaced with the real on-chain address when deployed.
- *
- * v17 converged programs are NOT deployed (cutover is Phase 7 gate).
+ * Devnet addresses are canonical. Mainnet addresses are pending the mainnet
+ * cutover (Phase 7 gate) — mainnet fields will be filled then.
  */
 export declare const PROGRAM_IDS_V17: {
-    /** v17 wrapper placeholder (declare_id! value from v16_program.rs). */
-    readonly percolator: "Perco1ator111111111111111111111111111111111";
-    /** v17 stake placeholder. */
-    readonly stake: "Per5taTe111111111111111111111111111111111111";
+    /** v17 wrapper (percolator) — devnet live, deployed 2026-07-17, hash-verified. */
+    readonly percolator: "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj";
+    /** v17 stake/vault — devnet live, deployed 2026-07-17, hash-verified. */
+    readonly stake: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3";
+    /** v17 matcher — devnet live, upgraded in place (same address as 2026-06-26). */
+    readonly matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT";
+    /** v17 NFT — devnet live, deployed 2026-07-17, hash-verified. */
+    readonly nft: "CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3";
 };
-/** True only after canonical v17 wrapper IDs have replaced the placeholders above. */
-export declare const V17_PROGRAMS_DEPLOYED = false;
-/** The v17 wrapper placeholder PublicKey. Use only before mainnet cutover. */
+/** True after canonical v17 addresses replaced placeholders (devnet deployed 2026-06-24). */
+export declare const V17_PROGRAMS_DEPLOYED = true;
+/** The v17 wrapper PublicKey. */
 export declare const PROGRAM_ID_V17: PublicKey;
 export type Network = "devnet" | "mainnet";
 /**

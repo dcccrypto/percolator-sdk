@@ -44,20 +44,23 @@ Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 
 /**
- * v17 program IDs — live devnet addresses deployed 2026-06-24.
+ * v17 program IDs — fresh devnet triple, deployed + upgraded 2026-07-17,
+ * hash-verified on-chain (re-verified 2026-08-13). Supersedes the 2026-06-26
+ * triple (wrapper 69VUZ7a2…, vault 51CeUNpb…, nft 5TnritLt…), which remains live
+ * on devnet with ~152 legacy markets but is NO LONGER the SDK default.
  *
  * Devnet addresses are canonical. Mainnet addresses are pending the mainnet
  * cutover (Phase 7 gate) — mainnet fields will be filled then.
  */
 export const PROGRAM_IDS_V17 = {
-  /** v17 wrapper (percolator) — devnet live. */
-  percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
-  /** v17 stake/vault — devnet live. */
-  stake: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ",
-  /** v17 matcher — devnet live. */
+  /** v17 wrapper (percolator) — devnet live, deployed 2026-07-17, hash-verified. */
+  percolator: "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+  /** v17 stake/vault — devnet live, deployed 2026-07-17, hash-verified. */
+  stake: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3",
+  /** v17 matcher — devnet live, upgraded in place (same address as 2026-06-26). */
   matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
-  /** v17 NFT — devnet live. */
-  nft: "5TnritLtHS76s5iV8axqDmqhcmJKMRUekMGrk9rBTqSP",
+  /** v17 NFT — devnet live, deployed 2026-07-17, hash-verified. */
+  nft: "CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3",
 } as const;
 Object.freeze(PROGRAM_IDS_V17);
 

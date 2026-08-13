@@ -3,15 +3,18 @@
  * Percolator Insurance LP Staking program — instruction encoders, PDA derivation, and account specs.
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
- * Deployed devnet:  6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k
- * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F
+ * Deployed devnet:  GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3 (fresh v17 vault,
+ *                   deployed 2026-07-17, hash-verified on-chain; supersedes the
+ *                   stale/wrong-lineage 6aJb1F9C… and the older 51CeUNpb…)
+ * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F (unverified — no
+ *                   confirmed mainnet stake/vault deployment; left for cutover)
  */
 import { PublicKey } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 export { TOKEN_2022_PROGRAM_ID };
 /** Known stake program addresses per network. Mainnet is empty until deployed. */
 export declare const STAKE_PROGRAM_IDS: {
-    readonly devnet: "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k";
+    readonly devnet: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3";
     readonly mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F";
 };
 /**

@@ -2195,14 +2195,14 @@ Object.freeze(PROGRAM_IDS.devnet);
 Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 var PROGRAM_IDS_V17 = {
-  /** v17 wrapper (percolator) — devnet live. */
-  percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
-  /** v17 stake/vault — devnet live. */
-  stake: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ",
-  /** v17 matcher — devnet live. */
+  /** v17 wrapper (percolator) — devnet live, deployed 2026-07-17, hash-verified. */
+  percolator: "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+  /** v17 stake/vault — devnet live, deployed 2026-07-17, hash-verified. */
+  stake: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3",
+  /** v17 matcher — devnet live, upgraded in place (same address as 2026-06-26). */
   matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
-  /** v17 NFT — devnet live. */
-  nft: "5TnritLtHS76s5iV8axqDmqhcmJKMRUekMGrk9rBTqSP"
+  /** v17 NFT — devnet live, deployed 2026-07-17, hash-verified. */
+  nft: "CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3"
 };
 Object.freeze(PROGRAM_IDS_V17);
 var V17_PROGRAMS_DEPLOYED = true;
@@ -6371,7 +6371,7 @@ function isStandardToken(tokenProgramId) {
 import { PublicKey as PublicKey11, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4, TOKEN_2022_PROGRAM_ID as TOKEN_2022_PROGRAM_ID2 } from "@solana/spl-token";
 var STAKE_PROGRAM_IDS = {
-  devnet: "6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k",
+  devnet: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3",
   mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F"
 };
 Object.freeze(STAKE_PROGRAM_IDS);
@@ -7791,11 +7791,9 @@ function computeFeeSplit(totalFee, config) {
 function computePnlPercent(pnlTokens, capital) {
   if (capital === 0n) return 0;
   const scaledPct = pnlTokens * 10000n / capital;
-  if (scaledPct > BigInt(Number.MAX_SAFE_INTEGER) || scaledPct < BigInt(-Number.MAX_SAFE_INTEGER)) {
-    throw new Error(
-      `computePnlPercent: scaled result ${scaledPct} exceeds Number.MAX_SAFE_INTEGER \u2014 precision loss`
-    );
-  }
+  const MAX_DISPLAY = BigInt(Number.MAX_SAFE_INTEGER);
+  if (scaledPct > MAX_DISPLAY) return Number.MAX_SAFE_INTEGER / 100;
+  if (scaledPct < -MAX_DISPLAY) return -(Number.MAX_SAFE_INTEGER / 100);
   return Number(scaledPct) / 100;
 }
 function computeEstimatedEntryPrice(oracleE6, tradingFeeBps, direction) {
@@ -7808,11 +7806,8 @@ function computeEstimatedEntryPrice(oracleE6, tradingFeeBps, direction) {
 var MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 var MIN_SAFE_BIGINT = BigInt(-Number.MAX_SAFE_INTEGER);
 function computeFundingRateAnnualized(fundingRateBpsPerSlot) {
-  if (fundingRateBpsPerSlot > MAX_SAFE_BIGINT || fundingRateBpsPerSlot < MIN_SAFE_BIGINT) {
-    throw new Error(
-      `computeFundingRateAnnualized: value ${fundingRateBpsPerSlot} exceeds safe integer range`
-    );
-  }
+  if (fundingRateBpsPerSlot > MAX_SAFE_BIGINT) return Infinity;
+  if (fundingRateBpsPerSlot < MIN_SAFE_BIGINT) return -Infinity;
   const bpsPerSlot = Number(fundingRateBpsPerSlot);
   const slotsPerYear = 2.5 * 60 * 60 * 24 * 365;
   return bpsPerSlot * slotsPerYear / 100;

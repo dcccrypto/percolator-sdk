@@ -3,8 +3,11 @@
  * Percolator Insurance LP Staking program — instruction encoders, PDA derivation, and account specs.
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
- * Deployed devnet:  6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k
- * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F
+ * Deployed devnet:  GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3 (fresh v17 vault,
+ *                   deployed 2026-07-17, hash-verified on-chain; supersedes the
+ *                   stale/wrong-lineage 6aJb1F9C… and the older 51CeUNpb…)
+ * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F (unverified — no
+ *                   confirmed mainnet stake/vault deployment; left for cutover)
  */
 
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
@@ -19,7 +22,7 @@ import { concatBytes } from '../abi/encode.js';
 
 /** Known stake program addresses per network. Mainnet is empty until deployed. */
 export const STAKE_PROGRAM_IDS = {
-  devnet: '6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k',
+  devnet: 'GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3',
   mainnet: 'DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F',
 } as const;
 Object.freeze(STAKE_PROGRAM_IDS);

@@ -574,8 +574,8 @@ describe("V12_1 slab — layout detection and field offsets", () => {
 // ===========================================================================
 
 describe("STAKE_PROGRAM_ID — address constants", () => {
-  it("STAKE_PROGRAM_ID exports the devnet address 6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k", () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe("6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k");
+  it("STAKE_PROGRAM_ID exports the devnet address GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
   });
 
   it("STAKE_PROGRAM_ID equals STAKE_PROGRAM_IDS.devnet", () => {
@@ -593,19 +593,19 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     }
   });
 
-  it("getStakeProgramId('devnet') returns 6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k", () => {
+  it("getStakeProgramId('devnet') returns GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
     const saved = process.env.STAKE_PROGRAM_ID;
     delete process.env.STAKE_PROGRAM_ID;
     try {
       const pk = getStakeProgramId("devnet");
-      expect(pk.toBase58()).toBe("6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k");
+      expect(pk.toBase58()).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
     } finally {
       if (saved !== undefined) process.env.STAKE_PROGRAM_ID = saved;
     }
   });
 
-  it("STAKE_PROGRAM_IDS.devnet constant is 6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k", () => {
-    expect(STAKE_PROGRAM_IDS.devnet).toBe("6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k");
+  it("STAKE_PROGRAM_IDS.devnet constant is GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
+    expect(STAKE_PROGRAM_IDS.devnet).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
   });
 
   it("mainnet and devnet addresses are different", () => {
