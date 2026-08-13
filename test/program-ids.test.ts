@@ -8,10 +8,10 @@ import {
   PROGRAM_IDS_V17,
 } from "../src/config/program-ids.js";
 
-const V17_PERCOLATOR = "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9";
+const V17_PERCOLATOR = "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj";
 const V17_MATCHER = "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT";
-const V17_STAKE = "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ";
-const V17_NFT = "5TnritLtHS76s5iV8axqDmqhcmJKMRUekMGrk9rBTqSP";
+const V17_STAKE = "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3";
+const V17_NFT = "CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3";
 
 describe("safeEnv", () => {
   it("reads an existing env var", () => {

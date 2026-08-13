@@ -48,7 +48,7 @@ const user = Keypair.generate().publicKey;
 
 describe('STAKE_PROGRAM_ID', () => {
   it('is a valid public key', () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe('6aJb1F9CDCVWCNYFwj8aQsVb696YnW6J1FznteHq4Q6k');
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe('GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3');
   });
 });
 
