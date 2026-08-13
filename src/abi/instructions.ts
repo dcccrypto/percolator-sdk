@@ -1787,6 +1787,12 @@ export interface VammMatcherParams {
   maxTotalBps: number;
   impactKBps: number;
   liquidityNotionalE6: bigint;
+  /** Current LP inventory (signed). Required to reproduce the on-chain
+   * skew-aware spread widening — omitting it understates the quote whenever
+   * the LP's inventory is skewed. Pass 0n for a freshly-initialized LP. */
+  inventoryBase: bigint;
+  /** Skew-aware spread multiplier per inventory unit, bps (0 = disabled). */
+  skewSpreadMultBps: number;
 }
 
 /** Magic bytes identifying a vAMM matcher context: "PERCMATC" as u64 LE = 0x504552434d415443 */
@@ -1837,16 +1843,32 @@ export function computeVammQuote(
     impactBps = (absNotionalE6 * BigInt(params.impactKBps)) / params.liquidityNotionalE6;
   }
 
-  // Total = base_spread + trading_fee + impact, capped at max_total
+  // Skew-aware spread widening — mirrors compute_skew_extra_bps in
+  // percolator-match/src/vamm.rs. Only applies on the side that worsens the
+  // LP's existing inventory; capped at 5000 bps same as on-chain.
+  let skewExtraBps = 0n;
+  if (params.skewSpreadMultBps !== 0 && params.inventoryBase !== 0n) {
+    const worsensInventory = isLong ? params.inventoryBase < 0n : params.inventoryBase > 0n;
+    if (worsensInventory) {
+      const invAbs = params.inventoryBase < 0n ? -params.inventoryBase : params.inventoryBase;
+      const extra = (invAbs * BigInt(params.skewSpreadMultBps)) / BPS_DENOM;
+      skewExtraBps = extra < 5000n ? extra : 5000n;
+    }
+  }
+
+  // Total = base_spread + trading_fee + skew + impact, capped at max_total
   const maxTotal = BigInt(params.maxTotalBps);
-  const baseFee = BigInt(params.baseSpreadBps) + BigInt(params.tradingFeeBps);
+  const baseFee = BigInt(params.baseSpreadBps) + BigInt(params.tradingFeeBps) + skewExtraBps;
   const maxImpact = maxTotal > baseFee ? maxTotal - baseFee : 0n;
   const clampedImpact = impactBps < maxImpact ? impactBps : maxImpact;
   let totalBps = baseFee + clampedImpact;
   if (totalBps > maxTotal) totalBps = maxTotal;
 
   if (isLong) {
-    return (oraclePriceE6 * (BPS_DENOM + totalBps)) / BPS_DENOM;
+    // Ceiling division on the buy side, matching the on-chain M-HIGH-1 fix —
+    // the LP must never under-charge, so a quote estimate must never round
+    // the trader's cost down below what the program will actually execute at.
+    return (oraclePriceE6 * (BPS_DENOM + totalBps) + (BPS_DENOM - 1n)) / BPS_DENOM;
   } else {
     // Prevent underflow: if totalBps >= BPS_DENOM, price would go negative
     if (totalBps >= BPS_DENOM) return 1n; // minimum 1 micro-dollar
@@ -3612,47 +3634,87 @@ export function encodePushAuthMark(args: PushAuthMarkArgs): Uint8Array {
 // ============================================================================
 
 /**
- * MatcherInitPassive — 66-byte payload sent to the MATCHER PROGRAM (not wrapper)
- * to initialize a passive LP matcher context.
+ * MatcherInitPassive — 66-byte (or 78-byte extended) payload sent to the MATCHER
+ * PROGRAM (not wrapper) to initialize a passive LP matcher context.
  *
  * This is NOT a wrapper instruction. Program = matcher program address.
- * Accounts: [0] matcherDelegate (read-only PDA), [1] matcherCtx (writable).
+ * Accounts: [0] lpPda (signer — the matcher requires the LP PDA to sign InitVamm),
+ * [1] matcherCtx (writable).
  *
- * Wire layout (66 bytes, from percolator-prog/tests/v16_five_program_crosscut.rs:640-648):
- *   [0]       = 2         (opcode: passive-LP init)
- *   [1]       = 0         (reserved)
- *   [2..10]   = 0         (8 bytes reserved)
- *   [10..14]  = 100u32 LE (default max_inventory_abs slot)
- *   [14..34]  = 0         (20 bytes reserved)
- *   [34..50]  = max_fill_abs (u128 LE)
- *   [50..66]  = 0         (16 bytes reserved)
- *   Total = 66 bytes
+ * Wire layout, verified byte-for-byte against `InitParams::parse` in
+ * percolator-match/src/vamm.rs (66-byte v3-compat core; +12 extended bytes when
+ * any of feeToInsuranceBps/skewSpreadMultBps/lpAccountId is supplied):
+ *   [0]       = 2                       (opcode: MATCHER_INIT_VAMM_TAG)
+ *   [1]       = 0                       (kind: 0 = Passive)
+ *   [2..6]    = trading_fee_bps   (u32 LE)
+ *   [6..10]   = base_spread_bps   (u32 LE)
+ *   [10..14]  = max_total_bps     (u32 LE)
+ *   [14..18]  = 0                 (impact_k_bps — unused in Passive mode)
+ *   [18..34]  = 0                 (liquidity_notional_e6 — unused in Passive mode)
+ *   [34..50]  = max_fill_abs      (u128 LE)
+ *   [50..66]  = max_inventory_abs (u128 LE; 0 = unlimited, delegated to the wrapper)
+ *   --- extended (only present if any optional arg is supplied) ---
+ *   [66..68]  = fee_to_insurance_bps (u16 LE)
+ *   [68..70]  = skew_spread_mult_bps (u16 LE)
+ *   [70..78]  = lp_account_id        (u64 LE)
  *
  * The matcher delegate PDA is derived via `deriveMatcherDelegate()` in pda.ts using
  * seeds ["matcher", market, accountB, accountBOwner, matcherProg, matcherCtx].
  *
- * @param maxFillAbs  Maximum absolute fill size (u128). Pass BigInt.MaxUint128 (2^128-1) for no limit.
+ * @param tradingFeeBps     Trading fee in bps, charged on every fill (program caps at 1000).
+ * @param baseSpreadBps     Base spread in bps applied symmetrically around oracle price.
+ * @param maxTotalBps       Hard cap on (base spread + trading fee + skew + impact), bps
+ *                          (program caps at 9000; must be >= tradingFeeBps + baseSpreadBps).
+ * @param maxFillAbs        Maximum absolute fill size per call (u128). Pass 2n**128n-1n for "no limit".
+ * @param maxInventoryAbs   Maximum absolute inventory (u128). Pass 0n to delegate inventory
+ *                          bounding to the wrapper — the matcher treats 0 as unlimited.
+ * @param feeToInsuranceBps Optional: portion of trading fee routed to insurance, bps (<=10000).
+ * @param skewSpreadMultBps Optional: skew-aware spread widening multiplier per inventory unit, bps.
+ * @param lpAccountId       Optional: numeric LP account id (cross-market spoofing guard).
  *
  * @example
  * ```ts
- * const data = encodeMatcherInitPassive({ maxFillAbs: 2n ** 128n - 1n });
+ * const data = encodeMatcherInitPassive({
+ *   tradingFeeBps: 5,
+ *   baseSpreadBps: 50,
+ *   maxTotalBps: 200,
+ *   maxFillAbs: 2n ** 128n - 1n,
+ *   maxInventoryAbs: 0n,
+ * });
  * assert(data.length === 66);
- * // send to matcherProgram, accounts: [delegate(ro), ctx(w)]
+ * // send to matcherProgram, accounts: [lpPda(signer), ctx(w)]
  * ```
  */
 export interface MatcherInitPassiveArgs {
+  tradingFeeBps: number;
+  baseSpreadBps: number;
+  maxTotalBps: number;
   maxFillAbs: bigint | string;
+  maxInventoryAbs: bigint | string;
+  feeToInsuranceBps?: number;
+  skewSpreadMultBps?: number;
+  lpAccountId?: bigint | string;
 }
 
 export function encodeMatcherInitPassive(args: MatcherInitPassiveArgs): Uint8Array {
-  const buf = new Uint8Array(66);
-  buf[0] = 2;
-  buf[1] = 0;
-  // [10..14] = 100u32 LE (default max_inventory_abs / slot factor)
-  const u32Bytes = encU32(100);
-  buf.set(u32Bytes, 10);
-  // [34..50] = max_fill_abs u128 LE
-  const u128Bytes = encU128(args.maxFillAbs);
-  buf.set(u128Bytes, 34);
+  const extended =
+    args.feeToInsuranceBps !== undefined ||
+    args.skewSpreadMultBps !== undefined ||
+    args.lpAccountId !== undefined;
+  const buf = new Uint8Array(extended ? 78 : 66);
+  buf[0] = 2; // MATCHER_INIT_VAMM_TAG
+  buf[1] = 0; // kind = Passive
+  buf.set(encU32(args.tradingFeeBps), 2);
+  buf.set(encU32(args.baseSpreadBps), 6);
+  buf.set(encU32(args.maxTotalBps), 10);
+  buf.set(encU32(0), 14); // impact_k_bps — unused in Passive mode
+  buf.set(encU128(0n), 18); // liquidity_notional_e6 — unused in Passive mode
+  buf.set(encU128(args.maxFillAbs), 34);
+  buf.set(encU128(args.maxInventoryAbs), 50);
+  if (extended) {
+    buf.set(encU16(args.feeToInsuranceBps ?? 0), 66);
+    buf.set(encU16(args.skewSpreadMultBps ?? 0), 68);
+    buf.set(encU64(args.lpAccountId ?? 0n), 70);
+  }
   return buf;
 }

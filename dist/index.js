@@ -841,14 +841,23 @@ function computeVammQuote(params, oraclePriceE6, tradeSize, isLong) {
   if (params.mode === 1 && params.liquidityNotionalE6 > 0n) {
     impactBps = absNotionalE6 * BigInt(params.impactKBps) / params.liquidityNotionalE6;
   }
+  let skewExtraBps = 0n;
+  if (params.skewSpreadMultBps !== 0 && params.inventoryBase !== 0n) {
+    const worsensInventory = isLong ? params.inventoryBase < 0n : params.inventoryBase > 0n;
+    if (worsensInventory) {
+      const invAbs = params.inventoryBase < 0n ? -params.inventoryBase : params.inventoryBase;
+      const extra = invAbs * BigInt(params.skewSpreadMultBps) / BPS_DENOM;
+      skewExtraBps = extra < 5000n ? extra : 5000n;
+    }
+  }
   const maxTotal = BigInt(params.maxTotalBps);
-  const baseFee = BigInt(params.baseSpreadBps) + BigInt(params.tradingFeeBps);
+  const baseFee = BigInt(params.baseSpreadBps) + BigInt(params.tradingFeeBps) + skewExtraBps;
   const maxImpact = maxTotal > baseFee ? maxTotal - baseFee : 0n;
   const clampedImpact = impactBps < maxImpact ? impactBps : maxImpact;
   let totalBps = baseFee + clampedImpact;
   if (totalBps > maxTotal) totalBps = maxTotal;
   if (isLong) {
-    return oraclePriceE6 * (BPS_DENOM + totalBps) / BPS_DENOM;
+    return (oraclePriceE6 * (BPS_DENOM + totalBps) + (BPS_DENOM - 1n)) / BPS_DENOM;
   } else {
     if (totalBps >= BPS_DENOM) return 1n;
     return oraclePriceE6 * (BPS_DENOM - totalBps) / BPS_DENOM;
@@ -1337,13 +1346,22 @@ function encodePushAuthMark(args) {
   );
 }
 function encodeMatcherInitPassive(args) {
-  const buf = new Uint8Array(66);
+  const extended = args.feeToInsuranceBps !== void 0 || args.skewSpreadMultBps !== void 0 || args.lpAccountId !== void 0;
+  const buf = new Uint8Array(extended ? 78 : 66);
   buf[0] = 2;
   buf[1] = 0;
-  const u32Bytes = encU32(100);
-  buf.set(u32Bytes, 10);
-  const u128Bytes = encU128(args.maxFillAbs);
-  buf.set(u128Bytes, 34);
+  buf.set(encU32(args.tradingFeeBps), 2);
+  buf.set(encU32(args.baseSpreadBps), 6);
+  buf.set(encU32(args.maxTotalBps), 10);
+  buf.set(encU32(0), 14);
+  buf.set(encU128(0n), 18);
+  buf.set(encU128(args.maxFillAbs), 34);
+  buf.set(encU128(args.maxInventoryAbs), 50);
+  if (extended) {
+    buf.set(encU16(args.feeToInsuranceBps ?? 0), 66);
+    buf.set(encU16(args.skewSpreadMultBps ?? 0), 68);
+    buf.set(encU64(args.lpAccountId ?? 0n), 70);
+  }
   return buf;
 }
 
@@ -2177,22 +2195,29 @@ Object.freeze(PROGRAM_IDS.devnet);
 Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 var PROGRAM_IDS_V17 = {
-  /** v17 wrapper placeholder (declare_id! value from v16_program.rs). */
-  percolator: "Perco1ator111111111111111111111111111111111",
-  /** v17 stake placeholder. */
-  stake: "Per5taTe111111111111111111111111111111111111"
+  /** v17 wrapper (percolator) — devnet live. */
+  percolator: "69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9",
+  /** v17 stake/vault — devnet live. */
+  stake: "51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ",
+  /** v17 matcher — devnet live. */
+  matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
+  /** v17 NFT — devnet live. */
+  nft: "5TnritLtHS76s5iV8axqDmqhcmJKMRUekMGrk9rBTqSP"
 };
 Object.freeze(PROGRAM_IDS_V17);
-var V17_PROGRAMS_DEPLOYED = false;
+var V17_PROGRAMS_DEPLOYED = true;
 var PROGRAM_ID_V17 = new PublicKey3(PROGRAM_IDS_V17.percolator);
 var KNOWN_PROGRAM_IDS = /* @__PURE__ */ new Set([
   PROGRAM_IDS.devnet.percolator,
   PROGRAM_IDS.mainnet.percolator,
-  PROGRAM_IDS_V17.percolator
+  PROGRAM_IDS_V17.percolator,
+  PROGRAM_IDS_V17.stake,
+  PROGRAM_IDS_V17.nft
 ]);
 var KNOWN_MATCHER_IDS = /* @__PURE__ */ new Set([
   PROGRAM_IDS.devnet.matcher,
-  PROGRAM_IDS.mainnet.matcher
+  PROGRAM_IDS.mainnet.matcher,
+  PROGRAM_IDS_V17.matcher
 ]);
 function programOverrideOptIn() {
   return safeEnv("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") === "1";
@@ -2212,13 +2237,17 @@ function getProgramId(network) {
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
-  if (!V17_PROGRAMS_DEPLOYED) {
+  if (V17_PROGRAMS_DEPLOYED) {
+    if (targetNetwork === "devnet") {
+      return new PublicKey3(PROGRAM_IDS_V17.percolator);
+    }
     throw new Error(
-      `Percolator v17 program is not deployed for ${targetNetwork}; refusing to return a legacy program ID for v17 SDK encoders. Set PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`
+      `Percolator v17 program is not deployed on mainnet yet; cutover is pending. Set PROGRAM_ID to an explicitly trusted mainnet v17 deployment to override.`
     );
   }
-  const programId = PROGRAM_IDS[targetNetwork].percolator;
-  return new PublicKey3(programId);
+  throw new Error(
+    `Percolator v17 program is not deployed for ${targetNetwork}; refusing to return a legacy program ID for v17 SDK encoders. Set PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`
+  );
 }
 function getMatcherProgramId(network) {
   if (network === void 0) {
@@ -2235,16 +2264,17 @@ function getMatcherProgramId(network) {
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
-  if (!V17_PROGRAMS_DEPLOYED) {
+  if (V17_PROGRAMS_DEPLOYED) {
+    if (targetNetwork === "devnet") {
+      return new PublicKey3(PROGRAM_IDS_V17.matcher);
+    }
     throw new Error(
-      `Percolator v17 matcher program is not deployed for ${targetNetwork}; refusing to return a legacy matcher program ID for v17 SDK encoders. Set MATCHER_PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`
+      `Percolator v17 matcher program is not deployed on mainnet yet; cutover is pending. Set MATCHER_PROGRAM_ID to an explicitly trusted mainnet v17 deployment to override.`
     );
   }
-  const programId = PROGRAM_IDS[targetNetwork].matcher;
-  if (!programId) {
-    throw new Error(`Matcher program not deployed on ${targetNetwork}`);
-  }
-  return new PublicKey3(programId);
+  throw new Error(
+    `Percolator v17 matcher program is not deployed for ${targetNetwork}; refusing to return a legacy matcher program ID for v17 SDK encoders. Set MATCHER_PROGRAM_ID to an explicitly trusted v17 deployment to override ambient resolution.`
+  );
 }
 function getCurrentNetwork() {
   const network = safeEnv("NETWORK")?.toLowerCase();
