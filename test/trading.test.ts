@@ -121,13 +121,18 @@ assert(computePnlPercent(10000n, 10000n) === 100, "100% profit");
   assert(result === 5, "large values → 5% (no truncation)");
 }
 {
-  // Extreme PnL that would exceed MAX_SAFE_INTEGER after scaling
-  try {
-    computePnlPercent(1n << 100n, 1n);
-    assert(false, "should have thrown for extreme PnL");
-  } catch (e: any) {
-    assert(e.message.includes("MAX_SAFE_INTEGER"), "throws precision-loss error for extreme PnL");
-  }
+  // Extreme PnL that would exceed MAX_SAFE_INTEGER after scaling now CLAMPS to a
+  // display sentinel instead of throwing — a display-only value must never crash
+  // the UI on a very large position (see computePnlPercent).
+  const MAX_DISPLAY_PCT = Number.MAX_SAFE_INTEGER / 100;
+  assert(
+    computePnlPercent(1n << 100n, 1n) === MAX_DISPLAY_PCT,
+    "extreme positive PnL clamps to +MAX_SAFE_INTEGER/100",
+  );
+  assert(
+    computePnlPercent(-(1n << 100n), 1n) === -MAX_DISPLAY_PCT,
+    "extreme negative PnL clamps to -MAX_SAFE_INTEGER/100",
+  );
 }
 
 // --- computeEstimatedEntryPrice ---
