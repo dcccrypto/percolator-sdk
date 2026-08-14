@@ -5,7 +5,10 @@ var U16_MAX = 65535;
 var U32_MAX = 4294967295;
 var DECIMAL_INT_RE = /^-?(0|[1-9]\d*)$/;
 function parseDecimalBigInt(val, fnName) {
-  if (typeof val !== "string") return val;
+  if (typeof val === "bigint") return val;
+  if (typeof val !== "string") {
+    throw new Error(`${fnName}: value must be bigint or decimal integer string`);
+  }
   if (!DECIMAL_INT_RE.test(val)) {
     throw new Error(`${fnName}: value must be a decimal integer string`);
   }
@@ -7833,9 +7836,33 @@ async function buildAdlTransaction(connection, caller, slab, oracle, programId, 
   return buildAdlInstruction(caller, slab, oracle, programId, target.idx, backupOracles);
 }
 var ADL_EVENT_TAG = 0xAD1E0001n;
-function parseAdlEvent(logs) {
+function parseAdlEvent(logs, percolatorProgramId) {
+  let insidePercolator = percolatorProgramId === void 0;
+  let cpiDepth = 0;
   for (const line of logs) {
     if (typeof line !== "string") continue;
+    if (percolatorProgramId !== void 0) {
+      if (line.startsWith(`Program ${percolatorProgramId} invoke`)) {
+        insidePercolator = true;
+        cpiDepth = 0;
+        continue;
+      }
+      if (line.startsWith(`Program ${percolatorProgramId} success`) || line.startsWith(`Program ${percolatorProgramId} failed`)) {
+        insidePercolator = false;
+        continue;
+      }
+      if (insidePercolator) {
+        if (/^Program \S+ invoke/.test(line)) {
+          cpiDepth++;
+          continue;
+        }
+        if (/^Program \S+ (?:success|failed)$/.test(line)) {
+          cpiDepth = Math.max(0, cpiDepth - 1);
+          continue;
+        }
+      }
+      if (!insidePercolator || cpiDepth > 0) continue;
+    }
     const match = line.match(
       /^Program log: (\d+) (\d+) (\d+) (\d+) (\d+)$/
     );
@@ -8833,11 +8860,9 @@ function computeFeeSplit(totalFee, config) {
 function computePnlPercent(pnlTokens, capital) {
   if (capital === 0n) return 0;
   const scaledPct = pnlTokens * 10000n / capital;
-  if (scaledPct > BigInt(Number.MAX_SAFE_INTEGER) || scaledPct < BigInt(-Number.MAX_SAFE_INTEGER)) {
-    throw new Error(
-      `computePnlPercent: scaled result ${scaledPct} exceeds Number.MAX_SAFE_INTEGER \u2014 precision loss`
-    );
-  }
+  const MAX_DISPLAY = BigInt(Number.MAX_SAFE_INTEGER);
+  if (scaledPct > MAX_DISPLAY) return Number.MAX_SAFE_INTEGER / 100;
+  if (scaledPct < -MAX_DISPLAY) return -(Number.MAX_SAFE_INTEGER / 100);
   return Number(scaledPct) / 100;
 }
 function computeEstimatedEntryPrice(oracleE6, tradingFeeBps, direction) {
@@ -8850,11 +8875,8 @@ function computeEstimatedEntryPrice(oracleE6, tradingFeeBps, direction) {
 var MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 var MIN_SAFE_BIGINT = BigInt(-Number.MAX_SAFE_INTEGER);
 function computeFundingRateAnnualized(fundingRateBpsPerSlot) {
-  if (fundingRateBpsPerSlot > MAX_SAFE_BIGINT || fundingRateBpsPerSlot < MIN_SAFE_BIGINT) {
-    throw new Error(
-      `computeFundingRateAnnualized: value ${fundingRateBpsPerSlot} exceeds safe integer range`
-    );
-  }
+  if (fundingRateBpsPerSlot > MAX_SAFE_BIGINT) return Infinity;
+  if (fundingRateBpsPerSlot < MIN_SAFE_BIGINT) return -Infinity;
   const bpsPerSlot = Number(fundingRateBpsPerSlot);
   const slotsPerYear = 2.5 * 60 * 60 * 24 * 365;
   return bpsPerSlot * slotsPerYear / 100;
@@ -9274,13 +9296,18 @@ async function resolvePrice(mint, signal, options) {
   if (pythSource) {
     const dexPrice = dexSources[0]?.price ?? 0;
     const jupPrice = jupiterSource?.price ?? 0;
+    const MAX_ENRICHMENT_DEVIATION = 0.05;
     let enrichedPrice = 0;
     let singleSource = false;
     if (dexPrice > 0 && jupPrice > 0) {
       const mid = (dexPrice + jupPrice) / 2;
       const deviation = Math.abs(dexPrice - jupPrice) / mid;
-      if (deviation <= 0.5) {
+      if (deviation <= MAX_ENRICHMENT_DEVIATION) {
         enrichedPrice = mid;
+      } else {
+        console.warn(
+          `[percolator-sdk] resolvePrice: DEX (${dexPrice}) and Jupiter (${jupPrice}) diverge by ${(deviation * 100).toFixed(1)}% > ${MAX_ENRICHMENT_DEVIATION * 100}% \u2014 Pyth enrichment skipped to prevent oracle manipulation.`
+        );
       }
     } else if (dexPrice > 0 || jupPrice > 0) {
       enrichedPrice = dexPrice > 0 ? dexPrice : jupPrice;
