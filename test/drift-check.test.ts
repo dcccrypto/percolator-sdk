@@ -46,6 +46,8 @@ import {
   parseAccount,
   SLAB_TIERS_V12_1,
   SLAB_TIERS_V12_19,
+  SLAB_TIERS_V12_15,
+  SLAB_TIERS_V12_17,
 } from "../src/solana/slab.js";
 import { parseEngineLight } from "../src/solana/discovery.js";
 
@@ -578,6 +580,72 @@ describe("V12_1 slab — layout detection and field offsets", () => {
 // 3b. parseEngineLight — V12_19 must use its own layout offsets, not the stale
 // hardcoded "isV2" branch (both shared SlabLayout.version === 2 by coincidence)
 // ===========================================================================
+
+describe("parseEngineLight — every absent (-1) engine field reads as zero, not garbage", () => {
+  // Removing the dead isV2 branch routes V12_15/17/19 down the layout-driven
+  // path, where a -1 offset would compute `base + (-1)` and read bytes
+  // straddling the one immediately before the engine region. V12_15 has 25 such
+  // fields and V12_17/V12_19 have 22 each, so every read must be guarded — not
+  // just engineFundingIndexOff.
+  const tiers: Array<[string, number]> = [
+    ["V12_15", SLAB_TIERS_V12_15.micro.dataSize],
+    ["V12_17", SLAB_TIERS_V12_17.small.dataSize],
+    ["V12_19", SLAB_TIERS_V12_19.small.dataSize],
+  ];
+
+  // Field name -> the SlabLayout offset that backs it.
+  const offsetForField: Record<string, string> = {
+    fundingIndexQpbE6: "engineFundingIndexOff",
+    lastFundingSlot: "engineLastFundingSlotOff",
+    fundingRateBpsPerSlotLast: "engineFundingRateBpsOff",
+    lastCrankSlot: "engineLastCrankSlotOff",
+    maxCrankStalenessSlots: "engineMaxCrankStalenessOff",
+    totalOpenInterest: "engineTotalOiOff",
+    longOi: "engineLongOiOff",
+    shortOi: "engineShortOiOff",
+    liqCursor: "engineLiqCursorOff",
+    gcCursor: "engineGcCursorOff",
+    lastSweepStartSlot: "engineLastSweepStartOff",
+    lastSweepCompleteSlot: "engineLastSweepCompleteOff",
+    crankCursor: "engineCrankCursorOff",
+    sweepStartIdx: "engineSweepStartIdxOff",
+    lifetimeLiquidations: "engineLifetimeLiquidationsOff",
+    lifetimeForceCloses: "engineLifetimeForceClosesOff",
+    netLpPos: "engineNetLpPosOff",
+    lpSumAbs: "engineLpSumAbsOff",
+    lpMaxAbs: "engineLpMaxAbsOff",
+    lpMaxAbsSweep: "engineLpMaxAbsSweepOff",
+    markPriceE6: "engineMarkPriceOff",
+    emergencyStartSlot: "engineEmergencyStartSlotOff",
+    lastBreakerSlot: "engineLastBreakerSlotOff",
+  };
+
+  for (const [name, dataSize] of tiers) {
+    it(`${name}: absent fields are zero even with the pre-engine bytes poisoned`, () => {
+      const layout = detectSlabLayout(dataSize);
+      expect(layout).not.toBeNull();
+      const l = layout as unknown as Record<string, number>;
+
+      const buf = new Uint8Array(dataSize);
+      // Poison every byte the engine region could straddle backwards into, so an
+      // unguarded `base + (-1)` read returns a loud nonzero value.
+      buf.fill(0xff, Math.max(0, layout!.engineOff - 64), layout!.engineOff);
+
+      const engine = parseEngineLight(buf, layout, layout!.maxAccounts) as unknown as Record<string, unknown>;
+
+      let absentChecked = 0;
+      for (const [field, offsetKey] of Object.entries(offsetForField)) {
+        if (l[offsetKey] >= 0) continue; // field genuinely present for this tier
+        absentChecked++;
+        const value = engine[field];
+        const isZero = typeof value === "bigint" ? value === 0n : value === 0;
+        expect(isZero, `${name}.${field} (${offsetKey} = -1) should be 0, got ${String(value)}`).toBe(true);
+      }
+      // Guard against the assertion silently covering nothing.
+      expect(absentChecked).toBeGreaterThan(10);
+    });
+  }
+});
 
 describe("parseEngineLight — V12_19 uses layout-driven offsets (not stale isV2 branch)", () => {
   it("reads currentSlot from the layout's own engineCurrentSlotOff, not a hardcoded offset", () => {

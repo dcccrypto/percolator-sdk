@@ -385,6 +385,16 @@ export function parseEngineLight(
     const l = layout;
     // hasInsuranceIsolation: v17+ layouts expose isolatedBalance/isolationBps; older ones set -1.
     const hasInsuranceIsolation = l.engineInsuranceIsolatedOff >= 0 && l.engineInsuranceIsolationBpsOff >= 0;
+    // Absent-field guards. A SlabLayout sets an offset to -1 when the engine
+    // struct for that tier has no such field, and `base + (-1)` would read
+    // garbage straddling the byte before the engine region rather than failing.
+    // V12_15 has 25 such fields and V12_17/V12_19 have 22 each, so every read
+    // below goes through these instead of reading the offset directly.
+    const u16At = (off: number): number => (off >= 0 ? readU16LE(data, base + off) : 0);
+    const u64At = (off: number): bigint => (off >= 0 ? readU64LE(data, base + off) : 0n);
+    const i64At = (off: number): bigint => (off >= 0 ? readI64LE(data, base + off) : 0n);
+    const u128At = (off: number): bigint => (off >= 0 ? readU128LE(data, base + off) : 0n);
+    const i128At = (off: number): bigint => (off >= 0 ? readI128LE(data, base + off) : 0n);
     return {
       vault: readU128LE(data, base + 0),
       insuranceFund: {
@@ -402,34 +412,34 @@ export function parseEngineLight(
             ? BigInt(readI64LE(data, base + l.engineFundingIndexOff))
             : readI128LE(data, base + l.engineFundingIndexOff))
         : 0n,
-      lastFundingSlot: readU64LE(data, base + l.engineLastFundingSlotOff),
-      fundingRateBpsPerSlotLast: readI64LE(data, base + l.engineFundingRateBpsOff),
+      lastFundingSlot: u64At(l.engineLastFundingSlotOff),
+      fundingRateBpsPerSlotLast: i64At(l.engineFundingRateBpsOff),
       fundingRateE9: 0n,
       marketMode: null,
-      lastCrankSlot: readU64LE(data, base + l.engineLastCrankSlotOff),
-      maxCrankStalenessSlots: readU64LE(data, base + l.engineMaxCrankStalenessOff),
-      totalOpenInterest: readU128LE(data, base + l.engineTotalOiOff),
-      longOi: l.engineLongOiOff >= 0 ? readU128LE(data, base + l.engineLongOiOff) : 0n,
-      shortOi: l.engineShortOiOff >= 0 ? readU128LE(data, base + l.engineShortOiOff) : 0n,
+      lastCrankSlot: u64At(l.engineLastCrankSlotOff),
+      maxCrankStalenessSlots: u64At(l.engineMaxCrankStalenessOff),
+      totalOpenInterest: u128At(l.engineTotalOiOff),
+      longOi: u128At(l.engineLongOiOff),
+      shortOi: u128At(l.engineShortOiOff),
       cTot: readU128LE(data, base + l.engineCTotOff),
       pnlPosTot: readU128LE(data, base + l.enginePnlPosTotOff),
       pnlMaturedPosTot: 0n,
-      liqCursor: readU16LE(data, base + l.engineLiqCursorOff),
-      gcCursor: readU16LE(data, base + l.engineGcCursorOff),
-      lastSweepStartSlot: readU64LE(data, base + l.engineLastSweepStartOff),
-      lastSweepCompleteSlot: readU64LE(data, base + l.engineLastSweepCompleteOff),
-      crankCursor: readU16LE(data, base + l.engineCrankCursorOff),
-      sweepStartIdx: readU16LE(data, base + l.engineSweepStartIdxOff),
-      lifetimeLiquidations: readU64LE(data, base + l.engineLifetimeLiquidationsOff),
-      lifetimeForceCloses: readU64LE(data, base + l.engineLifetimeForceClosesOff),
-      netLpPos: readI128LE(data, base + l.engineNetLpPosOff),
-      lpSumAbs: readU128LE(data, base + l.engineLpSumAbsOff),
-      lpMaxAbs: readU128LE(data, base + l.engineLpMaxAbsOff),
-      lpMaxAbsSweep: readU128LE(data, base + l.engineLpMaxAbsSweepOff),
+      liqCursor: u16At(l.engineLiqCursorOff),
+      gcCursor: u16At(l.engineGcCursorOff),
+      lastSweepStartSlot: u64At(l.engineLastSweepStartOff),
+      lastSweepCompleteSlot: u64At(l.engineLastSweepCompleteOff),
+      crankCursor: u16At(l.engineCrankCursorOff),
+      sweepStartIdx: u16At(l.engineSweepStartIdxOff),
+      lifetimeLiquidations: u64At(l.engineLifetimeLiquidationsOff),
+      lifetimeForceCloses: u64At(l.engineLifetimeForceClosesOff),
+      netLpPos: i128At(l.engineNetLpPosOff),
+      lpSumAbs: u128At(l.engineLpSumAbsOff),
+      lpMaxAbs: u128At(l.engineLpMaxAbsOff),
+      lpMaxAbsSweep: u128At(l.engineLpMaxAbsSweepOff),
       emergencyOiMode: l.engineEmergencyOiModeOff >= 0 ? data[base + l.engineEmergencyOiModeOff] !== 0 : false,
-      emergencyStartSlot: l.engineEmergencyStartSlotOff >= 0 ? readU64LE(data, base + l.engineEmergencyStartSlotOff) : 0n,
-      lastBreakerSlot: l.engineLastBreakerSlotOff >= 0 ? readU64LE(data, base + l.engineLastBreakerSlotOff) : 0n,
-      markPriceE6: l.engineMarkPriceOff >= 0 ? readU64LE(data, base + l.engineMarkPriceOff) : 0n,
+      emergencyStartSlot: u64At(l.engineEmergencyStartSlotOff),
+      lastBreakerSlot: u64At(l.engineLastBreakerSlotOff),
+      markPriceE6: u64At(l.engineMarkPriceOff),
       oraclePriceE6: 0n,
       fLongNum: 0n,
       fShortNum: 0n,
