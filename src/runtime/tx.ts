@@ -23,23 +23,34 @@ const CONFIRMATION_RANK = {
 
 /**
  * Minimum `confirmationStatus` rank that satisfies a requested `Commitment`.
- * The deprecated aliases map onto their modern equivalents:
- *   recent/single/singleGossip -> processed, max/root -> finalized.
+ * The deprecated aliases map onto their modern equivalents exactly as
+ * @solana/web3.js does: single/singleGossip -> confirmed, max/root -> finalized,
+ * recent -> processed.
  */
 function requiredConfirmationRank(commitment: Commitment): number {
+  // Grouping copied from @solana/web3.js itself, NOT guessed. Its confirmation
+  // switch (lib/index.cjs.js:6602-6614 and :6799-6812) buckets the deprecated
+  // aliases as:
+  //   'confirmed' | 'single' | 'singleGossip'  -> requires >= confirmed
+  //   'finalized' | 'max'    | 'root'          -> requires    finalized
+  //   everything else ('processed', 'recent')  -> requires >= processed
+  // An earlier revision put `single`/`singleGossip` in the processed bucket, which
+  // meant a caller asking for `singleGossip` and observing only a `processed`
+  // status was told the transaction had SETTLED — reintroducing exactly the
+  // premature-settlement bug this function exists to prevent.
   switch (commitment) {
-    case "processed":
-    case "recent":
+    case "confirmed":
     case "single":
     case "singleGossip":
-      return CONFIRMATION_RANK.processed;
+      return CONFIRMATION_RANK.confirmed;
     case "finalized":
     case "max":
     case "root":
       return CONFIRMATION_RANK.finalized;
-    case "confirmed":
+    case "processed":
+    case "recent":
     default:
-      return CONFIRMATION_RANK.confirmed;
+      return CONFIRMATION_RANK.processed;
   }
 }
 

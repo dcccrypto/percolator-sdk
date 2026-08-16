@@ -176,6 +176,81 @@ describe("simulateOrSend", () => {
     },
   );
 
+  // The deprecated Commitment aliases must bucket exactly as @solana/web3.js
+  // buckets them (lib/index.cjs.js:6602-6614, :6799-6812). An earlier revision put
+  // single/singleGossip in the PROCESSED bucket, so asking for singleGossip and
+  // observing only `processed` reported the tx as settled — the very bug this
+  // gate exists to stop.
+  it.each(["single", "singleGossip"] as const)(
+    'treats "%s" as confirmed-strength, so a merely-processed status is NOT settled',
+    async (alias) => {
+      const conn = makeMockConnection({
+        confirmTransaction: vi.fn().mockRejectedValue(
+          new Error("TransactionExpiredBlockheightExceededError"),
+        ),
+        getSignatureStatus: vi.fn().mockResolvedValue({
+          context: { slot: 999 },
+          value: { slot: 77, confirmations: 1, err: null, confirmationStatus: "processed" },
+        }),
+      });
+      const result = await simulateOrSend({
+        connection: conn,
+        ix: dummyIx,
+        signers: [Keypair.generate()],
+        simulate: false,
+        commitment: alias,
+      });
+      expect(result.err).not.toBeNull();
+      expect(result.err).toContain("processed");
+    },
+  );
+
+  it.each(["single", "singleGossip"] as const)(
+    'treats "%s" as satisfied by a confirmed status',
+    async (alias) => {
+      const conn = makeMockConnection({
+        confirmTransaction: vi.fn().mockRejectedValue(
+          new Error("TransactionExpiredBlockheightExceededError"),
+        ),
+        getSignatureStatus: vi.fn().mockResolvedValue({
+          context: { slot: 999 },
+          value: { slot: 77, confirmations: 1, err: null, confirmationStatus: "confirmed" },
+        }),
+      });
+      const result = await simulateOrSend({
+        connection: conn,
+        ix: dummyIx,
+        signers: [Keypair.generate()],
+        simulate: false,
+        commitment: alias,
+      });
+      expect(result.err).toBeNull();
+    },
+  );
+
+  it.each(["max", "root"] as const)(
+    'treats "%s" as finalized-strength',
+    async (alias) => {
+      const conn = makeMockConnection({
+        confirmTransaction: vi.fn().mockRejectedValue(
+          new Error("TransactionExpiredBlockheightExceededError"),
+        ),
+        getSignatureStatus: vi.fn().mockResolvedValue({
+          context: { slot: 999 },
+          value: { slot: 77, confirmations: 1, err: null, confirmationStatus: "confirmed" },
+        }),
+      });
+      const result = await simulateOrSend({
+        connection: conn,
+        ix: dummyIx,
+        signers: [Keypair.generate()],
+        simulate: false,
+        commitment: alias,
+      });
+      expect(result.err).not.toBeNull();
+    },
+  );
+
   it("honours an explicitly weaker commitment in the timeout fallback", async () => {
     const conn = makeMockConnection({
       confirmTransaction: vi.fn().mockRejectedValue(
