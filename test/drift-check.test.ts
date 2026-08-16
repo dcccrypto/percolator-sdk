@@ -761,6 +761,42 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     }
   });
 
+  it("an explicit network argument still opts in to mainnet", () => {
+    // The fail-open default must not remove the ability to target mainnet
+    // deliberately — otherwise the fix trades a silent-mainnet bug for a
+    // silent-devnet one.
+    expect(getStakeProgramId("mainnet").toBase58()).toBe(STAKE_PROGRAM_IDS.mainnet);
+    expect(getStakeProgramId("devnet").toBase58()).toBe(STAKE_PROGRAM_IDS.devnet);
+  });
+
+  it("NETWORK / NEXT_PUBLIC_DEFAULT_NETWORK=mainnet still opts in to mainnet", () => {
+    const savedStakeId = process.env.STAKE_PROGRAM_ID;
+    const savedNetwork = process.env.NETWORK;
+    const savedDefaultNetwork = process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    delete process.env.STAKE_PROGRAM_ID;
+    delete process.env.NETWORK;
+    try {
+      process.env.NEXT_PUBLIC_DEFAULT_NETWORK = "mainnet";
+      expect(getStakeProgramId().toBase58()).toBe(STAKE_PROGRAM_IDS.mainnet);
+      delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+      process.env.NETWORK = "mainnet-beta";
+      expect(getStakeProgramId().toBase58()).toBe(STAKE_PROGRAM_IDS.mainnet);
+    } finally {
+      delete process.env.NETWORK;
+      delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+      if (savedStakeId !== undefined) process.env.STAKE_PROGRAM_ID = savedStakeId;
+      if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
+      if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
+    }
+  });
+
+  it("the devnet stake id is the deployed vault from the deployment ledger", () => {
+    // deployments.md: vault/stake GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3
+    // (deployed commit 474079f). An earlier SDK line carried 6aJb1F..., which did
+    // NOT match the deployed vault; this pins the correspondence.
+    expect(STAKE_PROGRAM_IDS.devnet).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
+  });
+
   it("mainnet and devnet addresses are different", () => {
     expect(STAKE_PROGRAM_IDS.mainnet).not.toBe(STAKE_PROGRAM_IDS.devnet);
   });

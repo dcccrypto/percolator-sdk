@@ -42,9 +42,16 @@ import { concatBytes } from '../abi/encode.js';
  * new integrations) and already runs the ADOPTED `percolator-stake` lineage this
  * module targets — see the module doc above.
  *
- * mainnet: UNVERIFIED — no confirmed mainnet stake/vault deployment found in any
- * v17 planning doc (Percolator mainnet is still in prep). Do not treat this as ground
- * truth; prefer the STAKE_PROGRAM_ID env override on mainnet until DevOps confirms.
+ * mainnet: UNVERIFIED as *ours* — no confirmed mainnet stake/vault deployment exists
+ * in any v17 planning doc (Percolator mainnet is still in prep). Do not treat this as
+ * ground truth; prefer the STAKE_PROGRAM_ID env override on mainnet until DevOps
+ * confirms.
+ *
+ * IMPORTANT: "unverified" does NOT mean "inert". Checked against mainnet RPC on
+ * 2026-08-16, DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F is a LIVE, executable
+ * BPFLoaderUpgradeable program. That is precisely why getStakeProgramId() must not
+ * silently default to mainnet: an unconfigured browser caller would have resolved to
+ * a real, executing mainnet program rather than failing safe.
  */
 export const STAKE_PROGRAM_IDS = {
   devnet: 'GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3',
