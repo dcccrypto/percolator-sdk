@@ -19,6 +19,7 @@ import {
   ACCOUNTS_SET_MAINTENANCE_FEE,
   ACCOUNTS_RESOLVE_MARKET,
   ACCOUNTS_CONVERT_RELEASED_PNL,
+  withNftHolderAuth,
   ACCOUNTS_WITHDRAW_INSURANCE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
@@ -266,31 +267,42 @@ describe("Signer / writable invariants", () => {
     }
   });
 
-  it("ACCOUNTS_RESOLVE_MARKET matches its v17-rewritten encoder, not the stale v12.19 layout", () => {
-    // encodeResolveMarket was confirmed rewritten for v17 (tag-only, no mode byte).
-    // Every other v17-rewritten spec in this file drops standalone clock/oracle
-    // accounts with no exception — this spec must not still carry them.
-    expect(ACCOUNTS_RESOLVE_MARKET).toHaveLength(2);
-    expect(ACCOUNTS_RESOLVE_MARKET.find((a) => a.name === "clock")).toBeUndefined();
-    expect(ACCOUNTS_RESOLVE_MARKET.find((a) => a.name === "oracle")).toBeUndefined();
-    expect(ACCOUNTS_RESOLVE_MARKET[0]).toMatchObject({ name: "admin", signer: true, writable: true });
-    const marketSlab = ACCOUNTS_RESOLVE_MARKET.find((a) => a.name === "slab" || a.name === "market");
-    expect(marketSlab, "market/slab account missing").toBeDefined();
-    expect(marketSlab!.writable).toBe(true);
+  // Both specs below are pinned to the DEPLOYED wrapper percolator-prog@19d5d932
+  // (program DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj), not to inference from
+  // sibling specs. Asserting the exact full shape (not just "no clock/oracle") so
+  // that any future drift from the deployed decode fails here.
+
+  it("ACCOUNTS_RESOLVE_MARKET matches the deployed handle_resolve_market decode", () => {
+    // v16_program.rs:12269 — account(accounts,0)=admin + expect_signer;
+    // account(accounts,1)=market_ai + expect_writable + expect_owner. Slot comes from
+    // the Clock::get() syscall, and no oracle account is read. admin is NOT
+    // expect_writable'd and ResolveMarket moves no lamports.
+    expect(ACCOUNTS_RESOLVE_MARKET).toEqual([
+      { name: "admin", signer: true, writable: false },
+      { name: "market", signer: false, writable: true },
+    ]);
   });
 
-  it("ACCOUNTS_CONVERT_RELEASED_PNL matches its v17-rewritten encoder, not the stale v12.19 layout", () => {
-    // encodeConvertReleasedPnl's own doc says "v17 portfolios are identified by
-    // account key alone" (userIdx removed) and points back to this constant —
-    // it must include a portfolio account, not the old userIdx-era clock/oracle pair.
-    expect(ACCOUNTS_CONVERT_RELEASED_PNL).toHaveLength(3);
-    expect(ACCOUNTS_CONVERT_RELEASED_PNL.find((a) => a.name === "clock")).toBeUndefined();
-    expect(ACCOUNTS_CONVERT_RELEASED_PNL.find((a) => a.name === "oracle")).toBeUndefined();
-    expect(ACCOUNTS_CONVERT_RELEASED_PNL.find((a) => a.name === "portfolio")).toBeDefined();
-    expect(ACCOUNTS_CONVERT_RELEASED_PNL[0]).toMatchObject({ name: "owner", signer: true, writable: true });
-    const marketSlab2 = ACCOUNTS_CONVERT_RELEASED_PNL.find((a) => a.name === "slab" || a.name === "market");
-    expect(marketSlab2, "market/slab account missing").toBeDefined();
-    expect(marketSlab2!.writable).toBe(true);
+  it("ACCOUNTS_CONVERT_RELEASED_PNL matches the deployed with_one_portfolio_view decode", () => {
+    // v16_program.rs:11947 delegates to with_one_portfolio_view (:17469) with
+    // owner_must_sign=true, which reads [0] owner (expect_signer only),
+    // [1] market (expect_writable + expect_owner), [2] portfolio (same).
+    // Unlike InitPortfolio/ClosePortfolio the owner neither pays nor receives
+    // rent here, so it is not writable.
+    expect(ACCOUNTS_CONVERT_RELEASED_PNL).toEqual([
+      { name: "owner", signer: true, writable: false },
+      { name: "market", signer: false, writable: true },
+      { name: "portfolio", signer: false, writable: true },
+    ]);
+  });
+
+  it("ACCOUNTS_CONVERT_RELEASED_PNL composes the optional NFT-holder trio at base index 3", () => {
+    // with_one_portfolio_view authorises owner==signer OR the bound-NFT holder via
+    // optional_nft_holder_accounts(accounts, 3), so the trio must append at index 3
+    // and leave the three base accounts untouched.
+    const withNft = withNftHolderAuth(ACCOUNTS_CONVERT_RELEASED_PNL);
+    expect(withNft.slice(0, 3)).toEqual([...ACCOUNTS_CONVERT_RELEASED_PNL]);
+    expect(withNft.length).toBe(ACCOUNTS_CONVERT_RELEASED_PNL.length + 3);
   });
 
 });

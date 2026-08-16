@@ -462,28 +462,28 @@ export const ACCOUNTS_SET_ORACLE_PRICE_CAP: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * ResolveMarket (tag 19): 2 accounts (inferred — see confidence note below).
+ * ResolveMarket (tag 19): 2 accounts.
+ *
+ * v17 wire account layout, VERIFIED against the deployed wrapper
+ * percolator-prog@19d5d932 (program DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj),
+ * `handle_resolve_market` at src/v16_program.rs:12269:
+ *   [0] admin   signer            — `account(accounts, 0)` + `expect_signer(admin)`
+ *   [1] market  writable          — `account(accounts, 1)` + `expect_writable` + `expect_owner`
  *
  * The v12.19 4-account layout this constant previously documented
- * ([admin(s+w), slab(w), clock, oracle], src/percolator.rs:9748) is stale: its
- * paired encoder `encodeResolveMarket` was confirmed rewritten for v17
- * (instructions.ts) — "v17 wire: tag(1) only... BREAKING vs v12.x ... the mode
- * byte has been REMOVED" — but this account spec was never updated to match,
- * unlike every other v17-rewritten spec in this file.
+ * ([admin(s+w), slab(w), clock, oracle], src/percolator.rs:9748) is stale on both
+ * counts: the handler takes the slot from the `Clock::get()` syscall rather than a
+ * clock account, and never touches an oracle account at all.
  *
- * INFERENCE, not a confirmed v17 wrapper read (no percolator-prog source is
- * available in this repo to verify directly): every one of the 13 other specs
- * in this file carrying a "v17 wire account layout" comment explicitly drops
- * `clock` and `oracle` as standalone accounts with no exception (e.g.
- * ACCOUNTS_TRADE_NOCPI: "v12 stale accounts removed: lp, clock, oracle";
- * ACCOUNTS_CLOSE_PORTFOLIO: "...clock, oracle"). The closest structural analog,
- * ACCOUNTS_RESTART_ASSET_ORACLE — also an admin-gated, market-level,
- * no-token-movement instruction — is exactly [authority(signer), market(w)].
- * Before relying on this in production, verify against an actual v17
- * `handle_resolve_market` decode (devnet dry-run or program source).
+ * `admin` is NOT writable: the handler calls `expect_signer(admin)` but never
+ * `expect_writable(admin)`, and nothing debits it (ResolveMarket moves no
+ * lamports). This matches ACCOUNTS_RESTART_ASSET_ORACLE, the closest analog —
+ * also admin-gated, market-level, no token movement — which is
+ * [authority(signer, !writable), market(writable)]. Marking a signer writable
+ * when the program does not require it only widens the account's write lock.
  */
 export const ACCOUNTS_RESOLVE_MARKET: readonly AccountSpec[] = [
-  { name: "admin", signer: true, writable: true },
+  { name: "admin", signer: true, writable: false },
   { name: "market", signer: false, writable: true },
 ] as const;
 
@@ -590,31 +590,36 @@ export const ACCOUNTS_DEPOSIT_FEE_CREDITS: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * ConvertReleasedPnl (tag 28): 3 accounts (inferred — see confidence note below).
+ * ConvertReleasedPnl (tag 28): 3 base accounts + an optional NFT-holder trio.
  * Owner only. No token movement (internal PnL-bucket conversion within the
  * same portfolio).
  *
- * The v12.19 4-account layout this constant previously documented
- * ([user(s+w), slab(w), clock, oracle], src/percolator.rs:10636) is stale.
- * Its paired encoder, `encodeConvertReleasedPnl`, was confirmed rewritten for
- * v17 (instructions.ts): "BREAKING vs v12.x: userIdx(u16) removed... v17
- * portfolios are identified by account key alone" — and that same comment
- * points back to this exact constant ("Accounts: see
- * ACCOUNTS_CONVERT_RELEASED_PNL"), but this spec was never updated to add the
- * account-key-identified portfolio the encoder's own doc describes.
+ * v17 wire account layout, VERIFIED against the deployed wrapper
+ * percolator-prog@19d5d932 (program DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj):
+ * `handle_convert_released_pnl` at src/v16_program.rs:11947 delegates its whole
+ * account decode to `with_one_portfolio_view(program_id, accounts, true, ..)`
+ * at src/v16_program.rs:17469, which reads:
+ *   [0] owner      signer            — `expect_signer(owner)` (owner_must_sign = true)
+ *   [1] market     writable          — `expect_writable` + `expect_owner`
+ *   [2] portfolio  writable          — `expect_writable` + `expect_owner`
  *
- * INFERENCE, not a confirmed v17 wrapper read (no percolator-prog source is
- * available in this repo to verify directly). Basis: ConvertReleasedPnl is
- * owner-initiated and moves no real tokens, the exact same category as
- * ACCOUNTS_INIT_USER (InitPortfolio) and ACCOUNTS_CLOSE_ACCOUNT
- * (ClosePortfolio) — both confirmed v17-rewritten to the identical 3-account
- * shape [owner(signer,w), market(w), portfolio(w)], with v12 clock/oracle/userIdx
- * dropped for the same "account-key, not index" reason this encoder's doc cites.
- * Before relying on this in production, verify against an actual v17
- * `handle_convert_released_pnl` decode (devnet dry-run or program source).
+ * The v12.19 4-account layout this constant previously documented
+ * ([user(s+w), slab(w), clock, oracle], src/percolator.rs:10636) is stale: there
+ * is no clock account (the handler needs no slot) and no oracle account.
+ *
+ * `owner` is NOT writable: `with_one_portfolio_view` calls `expect_signer(owner)`
+ * but never `expect_writable(owner)`, and unlike ACCOUNTS_INIT_USER /
+ * ACCOUNTS_CLOSE_ACCOUNT — whose owners ARE writable because they pay or receive
+ * portfolio rent — this instruction moves no lamports at all.
+ *
+ * OPTIONAL NFT-HOLDER TRIO at base index 3: when the signer is not the owner but
+ * holds the portfolio's bound (escrowed) position NFT, `with_one_portfolio_view`
+ * reads `optional_nft_holder_accounts(accounts, 3)` and authorises via
+ * `authorize_owner_or_nft_holder`. Compose it with `withNftHolderAuth()`:
+ *   withNftHolderAuth(ACCOUNTS_CONVERT_RELEASED_PNL)
  */
 export const ACCOUNTS_CONVERT_RELEASED_PNL: readonly AccountSpec[] = [
-  { name: "owner", signer: true, writable: true },
+  { name: "owner", signer: true, writable: false },
   { name: "market", signer: false, writable: true },
   { name: "portfolio", signer: false, writable: true },
 ] as const;
