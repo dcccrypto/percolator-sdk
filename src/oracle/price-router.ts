@@ -311,11 +311,25 @@ export async function resolvePrice(
   // independent reference purely on liquidity. The source stays in allSources for
   // transparency; only its ranking weight is reduced.
   const MAX_ENRICHMENT_DEVIATION = 0.05; // 5% (#315)
-  if (dexSources[0] && jupiterSource && dexSources[0].price > 0 && jupiterSource.price > 0) {
-    const nonPythMid = (dexSources[0].price + jupiterSource.price) / 2;
-    const nonPythDeviation = Math.abs(dexSources[0].price - jupiterSource.price) / nonPythMid;
-    if (nonPythDeviation > MAX_ENRICHMENT_DEVIATION) {
-      dexSources[0].confidence = Math.min(dexSources[0].confidence, jupiterSource.confidence);
+  if (jupiterSource && jupiterSource.price > 0) {
+    // Demote EVERY divergent DEX source, not just dexSources[0]: fetchDexSources
+    // returns up to 10 pools and confidence is a step function of liquidity, so a
+    // second pool in the same tier would keep its confidence and win bestSource at
+    // the divergent price.
+    //
+    // The cap must be strictly BELOW Jupiter, not equal to it. allSources is built
+    // as [...dexSources, jupiterSource] and Array.prototype.sort is stable, so
+    // capping to exactly jupiterSource.confidence leaves the manipulated source
+    // ahead of Jupiter on ties and bestSource is unchanged — the check would look
+    // like it fired while changing nothing.
+    const distrustedConfidence = Math.max(0, jupiterSource.confidence - 1);
+    for (const dex of dexSources) {
+      if (dex.price <= 0) continue;
+      const nonPythMid = (dex.price + jupiterSource.price) / 2;
+      const nonPythDeviation = Math.abs(dex.price - jupiterSource.price) / nonPythMid;
+      if (nonPythDeviation > MAX_ENRICHMENT_DEVIATION) {
+        dex.confidence = Math.min(dex.confidence, distrustedConfidence);
+      }
     }
   }
 

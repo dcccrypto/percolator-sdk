@@ -233,10 +233,54 @@ describe("resolvePrice", () => {
     const jupSource = result.allSources.find((s) => s.type === "jupiter");
     expect(dexSource).toBeDefined();
     expect(jupSource).toBeDefined();
-    // The DEX source's confidence must be capped to Jupiter's (40), not its raw
-    // liquidity-derived 90 — it can no longer outrank a disagreeing reference.
-    expect(dexSource!.confidence).toBe(40);
+    // THE security objective: the manipulated DEX price must not be the resolved
+    // price. Asserting only the capped confidence is not enough — capping to
+    // exactly Jupiter's 40 ties, and a stable sort keeps the DEX source (pushed
+    // first) ahead, so bestSource would still be the manipulated 10.0.
+    expect(result.bestSource!.type).toBe("jupiter");
+    expect(result.bestSource!.price).toBe(1.0);
+    // Strictly below Jupiter, not merely equal to it.
+    expect(dexSource!.confidence).toBeLessThan(jupSource!.confidence);
     expect(dexSource!.price).toBe(10.0); // price itself is untouched, only ranking weight
+  });
+
+  it("#227-extension: EVERY divergent DEX pool is demoted, not just the highest-liquidity one", async () => {
+    const unknownMint = "MultiPoolMint111111111111111111111111111111";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair-divergent-a",
+          liquidity: { usd: 5_000_000 }, // same >$1M tier => confidence 90
+          priceUsd: "10.0",
+          baseToken: { symbol: "DIV" },
+          quoteToken: { symbol: "SOL" },
+        },
+        {
+          chainId: "solana",
+          dexId: "meteora",
+          pairAddress: "pair-divergent-b",
+          liquidity: { usd: 4_000_000 }, // also >$1M => confidence 90
+          priceUsd: "9.8",
+          baseToken: { symbol: "DIV" },
+          quoteToken: { symbol: "SOL" },
+        },
+      ],
+      jupiterPrice: 1.0,
+    });
+
+    const result = await resolvePrice(unknownMint);
+
+    const jupSource = result.allSources.find((s) => s.type === "jupiter")!;
+    const dexSources = result.allSources.filter((s) => s.type === "dex");
+    expect(dexSources.length).toBe(2);
+    // Capping only dexSources[0] would leave the second pool at 90 and it would
+    // win bestSource at the divergent price.
+    for (const dex of dexSources) {
+      expect(dex.confidence).toBeLessThan(jupSource.confidence);
+    }
+    expect(result.bestSource!.type).toBe("jupiter");
   });
 
   it("#227-extension: a non-Pyth token's DEX and Jupiter prices in agreement keep full DEX confidence", async () => {
