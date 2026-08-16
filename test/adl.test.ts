@@ -9,7 +9,9 @@ import {
   isAdlTriggered,
   parseAdlEvent,
   AdlRankedPosition,
+  selectAdlTarget,
 } from "../src/solana/adl.js";
+import { detectSlabLayout, SLAB_TIERS_V12_15 } from "../src/solana/slab.js";
 import { encodeExecuteAdl } from "../src/abi/instructions.js";
 
 // ---------------------------------------------------------------------------
@@ -156,9 +158,14 @@ describe("rankAdlPositions — unit tests on pure ranking logic", () => {
 //
 // Regression: rankAdlPositions previously never determined which side has
 // greater net OI, contradicting the module's own documented behavior ("the
-// position at rank 0 of the dominant side is deleveraged first") and the
-// on-chain engine's actual target-side gating (per the devnet log format:
-// "net_long_oi=... net_short_oi=... target_side=...").
+// position at rank 0 of the dominant side is deleveraged first").
+//
+// NOTE: an earlier revision of this block justified the tie rule by citing an
+// on-chain log format "net_long_oi=... net_short_oi=... target_side=...". That
+// string occurs only in this SDK's own mock at
+// test/devnet-integration.test.ts:440 — it appears ZERO times in the deployed
+// wrapper percolator-prog@19d5d932. Resolving ties to "long" is an SDK
+// convention, not an observed on-chain guarantee.
 
 describe("rankAdlPositions — dominantSide", () => {
   const V12_19_SBF_SMALL_SIZE = 96_784;
@@ -185,9 +192,26 @@ describe("rankAdlPositions — dominantSide", () => {
     expect(result.dominantSide).toBe("short");
   });
 
-  it("dominantSide resolves ties to 'long', matching the on-chain target_side convention", () => {
+  it("dominantSide resolves ties to 'long' (SDK convention, not an on-chain guarantee)", () => {
     const result = rankAdlPositions(buildEngineOnlySlab(500_000n, 500_000n));
     expect(result.dominantSide).toBe("long");
+  });
+
+  // THE regression this fix exists for: V0, V2 and v12.15 layouts have
+  // engineLongOiOff/engineShortOiOff === -1, and parseEngine SUCCEEDS on them
+  // returning longOi = shortOi = 0n. Comparing those two zeros reports "long"
+  // for a slab that carries no open-interest data at all.
+  it("dominantSide is null on a v12.15 layout, which has no OI fields", () => {
+    const v1215Size = SLAB_TIERS_V12_15.micro.dataSize;
+    const layout = detectSlabLayout(v1215Size);
+    expect(layout).not.toBeNull();
+    expect(layout!.engineLongOiOff).toBe(-1);
+    expect(layout!.engineShortOiOff).toBe(-1);
+
+    const buf = new Uint8Array(v1215Size);
+    new DataView(buf.buffer).setBigUint64(0, 0x504552434f4c4154n, true); // PERCOLAT magic
+    const result = rankAdlPositions(buf);
+    expect(result.dominantSide).toBeNull();
   });
 
   it("dominantSide is null when engine state cannot be parsed at all (bad magic)", () => {
@@ -209,33 +233,27 @@ describe("rankAdlPositions — dominantSide", () => {
 // branch-selection rule directly (the same pattern this file already uses for
 // rankAdlPositions' pure sorting logic above) rather than the full RPC path.
 
-describe("buildAdlTransaction — default target-side selection (pure logic)", () => {
-  function selectTarget(
-    dominantSide: "long" | "short" | null,
-    longs: { idx: number }[],
-    shorts: { idx: number }[],
-    ranked: { idx: number }[],
-  ): { idx: number } | undefined {
-    if (dominantSide === "long") return longs[0];
-    if (dominantSide === "short") return shorts[0];
-    return ranked[0];
-  }
+describe("selectAdlTarget — default target-side selection", () => {
+  const mk = (idx: number) => ({ idx }) as unknown as Parameters<typeof selectAdlTarget>[0]["ranked"][number];
 
-  it("targets the dominant side's top position when omitting preferSide, not the global top", () => {
-    const longs = [{ idx: 1 }];
-    const shorts = [{ idx: 2 }];
-    // Global ranked[0] would be the short (idx 2) if merged-sort happened to put
-    // it first — but with dominantSide="long", the long must be targeted instead.
-    const ranked = [{ idx: 2 }, { idx: 1 }];
-    expect(selectTarget("long", longs, shorts, ranked)!.idx).toBe(1);
-    expect(selectTarget("short", longs, shorts, ranked)!.idx).toBe(2);
+  const longs = [mk(1)];
+  const shorts = [mk(2)];
+  // Global ranked[0] is the short, so "fell back to ranked[0]" is distinguishable
+  // from "targeted the dominant side".
+  const ranked = [mk(2), mk(1)];
+
+  it("targets the dominant side's top position when preferSide is omitted", () => {
+    expect(selectAdlTarget({ longs, shorts, ranked, dominantSide: "long" })!.idx).toBe(1);
+    expect(selectAdlTarget({ longs, shorts, ranked, dominantSide: "short" })!.idx).toBe(2);
   });
 
-  it("falls back to the global top-ranked position only when dominantSide is null", () => {
-    const longs = [{ idx: 1 }];
-    const shorts = [{ idx: 2 }];
-    const ranked = [{ idx: 2 }, { idx: 1 }];
-    expect(selectTarget(null, longs, shorts, ranked)!.idx).toBe(2);
+  it("an explicit preferSide overrides dominantSide", () => {
+    expect(selectAdlTarget({ longs, shorts, ranked, dominantSide: "short" }, "long")!.idx).toBe(1);
+    expect(selectAdlTarget({ longs, shorts, ranked, dominantSide: "long" }, "short")!.idx).toBe(2);
+  });
+
+  it("falls back to the global top-ranked position when dominantSide is null", () => {
+    expect(selectAdlTarget({ longs, shorts, ranked, dominantSide: null })!.idx).toBe(2);
   });
 });
 
