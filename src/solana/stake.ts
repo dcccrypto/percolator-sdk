@@ -119,13 +119,20 @@ export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
       // defaulting to devnet would merely defer it to the day mainnet launches and
       // a forgotten env var silently points a mainnet UI at the devnet vault.
       // Refuse to guess: the network must be explicit.
+      // The message must not assert a cause it has not established. This fires in
+      // Node too — whenever NETWORK / NEXT_PUBLIC_DEFAULT_NETWORK is simply unset,
+      // with process.env fully available — so claiming "browser bundle" would send
+      // a server-side caller chasing the wrong thing.
       throw new Error(
-        'getStakeProgramId: cannot determine the network. ' +
-        'process.env is unavailable (browser bundle) and no NETWORK / ' +
-        'NEXT_PUBLIC_DEFAULT_NETWORK is set. Pass an explicit network argument — ' +
-        "getStakeProgramId('devnet') or getStakeProgramId('mainnet') — or set " +
-        'STAKE_PROGRAM_ID to override the address directly. Refusing to guess: ' +
-        'this resolves a fund-custody program address.',
+        'getStakeProgramId: cannot determine the network. Neither NETWORK nor ' +
+        'NEXT_PUBLIC_DEFAULT_NETWORK is set (in a browser bundle process.env is ' +
+        'empty, so this is expected there; in Node it means the variable is unset). ' +
+        "Pass an explicit network argument — getStakeProgramId('devnet') or " +
+        "getStakeProgramId('mainnet') — or set STAKE_PROGRAM_ID to override the " +
+        'address directly. Refusing to guess: this resolves a fund-custody program ' +
+        'address, and callers that derive PDAs from it (deriveStakePool, ' +
+        'deriveStakeVaultAuth, deriveDepositPda) would otherwise produce addresses ' +
+        'for the wrong network.',
       );
     })();
 

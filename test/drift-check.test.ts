@@ -734,6 +734,8 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
   });
 
   it("STAKE_PROGRAM_IDS.devnet constant is GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
+    // This is the deployed vault per the deployment ledger (deployed commit 474079f).
+    // The pre-reconcile SDK line carried 6aJb1F..., which did NOT match it.
     expect(STAKE_PROGRAM_IDS.devnet).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
   });
 
@@ -811,9 +813,8 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
   });
 
   it("an explicit network argument still opts in to mainnet", () => {
-    // The fail-open default must not remove the ability to target mainnet
-    // deliberately — otherwise the fix trades a silent-mainnet bug for a
-    // silent-devnet one.
+    // Refusing to GUESS must not remove the ability to target mainnet deliberately.
+    // An explicit argument is always honoured; only the ambiguous case throws.
     expect(getStakeProgramId("mainnet").toBase58()).toBe(STAKE_PROGRAM_IDS.mainnet);
     expect(getStakeProgramId("devnet").toBase58()).toBe(STAKE_PROGRAM_IDS.devnet);
   });
@@ -837,13 +838,6 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
       if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
       if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
     }
-  });
-
-  it("the devnet stake id is the deployed vault from the deployment ledger", () => {
-    // deployments.md: vault/stake GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3
-    // (deployed commit 474079f). An earlier SDK line carried 6aJb1F..., which did
-    // NOT match the deployed vault; this pins the correspondence.
-    expect(STAKE_PROGRAM_IDS.devnet).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
   });
 
   it("mainnet and devnet addresses are different", () => {
