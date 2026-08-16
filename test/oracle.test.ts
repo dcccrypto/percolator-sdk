@@ -240,27 +240,42 @@ function buildChainlinkBufferWithTimestamp(decimals: number, answer: bigint, upd
 }
 
 {
-  // The program rejects a negative age (timestamp in the future).
-  const future = buildChainlinkBufferWithTimestamp(8, 10012345678n, Math.floor(Date.now() / 1000) + 3600);
+  // A small forward skew is ordinary client-clock drift, NOT a fault: the program
+  // compares against the ON-CHAIN clock, which we cannot read here.
+  const nearFuture = buildChainlinkBufferWithTimestamp(8, 10012345678n, Math.floor(Date.now() / 1000) + 5);
+  const skewed = parseChainlinkPrice(nearFuture, { maxStalenessSeconds: 60 });
+  assert(skewed.price === 10012345678n, "a few seconds of clock skew must not reject a healthy feed");
+  console.log("✓ small forward clock skew tolerated");
+
+  // An implausible jump ahead is still rejected.
+  const farFuture = buildChainlinkBufferWithTimestamp(8, 10012345678n, Math.floor(Date.now() / 1000) + 3600);
   assertThrows(
-    () => parseChainlinkPrice(future, { maxStalenessSeconds: 60 }),
+    () => parseChainlinkPrice(farFuture, { maxStalenessSeconds: 60 }),
     "future",
-    "rejects a publish timestamp in the future"
+    "rejects a publish timestamp far in the future"
   );
-  console.log("✓ future timestamp rejected");
+  console.log("✓ far-future timestamp rejected");
+
+  // The tolerance is configurable.
+  const t = parseChainlinkPrice(farFuture, { maxStalenessSeconds: 60, futureToleranceSeconds: 7200 });
+  assert(t.price === 10012345678n, "an explicit tolerance widens the window");
+  console.log("✓ futureToleranceSeconds honoured");
 }
 
 {
-  // The answer is i128 on-chain; a value that does not fit in i64 must be
-  // refused rather than silently truncated to a different price.
-  const big = buildChainlinkBufferWithTimestamp(8, 1n, Math.floor(Date.now() / 1000));
-  new DataView(big.buffer).setBigInt64(CHAINLINK_ANSWER_OFFSET + 8, 1n, true); // high word != 0
-  assertThrows(
-    () => parseChainlinkPrice(big, { maxStalenessSeconds: 60 }),
-    "does not fit in i64",
-    "rejects an i128 answer that would truncate"
+  // The answer is i128 on-chain and the program imposes NO i64 ceiling — it feeds
+  // the whole mantissa to scale_decimal_to_e6 and bounds only the SCALED result.
+  // So a large mantissa must parse, at its full i128 value, not be rejected and
+  // not be truncated to its low 64 bits.
+  const bigAnswer = (1n << 64n) + 12345n;
+  const big = buildChainlinkBufferWithTimestamp(18, bigAnswer, Math.floor(Date.now() / 1000));
+  const parsed = parseChainlinkPrice(big, { maxStalenessSeconds: 60 });
+  assert(
+    parsed.price === bigAnswer,
+    `i128 answer must round-trip in full: expected ${bigAnswer}, got ${parsed.price}`,
   );
-  console.log("✓ oversized i128 answer refused instead of truncated");
+  assert(parsed.price > (1n << 63n) - 1n, "value genuinely exceeds i64, so truncation would show");
+  console.log("✓ large i128 answer parsed in full (no i64 ceiling — matches the program)");
 }
 
 // --- isValidChainlinkOracle ---

@@ -67,6 +67,12 @@ export interface OraclePrice {
 export interface ParseChainlinkOptions {
   /** Maximum allowed staleness in seconds. If the oracle update is older, an error is thrown. */
   maxStalenessSeconds?: number;
+  /**
+   * How far ahead of the local clock a publish timestamp may be before it is
+   * treated as invalid rather than as clock skew. Defaults to 60s.
+   * Only consulted when `maxStalenessSeconds` is set.
+   */
+  futureToleranceSeconds?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,8 +95,16 @@ function readU32LE(data: Uint8Array, off: number): number {
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(off, true);
 }
 
-/** Largest value representable as a signed 64-bit integer. */
-const MAX_I64 = (1n << 63n) - 1n;
+/**
+ * Default tolerance for a publish timestamp that appears to be in the future.
+ *
+ * The program compares the feed timestamp against the on-chain clock
+ * (`now_unix_ts`) and rejects a negative age. This runs off-chain against
+ * `Date.now()`, which is the CLIENT's clock, so an ordinary few seconds of skew
+ * between a user's machine and the cluster would otherwise reject a perfectly
+ * healthy feed. Allow a small window before treating "in the future" as a fault.
+ */
+const DEFAULT_FUTURE_TOLERANCE_SECONDS = 60;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -127,20 +141,20 @@ export function parseChainlinkPrice(data: Uint8Array, options?: ParseChainlinkOp
 
   // The program reads the answer as a full i128 LE (read_i128_le at
   // v16_program.rs:5657). Reconstruct the same i128 from its low (unsigned) and
-  // high (signed) halves rather than reading only the low 8 bytes, so a value
-  // that does not fit in an i64 is rejected instead of being silently truncated
-  // into a different price than the chain computed.
+  // high (signed) halves rather than reading only the low 8 bytes, which would
+  // silently truncate a large answer into a different price than the chain sees.
+  //
+  // No i64 ceiling is imposed here: that would be STRICTER than the chain. The
+  // program feeds the whole i128 to scale_decimal_to_e6 (v16_program.rs:5557),
+  // which rejects only `mantissa <= 0`, and then bounds the SCALED result against
+  // MAX_ORACLE_PRICE — so a large mantissa with high `decimals` is perfectly valid
+  // on-chain. `price` is a bigint and holds the full i128 range.
   const answer =
     (readBigInt64LE(data, CHAINLINK_ANSWER_OFFSET + 8) << 64n) |
     readBigUint64LE(data, CHAINLINK_ANSWER_OFFSET);
   if (answer <= 0n) {
     throw new Error(
       `Oracle price is non-positive: ${answer}`
-    );
-  }
-  if (answer > MAX_I64) {
-    throw new Error(
-      `Oracle answer ${answer} does not fit in i64; refusing to truncate`
     );
   }
   const price = answer;
@@ -159,10 +173,15 @@ export function parseChainlinkPrice(data: Uint8Array, options?: ParseChainlinkOp
     }
     const now = Math.floor(Date.now() / 1000);
     const age = now - updatedAt;
-    // The program also rejects a negative age (timestamp in the future).
-    if (age < 0) {
+    // The program rejects a negative age, but it measures against the on-chain
+    // clock. We only have the local one, so a couple of seconds of ordinary skew
+    // must not condemn a healthy feed — only an implausible jump ahead should.
+    const futureTolerance =
+      options.futureToleranceSeconds ?? DEFAULT_FUTURE_TOLERANCE_SECONDS;
+    if (age < -futureTolerance) {
       throw new Error(
-        `Oracle publish timestamp is in the future by ${-age}s`
+        `Oracle publish timestamp is ${-age}s in the future (tolerance ${futureTolerance}s) — ` +
+        `check the feed or the local clock`
       );
     }
     if (age > options.maxStalenessSeconds) {
