@@ -965,6 +965,18 @@ console.log("\n✅ All slab tests passed!");
   assert(decoded.matcherEnabled === true, "parsePortfolioV17 decodes matcherEnabled at the correct offset");
   console.log("  ✓ parsePortfolioV17 decodes the PortfolioMatcherConfigV16 trailer (matcherProgram/Context/Delegate/Enabled)");
 
+  // enabled is a u64 the wrapper only ever writes as 0 or 1. The deployed
+  // read_portfolio_matcher_config (v16_program.rs:1482) returns InvalidAccountData
+  // for anything > 1, so the SDK must not coerce e.g. 2 to `true`.
+  const enabledZero = Buffer.from(fullPortfolio);
+  enabledZero.writeBigUInt64LE(0n, matcherConfigOff + 96);
+  assert(parsePortfolioV17(enabledZero).matcherEnabled === false, "parsePortfolioV17 decodes enabled=0 as false");
+
+  const enabledBogus = Buffer.from(fullPortfolio);
+  enabledBogus.writeBigUInt64LE(2n, matcherConfigOff + 96);
+  assertThrows(() => parsePortfolioV17(enabledBogus), "parsePortfolioV17 rejects matcher enabled > 1");
+  console.log("  ✓ parsePortfolioV17 rejects a malformed matcher 'enabled' (> 1), matching the program");
+
   const registry = Buffer.alloc(176);
   writeV17Header(registry, 5);
   assert(parseLpVaultRegistry(registry).totalLpSharesOutstanding === 0n, "parseLpVaultRegistry accepts valid v17 registry header");

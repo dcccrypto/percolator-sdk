@@ -4765,9 +4765,21 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
   const matcherDelegate = data.length >= PF_MATCHER_DELEGATE_OFF + 32
     ? new PublicKey(data.subarray(PF_MATCHER_DELEGATE_OFF, PF_MATCHER_DELEGATE_OFF + 32))
     : PublicKey.default;
-  const matcherEnabled = data.length >= PF_MATCHER_ENABLED_OFF + 8
-    ? readU64LE(data, PF_MATCHER_ENABLED_OFF) !== 0n
-    : false;
+  // `enabled` is a u64 the wrapper only ever writes as 0 or 1, and
+  // read_portfolio_matcher_config (v16_program.rs:1482) returns InvalidAccountData
+  // for anything > 1. Mirror that instead of coercing any nonzero to true, so a
+  // corrupt trailer surfaces here rather than being reported as "matcher enabled"
+  // for an account the program itself would refuse to operate on.
+  let matcherEnabled = false;
+  if (data.length >= PF_MATCHER_ENABLED_OFF + 8) {
+    const rawEnabled = readU64LE(data, PF_MATCHER_ENABLED_OFF);
+    if (rawEnabled > 1n) {
+      throw new Error(
+        `parsePortfolioV17: matcher config 'enabled' is ${rawEnabled}, expected 0 or 1`,
+      );
+    }
+    matcherEnabled = rawEnabled === 1n;
+  }
 
   return {
     marketGroupId,
