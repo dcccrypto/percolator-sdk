@@ -16,6 +16,15 @@ import {
   parseLpRedemption,
   V17_EXPECTED_VERSION,
   V17_PORTFOLIO_ACCOUNT_LEN,
+  SLAB_TIERS_V2,
+  SLAB_TIERS_V1M,
+  SLAB_TIERS_V1M2,
+  SLAB_TIERS_V_ADL,
+  SLAB_TIERS_V_SETDEXPOOL,
+  SLAB_TIERS_V12_1,
+  SLAB_TIERS_V12_15,
+  SLAB_TIERS_V12_17,
+  SLAB_TIERS_V12_19,
 } from "../src/solana/slab.js";
 
 function assert(cond: boolean, msg: string): void {
@@ -992,4 +1001,69 @@ console.log("\n✅ All slab tests passed!");
   );
 
   console.log("✅ V17 standalone parser validation passed!");
+}
+
+// ─── detectSlabLayout: validateLayout coverage ──────────────────────────────
+// validateLayout (accountsOff / bitmap-region bounds check) was previously wired
+// into only 3 of ~13 tier branches (V12_19, V12_17, V12_15). The rest returned
+// their built layout with no consistency check — a coverage gap in a
+// defense-in-depth mechanism, not an active misparse (no currently-registered
+// tier size violates the invariant, which is why it never surfaced as a failure).
+{
+  console.log("\nTesting detectSlabLayout validateLayout coverage...");
+
+  // (1) BEHAVIOURAL: every registered tier size, through the public API, must
+  // produce a layout that satisfies exactly the invariants validateLayout
+  // enforces. This is the durable guard: if a future tier is registered with a
+  // size that does not fit its own layout, this fails regardless of how the
+  // wiring is written.
+  const tierGroups: Array<[string, Record<string, { maxAccounts: number; dataSize: number }>]> = [
+    ["V2", SLAB_TIERS_V2 as Record<string, { maxAccounts: number; dataSize: number }>],
+    ["V1M", SLAB_TIERS_V1M],
+    ["V1M2", SLAB_TIERS_V1M2],
+    ["V_ADL", SLAB_TIERS_V_ADL],
+    ["V_SETDEXPOOL", SLAB_TIERS_V_SETDEXPOOL],
+    ["V12_1", SLAB_TIERS_V12_1],
+    ["V12_15", SLAB_TIERS_V12_15],
+    ["V12_17", SLAB_TIERS_V12_17],
+    ["V12_19", SLAB_TIERS_V12_19 as Record<string, { maxAccounts: number; dataSize: number }>],
+  ];
+
+  let checked = 0;
+  for (const [groupName, tiers] of tierGroups) {
+    for (const [tierName, tier] of Object.entries(tiers)) {
+      const layout = detectSlabLayout(tier.dataSize);
+      assert(layout !== null, `${groupName}.${tierName}: detectSlabLayout(${tier.dataSize}) returned null`);
+      // Exactly validateLayout's two checks.
+      assert(
+        layout!.accountsOff <= tier.dataSize,
+        `${groupName}.${tierName}: accountsOff ${layout!.accountsOff} exceeds dataSize ${tier.dataSize}`,
+      );
+      const bitmapEnd = layout!.engineOff + layout!.engineBitmapOff + layout!.bitmapWords * 8;
+      assert(
+        bitmapEnd <= tier.dataSize,
+        `${groupName}.${tierName}: bitmap end ${bitmapEnd} exceeds dataSize ${tier.dataSize}`,
+      );
+      checked++;
+    }
+  }
+  assert(checked > 10, `expected to check >10 registered tier sizes, checked ${checked}`);
+  console.log(`  ✓ all ${checked} registered tier sizes satisfy the validateLayout invariants`);
+
+  // (2) WIRING: assert every buildLayout* call site inside detectSlabLayout is
+  // wrapped. Read the function's own source via Function.prototype.toString
+  // rather than re-reading slab.ts from disk — that ties the check to the
+  // function that actually ships, and drops the fragile file-path resolution and
+  // the "next export" end marker the previous version depended on.
+  const body = detectSlabLayout.toString();
+  const callSites = body.match(/\bbuildLayout\w*\(/g) ?? [];
+  const wrappedCallSites = body.match(/validateLayout\(\s*buildLayout\w*\(/g) ?? [];
+  assert(callSites.length > 10, `expected >10 buildLayout call sites, found ${callSites.length}`);
+  assert(
+    wrappedCallSites.length === callSites.length,
+    `validateLayout coverage gap: ${callSites.length} buildLayout call sites, only ${wrappedCallSites.length} wrapped in validateLayout(...)`,
+  );
+  console.log(`  ✓ all ${callSites.length} buildLayout call sites in detectSlabLayout are wrapped in validateLayout(...)`);
+
+  console.log("✅ detectSlabLayout validateLayout coverage check passed!");
 }
