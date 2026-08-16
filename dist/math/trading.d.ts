@@ -100,8 +100,24 @@ export declare function computeFundingRateAnnualized(fundingRateBpsPerSlot: bigi
  */
 export declare function computeRequiredMargin(notional: bigint, initialMarginBps: bigint): bigint;
 /**
- * Compute maximum leverage from initial margin bps.
+ * Compute maximum leverage from initial margin bps, as an exact ratio.
+ *
+ * DISPLAY value: the result is fractional and therefore NOT safe to pass to
+ * `BigInt()`. Any caller doing integer/native-unit arithmetic must use
+ * {@link computeMaxLeverageFloor} instead.
  *
  * @throws Error if initialMarginBps is zero (infinite leverage is undefined)
  */
 export declare function computeMaxLeverage(initialMarginBps: bigint): number;
+/**
+ * Compute maximum leverage from initial margin bps, floored to a whole
+ * multiplier — the conservative integer form used by risk/sizing math.
+ *
+ * Kept separate from {@link computeMaxLeverage} because that one is a display
+ * value and may be fractional: `BigInt(3.3333)` throws `RangeError`. Rounding
+ * DOWN also keeps client-side caps at or below what the program enforces, so a
+ * caller can never build a position the chain would reject on leverage.
+ *
+ * @throws Error if initialMarginBps is zero (infinite leverage is undefined)
+ */
+export declare function computeMaxLeverageFloor(initialMarginBps: bigint): bigint;

@@ -1742,10 +1742,8 @@ var ACCOUNTS_SET_ORACLE_PRICE_CAP = [
   { name: "clock", signer: false, writable: false }
 ];
 var ACCOUNTS_RESOLVE_MARKET = [
-  { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true },
-  { name: "clock", signer: false, writable: false },
-  { name: "oracle", signer: false, writable: false }
+  { name: "admin", signer: true, writable: false },
+  { name: "market", signer: false, writable: true }
 ];
 var ACCOUNTS_WITHDRAW_INSURANCE = [
   { name: "authority", signer: true, writable: true },
@@ -1794,10 +1792,9 @@ var ACCOUNTS_DEPOSIT_FEE_CREDITS = [
   { name: "clock", signer: false, writable: false }
 ];
 var ACCOUNTS_CONVERT_RELEASED_PNL = [
-  { name: "user", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true },
-  { name: "clock", signer: false, writable: false },
-  { name: "oracle", signer: false, writable: false }
+  { name: "owner", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+  { name: "portfolio", signer: false, writable: true }
 ];
 var ACCOUNTS_SET_INSURANCE_WITHDRAW_POLICY = [
   { name: "admin", signer: true, writable: true },
@@ -4321,33 +4318,33 @@ function detectSlabLayout(dataLen, data) {
   const v1215n = V12_15_SIZES.get(dataLen);
   if (v1215n !== void 0) return validateLayout(buildLayoutV12_15(v1215n, dataLen), dataLen);
   const v121epn = V12_1_EP_SIZES.get(dataLen);
-  if (v121epn !== void 0) return buildLayoutV12_1EP(v121epn);
+  if (v121epn !== void 0) return validateLayout(buildLayoutV12_1EP(v121epn), dataLen);
   const v121n = V12_1_SIZES.get(dataLen);
-  if (v121n !== void 0) return buildLayoutV12_1(v121n, dataLen);
+  if (v121n !== void 0) return validateLayout(buildLayoutV12_1(v121n, dataLen), dataLen);
   const vsdpn = V_SETDEXPOOL_SIZES.get(dataLen);
-  if (vsdpn !== void 0) return buildLayoutVSetDexPool(vsdpn);
+  if (vsdpn !== void 0) return validateLayout(buildLayoutVSetDexPool(vsdpn), dataLen);
   const v1m2n = V1M2_SIZES.get(dataLen);
-  if (v1m2n !== void 0) return buildLayoutV1M2(v1m2n);
+  if (v1m2n !== void 0) return validateLayout(buildLayoutV1M2(v1m2n), dataLen);
   const vadln = V_ADL_SIZES.get(dataLen);
-  if (vadln !== void 0) return buildLayoutVADL(vadln);
+  if (vadln !== void 0) return validateLayout(buildLayoutVADL(vadln), dataLen);
   const v1mn = V1M_SIZES.get(dataLen);
-  if (v1mn !== void 0) return buildLayoutV1M(v1mn);
+  if (v1mn !== void 0) return validateLayout(buildLayoutV1M(v1mn), dataLen);
   const v0n = V0_SIZES.get(dataLen);
-  if (v0n !== void 0) return buildLayout(0, v0n);
+  if (v0n !== void 0) return validateLayout(buildLayout(0, v0n), dataLen);
   const v1dn = V1D_SIZES.get(dataLen);
   if (v1dn !== void 0) {
     if (data && data.length >= 12) {
       const version = readU32LE(data, 8);
-      if (version === 2) return buildLayoutV2(v1dn);
+      if (version === 2) return validateLayout(buildLayoutV2(v1dn), dataLen);
     }
-    return buildLayoutV1D(v1dn, 2);
+    return validateLayout(buildLayoutV1D(v1dn, 2), dataLen);
   }
   const v1dln = V1D_SIZES_LEGACY.get(dataLen);
-  if (v1dln !== void 0) return buildLayoutV1D(v1dln, 18);
+  if (v1dln !== void 0) return validateLayout(buildLayoutV1D(v1dln, 18), dataLen);
   const v1n = V1_SIZES.get(dataLen);
-  if (v1n !== void 0) return buildLayout(1, v1n);
+  if (v1n !== void 0) return validateLayout(buildLayout(1, v1n), dataLen);
   const v1ln = V1_SIZES_LEGACY.get(dataLen);
-  if (v1ln !== void 0) return buildLayout(1, v1ln, V1_ENGINE_OFF_LEGACY);
+  if (v1ln !== void 0) return validateLayout(buildLayout(1, v1ln, V1_ENGINE_OFF_LEGACY), dataLen);
   return null;
 }
 function detectLayout(dataLen) {
@@ -5528,6 +5525,11 @@ var PF_SOURCE_DOMAIN_SIZE = 196;
 var PF_SOURCE_DOMAINS_OFF = PF_LEGS_OFF + PF_LEGS_COUNT * PF_LEG_SIZE;
 var PF_SOURCE_DOMAINS_CAP = 32;
 var PF_HEALTH_CERT_OFF = PF_SOURCE_DOMAINS_OFF + PF_SOURCE_DOMAINS_CAP * PF_SOURCE_DOMAIN_SIZE;
+var PF_MATCHER_CONFIG_LEN = 104;
+var PF_MATCHER_PROGRAM_OFF = V17_PORTFOLIO_ACCOUNT_LEN - PF_MATCHER_CONFIG_LEN;
+var PF_MATCHER_CONTEXT_OFF = PF_MATCHER_PROGRAM_OFF + 32;
+var PF_MATCHER_DELEGATE_OFF = PF_MATCHER_CONTEXT_OFF + 32;
+var PF_MATCHER_ENABLED_OFF = PF_MATCHER_DELEGATE_OFF + 32;
 function parsePortfolioV17(data) {
   const MIN_PORTFOLIO_BYTES = PF_RESERVED_PNL_OFF + 16;
   if (data.length < MIN_PORTFOLIO_BYTES) {
@@ -5591,6 +5593,19 @@ function parsePortfolioV17(data) {
       sourceLienImpairedCapitalAtRiskFeeRevenue: readU128LE(data, b + 180)
     });
   }
+  const matcherProgram = data.length >= PF_MATCHER_PROGRAM_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_PROGRAM_OFF, PF_MATCHER_PROGRAM_OFF + 32)) : PublicKey5.default;
+  const matcherContext = data.length >= PF_MATCHER_CONTEXT_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_CONTEXT_OFF, PF_MATCHER_CONTEXT_OFF + 32)) : PublicKey5.default;
+  const matcherDelegate = data.length >= PF_MATCHER_DELEGATE_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_DELEGATE_OFF, PF_MATCHER_DELEGATE_OFF + 32)) : PublicKey5.default;
+  let matcherEnabled = false;
+  if (data.length >= PF_MATCHER_ENABLED_OFF + 8) {
+    const rawEnabled = readU64LE(data, PF_MATCHER_ENABLED_OFF);
+    if (rawEnabled > 1n) {
+      throw new Error(
+        `parsePortfolioV17: matcher config 'enabled' is ${rawEnabled}, expected 0 or 1`
+      );
+    }
+    matcherEnabled = rawEnabled === 1n;
+  }
   return {
     marketGroupId,
     portfolioAccountId,
@@ -5607,7 +5622,11 @@ function parsePortfolioV17(data) {
     lastFeeSlot,
     activeBitmap,
     legs,
-    sourceDomains
+    sourceDomains,
+    matcherProgram,
+    matcherContext,
+    matcherDelegate,
+    matcherEnabled
   };
 }
 var LP_VAULT_REGISTRY_TOTAL = 176;
@@ -6072,65 +6091,14 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
     };
   }
-  const isV2 = layout?.version === 2;
-  if (isV2) {
-    return {
-      vault: readU128LE2(data, base + 0),
-      insuranceFund: {
-        balance: readU128LE2(data, base + 16),
-        feeRevenue: readU128LE2(data, base + 32),
-        isolatedBalance: readU128LE2(data, base + 48),
-        isolationBps: readU16LE2(data, base + 64)
-      },
-      currentSlot: readU64LE2(data, base + 352),
-      fundingIndexQpbE6: readI128LE2(data, base + 360),
-      lastFundingSlot: readU64LE2(data, base + 376),
-      fundingRateBpsPerSlotLast: readI64LE2(data, base + 384),
-      fundingRateE9: 0n,
-      marketMode: null,
-      lastCrankSlot: readU64LE2(data, base + 392),
-      maxCrankStalenessSlots: readU64LE2(data, base + 400),
-      totalOpenInterest: readU128LE2(data, base + 408),
-      longOi: 0n,
-      // V2 has no long_oi
-      shortOi: 0n,
-      // V2 has no short_oi
-      cTot: readU128LE2(data, base + 424),
-      pnlPosTot: readU128LE2(data, base + 440),
-      pnlMaturedPosTot: 0n,
-      liqCursor: readU16LE2(data, base + 456),
-      gcCursor: readU16LE2(data, base + 458),
-      lastSweepStartSlot: readU64LE2(data, base + 464),
-      lastSweepCompleteSlot: readU64LE2(data, base + 472),
-      crankCursor: readU16LE2(data, base + 480),
-      sweepStartIdx: readU16LE2(data, base + 482),
-      lifetimeLiquidations: readU64LE2(data, base + 488),
-      lifetimeForceCloses: readU64LE2(data, base + 496),
-      netLpPos: readI128LE2(data, base + 504),
-      lpSumAbs: readU128LE2(data, base + 520),
-      lpMaxAbs: readU128LE2(data, base + 536),
-      lpMaxAbsSweep: readU128LE2(data, base + 552),
-      emergencyOiMode: false,
-      // V2 has no emergency OI fields
-      emergencyStartSlot: 0n,
-      lastBreakerSlot: 0n,
-      markPriceE6: 0n,
-      // V2 has no mark_price
-      oraclePriceE6: 0n,
-      fLongNum: 0n,
-      fShortNum: 0n,
-      negPnlAccountCount: 0n,
-      fundPxLast: 0n,
-      resolvedKLongTerminalDelta: 0n,
-      resolvedKShortTerminalDelta: 0n,
-      resolvedLivePrice: 0n,
-      numUsedAccounts: canReadNumUsed ? readU16LE2(data, base + numUsedOff) : 0,
-      nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
-    };
-  }
   if (layout !== null) {
     const l = layout;
     const hasInsuranceIsolation = l.engineInsuranceIsolatedOff >= 0 && l.engineInsuranceIsolationBpsOff >= 0;
+    const u16At = (off) => off >= 0 ? readU16LE2(data, base + off) : 0;
+    const u64At = (off) => off >= 0 ? readU64LE2(data, base + off) : 0n;
+    const i64At = (off) => off >= 0 ? readI64LE2(data, base + off) : 0n;
+    const u128At = (off) => off >= 0 ? readU128LE2(data, base + off) : 0n;
+    const i128At = (off) => off >= 0 ? readI128LE2(data, base + off) : 0n;
     return {
       vault: readU128LE2(data, base + 0),
       insuranceFund: {
@@ -6140,35 +6108,38 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
         isolationBps: hasInsuranceIsolation ? readU16LE2(data, base + l.engineInsuranceIsolationBpsOff) : 0
       },
       currentSlot: readU64LE2(data, base + l.engineCurrentSlotOff),
-      fundingIndexQpbE6: readI128LE2(data, base + l.engineFundingIndexOff),
-      lastFundingSlot: readU64LE2(data, base + l.engineLastFundingSlotOff),
-      fundingRateBpsPerSlotLast: readI64LE2(data, base + l.engineFundingRateBpsOff),
+      // engineFundingIndexOff is -1 on V12_15/17/19 (this field doesn't exist in those
+      // engine structs) — guard the same way the heavy parser does (slab.ts parseEngine)
+      // or `base + (-1)` reads 16 bytes starting one byte before the engine region.
+      fundingIndexQpbE6: l.engineFundingIndexOff >= 0 ? l.engineLastFundingSlotOff >= 0 && l.engineLastFundingSlotOff - l.engineFundingIndexOff === 8 ? BigInt(readI64LE2(data, base + l.engineFundingIndexOff)) : readI128LE2(data, base + l.engineFundingIndexOff) : 0n,
+      lastFundingSlot: u64At(l.engineLastFundingSlotOff),
+      fundingRateBpsPerSlotLast: i64At(l.engineFundingRateBpsOff),
       fundingRateE9: 0n,
       marketMode: null,
-      lastCrankSlot: readU64LE2(data, base + l.engineLastCrankSlotOff),
-      maxCrankStalenessSlots: readU64LE2(data, base + l.engineMaxCrankStalenessOff),
-      totalOpenInterest: readU128LE2(data, base + l.engineTotalOiOff),
-      longOi: l.engineLongOiOff >= 0 ? readU128LE2(data, base + l.engineLongOiOff) : 0n,
-      shortOi: l.engineShortOiOff >= 0 ? readU128LE2(data, base + l.engineShortOiOff) : 0n,
+      lastCrankSlot: u64At(l.engineLastCrankSlotOff),
+      maxCrankStalenessSlots: u64At(l.engineMaxCrankStalenessOff),
+      totalOpenInterest: u128At(l.engineTotalOiOff),
+      longOi: u128At(l.engineLongOiOff),
+      shortOi: u128At(l.engineShortOiOff),
       cTot: readU128LE2(data, base + l.engineCTotOff),
       pnlPosTot: readU128LE2(data, base + l.enginePnlPosTotOff),
       pnlMaturedPosTot: 0n,
-      liqCursor: readU16LE2(data, base + l.engineLiqCursorOff),
-      gcCursor: readU16LE2(data, base + l.engineGcCursorOff),
-      lastSweepStartSlot: readU64LE2(data, base + l.engineLastSweepStartOff),
-      lastSweepCompleteSlot: readU64LE2(data, base + l.engineLastSweepCompleteOff),
-      crankCursor: readU16LE2(data, base + l.engineCrankCursorOff),
-      sweepStartIdx: readU16LE2(data, base + l.engineSweepStartIdxOff),
-      lifetimeLiquidations: readU64LE2(data, base + l.engineLifetimeLiquidationsOff),
-      lifetimeForceCloses: readU64LE2(data, base + l.engineLifetimeForceClosesOff),
-      netLpPos: readI128LE2(data, base + l.engineNetLpPosOff),
-      lpSumAbs: readU128LE2(data, base + l.engineLpSumAbsOff),
-      lpMaxAbs: readU128LE2(data, base + l.engineLpMaxAbsOff),
-      lpMaxAbsSweep: readU128LE2(data, base + l.engineLpMaxAbsSweepOff),
+      liqCursor: u16At(l.engineLiqCursorOff),
+      gcCursor: u16At(l.engineGcCursorOff),
+      lastSweepStartSlot: u64At(l.engineLastSweepStartOff),
+      lastSweepCompleteSlot: u64At(l.engineLastSweepCompleteOff),
+      crankCursor: u16At(l.engineCrankCursorOff),
+      sweepStartIdx: u16At(l.engineSweepStartIdxOff),
+      lifetimeLiquidations: u64At(l.engineLifetimeLiquidationsOff),
+      lifetimeForceCloses: u64At(l.engineLifetimeForceClosesOff),
+      netLpPos: i128At(l.engineNetLpPosOff),
+      lpSumAbs: u128At(l.engineLpSumAbsOff),
+      lpMaxAbs: u128At(l.engineLpMaxAbsOff),
+      lpMaxAbsSweep: u128At(l.engineLpMaxAbsSweepOff),
       emergencyOiMode: l.engineEmergencyOiModeOff >= 0 ? data[base + l.engineEmergencyOiModeOff] !== 0 : false,
-      emergencyStartSlot: l.engineEmergencyStartSlotOff >= 0 ? readU64LE2(data, base + l.engineEmergencyStartSlotOff) : 0n,
-      lastBreakerSlot: l.engineLastBreakerSlotOff >= 0 ? readU64LE2(data, base + l.engineLastBreakerSlotOff) : 0n,
-      markPriceE6: l.engineMarkPriceOff >= 0 ? readU64LE2(data, base + l.engineMarkPriceOff) : 0n,
+      emergencyStartSlot: u64At(l.engineEmergencyStartSlotOff),
+      lastBreakerSlot: u64At(l.engineLastBreakerSlotOff),
+      markPriceE6: u64At(l.engineMarkPriceOff),
       oraclePriceE6: 0n,
       fLongNum: 0n,
       fShortNum: 0n,
@@ -6181,7 +6152,7 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       nextAccountId: canReadNextId ? readU64LE2(data, base + nextAccountIdOff) : 0n
     };
   }
-  throw new Error(`parseEngineLight: unrecognized slab layout (isV0=${isV0}, isV2=${isV2})`);
+  throw new Error(`parseEngineLight: unrecognized slab layout (isV0=${isV0})`);
 }
 function isRateLimitError(err) {
   if (!err) return false;
@@ -8921,7 +8892,13 @@ function computeMaxLeverage(initialMarginBps) {
   if (initialMarginBps <= 0n) {
     throw new Error("computeMaxLeverage: initialMarginBps must be positive");
   }
-  return Number(10000n / initialMarginBps);
+  return 1e4 / Number(initialMarginBps);
+}
+function computeMaxLeverageFloor(initialMarginBps) {
+  if (initialMarginBps <= 0n) {
+    throw new Error("computeMaxLeverageFloor: initialMarginBps must be positive");
+  }
+  return 10000n / initialMarginBps;
 }
 
 // src/math/warmup.ts
@@ -8933,8 +8910,8 @@ function computeWarmupUnlockedCapital(totalCapital, currentSlot, warmupStartSlot
   return totalCapital * elapsed / warmupPeriodSlots;
 }
 function computeWarmupLeverageCap(initialMarginBps, totalCapital, currentSlot, warmupStartSlot, warmupPeriodSlots) {
-  const maxLev = computeMaxLeverage(initialMarginBps);
-  if (warmupPeriodSlots === 0n || warmupStartSlot === 0n) return maxLev;
+  const maxLev = computeMaxLeverageFloor(initialMarginBps);
+  if (warmupPeriodSlots === 0n || warmupStartSlot === 0n) return Number(maxLev);
   if (totalCapital <= 0n) return 1;
   const unlocked = computeWarmupUnlockedCapital(
     totalCapital,
@@ -8943,18 +8920,18 @@ function computeWarmupLeverageCap(initialMarginBps, totalCapital, currentSlot, w
     warmupPeriodSlots
   );
   if (unlocked <= 0n) return 1;
-  const effectiveLev = Number(BigInt(maxLev) * unlocked / totalCapital);
+  const effectiveLev = Number(maxLev * unlocked / totalCapital);
   return Math.max(1, effectiveLev);
 }
 function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlot, warmupStartSlot, warmupPeriodSlots) {
-  const maxLev = computeMaxLeverage(initialMarginBps);
+  const maxLev = computeMaxLeverageFloor(initialMarginBps);
   const unlocked = computeWarmupUnlockedCapital(
     totalCapital,
     currentSlot,
     warmupStartSlot,
     warmupPeriodSlots
   );
-  return unlocked * BigInt(maxLev);
+  return unlocked * maxLev;
 }
 
 // src/validation.ts
@@ -9614,6 +9591,7 @@ export {
   computeLiqPrice,
   computeMarkPnl,
   computeMaxLeverage,
+  computeMaxLeverageFloor,
   computePnlPercent,
   computePreTradeLiqPrice,
   computeRequiredMargin,
@@ -9866,6 +9844,7 @@ export {
   parseConfig,
   parseDexPool,
   parseEngine,
+  parseEngineLight,
   parseErrorFromLogs,
   parseHeader,
   parseLpRedemption,

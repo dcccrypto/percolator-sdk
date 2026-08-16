@@ -1,5 +1,5 @@
 import { Connection, PublicKey } from "@solana/web3.js";
-import { type SlabHeader, type MarketConfig, type EngineState, type RiskParams, type WrapperConfigV17 } from "./slab.js";
+import { type SlabHeader, type MarketConfig, type EngineState, type RiskParams, type SlabLayout, type WrapperConfigV17 } from "./slab.js";
 import { type StaticMarketEntry } from "./static-markets.js";
 import { type Network } from "../config/program-ids.js";
 /**
@@ -256,6 +256,15 @@ export declare function slabDataSizeV1(maxAccounts: number): number;
  * @returns true if sizes match, false if there's a mismatch
  */
 export declare function validateSlabTierMatch(dataSize: number, programSlabLen: number): boolean;
+/**
+ * Light engine parser that works with partial slab data (dataSlice, no accounts array).
+ * Requires a layout hint (from detectSlabLayout on the actual slab size) to use correct offsets.
+ *
+ * @param data        — partial slab slice (HEADER_SLICE_LENGTH bytes)
+ * @param layout      — SlabLayout from detectSlabLayout(actualDataSize). If null, falls back to V0.
+ * @param maxAccounts — tier's max accounts for bitmap offset calculation
+ */
+export declare function parseEngineLight(data: Uint8Array, layout: SlabLayout | null, maxAccounts?: number): EngineState;
 /** Options for `discoverMarkets`. */
 export interface DiscoverMarketsOptions {
     /**
