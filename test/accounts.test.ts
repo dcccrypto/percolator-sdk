@@ -18,6 +18,8 @@ import {
   ACCOUNTS_UPDATE_CONFIG,
   ACCOUNTS_SET_MAINTENANCE_FEE,
   ACCOUNTS_RESOLVE_MARKET,
+  ACCOUNTS_CONVERT_RELEASED_PNL,
+  withNftHolderAuth,
   ACCOUNTS_WITHDRAW_INSURANCE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
@@ -263,6 +265,44 @@ describe("Signer / writable invariants", () => {
     for (const spec of adminInstructions) {
       expect(spec[0].signer).toBe(true);
     }
+  });
+
+  // Both specs below are pinned to the DEPLOYED wrapper percolator-prog@19d5d932
+  // (program DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj), not to inference from
+  // sibling specs. Asserting the exact full shape (not just "no clock/oracle") so
+  // that any future drift from the deployed decode fails here.
+
+  it("ACCOUNTS_RESOLVE_MARKET matches the deployed handle_resolve_market decode", () => {
+    // v16_program.rs:12269 — account(accounts,0)=admin + expect_signer;
+    // account(accounts,1)=market_ai + expect_writable + expect_owner. Slot comes from
+    // the Clock::get() syscall, and no oracle account is read. admin is NOT
+    // expect_writable'd and ResolveMarket moves no lamports.
+    expect(ACCOUNTS_RESOLVE_MARKET).toEqual([
+      { name: "admin", signer: true, writable: false },
+      { name: "market", signer: false, writable: true },
+    ]);
+  });
+
+  it("ACCOUNTS_CONVERT_RELEASED_PNL matches the deployed with_one_portfolio_view decode", () => {
+    // v16_program.rs:11947 delegates to with_one_portfolio_view (:17469) with
+    // owner_must_sign=true, which reads [0] owner (expect_signer only),
+    // [1] market (expect_writable + expect_owner), [2] portfolio (same).
+    // Unlike InitPortfolio/ClosePortfolio the owner neither pays nor receives
+    // rent here, so it is not writable.
+    expect(ACCOUNTS_CONVERT_RELEASED_PNL).toEqual([
+      { name: "owner", signer: true, writable: false },
+      { name: "market", signer: false, writable: true },
+      { name: "portfolio", signer: false, writable: true },
+    ]);
+  });
+
+  it("ACCOUNTS_CONVERT_RELEASED_PNL composes the optional NFT-holder trio at base index 3", () => {
+    // with_one_portfolio_view authorises owner==signer OR the bound-NFT holder via
+    // optional_nft_holder_accounts(accounts, 3), so the trio must append at index 3
+    // and leave the three base accounts untouched.
+    const withNft = withNftHolderAuth(ACCOUNTS_CONVERT_RELEASED_PNL);
+    expect(withNft.slice(0, 3)).toEqual([...ACCOUNTS_CONVERT_RELEASED_PNL]);
+    expect(withNft.length).toBe(ACCOUNTS_CONVERT_RELEASED_PNL.length + 3);
   });
 
 });

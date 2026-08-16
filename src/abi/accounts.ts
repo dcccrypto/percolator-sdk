@@ -462,15 +462,29 @@ export const ACCOUNTS_SET_ORACLE_PRICE_CAP: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * ResolveMarket: 4 accounts.
- * v12.19 wrapper at src/percolator.rs:9748 calls accounts::expect_len(4).
- * Layout: [admin(s+w), slab(w), clock, oracle].
+ * ResolveMarket (tag 19): 2 accounts.
+ *
+ * v17 wire account layout, VERIFIED against the deployed wrapper
+ * percolator-prog@19d5d932 (program DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj),
+ * `handle_resolve_market` at src/v16_program.rs:12269:
+ *   [0] admin   signer            — `account(accounts, 0)` + `expect_signer(admin)`
+ *   [1] market  writable          — `account(accounts, 1)` + `expect_writable` + `expect_owner`
+ *
+ * The v12.19 4-account layout this constant previously documented
+ * ([admin(s+w), slab(w), clock, oracle], src/percolator.rs:9748) is stale on both
+ * counts: the handler takes the slot from the `Clock::get()` syscall rather than a
+ * clock account, and never touches an oracle account at all.
+ *
+ * `admin` is NOT writable: the handler calls `expect_signer(admin)` but never
+ * `expect_writable(admin)`, and nothing debits it (ResolveMarket moves no
+ * lamports). This matches ACCOUNTS_RESTART_ASSET_ORACLE, the closest analog —
+ * also admin-gated, market-level, no token movement — which is
+ * [authority(signer, !writable), market(writable)]. Marking a signer writable
+ * when the program does not require it only widens the account's write lock.
  */
 export const ACCOUNTS_RESOLVE_MARKET: readonly AccountSpec[] = [
-  { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true },
-  { name: "clock", signer: false, writable: false },
-  { name: "oracle", signer: false, writable: false },
+  { name: "admin", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
 ] as const;
 
 /**
@@ -576,14 +590,38 @@ export const ACCOUNTS_DEPOSIT_FEE_CREDITS: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * ConvertReleasedPnl (tag 28): 4 accounts. Owner only.
- * Wrapper: src/percolator.rs:10636.
+ * ConvertReleasedPnl (tag 28): 3 base accounts + an optional NFT-holder trio.
+ * Owner only. No token movement (internal PnL-bucket conversion within the
+ * same portfolio).
+ *
+ * v17 wire account layout, VERIFIED against the deployed wrapper
+ * percolator-prog@19d5d932 (program DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj):
+ * `handle_convert_released_pnl` at src/v16_program.rs:11947 delegates its whole
+ * account decode to `with_one_portfolio_view(program_id, accounts, true, ..)`
+ * at src/v16_program.rs:17469, which reads:
+ *   [0] owner      signer            — `expect_signer(owner)` (owner_must_sign = true)
+ *   [1] market     writable          — `expect_writable` + `expect_owner`
+ *   [2] portfolio  writable          — `expect_writable` + `expect_owner`
+ *
+ * The v12.19 4-account layout this constant previously documented
+ * ([user(s+w), slab(w), clock, oracle], src/percolator.rs:10636) is stale: there
+ * is no clock account (the handler needs no slot) and no oracle account.
+ *
+ * `owner` is NOT writable: `with_one_portfolio_view` calls `expect_signer(owner)`
+ * but never `expect_writable(owner)`, and unlike ACCOUNTS_INIT_USER /
+ * ACCOUNTS_CLOSE_ACCOUNT — whose owners ARE writable because they pay or receive
+ * portfolio rent — this instruction moves no lamports at all.
+ *
+ * OPTIONAL NFT-HOLDER TRIO at base index 3: when the signer is not the owner but
+ * holds the portfolio's bound (escrowed) position NFT, `with_one_portfolio_view`
+ * reads `optional_nft_holder_accounts(accounts, 3)` and authorises via
+ * `authorize_owner_or_nft_holder`. Compose it with `withNftHolderAuth()`:
+ *   withNftHolderAuth(ACCOUNTS_CONVERT_RELEASED_PNL)
  */
 export const ACCOUNTS_CONVERT_RELEASED_PNL: readonly AccountSpec[] = [
-  { name: "user", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true },
-  { name: "clock", signer: false, writable: false },
-  { name: "oracle", signer: false, writable: false },
+  { name: "owner", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+  { name: "portfolio", signer: false, writable: true },
 ] as const;
 
 /**
