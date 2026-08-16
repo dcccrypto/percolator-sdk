@@ -736,9 +736,11 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     expect(STAKE_PROGRAM_IDS.devnet).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
   });
 
-  it("getStakeProgramId() with no args, no env, in a browser context fails open to devnet (not mainnet)", () => {
-    // Mirrors the PERC-697 hardening in program-ids.ts getCurrentNetwork(): an
-    // unconfigured frontend caller must never be silently pointed at mainnet.
+  it("getStakeProgramId() with no args, no env, in a browser context THROWS rather than guessing", () => {
+    // The old code returned 'mainnet' here, silently resolving an unconfigured
+    // frontend to a live executable mainnet program. We refuse to guess at all:
+    // this returns a fund-custody program address, so a devnet default would just
+    // move the silent wrong-network bug rather than remove it.
     const savedStakeId = process.env.STAKE_PROGRAM_ID;
     const savedNetwork = process.env.NETWORK;
     const savedDefaultNetwork = process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
@@ -749,12 +751,33 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     const savedWindow = (globalThis as any).window;
     (globalThis as any).window = {};
     try {
-      const pk = getStakeProgramId();
-      expect(pk.toBase58()).toBe(STAKE_PROGRAM_IDS.devnet);
-      expect(pk.toBase58()).not.toBe(STAKE_PROGRAM_IDS.mainnet);
+      expect(() => getStakeProgramId()).toThrow(/cannot determine the network/i);
+      // and specifically never silently returns either address
+      let resolved: string | null = null;
+      try { resolved = getStakeProgramId().toBase58(); } catch { /* expected */ }
+      expect(resolved).toBeNull();
     } finally {
       if (hadWindow) (globalThis as any).window = savedWindow;
       else delete (globalThis as any).window;
+      if (savedStakeId !== undefined) process.env.STAKE_PROGRAM_ID = savedStakeId;
+      if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
+      if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
+    }
+  });
+
+  it("an explicit STAKE_PROGRAM_ID override still resolves without a network", () => {
+    // The override is checked before network detection, so a caller that pins the
+    // address directly is unaffected by the throw above.
+    const savedStakeId = process.env.STAKE_PROGRAM_ID;
+    const savedNetwork = process.env.NETWORK;
+    const savedDefaultNetwork = process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    delete process.env.NETWORK;
+    delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    process.env.STAKE_PROGRAM_ID = STAKE_PROGRAM_IDS.devnet;
+    try {
+      expect(getStakeProgramId().toBase58()).toBe(STAKE_PROGRAM_IDS.devnet);
+    } finally {
+      delete process.env.STAKE_PROGRAM_ID;
       if (savedStakeId !== undefined) process.env.STAKE_PROGRAM_ID = savedStakeId;
       if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
       if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
