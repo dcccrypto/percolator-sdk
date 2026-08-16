@@ -11,6 +11,52 @@ import {
 } from "@solana/web3.js";
 import { parseErrorFromLogs } from "../abi/errors.js";
 
+/**
+ * Rank of the three cluster confirmation levels the RPC reports in
+ * `SignatureStatus.confirmationStatus`.
+ */
+const CONFIRMATION_RANK = {
+  processed: 0,
+  confirmed: 1,
+  finalized: 2,
+} as const;
+
+/**
+ * Minimum `confirmationStatus` rank that satisfies a requested `Commitment`.
+ * The deprecated aliases map onto their modern equivalents:
+ *   recent/single/singleGossip -> processed, max/root -> finalized.
+ */
+function requiredConfirmationRank(commitment: Commitment): number {
+  switch (commitment) {
+    case "processed":
+    case "recent":
+    case "single":
+    case "singleGossip":
+      return CONFIRMATION_RANK.processed;
+    case "finalized":
+    case "max":
+    case "root":
+      return CONFIRMATION_RANK.finalized;
+    case "confirmed":
+    default:
+      return CONFIRMATION_RANK.confirmed;
+  }
+}
+
+/**
+ * True when an observed signature status is at least as strong as the level the
+ * caller asked for. A merely "processed" transaction can still be dropped or
+ * rolled back, so treating it as settled would reintroduce exactly the premature
+ * -settlement bug that #311 fixed by defaulting sends to "finalized".
+ */
+function meetsCommitment(
+  observed: keyof typeof CONFIRMATION_RANK | undefined | null,
+  required: Commitment
+): boolean {
+  if (!observed) return false;
+  return CONFIRMATION_RANK[observed] >= requiredConfirmationRank(required);
+}
+
 export interface BuildIxParams {
   programId: PublicKey;
   keys: AccountMeta[];
@@ -262,7 +308,12 @@ export async function simulateOrSend(
       const status = await connection.getSignatureStatus(signature, {
         searchTransactionHistory: true,
       });
-      if (status.value) {
+      // Only treat the fallback lookup as authoritative when the observed level
+      // actually satisfies the commitment the caller asked for. `status.value`
+      // being non-null merely means the cluster has SEEN the transaction — at
+      // "processed" it can still be dropped or rolled back, and reporting that
+      // as a settled success would be the same premature-settlement bug #311 fixed.
+      if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
         const txInfo = await connection.getTransaction(signature, {
           commitment: txFinality,
           maxSupportedTransactionVersion: 0,
@@ -281,10 +332,27 @@ export async function simulateOrSend(
         }
         return {
           signature,
-          slot: txInfo?.slot ?? status.context.slot,
+          // `SignatureStatus.slot` is the slot the transaction was PROCESSED in.
+          // `status.context.slot` is the RPC's head slot at query time — a
+          // different, much later number — so it must not be used as the tx slot.
+          slot: txInfo?.slot ?? status.value.slot,
           err,
           hint,
           logs,
+        };
+      }
+      if (status.value) {
+        // Seen, but weaker than requested. Report it as unresolved rather than
+        // settled, while still handing back the signature and the real landing slot.
+        const observed = status.value.confirmationStatus ?? "unknown";
+        return {
+          signature,
+          slot: status.value.slot,
+          err:
+            `confirmation status unknown (${message}) — transaction is only "${observed}" ` +
+            `but "${effectiveCommitment}" was required; it may still be dropped or may settle. ` +
+            `Check signature ${signature} before retrying`,
+          logs: [],
         };
       }
     } catch {

@@ -100,9 +100,11 @@ describe("simulateOrSend", () => {
       confirmTransaction: vi.fn().mockRejectedValue(
         new Error("TransactionExpiredBlockheightExceededError"),
       ),
+      // Sends default to "finalized" (#311), so the fallback status must be
+      // finalized before it may be reported as settled.
       getSignatureStatus: vi.fn().mockResolvedValue({
-        context: { slot: 77 },
-        value: { slot: 77, confirmations: 5, err: null, confirmationStatus: "confirmed" },
+        context: { slot: 999 },
+        value: { slot: 77, confirmations: null, err: null, confirmationStatus: "finalized" },
       }),
     });
     const result = await simulateOrSend({
@@ -121,8 +123,13 @@ describe("simulateOrSend", () => {
         new Error("TransactionExpiredBlockheightExceededError"),
       ),
       getSignatureStatus: vi.fn().mockResolvedValue({
-        context: { slot: 77 },
-        value: { slot: 77, confirmations: 5, err: { InstructionError: [0, { Custom: 1 }] }, confirmationStatus: "confirmed" },
+        context: { slot: 999 },
+        value: {
+          slot: 77,
+          confirmations: null,
+          err: { InstructionError: [0, { Custom: 1 }] },
+          confirmationStatus: "finalized",
+        },
       }),
       getTransaction: vi.fn().mockResolvedValue({
         slot: 77,
@@ -137,6 +144,80 @@ describe("simulateOrSend", () => {
     });
     expect(result.signature).toBe("fakeSig123");
     expect(result.err).toContain("0x1");
+  });
+
+  // Regression: a status weaker than the requested commitment must NOT be
+  // reported as settled. Sends default to "finalized" (#311); a merely
+  // "processed" or "confirmed" transaction can still be dropped or rolled back.
+  it.each(["processed", "confirmed"] as const)(
+    'does not report success when the tx is only "%s" but "finalized" was required',
+    async (observed) => {
+      const conn = makeMockConnection({
+        confirmTransaction: vi.fn().mockRejectedValue(
+          new Error("TransactionExpiredBlockheightExceededError"),
+        ),
+        getSignatureStatus: vi.fn().mockResolvedValue({
+          context: { slot: 999 },
+          value: { slot: 77, confirmations: 1, err: null, confirmationStatus: observed },
+        }),
+      });
+      const result = await simulateOrSend({
+        connection: conn,
+        ix: dummyIx,
+        signers: [Keypair.generate()],
+        simulate: false,
+      });
+      expect(result.signature).toBe("fakeSig123");
+      expect(result.err).not.toBeNull();
+      expect(result.err).toContain(observed);
+      expect(result.err).toContain("finalized");
+      // Still the real landing slot, not the RPC head slot.
+      expect(result.slot).toBe(77);
+    },
+  );
+
+  it("honours an explicitly weaker commitment in the timeout fallback", async () => {
+    const conn = makeMockConnection({
+      confirmTransaction: vi.fn().mockRejectedValue(
+        new Error("TransactionExpiredBlockheightExceededError"),
+      ),
+      getSignatureStatus: vi.fn().mockResolvedValue({
+        context: { slot: 999 },
+        value: { slot: 77, confirmations: 1, err: null, confirmationStatus: "confirmed" },
+      }),
+    });
+    const result = await simulateOrSend({
+      connection: conn,
+      ix: dummyIx,
+      signers: [Keypair.generate()],
+      simulate: false,
+      commitment: "confirmed",
+    });
+    expect(result.signature).toBe("fakeSig123");
+    expect(result.err).toBeNull();
+  });
+
+  it("reports the transaction's landing slot, not the RPC head slot, when getTransaction is unavailable", async () => {
+    const conn = makeMockConnection({
+      confirmTransaction: vi.fn().mockRejectedValue(
+        new Error("TransactionExpiredBlockheightExceededError"),
+      ),
+      getSignatureStatus: vi.fn().mockResolvedValue({
+        // context.slot (the RPC head) deliberately differs from value.slot
+        // (where the tx actually landed) so the assertion can tell them apart.
+        context: { slot: 999 },
+        value: { slot: 77, confirmations: null, err: null, confirmationStatus: "finalized" },
+      }),
+      getTransaction: vi.fn().mockResolvedValue(null),
+    });
+    const result = await simulateOrSend({
+      connection: conn,
+      ix: dummyIx,
+      signers: [Keypair.generate()],
+      simulate: false,
+    });
+    expect(result.slot).toBe(77);
+    expect(result.err).toBeNull();
   });
 
   it("returns the real signature with an explicit unknown-status message when confirmTransaction times out and status lookup can't confirm it landed", async () => {
