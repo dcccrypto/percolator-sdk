@@ -6,7 +6,7 @@
  * and maximum position size available to traders.
  */
 
-import { computeMaxLeverage } from "./trading.js";
+import { computeMaxLeverageFloor } from "./trading.js";
 
 // =============================================================================
 // Warmup leverage cap utilities
@@ -71,10 +71,13 @@ export function computeWarmupLeverageCap(
   warmupStartSlot: bigint,
   warmupPeriodSlots: bigint,
 ): number {
-  const maxLev = computeMaxLeverage(initialMarginBps);
+  // Integer form: this is risk/sizing math, and the fractional
+  // computeMaxLeverage() is a display value that cannot be used in BigInt
+  // arithmetic. Flooring also keeps the client cap at or below the program's.
+  const maxLev = computeMaxLeverageFloor(initialMarginBps);
 
   // No warmup or warmup not started → full leverage
-  if (warmupPeriodSlots === 0n || warmupStartSlot === 0n) return maxLev;
+  if (warmupPeriodSlots === 0n || warmupStartSlot === 0n) return Number(maxLev);
   if (totalCapital <= 0n) return 1;
 
   const unlocked = computeWarmupUnlockedCapital(
@@ -87,7 +90,7 @@ export function computeWarmupLeverageCap(
   if (unlocked <= 0n) return 1; // At least 1x if nothing unlocked yet (slot 0 edge)
 
   // Effective leverage = maxLev * (unlocked / total), floored, min 1
-  const effectiveLev = Number((BigInt(maxLev) * unlocked) / totalCapital);
+  const effectiveLev = Number((maxLev * unlocked) / totalCapital);
   return Math.max(1, effectiveLev);
 }
 
@@ -112,12 +115,12 @@ export function computeWarmupMaxPositionSize(
   warmupStartSlot: bigint,
   warmupPeriodSlots: bigint,
 ): bigint {
-  const maxLev = computeMaxLeverage(initialMarginBps);
+  const maxLev = computeMaxLeverageFloor(initialMarginBps);
   const unlocked = computeWarmupUnlockedCapital(
     totalCapital,
     currentSlot,
     warmupStartSlot,
     warmupPeriodSlots,
   );
-  return unlocked * BigInt(maxLev);
+  return unlocked * maxLev;
 }

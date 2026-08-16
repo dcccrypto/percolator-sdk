@@ -14,6 +14,7 @@ import {
   computeFundingRateAnnualized,
   computeRequiredMargin,
   computeMaxLeverage,
+  computeMaxLeverageFloor,
 } from "../src/math/trading";
 
 let passed = 0;
@@ -176,6 +177,41 @@ assert(computeMaxLeverage(1000n) === 10, "1000 bps → 10x");
 assert(computeMaxLeverage(500n) === 20, "500 bps → 20x");
 assert(computeMaxLeverage(10000n) === 1, "10000 bps → 1x");
 assert(computeMaxLeverage(200n) === 50, "200 bps → 50x");
+
+// Non-divisor bps: the whole point of the float division. Every case above is
+// an exact divisor of 10000, so all of them passed with the old truncating
+// BigInt division too — they could not have caught the bug.
+assert(
+  Math.abs(computeMaxLeverage(3000n) - 10000 / 3000) < 1e-12,
+  "3000 bps → 3.333x (not truncated to 3)",
+);
+assert(computeMaxLeverage(3000n) !== 3, "3000 bps is not floored to 3x");
+assert(
+  Math.abs(computeMaxLeverage(750n) - 10000 / 750) < 1e-12,
+  "750 bps → 13.333x (not truncated to 13)",
+);
+assert(
+  Math.abs(computeMaxLeverage(300n) - 10000 / 300) < 1e-12,
+  "300 bps → 33.333x (not truncated to 33)",
+);
+
+// --- computeMaxLeverageFloor ---
+console.log("--- computeMaxLeverageFloor ---");
+
+try {
+  computeMaxLeverageFloor(0n);
+  assert(false, "zero bps should throw");
+} catch (e: any) {
+  assert(e.message.includes("positive"), "zero bps throws with 'positive' message");
+}
+// The integer companion used by risk/sizing math. It must round DOWN so a
+// client cap can never exceed what the program enforces, and it must stay a
+// bigint so BigInt arithmetic in warmup.ts cannot throw RangeError.
+assert(computeMaxLeverageFloor(1000n) === 10n, "1000 bps → 10n");
+assert(computeMaxLeverageFloor(3000n) === 3n, "3000 bps → 3n (floored)");
+assert(computeMaxLeverageFloor(750n) === 13n, "750 bps → 13n (floored)");
+assert(computeMaxLeverageFloor(300n) === 33n, "300 bps → 33n (floored)");
+assert(typeof computeMaxLeverageFloor(3000n) === "bigint", "returns a bigint");
 
 // --- Summary ---
 console.log(`\n${failed === 0 ? "✅" : "❌"} Trading math: ${passed} passed, ${failed} failed`);

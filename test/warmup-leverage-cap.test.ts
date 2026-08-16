@@ -413,6 +413,68 @@ console.log("\n--- Monotonicity: leverage cap is non-decreasing ---");
 }
 
 // =============================================================================
+// Non-divisor initial-margin bps (regression)
+// =============================================================================
+//
+// computeMaxLeverage() returns a fractional DISPLAY value, so `BigInt(maxLev)`
+// throws RangeError for any bps that does not divide 10000 exactly. Every other
+// case in this file uses an exact divisor (500/1000/...), so none of them
+// exercise that path. These do.
+{
+  console.log("\n--- non-divisor initialMarginBps ---");
+  const total = 1_000_000n;
+  const start = 100n;
+  const period = 1000n;
+
+  for (const imbps of [3000n, 750n, 300n, 7n, 9999n]) {
+    // Sampled across the warmup window, plus before/after it.
+    for (const slot of [0n, 100n, 500n, 1100n]) {
+      let cap: number | string;
+      let maxPos: bigint | string;
+      try {
+        cap = computeWarmupLeverageCap(imbps, total, slot, start, period);
+      } catch (e: any) {
+        cap = `THREW ${e.constructor.name}`;
+      }
+      try {
+        maxPos = computeWarmupMaxPositionSize(imbps, total, slot, start, period);
+      } catch (e: any) {
+        maxPos = `THREW ${e.constructor.name}`;
+      }
+      assert(
+        typeof cap === "number" && Number.isInteger(cap),
+        `${imbps} bps @ slot ${slot}: leverage cap is a whole number (got ${cap})`,
+      );
+      assert(
+        typeof maxPos === "bigint",
+        `${imbps} bps @ slot ${slot}: max position is a bigint (got ${maxPos})`,
+      );
+    }
+  }
+
+  // The cap must use the FLOORED leverage, never the fractional display value.
+  // 3000 bps -> 3.333x display, 3x floored.
+  assertEq(
+    computeWarmupLeverageCap(3000n, total, 0n, 0n, 0n),
+    3,
+    "3000 bps, no warmup → floored 3x (not 3.333)",
+  );
+  assertEq(
+    computeWarmupMaxPositionSize(3000n, total, 1100n, start, period),
+    total * 3n,
+    "3000 bps, warmup complete → total × floored 3",
+  );
+  // And the floored risk value must stay <= the true ratio, never above it.
+  for (const imbps of [3000n, 750n, 300n, 7n, 9999n]) {
+    const floored = computeWarmupLeverageCap(imbps, total, 0n, 0n, 0n);
+    assert(
+      floored <= computeMaxLeverage(imbps),
+      `${imbps} bps: floored cap ${floored} ≤ true ${computeMaxLeverage(imbps)}`,
+    );
+  }
+}
+
+// =============================================================================
 // Summary
 // =============================================================================
 

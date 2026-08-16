@@ -258,7 +258,11 @@ export function computeRequiredMargin(
 }
 
 /**
- * Compute maximum leverage from initial margin bps.
+ * Compute maximum leverage from initial margin bps, as an exact ratio.
+ *
+ * DISPLAY value: the result is fractional and therefore NOT safe to pass to
+ * `BigInt()`. Any caller doing integer/native-unit arithmetic must use
+ * {@link computeMaxLeverageFloor} instead.
  *
  * @throws Error if initialMarginBps is zero (infinite leverage is undefined)
  */
@@ -270,4 +274,22 @@ export function computeMaxLeverage(initialMarginBps: bigint): number {
   // BigInt floor division (10000n / initialMarginBps) silently truncates:
   // e.g. 3000 bps (33.3% margin) -> 3x instead of 3.33x, a 10% UI error.
   return 10000 / Number(initialMarginBps);
+}
+
+/**
+ * Compute maximum leverage from initial margin bps, floored to a whole
+ * multiplier — the conservative integer form used by risk/sizing math.
+ *
+ * Kept separate from {@link computeMaxLeverage} because that one is a display
+ * value and may be fractional: `BigInt(3.3333)` throws `RangeError`. Rounding
+ * DOWN also keeps client-side caps at or below what the program enforces, so a
+ * caller can never build a position the chain would reject on leverage.
+ *
+ * @throws Error if initialMarginBps is zero (infinite leverage is undefined)
+ */
+export function computeMaxLeverageFloor(initialMarginBps: bigint): bigint {
+  if (initialMarginBps <= 0n) {
+    throw new Error("computeMaxLeverageFloor: initialMarginBps must be positive");
+  }
+  return 10000n / initialMarginBps;
 }
