@@ -323,23 +323,52 @@ export function buildAdlInstruction(
 }
 
 /**
+ * Choose which ranked position an ADL should target.
+ *
+ * Exported so the selection rule can be tested directly: `buildAdlTransaction`
+ * needs a live Connection and, on v17, cannot complete anyway (see its note), so
+ * a test routed through it could not observe the choice.
+ *
+ * - An explicit `preferSide` always wins.
+ * - Otherwise the dominant side's top-ranked position. NOTE this is an SDK
+ *   heuristic, not an on-chain rule: the engine pinned to the deployed wrapper
+ *   (percolator@f53be74a) contains no long-vs-short OI comparison and no notion
+ *   of a "dominant side" at all. It is a reasonable default for a client picking
+ *   a candidate, nothing more.
+ * - When `dominantSide` is null (engine unparseable, or a layout with no OI
+ *   fields such as V0/V2/v12.15) fall back to the overall top-ranked position
+ *   rather than guessing a side.
+ */
+export function selectAdlTarget(
+  ranking: Pick<AdlRankingResult, "longs" | "shorts" | "ranked" | "dominantSide">,
+  preferSide?: AdlSide,
+): AdlRankedPosition | undefined {
+  if (preferSide === "long") return ranking.longs[0];
+  if (preferSide === "short") return ranking.shorts[0];
+  if (ranking.dominantSide === "long") return ranking.longs[0];
+  if (ranking.dominantSide === "short") return ranking.shorts[0];
+  return ranking.ranked[0];
+}
+
+/**
  * Convenience builder: fetch slab, rank positions, pick the highest-ranked
  * target on the given side, and return a ready-to-send `TransactionInstruction`.
  *
  * Returns `null` when ADL is not triggered or no eligible positions exist.
+ *
+ * NOTE (v17): this cannot produce a usable transaction on the deployed program.
+ * When a target IS found it calls `buildAdlInstruction`, which throws
+ * V17_ADL_UNSUPPORTED_MESSAGE — the deployed wrapper percolator-prog@19d5d932 has
+ * no ExecuteAdl handler. (This module never calls `encodeExecuteAdl`; an earlier
+ * revision of this note claimed it did, which was simply wrong.) It is kept for
+ * v12 slabs and for when an equivalent v17 instruction lands; the target
+ * selection in `selectAdlTarget` stays valid either way.
  *
  * @param connection    - Solana connection.
  * @param caller        - Signer — must be the market keeper/admin authority.
  * @param slab          - Slab (market) public key.
  * @param oracle        - Primary oracle public key.
  * @param programId     - Percolator program ID.
- * NOTE (v17): the instruction this builds is not reachable on the deployed
- * program. `encodeExecuteAdl` calls `removedInstruction("ExecuteAdl (v12 tag 101
- * — not in v17)")` and the deployed wrapper percolator-prog@19d5d932 has no
- * ExecuteAdl handler, so this throws at encode time against v17. It is kept for
- * v12 slabs and for when an equivalent v17 instruction lands; the target
- * selection below is the part that stays valid either way.
- *
  * @param preferSide    - Optional: target "long" or "short" side only.
  *                        If omitted, picks the dominant side's (greater net OI)
  *                        top-ranked position — or the overall top-ranked position
@@ -357,31 +386,6 @@ export function buildAdlInstruction(
  * }
  * ```
  */
-/**
- * Choose which ranked position an ADL should target.
- *
- * Exported so the selection rule can be tested directly: buildAdlTransaction
- * needs a live Connection and, on v17, throws at encode time because ExecuteAdl
- * was removed — so a test that went through it could not observe the choice.
- *
- * - An explicit `preferSide` always wins.
- * - Otherwise the dominant side's top-ranked position, since the engine
- *   deleverages the side carrying the greater net open interest.
- * - When `dominantSide` is null (engine unparseable, or a layout with no OI
- *   fields such as V0/V2/v12.15) fall back to the overall top-ranked position
- *   rather than guessing a side.
- */
-export function selectAdlTarget(
-  ranking: Pick<AdlRankingResult, "longs" | "shorts" | "ranked" | "dominantSide">,
-  preferSide?: AdlSide,
-): AdlRankedPosition | undefined {
-  if (preferSide === "long") return ranking.longs[0];
-  if (preferSide === "short") return ranking.shorts[0];
-  if (ranking.dominantSide === "long") return ranking.longs[0];
-  if (ranking.dominantSide === "short") return ranking.shorts[0];
-  return ranking.ranked[0];
-}
-
 export async function buildAdlTransaction(
   connection: Connection,
   caller: PublicKey,
