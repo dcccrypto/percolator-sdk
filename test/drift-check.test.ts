@@ -27,6 +27,7 @@ import {
   STAKE_PROGRAM_ID,
   STAKE_PROGRAM_IDS,
   getStakeProgramId,
+  deriveStakePool,
   STAKE_IX,
   encodeStakeTransferAdmin,
   encodeStakeReturnInsurance,
@@ -759,6 +760,31 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     } finally {
       if (hadWindow) (globalThis as any).window = savedWindow;
       else delete (globalThis as any).window;
+      if (savedStakeId !== undefined) process.env.STAKE_PROGRAM_ID = savedStakeId;
+      if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
+      if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
+    }
+  });
+
+  it("the PDA helpers inherit the throw when no programId and no network are given", () => {
+    // deriveStakePool/deriveStakeVaultAuth/deriveDepositPda fall back to
+    // `programId ?? getStakeProgramId()`. Deriving a stake PDA against a guessed
+    // program yields a wrong address, so the refusal must propagate rather than
+    // silently producing a PDA for the wrong network.
+    const savedStakeId = process.env.STAKE_PROGRAM_ID;
+    const savedNetwork = process.env.NETWORK;
+    const savedDefaultNetwork = process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    delete process.env.STAKE_PROGRAM_ID;
+    delete process.env.NETWORK;
+    delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    try {
+      const slab = new PublicKey(STAKE_PROGRAM_IDS.devnet);
+      expect(() => deriveStakePool(slab)).toThrow(/cannot determine the network/i);
+      // ...and still works when the program is passed explicitly.
+      expect(() =>
+        deriveStakePool(slab, new PublicKey(STAKE_PROGRAM_IDS.devnet)),
+      ).not.toThrow();
+    } finally {
       if (savedStakeId !== undefined) process.env.STAKE_PROGRAM_ID = savedStakeId;
       if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
       if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
