@@ -38,14 +38,20 @@ function assertThrows(fn: () => void, expectedMsg: string, testName: string): vo
 }
 
 /**
- * Build a valid Chainlink aggregator buffer for testing.
- * Chainlink layout: decimals at offset 138 (u8), answer at offset 216 (i64 LE)
+ * Build a valid Chainlink transmissions buffer for testing.
+ * Layout: decimals at offset 138 (u8), answer at offset 216 (i128 LE).
+ *
+ * The answer is written as a full little-endian i128 — low u64 then the
+ * sign-extended high i64 — because that is what the deployed program reads
+ * (read_i128_le, v16_program.rs:5657). Writing only the low 8 bytes would leave
+ * a negative answer encoded as a huge positive i128.
  */
 function buildChainlinkBuffer(decimals: number, answer: bigint, size = 256): Uint8Array {
   const buf = new Uint8Array(size);
   buf[CHAINLINK_DECIMALS_OFFSET] = decimals;
   const dv = new DataView(buf.buffer);
-  dv.setBigInt64(CHAINLINK_ANSWER_OFFSET, answer, true);
+  dv.setBigUint64(CHAINLINK_ANSWER_OFFSET, BigInt.asUintN(64, answer), true);
+  dv.setBigInt64(CHAINLINK_ANSWER_OFFSET + 8, answer >> 64n, true);
   return buf;
 }
 
@@ -85,12 +91,12 @@ console.log("Testing Chainlink oracle parsing...\n");
   console.log("✓ accepts 18 decimals");
 }
 
-// Accepts minimal 224-byte buffer
+// Accepts a buffer at exactly the program's minimum length (248)
 {
   const minimal = buildChainlinkBuffer(8, 1000n, CHAINLINK_MIN_SIZE);
   const minResult = parseChainlinkPrice(minimal);
-  assert(minResult.price === 1000n, "accepts minimal 224-byte buffer");
-  console.log("✓ accepts minimal 224-byte buffer");
+  assert(minResult.price === 1000n, "accepts minimal 248-byte buffer");
+  console.log("✓ accepts minimal 248-byte buffer");
 }
 
 // Rejects undersized buffers
@@ -98,12 +104,12 @@ console.log("Testing Chainlink oracle parsing...\n");
   assertThrows(
     () => parseChainlinkPrice(new Uint8Array(100)),
     "too small",
-    "rejects buffer < 224 bytes"
+    "rejects buffer < 248 bytes"
   );
   assertThrows(
-    () => parseChainlinkPrice(new Uint8Array(223)),
+    () => parseChainlinkPrice(new Uint8Array(247)),
     "too small",
-    "rejects buffer of exactly 223 bytes"
+    "rejects buffer of exactly 247 bytes"
   );
   console.log("✓ rejects undersized buffers");
 }
@@ -161,16 +167,24 @@ console.log("Testing Chainlink oracle parsing...\n");
 
 console.log("\nTesting staleness check...\n");
 
-function buildChainlinkBufferWithTimestamp(decimals: number, answer: bigint, updatedAt: bigint): Uint8Array {
+// The timestamp is written at the LITERAL offset and width the deployed program
+// uses — CL_OFF_TRANSMISSION(200) + CL_TRANS_OFF_TIMESTAMP(8) = 208, u32 LE
+// (percolator-prog@19d5d932 src/v16_program.rs:5367-5369). Deliberately NOT
+// CHAINLINK_TIMESTAMP_OFFSET: writing at whatever offset the implementation
+// happens to read makes the test tautological — it would pass even if the
+// parser read a reserved byte that is always zero on a real feed.
+const PROGRAM_TIMESTAMP_OFFSET = 208;
+
+function buildChainlinkBufferWithTimestamp(decimals: number, answer: bigint, updatedAt: number): Uint8Array {
   const buf = buildChainlinkBuffer(decimals, answer);
   const dv = new DataView(buf.buffer);
-  dv.setBigInt64(CHAINLINK_TIMESTAMP_OFFSET, updatedAt, true);
+  dv.setUint32(PROGRAM_TIMESTAMP_OFFSET, updatedAt, true);
   return buf;
 }
 
 {
   const now = Math.floor(Date.now() / 1000);
-  const fresh = buildChainlinkBufferWithTimestamp(8, 10012345678n, BigInt(now));
+  const fresh = buildChainlinkBufferWithTimestamp(8, 10012345678n, now);
   const result = parseChainlinkPrice(fresh, { maxStalenessSeconds: 60 });
   assert(result.updatedAt === now, `fresh oracle updatedAt: expected ${now}, got ${result.updatedAt}`);
   console.log("✓ fresh oracle within maxStalenessSeconds does not throw");
@@ -178,7 +192,7 @@ function buildChainlinkBufferWithTimestamp(decimals: number, answer: bigint, upd
 
 {
   const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-  const stale = buildChainlinkBufferWithTimestamp(8, 10012345678n, BigInt(thirtyDaysAgo));
+  const stale = buildChainlinkBufferWithTimestamp(8, 10012345678n, thirtyDaysAgo);
   assertThrows(
     () => parseChainlinkPrice(stale, { maxStalenessSeconds: 60 }),
     "stale",
@@ -191,10 +205,62 @@ function buildChainlinkBufferWithTimestamp(decimals: number, answer: bigint, upd
   // No maxStalenessSeconds passed: must not throw regardless of age (backward compatible),
   // but updatedAt should still be populated for callers that want to check it themselves.
   const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-  const stale = buildChainlinkBufferWithTimestamp(8, 10012345678n, BigInt(thirtyDaysAgo));
+  const stale = buildChainlinkBufferWithTimestamp(8, 10012345678n, thirtyDaysAgo);
   const result = parseChainlinkPrice(stale);
   assert(result.updatedAt === thirtyDaysAgo, "updatedAt populated even without maxStalenessSeconds");
   console.log("✓ updatedAt exposed without throwing when maxStalenessSeconds is omitted");
+}
+
+{
+  // The offset must be the program's. A buffer whose timestamp is written ONLY
+  // at the old 168 offset must NOT be read as fresh — with the previous
+  // (i64 @ 168) implementation this buffer parsed as updatedAt = now and the
+  // staleness check silently passed on an otherwise-blank feed.
+  const now = Math.floor(Date.now() / 1000);
+  const wrongOffset = buildChainlinkBuffer(8, 10012345678n);
+  new DataView(wrongOffset.buffer).setBigInt64(168, BigInt(now), true);
+  assertThrows(
+    () => parseChainlinkPrice(wrongOffset, { maxStalenessSeconds: 60 }),
+    "publish timestamp",
+    "a timestamp written only at the old offset 168 is not treated as fresh"
+  );
+  console.log("✓ timestamp is read at the program's offset 208, not 168");
+}
+
+{
+  // A zero timestamp means the feed has never published. The program rejects
+  // `publish_time <= 0` outright; the SDK must not treat it as exempt.
+  const neverPublished = buildChainlinkBuffer(8, 10012345678n);
+  assertThrows(
+    () => parseChainlinkPrice(neverPublished, { maxStalenessSeconds: 60 }),
+    "publish timestamp",
+    "rejects a feed with no publish timestamp instead of skipping the check"
+  );
+  console.log("✓ zero timestamp is rejected, not skipped");
+}
+
+{
+  // The program rejects a negative age (timestamp in the future).
+  const future = buildChainlinkBufferWithTimestamp(8, 10012345678n, Math.floor(Date.now() / 1000) + 3600);
+  assertThrows(
+    () => parseChainlinkPrice(future, { maxStalenessSeconds: 60 }),
+    "future",
+    "rejects a publish timestamp in the future"
+  );
+  console.log("✓ future timestamp rejected");
+}
+
+{
+  // The answer is i128 on-chain; a value that does not fit in i64 must be
+  // refused rather than silently truncated to a different price.
+  const big = buildChainlinkBufferWithTimestamp(8, 1n, Math.floor(Date.now() / 1000));
+  new DataView(big.buffer).setBigInt64(CHAINLINK_ANSWER_OFFSET + 8, 1n, true); // high word != 0
+  assertThrows(
+    () => parseChainlinkPrice(big, { maxStalenessSeconds: 60 }),
+    "does not fit in i64",
+    "rejects an i128 answer that would truncate"
+  );
+  console.log("✓ oversized i128 answer refused instead of truncated");
 }
 
 // --- isValidChainlinkOracle ---
@@ -214,8 +280,13 @@ console.log("\nTesting isValidChainlinkOracle...\n");
 console.log("\nTesting exported constants...\n");
 
 {
-  assert(CHAINLINK_MIN_SIZE === 224, "CHAINLINK_MIN_SIZE = 224");
+  // Pinned to the deployed wrapper percolator-prog@19d5d932:
+  // CHAINLINK_FEED_MIN_LEN = 8 + CHAINLINK_HEADER_SIZE(192) + 48 = 248,
+  // CL_OFF_DECIMALS = 138, CL_OFF_TRANSMISSION(200) + CL_TRANS_OFF_TIMESTAMP(8) = 208,
+  // CL_OFF_TRANSMISSION(200) + CL_TRANS_OFF_ANSWER(16) = 216.
+  assert(CHAINLINK_MIN_SIZE === 248, "CHAINLINK_MIN_SIZE = 248");
   assert(CHAINLINK_DECIMALS_OFFSET === 138, "CHAINLINK_DECIMALS_OFFSET = 138");
+  assert(CHAINLINK_TIMESTAMP_OFFSET === 208, "CHAINLINK_TIMESTAMP_OFFSET = 208");
   assert(CHAINLINK_ANSWER_OFFSET === 216, "CHAINLINK_ANSWER_OFFSET = 216");
   console.log("✓ exported constants correct");
 }

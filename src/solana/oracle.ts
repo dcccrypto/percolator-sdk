@@ -1,11 +1,21 @@
 /**
  * Oracle account parsing utilities.
  *
- * Chainlink aggregator layout on Solana (from Toly's percolator-cli):
- *   offset 138: decimals (u8)
- *   offset 216: latest answer (i64 LE)
+ * Chainlink transmissions-account layout, taken from the DEPLOYED wrapper
+ * percolator-prog@19d5d932 (`read_chainlink_price_e6`, src/v16_program.rs:5636)
+ * so that this parser and the on-chain program agree byte-for-byte:
  *
- * Minimum account size: 224 bytes (offset 216 + 8 bytes for i64).
+ *   CHAINLINK_HEADER_SIZE   = 192
+ *   offset   8: version (u8)                     CL_OFF_VERSION
+ *   offset 138: decimals (u8)                    CL_OFF_DECIMALS
+ *   offset 143: latest_round_id (u32 LE)         CL_OFF_LATEST_ROUND_ID
+ *   offset 148: live_length (u32 LE)             CL_OFF_LIVE_LENGTH
+ *   offset 200: transmission record              CL_OFF_TRANSMISSION = 8 + 192
+ *     +0  (200): slot (u64 LE)                   CL_TRANS_OFF_SLOT
+ *     +8  (208): timestamp (u32 LE, Unix secs)   CL_TRANS_OFF_TIMESTAMP
+ *     +16 (216): answer (i128 LE)                CL_TRANS_OFF_ANSWER
+ *
+ * Minimum account size: 248 bytes = 8 + 192 + 48 (CHAINLINK_FEED_MIN_LEN).
  *
  * These utilities validate oracle data BEFORE parsing to prevent silent
  * propagation of stale or malformed Chainlink data as price.
@@ -15,8 +25,14 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Minimum buffer size to read Chainlink price data */
-const CHAINLINK_MIN_SIZE = 224; // 216 + 8
+/**
+ * Minimum buffer size to read Chainlink price data.
+ * Mirrors the program's CHAINLINK_FEED_MIN_LEN = 8 + CHAINLINK_HEADER_SIZE(192) + 48.
+ * The previous value (224) was smaller than the program's own floor, so the SDK
+ * accepted buffers the chain rejects — and 224 cannot even hold the 16-byte
+ * answer at offset 216.
+ */
+const CHAINLINK_MIN_SIZE = 248; // 8 + 192 + 48
 
 /** Maximum reasonable decimals for a price feed */
 const MAX_DECIMALS = 18;
@@ -24,10 +40,17 @@ const MAX_DECIMALS = 18;
 /** Offset of decimals field in Chainlink aggregator account */
 const CHAINLINK_DECIMALS_OFFSET = 138;
 
-/** Offset of updated_at timestamp (i64 LE, Unix seconds) in Chainlink aggregator */
-const CHAINLINK_TIMESTAMP_OFFSET = 168;
+/**
+ * Offset of the transmission timestamp (u32 LE, Unix seconds).
+ * = CL_OFF_TRANSMISSION(200) + CL_TRANS_OFF_TIMESTAMP(8).
+ * NOTE: u32, not i64 — the program reads it with read_u32_le.
+ */
+const CHAINLINK_TIMESTAMP_OFFSET = 208;
 
-/** Offset of latest answer in Chainlink aggregator account */
+/**
+ * Offset of the latest answer.
+ * = CL_OFF_TRANSMISSION(200) + CL_TRANS_OFF_ANSWER(16).
+ */
 const CHAINLINK_ANSWER_OFFSET = 216;
 
 // ---------------------------------------------------------------------------
@@ -58,6 +81,17 @@ function readBigInt64LE(data: Uint8Array, off: number): bigint {
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigInt64(off, true);
 }
 
+function readBigUint64LE(data: Uint8Array, off: number): bigint {
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(off, true);
+}
+
+function readU32LE(data: Uint8Array, off: number): number {
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(off, true);
+}
+
+/** Largest value representable as a signed 64-bit integer. */
+const MAX_I64 = (1n << 63n) - 1n;
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -66,7 +100,8 @@ function readBigInt64LE(data: Uint8Array, off: number): bigint {
  * Parse price data from a Chainlink aggregator account buffer.
  *
  * Validates:
- * - Buffer is large enough to contain the required fields (≥ 224 bytes)
+ * - Buffer is large enough to contain the required fields (>= 248 bytes, the
+ *   program's own CHAINLINK_FEED_MIN_LEN)
  * - Decimals are in a reasonable range (0-18)
  * - Price is positive (non-zero)
  *
@@ -90,20 +125,46 @@ export function parseChainlinkPrice(data: Uint8Array, options?: ParseChainlinkOp
     );
   }
 
-  const price = readBigInt64LE(data, CHAINLINK_ANSWER_OFFSET);
-  if (price <= 0n) {
+  // The program reads the answer as a full i128 LE (read_i128_le at
+  // v16_program.rs:5657). Reconstruct the same i128 from its low (unsigned) and
+  // high (signed) halves rather than reading only the low 8 bytes, so a value
+  // that does not fit in an i64 is rejected instead of being silently truncated
+  // into a different price than the chain computed.
+  const answer =
+    (readBigInt64LE(data, CHAINLINK_ANSWER_OFFSET + 8) << 64n) |
+    readBigUint64LE(data, CHAINLINK_ANSWER_OFFSET);
+  if (answer <= 0n) {
     throw new Error(
-      `Oracle price is non-positive: ${price}`
+      `Oracle price is non-positive: ${answer}`
     );
   }
+  if (answer > MAX_I64) {
+    throw new Error(
+      `Oracle answer ${answer} does not fit in i64; refusing to truncate`
+    );
+  }
+  const price = answer;
 
-  // Read updated_at timestamp (i64 LE at offset 168)
-  const updatedAtBig = readBigInt64LE(data, CHAINLINK_TIMESTAMP_OFFSET);
-  const updatedAt = Number(updatedAtBig);
+  // Transmission timestamp: u32 LE at offset 208 (see the layout note above).
+  const updatedAt = readU32LE(data, CHAINLINK_TIMESTAMP_OFFSET);
 
-  if (options?.maxStalenessSeconds !== undefined && updatedAt > 0) {
+  if (options?.maxStalenessSeconds !== undefined) {
+    // Mirror the program, which rejects `publish_time <= 0` outright rather than
+    // skipping the check: a zero timestamp means the feed has never published,
+    // which is maximally stale, not exempt from staleness.
+    if (updatedAt <= 0) {
+      throw new Error(
+        `Oracle has no valid publish timestamp (updatedAt=${updatedAt})`
+      );
+    }
     const now = Math.floor(Date.now() / 1000);
     const age = now - updatedAt;
+    // The program also rejects a negative age (timestamp in the future).
+    if (age < 0) {
+      throw new Error(
+        `Oracle publish timestamp is in the future by ${-age}s`
+      );
+    }
     if (age > options.maxStalenessSeconds) {
       throw new Error(
         `Oracle price is stale: last updated ${age}s ago (max ${options.maxStalenessSeconds}s)`
