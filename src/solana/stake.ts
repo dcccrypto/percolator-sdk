@@ -42,9 +42,16 @@ import { concatBytes } from '../abi/encode.js';
  * new integrations) and already runs the ADOPTED `percolator-stake` lineage this
  * module targets — see the module doc above.
  *
- * mainnet: UNVERIFIED — no confirmed mainnet stake/vault deployment found in any
- * v17 planning doc (Percolator mainnet is still in prep). Do not treat this as ground
- * truth; prefer the STAKE_PROGRAM_ID env override on mainnet until DevOps confirms.
+ * mainnet: UNVERIFIED as *ours* — no confirmed mainnet stake/vault deployment exists
+ * in any v17 planning doc (Percolator mainnet is still in prep). Do not treat this as
+ * ground truth; prefer the STAKE_PROGRAM_ID env override on mainnet until DevOps
+ * confirms.
+ *
+ * IMPORTANT: "unverified" does NOT mean "inert". Checked against mainnet RPC on
+ * 2026-08-16, DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F is a LIVE, executable
+ * BPFLoaderUpgradeable program. That is precisely why getStakeProgramId() must not
+ * silently default to mainnet: an unconfigured browser caller would have resolved to
+ * a real, executing mainnet program rather than failing safe.
  */
 export const STAKE_PROGRAM_IDS = {
   devnet: 'GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3',
@@ -99,11 +106,34 @@ export function getStakeProgramId(network?: 'devnet' | 'mainnet'): PublicKey {
                 safeEnv('NETWORK')?.toLowerCase() ?? '';
       if (n === 'mainnet' || n === 'mainnet-beta') return 'mainnet' as const;
       if (n === 'devnet') return 'devnet' as const;
-      // In browser bundles, process.env is empty (env vars aren't inlined into
-      // third-party SDK code). Default to mainnet to match the app's fail-closed
-      // behavior — devnet must be opted into explicitly.
-      if (typeof window !== 'undefined') return 'mainnet' as const;
-      return 'devnet' as const;
+      // SECURITY: this used to return 'mainnet' whenever `window` was defined —
+      // i.e. in every browser bundle, where process.env is empty because env vars
+      // are not inlined into third-party SDK code. An unconfigured frontend caller
+      // was therefore resolved to STAKE_PROGRAM_IDS.mainnet, which is a LIVE,
+      // executable BPFLoaderUpgradeable program on mainnet (checked 2026-08-16).
+      //
+      // We deliberately do NOT substitute a devnet default here. Unlike
+      // getCurrentNetwork() in program-ids.ts, which fails open to devnet because
+      // it returns a label, this function returns a PROGRAM ADDRESS THAT RECEIVES
+      // FUNDS. A wrong answer in either direction is a silent wrong-network bug;
+      // defaulting to devnet would merely defer it to the day mainnet launches and
+      // a forgotten env var silently points a mainnet UI at the devnet vault.
+      // Refuse to guess: the network must be explicit.
+      // The message must not assert a cause it has not established. This fires in
+      // Node too — whenever NETWORK / NEXT_PUBLIC_DEFAULT_NETWORK is simply unset,
+      // with process.env fully available — so claiming "browser bundle" would send
+      // a server-side caller chasing the wrong thing.
+      throw new Error(
+        'getStakeProgramId: cannot determine the network. Neither NETWORK nor ' +
+        'NEXT_PUBLIC_DEFAULT_NETWORK is set (in a browser bundle process.env is ' +
+        'empty, so this is expected there; in Node it means the variable is unset). ' +
+        "Pass an explicit network argument — getStakeProgramId('devnet') or " +
+        "getStakeProgramId('mainnet') — or set STAKE_PROGRAM_ID to override the " +
+        'address directly. Refusing to guess: this resolves a fund-custody program ' +
+        'address, and callers that derive PDAs from it (deriveStakePool, ' +
+        'deriveStakeVaultAuth, deriveDepositPda) would otherwise produce addresses ' +
+        'for the wrong network.',
+      );
     })();
 
   const id = STAKE_PROGRAM_IDS[detectedNetwork];

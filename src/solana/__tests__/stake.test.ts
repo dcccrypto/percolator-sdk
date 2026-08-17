@@ -1,3 +1,11 @@
+// getStakeProgramId() refuses to guess the network (it resolves a fund-custody
+// program address), so a suite that derives PDAs without passing an explicit
+// programId must declare which network it runs against. These tests execute in
+// Node, where process.env is available — this is exactly the "configured
+// environment" the throw asks for, not a workaround for it. The throw itself is
+// covered by test/drift-check.test.ts.
+process.env.NETWORK ??= 'devnet';
+
 import { describe, it, expect } from 'vitest';
 import { PublicKey, Keypair } from '@solana/web3.js';
 

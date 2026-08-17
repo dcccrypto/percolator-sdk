@@ -27,6 +27,7 @@ import {
   STAKE_PROGRAM_ID,
   STAKE_PROGRAM_IDS,
   getStakeProgramId,
+  deriveStakePool,
   STAKE_IX,
   encodeStakeTransferAdmin,
   encodeStakeReturnInsurance,
@@ -733,7 +734,110 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
   });
 
   it("STAKE_PROGRAM_IDS.devnet constant is GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
+    // This is the deployed vault per the deployment ledger (deployed commit 474079f).
+    // The pre-reconcile SDK line carried 6aJb1F..., which did NOT match it.
     expect(STAKE_PROGRAM_IDS.devnet).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
+  });
+
+  it("getStakeProgramId() with no args, no env, in a browser context THROWS rather than guessing", () => {
+    // The old code returned 'mainnet' here, silently resolving an unconfigured
+    // frontend to a live executable mainnet program. We refuse to guess at all:
+    // this returns a fund-custody program address, so a devnet default would just
+    // move the silent wrong-network bug rather than remove it.
+    const savedStakeId = process.env.STAKE_PROGRAM_ID;
+    const savedNetwork = process.env.NETWORK;
+    const savedDefaultNetwork = process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    delete process.env.STAKE_PROGRAM_ID;
+    delete process.env.NETWORK;
+    delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    const hadWindow = "window" in globalThis;
+    const savedWindow = (globalThis as any).window;
+    (globalThis as any).window = {};
+    try {
+      expect(() => getStakeProgramId()).toThrow(/cannot determine the network/i);
+      // and specifically never silently returns either address
+      let resolved: string | null = null;
+      try { resolved = getStakeProgramId().toBase58(); } catch { /* expected */ }
+      expect(resolved).toBeNull();
+    } finally {
+      if (hadWindow) (globalThis as any).window = savedWindow;
+      else delete (globalThis as any).window;
+      if (savedStakeId !== undefined) process.env.STAKE_PROGRAM_ID = savedStakeId;
+      if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
+      if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
+    }
+  });
+
+  it("the PDA helpers inherit the throw when no programId and no network are given", () => {
+    // deriveStakePool/deriveStakeVaultAuth/deriveDepositPda fall back to
+    // `programId ?? getStakeProgramId()`. Deriving a stake PDA against a guessed
+    // program yields a wrong address, so the refusal must propagate rather than
+    // silently producing a PDA for the wrong network.
+    const savedStakeId = process.env.STAKE_PROGRAM_ID;
+    const savedNetwork = process.env.NETWORK;
+    const savedDefaultNetwork = process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    delete process.env.STAKE_PROGRAM_ID;
+    delete process.env.NETWORK;
+    delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    try {
+      const slab = new PublicKey(STAKE_PROGRAM_IDS.devnet);
+      expect(() => deriveStakePool(slab)).toThrow(/cannot determine the network/i);
+      // ...and still works when the program is passed explicitly.
+      expect(() =>
+        deriveStakePool(slab, new PublicKey(STAKE_PROGRAM_IDS.devnet)),
+      ).not.toThrow();
+    } finally {
+      if (savedStakeId !== undefined) process.env.STAKE_PROGRAM_ID = savedStakeId;
+      if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
+      if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
+    }
+  });
+
+  it("an explicit STAKE_PROGRAM_ID override still resolves without a network", () => {
+    // The override is checked before network detection, so a caller that pins the
+    // address directly is unaffected by the throw above.
+    const savedStakeId = process.env.STAKE_PROGRAM_ID;
+    const savedNetwork = process.env.NETWORK;
+    const savedDefaultNetwork = process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    delete process.env.NETWORK;
+    delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    process.env.STAKE_PROGRAM_ID = STAKE_PROGRAM_IDS.devnet;
+    try {
+      expect(getStakeProgramId().toBase58()).toBe(STAKE_PROGRAM_IDS.devnet);
+    } finally {
+      delete process.env.STAKE_PROGRAM_ID;
+      if (savedStakeId !== undefined) process.env.STAKE_PROGRAM_ID = savedStakeId;
+      if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
+      if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
+    }
+  });
+
+  it("an explicit network argument still opts in to mainnet", () => {
+    // Refusing to GUESS must not remove the ability to target mainnet deliberately.
+    // An explicit argument is always honoured; only the ambiguous case throws.
+    expect(getStakeProgramId("mainnet").toBase58()).toBe(STAKE_PROGRAM_IDS.mainnet);
+    expect(getStakeProgramId("devnet").toBase58()).toBe(STAKE_PROGRAM_IDS.devnet);
+  });
+
+  it("NETWORK / NEXT_PUBLIC_DEFAULT_NETWORK=mainnet still opts in to mainnet", () => {
+    const savedStakeId = process.env.STAKE_PROGRAM_ID;
+    const savedNetwork = process.env.NETWORK;
+    const savedDefaultNetwork = process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+    delete process.env.STAKE_PROGRAM_ID;
+    delete process.env.NETWORK;
+    try {
+      process.env.NEXT_PUBLIC_DEFAULT_NETWORK = "mainnet";
+      expect(getStakeProgramId().toBase58()).toBe(STAKE_PROGRAM_IDS.mainnet);
+      delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+      process.env.NETWORK = "mainnet-beta";
+      expect(getStakeProgramId().toBase58()).toBe(STAKE_PROGRAM_IDS.mainnet);
+    } finally {
+      delete process.env.NETWORK;
+      delete process.env.NEXT_PUBLIC_DEFAULT_NETWORK;
+      if (savedStakeId !== undefined) process.env.STAKE_PROGRAM_ID = savedStakeId;
+      if (savedNetwork !== undefined) process.env.NETWORK = savedNetwork;
+      if (savedDefaultNetwork !== undefined) process.env.NEXT_PUBLIC_DEFAULT_NETWORK = savedDefaultNetwork;
+    }
   });
 
   it("mainnet and devnet addresses are different", () => {
