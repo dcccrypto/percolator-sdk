@@ -130,11 +130,38 @@ function parseDexScreenerPairs(json: unknown): PriceSource[] {
   return sources.slice(0, 10);
 }
 
+/**
+ * Parse a Jupiter price row.
+ *
+ * Handles BOTH shapes:
+ *   v3 (current): { "<mint>": { usdPrice, liquidity, decimals, ... } }
+ *   v2 (retired): { data: { "<mint>": { price, mintSymbol } } }
+ *
+ * v2 was retired — `https://api.jup.ag/price/v2` returns HTTP 404 — which meant
+ * `fetchJupiterSource` returned null on every real call and EVERY Jupiter
+ * cross-validation in this module was silently inert, including the #227/#315
+ * Pyth enrichment guard. The v2 branch is kept only so a caller pinning an old
+ * mock or a proxy that still speaks v2 keeps working.
+ */
 function parseJupiterMintEntry(
   json: unknown,
   mint: string,
-): { price: number; mintSymbol: string } | null {
+): { price: number; mintSymbol: string; liquidity: number } | null {
   if (!isRecord(json)) return null;
+
+  // v3: the mint is a top-level key.
+  const v3Row = json[mint];
+  if (isRecord(v3Row) && v3Row.usdPrice !== undefined && v3Row.usdPrice !== null) {
+    const price = parseFloat(String(v3Row.usdPrice)) || 0;
+    if (price <= 0) return null;
+    const liquidity =
+      typeof v3Row.liquidity === "number" && Number.isFinite(v3Row.liquidity)
+        ? v3Row.liquidity
+        : 0;
+    return { price, mintSymbol: "?", liquidity };
+  }
+
+  // v2 (retired): rows live under `data`.
   const data = json.data;
   if (!isRecord(data)) return null;
   const row = data[mint];
@@ -145,7 +172,7 @@ function parseJupiterMintEntry(
   if (price <= 0) return null;
   let mintSymbol = "?";
   if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
-  return { price, mintSymbol };
+  return { price, mintSymbol, liquidity: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +282,7 @@ function lookupPythSource(mint: string): PriceSource | null {
 async function fetchJupiterSource(mint: string, signal?: AbortSignal): Promise<PriceSource | null> {
   try {
     const resp = await fetch(
-      `https://api.jup.ag/price/v2?ids=${encodeURIComponent(mint)}`,
+      `https://api.jup.ag/price/v3?ids=${encodeURIComponent(mint)}`,
       {
         signal: effectiveSignal(signal),
         headers: { "User-Agent": "percolator/1.0" },
@@ -269,7 +296,10 @@ async function fetchJupiterSource(mint: string, signal?: AbortSignal): Promise<P
       type: "jupiter",
       address: mint,
       pairLabel: `${row.mintSymbol} / USD (Jupiter)`,
-      liquidity: 0, // Jupiter aggregator — no single pool liquidity
+      // v3 reports aggregate routable liquidity; v2 did not (falls back to 0).
+      // Used below to decide whether Jupiter is a credible enough reference to
+      // demote a disagreeing pool.
+      liquidity: row.liquidity,
       price: row.price,
       confidence: 40, // Fallback — lower confidence
     };
@@ -298,6 +328,54 @@ export async function resolvePrice(
     fetchJupiterSource(mint, combinedSignal),
   ]);
 
+  // #227: cross-validate a manipulable DEX source against an independent Jupiter
+  // reference. Originally this threshold (now tightened to 5% by #315) only gated
+  // whether a Pyth source got enriched (see below), so a token with NO Pyth feed —
+  // the common case for permissionless markets — had its top DEX source ranked
+  // purely on self-reported liquidity, with no check against an independent price
+  // at all. A single high-liquidity-labeled pool (manipulable via flash loan, per
+  // the SECURITY NOTE in dex-oracle.ts) could win bestSource outright even when
+  // Jupiter's aggregated price disagreed by an arbitrary amount. Cap the top DEX
+  // source's confidence to Jupiter's when they diverge beyond the same tightened
+  // threshold used for Pyth enrichment, so it can no longer outrank a disagreeing
+  // independent reference purely on liquidity. The source stays in allSources for
+  // transparency; only its ranking weight is reduced.
+  const MAX_ENRICHMENT_DEVIATION = 0.05; // 5% (#315)
+  // How far below Jupiter's own confidence a distrusted DEX source is placed. It
+  // must be STRICTLY below, not equal: allSources is [...dexSources, jupiterSource]
+  // and Array.prototype.sort is stable, so an equal score leaves the DEX source
+  // ahead and bestSource unchanged.
+  const DISTRUST_CONFIDENCE_MARGIN = 1;
+  if (jupiterSource && jupiterSource.price > 0) {
+    // SCOPE: this runs before the Pyth branch and therefore also reorders sources
+    // for Pyth-listed mints. That is intentional and harmless to the Pyth price
+    // itself — enrichment reads dexSources[0].price, which is untouched; only
+    // ranking weight changes, and Pyth's own confidence (95) still outranks
+    // everything here.
+    //
+    // CREDIBILITY GATE: only demote when Jupiter reports real routable liquidity.
+    // Jupiter is an aggregate across venues, so it is normally the better
+    // reference — but with v2 retired a malformed/empty response used to yield a
+    // liquidity-0 row, and demoting a deep honest pool in favour of that would
+    // make the resolved price WORSE. If Jupiter reports no depth we leave the
+    // ranking alone rather than trust it.
+    const jupiterIsCredible = jupiterSource.liquidity > 0;
+    const distrusted = Math.max(0, jupiterSource.confidence - DISTRUST_CONFIDENCE_MARGIN);
+    if (jupiterIsCredible) {
+      // Demote EVERY divergent DEX source, not just dexSources[0]: fetchDexSources
+      // returns up to 10 pools and confidence is a step function of liquidity, so a
+      // second pool in the same tier would otherwise keep its score and win
+      // bestSource at the divergent price.
+      for (const dex of dexSources) {
+        const nonPythMid = (dex.price + jupiterSource.price) / 2;
+        const nonPythDeviation = Math.abs(dex.price - jupiterSource.price) / nonPythMid;
+        if (nonPythDeviation > MAX_ENRICHMENT_DEVIATION) {
+          dex.confidence = Math.min(dex.confidence, distrusted);
+        }
+      }
+    }
+  }
+
   const pythSource = lookupPythSource(mint);
 
   const allSources: PriceSource[] = [];
@@ -320,7 +398,6 @@ export async function resolvePrice(
     // DEX pool to +49% of true price while Jupiter remained at true price — a deviation
     // of ~39% passes the 50% gate — causing the enriched Pyth price to be 24.5% above
     // true, which can trigger mass incorrect liquidations on markets using EWMA oracle mode.
-    const MAX_ENRICHMENT_DEVIATION = 0.05; // 5%
     let enrichedPrice = 0;
     let singleSource = false;
     if (dexPrice > 0 && jupPrice > 0) {

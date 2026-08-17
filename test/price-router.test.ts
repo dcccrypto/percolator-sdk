@@ -98,6 +98,8 @@ describe("resolvePrice", () => {
       quoteToken?: { symbol: string };
     }>;
     jupiterPrice?: number | null;
+    /** Aggregate routable liquidity Jupiter reports (v3 field). Default 10M. */
+    jupiterLiquidity?: number;
     dexFail?: boolean;
     jupFail?: boolean;
   }) {
@@ -113,21 +115,25 @@ describe("resolvePrice", () => {
       }
       if (url.includes("jup.ag")) {
         if (opts?.jupFail) throw new Error("Network error");
+        // Must be the CURRENT price/v3 shape. The previous helper returned the v2
+        // envelope { data: { <mint>: { price } } }, but api.jup.ag/price/v2 has
+        // been retired and answers 404 — so every Jupiter-dependent assertion was
+        // being validated against a response the SDK could never actually receive.
+        expect(url).toContain("/price/v3");
         const mint = new URL(url).searchParams.get("ids") || "";
         const price = opts?.jupiterPrice;
         return {
           ok: true,
-          json: async () => ({
-            data:
-              price != null
-                ? {
-                    [mint]: {
-                      price: String(price),
-                      mintSymbol: "TEST",
-                    },
-                  }
-                : {},
-          }),
+          json: async () =>
+            price != null
+              ? {
+                  [mint]: {
+                    usdPrice: price,
+                    liquidity: opts?.jupiterLiquidity ?? 10_000_000,
+                    decimals: 9,
+                  },
+                }
+              : {},
         };
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
@@ -208,6 +214,163 @@ describe("resolvePrice", () => {
     expect(result.bestSource!.type).toBe("dex");
     expect(result.bestSource!.dexId).toBe("raydium");
     expect(result.bestSource!.confidence).toBe(75); // 200K liquidity
+  });
+
+  it("#227-extension: a non-Pyth token's high-liquidity DEX price loses to Jupiter on the ranking when they diverge sharply", async () => {
+    const unknownMint = "DivergentMint11111111111111111111111111111";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair-divergent",
+          liquidity: { usd: 5_000_000 }, // would normally win outright (confidence 90)
+          priceUsd: "10.0",
+          baseToken: { symbol: "DIV" },
+          quoteToken: { symbol: "SOL" },
+        },
+      ],
+      jupiterPrice: 1.0, // independent reference disagrees by 10x — far beyond the 5% threshold
+    });
+
+    const result = await resolvePrice(unknownMint);
+
+    const dexSource = result.allSources.find((s) => s.type === "dex");
+    const jupSource = result.allSources.find((s) => s.type === "jupiter");
+    expect(dexSource).toBeDefined();
+    expect(jupSource).toBeDefined();
+    // THE security objective: the manipulated DEX price must not be the resolved
+    // price. Asserting only the capped confidence is not enough — capping to
+    // exactly Jupiter's 40 ties, and a stable sort keeps the DEX source (pushed
+    // first) ahead, so bestSource would still be the manipulated 10.0.
+    expect(result.bestSource!.type).toBe("jupiter");
+    expect(result.bestSource!.price).toBe(1.0);
+    // Strictly below Jupiter, not merely equal to it.
+    expect(dexSource!.confidence).toBeLessThan(jupSource!.confidence);
+    expect(dexSource!.price).toBe(10.0); // price itself is untouched, only ranking weight
+  });
+
+  it("#227-extension: EVERY divergent DEX pool is demoted, not just the highest-liquidity one", async () => {
+    const unknownMint = "MultiPoolMint111111111111111111111111111111";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair-divergent-a",
+          liquidity: { usd: 5_000_000 }, // same >$1M tier => confidence 90
+          priceUsd: "10.0",
+          baseToken: { symbol: "DIV" },
+          quoteToken: { symbol: "SOL" },
+        },
+        {
+          chainId: "solana",
+          dexId: "meteora",
+          pairAddress: "pair-divergent-b",
+          liquidity: { usd: 4_000_000 }, // also >$1M => confidence 90
+          priceUsd: "9.8",
+          baseToken: { symbol: "DIV" },
+          quoteToken: { symbol: "SOL" },
+        },
+      ],
+      jupiterPrice: 1.0,
+    });
+
+    const result = await resolvePrice(unknownMint);
+
+    const jupSource = result.allSources.find((s) => s.type === "jupiter")!;
+    const dexSources = result.allSources.filter((s) => s.type === "dex");
+    expect(dexSources.length).toBe(2);
+    // Capping only dexSources[0] would leave the second pool at 90 and it would
+    // win bestSource at the divergent price.
+    for (const dex of dexSources) {
+      expect(dex.confidence).toBeLessThan(jupSource.confidence);
+    }
+    expect(result.bestSource!.type).toBe("jupiter");
+  });
+
+  it("#227-extension: a non-Pyth token's DEX and Jupiter prices in agreement keep full DEX confidence", async () => {
+    const unknownMint = "AgreeingMint1111111111111111111111111111111";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair-agreeing",
+          liquidity: { usd: 5_000_000 },
+          priceUsd: "10.0",
+          baseToken: { symbol: "AGR" },
+          quoteToken: { symbol: "SOL" },
+        },
+      ],
+      jupiterPrice: 10.2, // close agreement, well within 5%
+    });
+
+    const result = await resolvePrice(unknownMint);
+
+    const dexSource = result.allSources.find((s) => s.type === "dex");
+    expect(dexSource).toBeDefined();
+    expect(dexSource!.confidence).toBe(90); // untouched — sources agree
+    expect(result.bestSource!.type).toBe("dex");
+  });
+
+  it("parses the CURRENT price/v3 response shape (v2 is retired and 404s)", async () => {
+    const unknownMint = "V3ShapeMint11111111111111111111111111111111";
+    mockApis({ dexPairs: [], jupiterPrice: 3.5, jupiterLiquidity: 1_000_000 });
+    const result = await resolvePrice(unknownMint);
+    const jup = result.allSources.find((s) => s.type === "jupiter");
+    expect(jup, "v3 row must parse — otherwise every Jupiter check is inert").toBeDefined();
+    expect(jup!.price).toBe(3.5);
+    expect(jup!.liquidity).toBe(1_000_000);
+  });
+
+  it("does not demote an honest pool when Jupiter reports no routable liquidity", async () => {
+    // A liquidity-0 Jupiter row is not a credible reference. Trusting it would
+    // make the resolved price WORSE than leaving the deep pool alone.
+    const unknownMint = "ThinJupMint11111111111111111111111111111111";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair-deep",
+          liquidity: { usd: 50_000_000 },
+          priceUsd: "10.0",
+          baseToken: { symbol: "DEEP" },
+          quoteToken: { symbol: "SOL" },
+        },
+      ],
+      jupiterPrice: 5.0,        // disagrees by 66%
+      jupiterLiquidity: 0,      // ...but has no depth behind it
+    });
+    const result = await resolvePrice(unknownMint);
+    const dex = result.allSources.find((s) => s.type === "dex")!;
+    expect(dex.confidence).toBe(90);
+    expect(result.bestSource!.type).toBe("dex");
+  });
+
+  it("an honest pool just inside the 5% band keeps full confidence", async () => {
+    // Boundary case: the previous benign test used a comfortable 2% gap and never
+    // probed near the threshold.
+    const unknownMint = "NearBandMint1111111111111111111111111111111";
+    mockApis({
+      dexPairs: [
+        {
+          chainId: "solana",
+          dexId: "raydium",
+          pairAddress: "pair-near",
+          liquidity: { usd: 5_000_000 },
+          priceUsd: "10.0",
+          baseToken: { symbol: "NEAR" },
+          quoteToken: { symbol: "SOL" },
+        },
+      ],
+      jupiterPrice: 10.4, // mid 10.2 -> deviation ~3.92%, inside the band
+    });
+    const result = await resolvePrice(unknownMint);
+    const dex = result.allSources.find((s) => s.type === "dex")!;
+    expect(dex.confidence).toBe(90);
+    expect(result.bestSource!.type).toBe("dex");
   });
 
   it("falls back to Jupiter when no DEX data", async () => {
