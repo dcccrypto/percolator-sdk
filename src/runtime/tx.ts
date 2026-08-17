@@ -11,6 +11,63 @@ import {
 } from "@solana/web3.js";
 import { parseErrorFromLogs } from "../abi/errors.js";
 
+/**
+ * Rank of the three cluster confirmation levels the RPC reports in
+ * `SignatureStatus.confirmationStatus`.
+ */
+const CONFIRMATION_RANK = {
+  processed: 0,
+  confirmed: 1,
+  finalized: 2,
+} as const;
+
+/**
+ * Minimum `confirmationStatus` rank that satisfies a requested `Commitment`.
+ * The deprecated aliases map onto their modern equivalents exactly as
+ * @solana/web3.js does: single/singleGossip -> confirmed, max/root -> finalized,
+ * recent -> processed.
+ */
+function requiredConfirmationRank(commitment: Commitment): number {
+  // Grouping copied from @solana/web3.js itself, NOT guessed. Its confirmation
+  // switch (lib/index.cjs.js:6602-6614 and :6799-6812) buckets the deprecated
+  // aliases as:
+  //   'confirmed' | 'single' | 'singleGossip'  -> requires >= confirmed
+  //   'finalized' | 'max'    | 'root'          -> requires    finalized
+  //   everything else ('processed', 'recent')  -> requires >= processed
+  // An earlier revision put `single`/`singleGossip` in the processed bucket, which
+  // meant a caller asking for `singleGossip` and observing only a `processed`
+  // status was told the transaction had SETTLED — reintroducing exactly the
+  // premature-settlement bug this function exists to prevent.
+  switch (commitment) {
+    case "confirmed":
+    case "single":
+    case "singleGossip":
+      return CONFIRMATION_RANK.confirmed;
+    case "finalized":
+    case "max":
+    case "root":
+      return CONFIRMATION_RANK.finalized;
+    case "processed":
+    case "recent":
+    default:
+      return CONFIRMATION_RANK.processed;
+  }
+}
+
+/**
+ * True when an observed signature status is at least as strong as the level the
+ * caller asked for. A merely "processed" transaction can still be dropped or
+ * rolled back, so treating it as settled would reintroduce exactly the premature
+ * -settlement bug that #311 fixed by defaulting sends to "finalized".
+ */
+function meetsCommitment(
+  observed: keyof typeof CONFIRMATION_RANK | undefined | null,
+  required: Commitment
+): boolean {
+  if (!observed) return false;
+  return CONFIRMATION_RANK[observed] >= requiredConfirmationRank(required);
+}
+
 export interface BuildIxParams {
   programId: PublicKey;
   keys: AccountMeta[];
@@ -191,9 +248,27 @@ export async function simulateOrSend(
     preflightCommitment: effectiveCommitment,
   };
 
+  // sendTransaction is its own try/catch: only here is it true that no
+  // signature was ever produced, so signature: "" is the correct result.
+  let signature: string;
   try {
-    const signature = await connection.sendTransaction(tx, signers, options);
+    signature = await connection.sendTransaction(tx, signers, options);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    return {
+      signature: "",
+      slot: 0,
+      err: message,
+      logs: [],
+    };
+  }
 
+  // Fetch logs at the same finality level used for confirmation.
+  // getTransaction only accepts Finality ("confirmed" | "finalized"); map anything
+  // weaker than "finalized" to "confirmed" — the safest valid fallback.
+  const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
+
+  try {
     const confirmation = await connection.confirmTransaction(
       {
         signature,
@@ -203,10 +278,6 @@ export async function simulateOrSend(
       effectiveCommitment
     );
 
-    // Fetch logs at the same finality level used for confirmation.
-    // getTransaction only accepts Finality ("confirmed" | "finalized"); map anything
-    // weaker than "finalized" to "confirmed" — the safest valid fallback.
-    const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
     const txInfo = await connection.getTransaction(signature, {
       commitment: txFinality,
       maxSupportedTransactionVersion: 0,
@@ -234,11 +305,75 @@ export async function simulateOrSend(
       logs,
     };
   } catch (e: unknown) {
+    // confirmTransaction/getTransaction threw (e.g. TransactionExpiredBlockheightExceededError
+    // on an ordinary RPC timeout) — this does NOT mean the transaction failed to land,
+    // only that we didn't observe confirmation in time. Previously this branch discarded
+    // the real signature obtained above and returned signature: "", which left the caller
+    // with no way to check whether it's safe to retry — for a non-idempotent operation
+    // (deposit/withdraw/trade) a naive retry-on-error could then double-submit a
+    // transaction that had actually already landed. Check the real on-chain status before
+    // reporting failure, and always return the real signature so the caller can verify
+    // it themselves even if this fallback check also fails.
     const message = e instanceof Error ? e.message : String(e);
+    try {
+      const status = await connection.getSignatureStatus(signature, {
+        searchTransactionHistory: true,
+      });
+      // Only treat the fallback lookup as authoritative when the observed level
+      // actually satisfies the commitment the caller asked for. `status.value`
+      // being non-null merely means the cluster has SEEN the transaction — at
+      // "processed" it can still be dropped or rolled back, and reporting that
+      // as a settled success would be the same premature-settlement bug #311 fixed.
+      if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
+        const txInfo = await connection.getTransaction(signature, {
+          commitment: txFinality,
+          maxSupportedTransactionVersion: 0,
+        });
+        const logs = txInfo?.meta?.logMessages ?? [];
+        let err: string | null = null;
+        let hint: string | undefined;
+        if (status.value.err) {
+          const parsed = parseErrorFromLogs(logs);
+          if (parsed) {
+            err = `${parsed.name} (0x${parsed.code.toString(16)})`;
+            hint = parsed.hint;
+          } else {
+            err = JSON.stringify(status.value.err);
+          }
+        }
+        return {
+          signature,
+          // `SignatureStatus.slot` is the slot the transaction was PROCESSED in.
+          // `status.context.slot` is the RPC's head slot at query time — a
+          // different, much later number — so it must not be used as the tx slot.
+          slot: txInfo?.slot ?? status.value.slot,
+          err,
+          hint,
+          logs,
+        };
+      }
+      if (status.value) {
+        // Seen, but weaker than requested. Report it as unresolved rather than
+        // settled, while still handing back the signature and the real landing slot.
+        const observed = status.value.confirmationStatus ?? "unknown";
+        return {
+          signature,
+          slot: status.value.slot,
+          err:
+            `confirmation status unknown (${message}) — transaction is only "${observed}" ` +
+            `but "${effectiveCommitment}" was required; it may still be dropped or may settle. ` +
+            `Check signature ${signature} before retrying`,
+          logs: [],
+        };
+      }
+    } catch {
+      // Status lookup itself failed too — fall through to the ambiguous result below,
+      // which still carries the real signature instead of discarding it.
+    }
     return {
-      signature: "",
+      signature,
       slot: 0,
-      err: message,
+      err: `confirmation status unknown (${message}) — the transaction may have already landed; check signature ${signature} before retrying`,
       logs: [],
     };
   }
