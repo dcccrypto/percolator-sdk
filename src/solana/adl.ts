@@ -106,6 +106,21 @@ export interface AdlRankingResult {
   pnlPosTot: bigint;
   /** max_pnl_cap from market config. */
   maxPnlCap: bigint;
+  /**
+   * The side with greater net open interest (engine.longOi vs engine.shortOi).
+   *
+   * `null` when the side cannot be determined — either engine state could not be
+   * parsed at all, OR the detected slab layout carries no open-interest fields.
+   * V0, V2 and v12.15 layouts set engineLongOiOff/engineShortOiOff to -1, and
+   * parseEngine SUCCEEDS on those returning longOi = shortOi = 0n, so a naive
+   * `shortOi > longOi` comparison would silently report "long" for a slab that
+   * has no OI data at all. Callers must treat `null` as "unknown", not "long".
+   *
+   * Ties (equal, non-absent OI) resolve to "long". That is this SDK's own
+   * convention, not an on-chain guarantee — the deployed wrapper
+   * percolator-prog@19d5d932 emits no target_side log and exposes no tie rule.
+   */
+  dominantSide: AdlSide | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,9 +209,19 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
   const layout = detectSlabLayout(slabData.length, slabData);
 
   let pnlPosTot = 0n;
+  let dominantSide: AdlSide | null = null;
   try {
     const engine = parseEngine(slabData);
     pnlPosTot = engine.pnlPosTot;
+    // Only meaningful when the layout actually carries OI fields. On V0, V2 and
+    // v12.15 both offsets are -1 and parseEngine returns 0n for each, so
+    // comparing them would fabricate "long" from absent data.
+    const hasOiFields =
+      layout !== null && layout.engineLongOiOff >= 0 && layout.engineShortOiOff >= 0;
+    if (hasOiFields) {
+      // Ties resolve to "long" (SDK convention — see AdlRankingResult.dominantSide).
+      dominantSide = engine.shortOi > engine.longOi ? "short" : "long";
+    }
   } catch (err) {
     console.warn(
       `[rankAdlPositions] parseEngine failed:`,
@@ -262,7 +287,7 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
     (a, b) => (b.pnlPct > a.pnlPct ? 1 : b.pnlPct < a.pnlPct ? -1 : 0)
   );
 
-  return { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap };
+  return { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap, dominantSide };
 }
 
 /**
@@ -298,10 +323,46 @@ export function buildAdlInstruction(
 }
 
 /**
+ * Choose which ranked position an ADL should target.
+ *
+ * Exported so the selection rule can be tested directly: `buildAdlTransaction`
+ * needs a live Connection and, on v17, cannot complete anyway (see its note), so
+ * a test routed through it could not observe the choice.
+ *
+ * - An explicit `preferSide` always wins.
+ * - Otherwise the dominant side's top-ranked position. NOTE this is an SDK
+ *   heuristic, not an on-chain rule: the engine pinned to the deployed wrapper
+ *   (percolator@f53be74a) contains no long-vs-short OI comparison and no notion
+ *   of a "dominant side" at all. It is a reasonable default for a client picking
+ *   a candidate, nothing more.
+ * - When `dominantSide` is null (engine unparseable, or a layout with no OI
+ *   fields such as V0/V2/v12.15) fall back to the overall top-ranked position
+ *   rather than guessing a side.
+ */
+export function selectAdlTarget(
+  ranking: Pick<AdlRankingResult, "longs" | "shorts" | "ranked" | "dominantSide">,
+  preferSide?: AdlSide,
+): AdlRankedPosition | undefined {
+  if (preferSide === "long") return ranking.longs[0];
+  if (preferSide === "short") return ranking.shorts[0];
+  if (ranking.dominantSide === "long") return ranking.longs[0];
+  if (ranking.dominantSide === "short") return ranking.shorts[0];
+  return ranking.ranked[0];
+}
+
+/**
  * Convenience builder: fetch slab, rank positions, pick the highest-ranked
  * target on the given side, and return a ready-to-send `TransactionInstruction`.
  *
  * Returns `null` when ADL is not triggered or no eligible positions exist.
+ *
+ * NOTE (v17): this cannot produce a usable transaction on the deployed program.
+ * When a target IS found it calls `buildAdlInstruction`, which throws
+ * V17_ADL_UNSUPPORTED_MESSAGE — the deployed wrapper percolator-prog@19d5d932 has
+ * no ExecuteAdl handler. (This module never calls `encodeExecuteAdl`; an earlier
+ * revision of this note claimed it did, which was simply wrong.) It is kept for
+ * v12 slabs and for when an equivalent v17 instruction lands; the target
+ * selection in `selectAdlTarget` stays valid either way.
  *
  * @param connection    - Solana connection.
  * @param caller        - Signer — must be the market keeper/admin authority.
@@ -309,7 +370,10 @@ export function buildAdlInstruction(
  * @param oracle        - Primary oracle public key.
  * @param programId     - Percolator program ID.
  * @param preferSide    - Optional: target "long" or "short" side only.
- *                        If omitted, picks the overall top-ranked position.
+ *                        If omitted, picks the dominant side's (greater net OI)
+ *                        top-ranked position — or the overall top-ranked position
+ *                        when dominantSide is null (engine unparseable, or a
+ *                        layout with no OI fields such as V0/V2/v12.15).
  * @param backupOracles - Optional extra oracle accounts.
  *
  * @example
@@ -335,14 +399,7 @@ export async function buildAdlTransaction(
 
   if (!ranking.isTriggered) return null;
 
-  let target: AdlRankedPosition | undefined;
-  if (preferSide === "long") {
-    target = ranking.longs[0];
-  } else if (preferSide === "short") {
-    target = ranking.shorts[0];
-  } else {
-    target = ranking.ranked[0];
-  }
+  const target = selectAdlTarget(ranking, preferSide);
 
   if (!target) return null;
 

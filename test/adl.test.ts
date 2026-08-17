@@ -9,7 +9,9 @@ import {
   isAdlTriggered,
   parseAdlEvent,
   AdlRankedPosition,
+  selectAdlTarget,
 } from "../src/solana/adl.js";
+import { detectSlabLayout, SLAB_TIERS_V12_15 } from "../src/solana/slab.js";
 import { encodeExecuteAdl } from "../src/abi/instructions.js";
 
 // ---------------------------------------------------------------------------
@@ -147,6 +149,111 @@ describe("rankAdlPositions — unit tests on pure ranking logic", () => {
     expect(sorted[0].idx).toBe(2); // 1500 bps = most profitable, deleveraged first
     expect(sorted[1].idx).toBe(3); // 1000 bps
     expect(sorted[2].idx).toBe(1); // 500 bps
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests for rankAdlPositions — dominantSide
+// ---------------------------------------------------------------------------
+//
+// Regression: rankAdlPositions previously never determined which side has
+// greater net OI, contradicting the module's own documented behavior ("the
+// position at rank 0 of the dominant side is deleveraged first").
+//
+// NOTE: an earlier revision of this block justified the tie rule by citing an
+// on-chain log format "net_long_oi=... net_short_oi=... target_side=...". That
+// string occurs only in this SDK's own mock at
+// test/devnet-integration.test.ts:440 — it appears ZERO times in the deployed
+// wrapper percolator-prog@19d5d932. Resolving ties to "long" is an SDK
+// convention, not an observed on-chain guarantee.
+
+describe("rankAdlPositions — dominantSide", () => {
+  const V12_19_SBF_SMALL_SIZE = 96_784;
+  const ENGINE_BASE = 616;
+  const LONG_OI_OFF = ENGINE_BASE + 472;
+  const SHORT_OI_OFF = ENGINE_BASE + 488;
+
+  function buildEngineOnlySlab(longOi: bigint, shortOi: bigint): Uint8Array {
+    const buf = new Uint8Array(V12_19_SBF_SMALL_SIZE);
+    const dv = new DataView(buf.buffer);
+    dv.setBigUint64(0, 0x504552434f4c4154n, true); // PERCOLAT magic
+    dv.setBigUint64(LONG_OI_OFF, longOi, true);
+    dv.setBigUint64(SHORT_OI_OFF, shortOi, true);
+    return buf;
+  }
+
+  it("dominantSide is 'long' when longOi > shortOi", () => {
+    const result = rankAdlPositions(buildEngineOnlySlab(1_000_000n, 500_000n));
+    expect(result.dominantSide).toBe("long");
+  });
+
+  it("dominantSide is 'short' when shortOi > longOi", () => {
+    const result = rankAdlPositions(buildEngineOnlySlab(500_000n, 1_000_000n));
+    expect(result.dominantSide).toBe("short");
+  });
+
+  it("dominantSide resolves ties to 'long' (SDK convention, not an on-chain guarantee)", () => {
+    const result = rankAdlPositions(buildEngineOnlySlab(500_000n, 500_000n));
+    expect(result.dominantSide).toBe("long");
+  });
+
+  // THE regression this fix exists for: V0, V2 and v12.15 layouts have
+  // engineLongOiOff/engineShortOiOff === -1, and parseEngine SUCCEEDS on them
+  // returning longOi = shortOi = 0n. Comparing those two zeros reports "long"
+  // for a slab that carries no open-interest data at all.
+  it("dominantSide is null on a v12.15 layout, which has no OI fields", () => {
+    const v1215Size = SLAB_TIERS_V12_15.micro.dataSize;
+    const layout = detectSlabLayout(v1215Size);
+    expect(layout).not.toBeNull();
+    expect(layout!.engineLongOiOff).toBe(-1);
+    expect(layout!.engineShortOiOff).toBe(-1);
+
+    const buf = new Uint8Array(v1215Size);
+    new DataView(buf.buffer).setBigUint64(0, 0x504552434f4c4154n, true); // PERCOLAT magic
+    const result = rankAdlPositions(buf);
+    expect(result.dominantSide).toBeNull();
+  });
+
+  it("dominantSide is null when engine state cannot be parsed at all (bad magic)", () => {
+    // A recognized-length buffer with the wrong magic: parseEngine throws
+    // "invalid slab magic" (caught internally, dominantSide stays null), while
+    // detectSlabLayout/parseAllAccounts don't check magic for this size, so the
+    // rest of rankAdlPositions still completes rather than throwing outright.
+    const buf = new Uint8Array(V12_19_SBF_SMALL_SIZE);
+    const result = rankAdlPositions(buf);
+    expect(result.dominantSide).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests for buildAdlTransaction's default target-side selection logic
+// ---------------------------------------------------------------------------
+//
+// buildAdlTransaction itself requires a live Connection, so this tests the
+// branch-selection rule directly (the same pattern this file already uses for
+// rankAdlPositions' pure sorting logic above) rather than the full RPC path.
+
+describe("selectAdlTarget — default target-side selection", () => {
+  const mk = (idx: number) => ({ idx }) as unknown as Parameters<typeof selectAdlTarget>[0]["ranked"][number];
+
+  const longs = [mk(1)];
+  const shorts = [mk(2)];
+  // Global ranked[0] is the short, so "fell back to ranked[0]" is distinguishable
+  // from "targeted the dominant side".
+  const ranked = [mk(2), mk(1)];
+
+  it("targets the dominant side's top position when preferSide is omitted", () => {
+    expect(selectAdlTarget({ longs, shorts, ranked, dominantSide: "long" })!.idx).toBe(1);
+    expect(selectAdlTarget({ longs, shorts, ranked, dominantSide: "short" })!.idx).toBe(2);
+  });
+
+  it("an explicit preferSide overrides dominantSide", () => {
+    expect(selectAdlTarget({ longs, shorts, ranked, dominantSide: "short" }, "long")!.idx).toBe(1);
+    expect(selectAdlTarget({ longs, shorts, ranked, dominantSide: "long" }, "short")!.idx).toBe(2);
+  });
+
+  it("falls back to the global top-ranked position when dominantSide is null", () => {
+    expect(selectAdlTarget({ longs, shorts, ranked, dominantSide: null })!.idx).toBe(2);
   });
 });
 
