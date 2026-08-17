@@ -6809,9 +6809,10 @@ function readU128LE3(dv3, offset) {
 }
 
 // src/solana/oracle.ts
-var CHAINLINK_MIN_SIZE = 224;
+var CHAINLINK_MIN_SIZE = 248;
 var MAX_DECIMALS = 18;
 var CHAINLINK_DECIMALS_OFFSET = 138;
+var CHAINLINK_TIMESTAMP_OFFSET = 208;
 var CHAINLINK_ANSWER_OFFSET = 216;
 function readU82(data, off) {
   return data[off];
@@ -6819,7 +6820,14 @@ function readU82(data, off) {
 function readBigInt64LE(data, off) {
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigInt64(off, true);
 }
-function parseChainlinkPrice(data) {
+function readBigUint64LE(data, off) {
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(off, true);
+}
+function readU32LE2(data, off) {
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(off, true);
+}
+var DEFAULT_FUTURE_TOLERANCE_SECONDS = 60;
+function parseChainlinkPrice(data, options) {
   if (data.length < CHAINLINK_MIN_SIZE) {
     throw new Error(
       `Oracle account data too small: ${data.length} bytes (need at least ${CHAINLINK_MIN_SIZE})`
@@ -6831,13 +6839,35 @@ function parseChainlinkPrice(data) {
       `Oracle decimals out of range: ${decimals} (max ${MAX_DECIMALS})`
     );
   }
-  const price = readBigInt64LE(data, CHAINLINK_ANSWER_OFFSET);
-  if (price <= 0n) {
+  const answer = readBigInt64LE(data, CHAINLINK_ANSWER_OFFSET + 8) << 64n | readBigUint64LE(data, CHAINLINK_ANSWER_OFFSET);
+  if (answer <= 0n) {
     throw new Error(
-      `Oracle price is non-positive: ${price}`
+      `Oracle price is non-positive: ${answer}`
     );
   }
-  return { price, decimals };
+  const price = answer;
+  const updatedAt = readU32LE2(data, CHAINLINK_TIMESTAMP_OFFSET);
+  if (options?.maxStalenessSeconds !== void 0) {
+    if (updatedAt <= 0) {
+      throw new Error(
+        `Oracle has no valid publish timestamp (updatedAt=${updatedAt})`
+      );
+    }
+    const now = Math.floor(Date.now() / 1e3);
+    const age = now - updatedAt;
+    const futureTolerance = options.futureToleranceSeconds ?? DEFAULT_FUTURE_TOLERANCE_SECONDS;
+    if (age < -futureTolerance) {
+      throw new Error(
+        `Oracle publish timestamp is ${-age}s in the future (tolerance ${futureTolerance}s) \u2014 check the feed or the local clock`
+      );
+    }
+    if (age > options.maxStalenessSeconds) {
+      throw new Error(
+        `Oracle price is stale: last updated ${age}s ago (max ${options.maxStalenessSeconds}s)`
+      );
+    }
+  }
+  return { price, decimals, updatedAt: updatedAt > 0 ? updatedAt : void 0 };
 }
 function isValidChainlinkOracle(data) {
   try {
@@ -7766,9 +7796,14 @@ async function fetchAdlRankedPositions(connection, slab) {
 function rankAdlPositions(slabData) {
   const layout = detectSlabLayout(slabData.length, slabData);
   let pnlPosTot = 0n;
+  let dominantSide = null;
   try {
     const engine = parseEngine(slabData);
     pnlPosTot = engine.pnlPosTot;
+    const hasOiFields = layout !== null && layout.engineLongOiOff >= 0 && layout.engineShortOiOff >= 0;
+    if (hasOiFields) {
+      dominantSide = engine.shortOi > engine.longOi ? "short" : "long";
+    }
   } catch (err) {
     console.warn(
       `[rankAdlPositions] parseEngine failed:`,
@@ -7815,7 +7850,7 @@ function rankAdlPositions(slabData) {
   const ranked = [...longs, ...shorts].sort(
     (a, b) => b.pnlPct > a.pnlPct ? 1 : b.pnlPct < a.pnlPct ? -1 : 0
   );
-  return { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap };
+  return { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap, dominantSide };
 }
 function buildAdlInstruction(_caller, _slab, _oracle, _programId, targetIdx, _backupOracles = []) {
   if (!Number.isInteger(targetIdx) || targetIdx < 0) {
@@ -7825,17 +7860,17 @@ function buildAdlInstruction(_caller, _slab, _oracle, _programId, targetIdx, _ba
   }
   throw new Error(V17_ADL_UNSUPPORTED_MESSAGE);
 }
+function selectAdlTarget(ranking, preferSide) {
+  if (preferSide === "long") return ranking.longs[0];
+  if (preferSide === "short") return ranking.shorts[0];
+  if (ranking.dominantSide === "long") return ranking.longs[0];
+  if (ranking.dominantSide === "short") return ranking.shorts[0];
+  return ranking.ranked[0];
+}
 async function buildAdlTransaction(connection, caller, slab, oracle, programId, preferSide, backupOracles = []) {
   const ranking = await fetchAdlRankedPositions(connection, slab);
   if (!ranking.isTriggered) return null;
-  let target;
-  if (preferSide === "long") {
-    target = ranking.longs[0];
-  } else if (preferSide === "short") {
-    target = ranking.shorts[0];
-  } else {
-    target = ranking.ranked[0];
-  }
+  const target = selectAdlTarget(ranking, preferSide);
   if (!target) return null;
   return buildAdlInstruction(caller, slab, oracle, programId, target.idx, backupOracles);
 }
@@ -8495,6 +8530,31 @@ import {
   Transaction,
   ComputeBudgetProgram
 } from "@solana/web3.js";
+var CONFIRMATION_RANK = {
+  processed: 0,
+  confirmed: 1,
+  finalized: 2
+};
+function requiredConfirmationRank(commitment) {
+  switch (commitment) {
+    case "confirmed":
+    case "single":
+    case "singleGossip":
+      return CONFIRMATION_RANK.confirmed;
+    case "finalized":
+    case "max":
+    case "root":
+      return CONFIRMATION_RANK.finalized;
+    case "processed":
+    case "recent":
+    default:
+      return CONFIRMATION_RANK.processed;
+  }
+}
+function meetsCommitment(observed, required) {
+  if (!observed) return false;
+  return CONFIRMATION_RANK[observed] >= requiredConfirmationRank(required);
+}
 function buildIx(params) {
   return new TransactionInstruction({
     programId: params.programId,
@@ -8592,8 +8652,20 @@ async function simulateOrSend(params) {
     skipPreflight: false,
     preflightCommitment: effectiveCommitment
   };
+  let signature;
   try {
-    const signature = await connection.sendTransaction(tx, signers, options);
+    signature = await connection.sendTransaction(tx, signers, options);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return {
+      signature: "",
+      slot: 0,
+      err: message,
+      logs: []
+    };
+  }
+  const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
+  try {
     const confirmation = await connection.confirmTransaction(
       {
         signature,
@@ -8602,7 +8674,6 @@ async function simulateOrSend(params) {
       },
       effectiveCommitment
     );
-    const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
     const txInfo = await connection.getTransaction(signature, {
       commitment: txFinality,
       maxSupportedTransactionVersion: 0
@@ -8628,10 +8699,53 @@ async function simulateOrSend(params) {
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    try {
+      const status = await connection.getSignatureStatus(signature, {
+        searchTransactionHistory: true
+      });
+      if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
+        const txInfo = await connection.getTransaction(signature, {
+          commitment: txFinality,
+          maxSupportedTransactionVersion: 0
+        });
+        const logs = txInfo?.meta?.logMessages ?? [];
+        let err = null;
+        let hint;
+        if (status.value.err) {
+          const parsed = parseErrorFromLogs(logs);
+          if (parsed) {
+            err = `${parsed.name} (0x${parsed.code.toString(16)})`;
+            hint = parsed.hint;
+          } else {
+            err = JSON.stringify(status.value.err);
+          }
+        }
+        return {
+          signature,
+          // `SignatureStatus.slot` is the slot the transaction was PROCESSED in.
+          // `status.context.slot` is the RPC's head slot at query time — a
+          // different, much later number — so it must not be used as the tx slot.
+          slot: txInfo?.slot ?? status.value.slot,
+          err,
+          hint,
+          logs
+        };
+      }
+      if (status.value) {
+        const observed = status.value.confirmationStatus ?? "unknown";
+        return {
+          signature,
+          slot: status.value.slot,
+          err: `confirmation status unknown (${message}) \u2014 transaction is only "${observed}" but "${effectiveCommitment}" was required; it may still be dropped or may settle. Check signature ${signature} before retrying`,
+          logs: []
+        };
+      }
+    } catch {
+    }
     return {
-      signature: "",
+      signature,
       slot: 0,
-      err: message,
+      err: `confirmation status unknown (${message}) \u2014 the transaction may have already landed; check signature ${signature} before retrying`,
       logs: []
     };
   }
@@ -9170,6 +9284,13 @@ function parseDexScreenerPairs(json) {
 }
 function parseJupiterMintEntry(json, mint) {
   if (!isRecord(json)) return null;
+  const v3Row = json[mint];
+  if (isRecord(v3Row) && v3Row.usdPrice !== void 0 && v3Row.usdPrice !== null) {
+    const price2 = parseFloat(String(v3Row.usdPrice)) || 0;
+    if (price2 <= 0) return null;
+    const liquidity = typeof v3Row.liquidity === "number" && Number.isFinite(v3Row.liquidity) ? v3Row.liquidity : 0;
+    return { price: price2, mintSymbol: "?", liquidity };
+  }
   const data = json.data;
   if (!isRecord(data)) return null;
   const row = data[mint];
@@ -9180,7 +9301,7 @@ function parseJupiterMintEntry(json, mint) {
   if (price <= 0) return null;
   let mintSymbol = "?";
   if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
-  return { price, mintSymbol };
+  return { price, mintSymbol, liquidity: 0 };
 }
 var PYTH_SOLANA_FEEDS = {
   // SOL
@@ -9269,7 +9390,7 @@ function lookupPythSource(mint) {
 async function fetchJupiterSource(mint, signal) {
   try {
     const resp = await fetch(
-      `https://api.jup.ag/price/v2?ids=${encodeURIComponent(mint)}`,
+      `https://api.jup.ag/price/v3?ids=${encodeURIComponent(mint)}`,
       {
         signal: effectiveSignal(signal),
         headers: { "User-Agent": "percolator/1.0" }
@@ -9283,8 +9404,10 @@ async function fetchJupiterSource(mint, signal) {
       type: "jupiter",
       address: mint,
       pairLabel: `${row.mintSymbol} / USD (Jupiter)`,
-      liquidity: 0,
-      // Jupiter aggregator — no single pool liquidity
+      // v3 reports aggregate routable liquidity; v2 did not (falls back to 0).
+      // Used below to decide whether Jupiter is a credible enough reference to
+      // demote a disagreeing pool.
+      liquidity: row.liquidity,
       price: row.price,
       confidence: 40
       // Fallback — lower confidence
@@ -9301,12 +9424,26 @@ async function resolvePrice(mint, signal, options) {
     fetchDexSources(mint, combinedSignal),
     fetchJupiterSource(mint, combinedSignal)
   ]);
+  const MAX_ENRICHMENT_DEVIATION = 0.05;
+  const DISTRUST_CONFIDENCE_MARGIN = 1;
+  if (jupiterSource && jupiterSource.price > 0) {
+    const jupiterIsCredible = jupiterSource.liquidity > 0;
+    const distrusted = Math.max(0, jupiterSource.confidence - DISTRUST_CONFIDENCE_MARGIN);
+    if (jupiterIsCredible) {
+      for (const dex of dexSources) {
+        const nonPythMid = (dex.price + jupiterSource.price) / 2;
+        const nonPythDeviation = Math.abs(dex.price - jupiterSource.price) / nonPythMid;
+        if (nonPythDeviation > MAX_ENRICHMENT_DEVIATION) {
+          dex.confidence = Math.min(dex.confidence, distrusted);
+        }
+      }
+    }
+  }
   const pythSource = lookupPythSource(mint);
   const allSources = [];
   if (pythSource) {
     const dexPrice = dexSources[0]?.price ?? 0;
     const jupPrice = jupiterSource?.price ?? 0;
-    const MAX_ENRICHMENT_DEVIATION = 0.05;
     let enrichedPrice = 0;
     let singleSource = false;
     if (dexPrice > 0 && jupPrice > 0) {
@@ -9450,6 +9587,7 @@ export {
   CHAINLINK_ANSWER_OFFSET,
   CHAINLINK_DECIMALS_OFFSET,
   CHAINLINK_MIN_SIZE,
+  CHAINLINK_TIMESTAMP_OFFSET,
   CREATOR_LOCK_SEED,
   CTX_RETURN_OFFSET,
   CTX_VAMM_LEN,
@@ -9865,6 +10003,7 @@ export {
   rotateInsuranceAccounts,
   safeBigInt,
   safeEnv,
+  selectAdlTarget,
   simulateOrSend,
   slabDataSize,
   slabDataSizeV1,
