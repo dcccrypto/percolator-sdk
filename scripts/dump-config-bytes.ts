@@ -1,12 +1,12 @@
+import { requireRpcUrl } from "./config.mjs";
 /**
  * Dump raw bytes of the slab config region (bytes 72-700) with labels.
  */
-import 'dotenv/config';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { parseConfig } from '../src/solana/slab.js';
 
-const HELIUS_RPC = 'https://mainnet.helius-rpc.com/?api-key=ecfc91c7-b704-4c37-b10e-a277392830aa';
-const conn = new Connection(HELIUS_RPC, 'confirmed');
+const RPC = requireRpcUrl();
+const conn = new Connection(RPC, 'confirmed');
 const SLAB = new PublicKey('FkNmxZJUmr2bF7kwsBDtKoHeajrNdSEQokgGmmzn69vC');
 
 function readU64LE(data: Uint8Array, off: number): bigint {

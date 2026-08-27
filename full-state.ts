@@ -1,11 +1,12 @@
+import { requireRpcUrl } from "./scripts/config.mjs";
 import { fetchSlab, detectSlabLayout, parseHeader, parseConfig, parseEngine, parseAllAccounts, parseUsedIndices } from "./dist/index.js";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 const SLAB = "5RfUzS1kpdhVb2CNGvE9UGdthsGbd354LoXSYjCFHv3R";
-const rpc = process.env.RPC_URL || "https://api.mainnet-beta.solana.com";
+const RPC = requireRpcUrl();
 
 async function main() {
-  const conn = new Connection(rpc);
+  const conn = new Connection(RPC);
   const buf = await fetchSlab(conn, new PublicKey(SLAB));
   const layout = detectSlabLayout(buf.length, buf);
   

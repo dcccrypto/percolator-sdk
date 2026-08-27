@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { requireRpcUrl } from "./config.mjs";
 /**
  * scan-engine-offsets.ts — Empirical SBF engine field offset probe
  *
@@ -10,12 +11,11 @@
  * from a native aarch64 build.
  *
  * Usage:
- *   cd /Users/khubair/percolator-sdk && npx tsx scripts/scan-engine-offsets.ts
+ *   cd /path/to/percolator-sdk && npx tsx scripts/scan-engine-offsets.ts
  *
- * @param RPC_URL  Override via process.env.RPC_URL (falls back to mainnet public)
+ * @param PERCOLATOR_RPC_URL  Required RPC endpoint
  */
 
-import "dotenv/config";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -191,8 +191,7 @@ function scanForU64Range(engine: Uint8Array, minVal: bigint, maxVal: bigint, lab
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const rpc = process.env["RPC_URL"] ?? "https://api.mainnet-beta.solana.com";
-  console.log(`RPC: ${rpc}`);
+  const rpc = requireRpcUrl();
   console.log(`Account: ${SLAB_PUBKEY}`);
   console.log(`Engine region starts at byte: ${ENGINE_OFF}\n`);
 

@@ -1,3 +1,4 @@
+import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 /**
  * finalize-market.ts
  *
@@ -6,9 +7,8 @@
  *   2. TopUpKeeperFund: add 0.1 SOL to keeper fund
  *   3. SetOracleAuthority: zero out oracle authority (confirm hyperp mode)
  *
- * Uses Helius RPC to avoid rate limits.
+ * Uses the explicitly configured RPC endpoint.
  */
-import 'dotenv/config';
 import {
   Connection,
   Keypair,
@@ -22,10 +22,11 @@ import {
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token';
 import fs from 'fs';
 
-const HELIUS_RPC = 'https://mainnet.helius-rpc.com/?api-key=ecfc91c7-b704-4c37-b10e-a277392830aa';
-const conn = new Connection(HELIUS_RPC, 'confirmed');
+const RPC = requireRpcUrl();
+const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
+const conn = new Connection(RPC, 'confirmed');
 const admin = Keypair.fromSecretKey(
-  Buffer.from(JSON.parse(fs.readFileSync('/Users/khubair/.percolator-mainnet/keys/deploy-authority.json', 'utf8')))
+  Buffer.from(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, 'utf8')))
 );
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
 const SLAB = new PublicKey('12o3bXwBm9TxrMboFwNN2C9nzCuuCkwBthrjV2NQobQd');

@@ -3,8 +3,11 @@ node_modules/
 package-lock.json
 .env
 .env.*
+!.env.example
 
 # Private keys, certificates, and credentials
+# These patterns match secret-bearing files only. They do not detect
+# credentials embedded in source code; use environment variables instead.
 *.pem
 *.key
 *.p12

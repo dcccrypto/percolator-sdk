@@ -1,12 +1,13 @@
+import { requireRpcUrl } from "./scripts/config.mjs";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 const SLAB = new PublicKey("6akNPYQLyg2nGLDtGAoykB8ZtuoAEwGhxreXaDWncya2");
 const WALLET = new PublicKey("GnjCwHLm9bWdPrJ6z2frMf5kYmRh1qCb9otBEXUuSpUd");
 const PROGRAM = new PublicKey("ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv");
-const rpc = "https://mainnet.helius-rpc.com/?api-key=2a089bfd-18ae-48b5-abbe-36b0383ecad3";
+const RPC = requireRpcUrl();
 
 async function main() {
-  const conn = new Connection(rpc, "confirmed");
+  const conn = new Connection(RPC, "confirmed");
   
   // Get ALL transactions on the slab
   const allSigs = await conn.getSignaturesForAddress(SLAB, { limit: 50 });

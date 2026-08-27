@@ -1,8 +1,8 @@
-import 'dotenv/config';
+import { requireRpcUrl } from "./config.mjs";
 import { Connection, PublicKey } from '@solana/web3.js';
 import { parseConfig, parseHeader, detectSlabLayout } from '../src/solana/slab.js';
 
-const conn = new Connection(process.env.RPC_URL!, 'confirmed');
+const conn = new Connection(requireRpcUrl(), 'confirmed');
 const SLAB = new PublicKey('FkNmxZJUmr2bF7kwsBDtKoHeajrNdSEQokgGmmzn69vC');
 
 async function main() {

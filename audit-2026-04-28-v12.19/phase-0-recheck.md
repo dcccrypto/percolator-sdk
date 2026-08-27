@@ -11,7 +11,7 @@ both still open, no flips. proceed.
 
 ## SDK state
 
-- repo: /Users/khubair/percolator-sdk
+- repo: /path/to/percolator-sdk
 - branch: sync/v12.19-sdk
 - HEAD: 911e879
 - version: 2.0.0-rc.0
@@ -66,11 +66,11 @@ instruction tag presence in `pub fn decode` at src/percolator.rs:1784 (sample):
 NO V12_19 entry. fix in PHASE 3:
 - V12_19 SLAB_LEN: 1_525_720 (per closeout)
 - V12_19 vault offset: 616 (was 600 in V12_17, +16 shift)
-- engine field offsets and BITMAP_OFF derived from engine repo at /Users/khubair/perc-sync/work/percolator @ c32bc0b state/engine.rs (or equivalent module)
+- engine field offsets and BITMAP_OFF derived from engine repo at /path/to/perc-sync/work/percolator @ c32bc0b state/engine.rs (or equivalent module)
 
 ## wrapper W-1 in PHASE 4
 
-`/Users/khubair/perc-sync/work/percolator-prog/src/bin/sdk_parity_fixtures.rs` enumerates 78 tags but stops at tag 82. missing tag 83 UpdateAuthority. fix is a single line addition in PHASE 4.
+`/path/to/perc-sync/work/percolator-prog/src/bin/sdk_parity_fixtures.rs` enumerates 78 tags but stops at tag 82. missing tag 83 UpdateAuthority. fix is a single line addition in PHASE 4.
 
 ## removed encoders worth confirming stay removed
 

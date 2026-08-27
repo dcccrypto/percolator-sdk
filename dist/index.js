@@ -6928,8 +6928,9 @@ function getStakeProgramId(network) {
     const n = safeEnv("NEXT_PUBLIC_DEFAULT_NETWORK")?.toLowerCase() ?? safeEnv("NETWORK")?.toLowerCase() ?? "";
     if (n === "mainnet" || n === "mainnet-beta") return "mainnet";
     if (n === "devnet") return "devnet";
-    if (typeof window !== "undefined") return "mainnet";
-    return "devnet";
+    throw new Error(
+      "getStakeProgramId: cannot determine the network. Neither NETWORK nor NEXT_PUBLIC_DEFAULT_NETWORK is set (in a browser bundle process.env is empty, so this is expected there; in Node it means the variable is unset). Pass an explicit network argument \u2014 getStakeProgramId('devnet') or getStakeProgramId('mainnet') \u2014 or set STAKE_PROGRAM_ID to override the address directly. Refusing to guess: this resolves a fund-custody program address, and callers that derive PDAs from it (deriveStakePool, deriveStakeVaultAuth, deriveDepositPda) would otherwise produce addresses for the wrong network."
+    );
   })();
   const id = STAKE_PROGRAM_IDS[detectedNetwork];
   if (!id) {

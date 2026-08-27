@@ -1,10 +1,11 @@
-import 'dotenv/config';
+import { requireRpcUrl } from "./config.mjs";
 import { Connection, PublicKey } from '@solana/web3.js';
 import { parseHeader, parseConfig, parseEngine, parseUsedIndices, detectSlabLayout } from '../src/solana/slab.js';
-import { deriveVaultAuthority, deriveKeeperFund } from '../src/solana/pda.js';
+import { deriveVaultAuthority } from '../src/solana/pda.js';
+import { deriveKeeperFund } from './pda.mjs';
 import { getAtaSync } from '../src/solana/ata.js';
 
-const RPC = 'https://mainnet.helius-rpc.com/?api-key=ecfc91c7-b704-4c37-b10e-a277392830aa';
+const RPC = requireRpcUrl();
 const conn = new Connection(RPC, 'confirmed');
 
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
