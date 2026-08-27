@@ -1,13 +1,12 @@
+import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 // Jupiter SOL -> USDC swap for admin wallet.
 // Authorized params: 0.85 SOL ExactIn, 1% slippage.
 
 import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
 import fs from 'fs';
-import os from 'os';
-import path from 'path';
 
-const RPC = 'https://api.mainnet-beta.solana.com';
-const ADMIN_KEYPAIR_PATH = path.join(os.homedir(), '.percolator-mainnet', 'keys', 'deploy-authority.json');
+const RPC = requireRpcUrl();
+const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
 
 const SOL_MINT  = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';

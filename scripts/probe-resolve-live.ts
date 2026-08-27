@@ -1,7 +1,7 @@
+import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 /**
  * Probe ResolveMarket after oracle authority and price are set on-chain.
  */
-import 'dotenv/config';
 import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction, ComputeBudgetProgram } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { parseConfig, parseEngine } from '../src/solana/slab.js';
@@ -9,9 +9,10 @@ import { deriveVaultAuthority } from '../src/solana/pda.js';
 import { getAtaSync } from '../src/solana/ata.js';
 import fs from 'fs';
 
-const HELIUS_RPC = 'https://mainnet.helius-rpc.com/?api-key=ecfc91c7-b704-4c37-b10e-a277392830aa';
-const conn = new Connection(HELIUS_RPC, 'confirmed');
-const admin = Keypair.fromSecretKey(Buffer.from(JSON.parse(fs.readFileSync('/Users/khubair/.percolator-mainnet/keys/deploy-authority.json', 'utf8'))));
+const RPC = requireRpcUrl();
+const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
+const conn = new Connection(RPC, 'confirmed');
+const admin = Keypair.fromSecretKey(Buffer.from(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, 'utf8'))));
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
 const SLAB = new PublicKey('FkNmxZJUmr2bF7kwsBDtKoHeajrNdSEQokgGmmzn69vC');
 const USDC = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');

@@ -1,16 +1,19 @@
-import 'dotenv/config';
+import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction, ComputeBudgetProgram } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { encodeCloseSlab } from '../src/abi/instructions.js';
 import { ACCOUNTS_CLOSE_SLAB, buildAccountMetas } from '../src/abi/accounts.js';
 import { buildIx } from '../src/runtime/tx.js';
 import { parseConfig } from '../src/solana/slab.js';
-import { deriveVaultAuthority, deriveKeeperFund } from '../src/solana/pda.js';
+import { deriveVaultAuthority } from '../src/solana/pda.js';
+import { deriveKeeperFund } from './pda.mjs';
 import { getAtaSync } from '../src/solana/ata.js';
 import fs from 'fs';
 
-const conn = new Connection(process.env.RPC_URL!, 'confirmed');
-const admin = Keypair.fromSecretKey(Buffer.from(JSON.parse(fs.readFileSync('/Users/khubair/.percolator-mainnet/keys/deploy-authority.json', 'utf8'))));
+const RPC = requireRpcUrl();
+const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
+const conn = new Connection(RPC, 'confirmed');
+const admin = Keypair.fromSecretKey(Buffer.from(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, 'utf8'))));
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
 const SLAB = new PublicKey('FkNmxZJUmr2bF7kwsBDtKoHeajrNdSEQokgGmmzn69vC');
 const USDC = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');

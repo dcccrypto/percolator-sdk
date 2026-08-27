@@ -1,9 +1,9 @@
-import 'dotenv/config';
+import { requireRpcUrl } from "./config.mjs";
 import { Connection, PublicKey } from '@solana/web3.js';
 import { parseConfig, parseEngine } from '../src/solana/slab.js';
 
-const HELIUS_RPC = 'https://mainnet.helius-rpc.com/?api-key=ecfc91c7-b704-4c37-b10e-a277392830aa';
-const conn = new Connection(HELIUS_RPC, 'confirmed');
+const RPC = requireRpcUrl();
+const conn = new Connection(RPC, 'confirmed');
 const SLAB = new PublicKey('FkNmxZJUmr2bF7kwsBDtKoHeajrNdSEQokgGmmzn69vC');
 
 async function main() {

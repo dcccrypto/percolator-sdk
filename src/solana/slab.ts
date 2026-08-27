@@ -2692,7 +2692,7 @@ function parseConfigV12_17(data: Uint8Array, configOff: number): MarketConfig {
 
 /**
  * V12_19 MarketConfig parser. SBF layout (480 bytes total, u128 align=8).
- * Probe-confirmed against /Users/khubair/percolator-prog (cargo build-sbf
+ * Probe-confirmed against /path/to/percolator-prog (cargo build-sbf
  * --features small) on 2026-04-28.
  *
  *   0   collateral_mint [32]

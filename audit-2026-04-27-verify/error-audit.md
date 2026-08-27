@@ -3,7 +3,7 @@
 SDK src/abi/errors.ts has `PERCOLATOR_ERRORS: Record<number, ErrorInfo>` — a
 hardcoded numeric → name+hint map covering 69 entries.
 
-Wrapper enum at /Users/khubair/perc-sync/work/percolator-prog/src/percolator.rs:1370
+Wrapper enum at /path/to/perc-sync/work/percolator-prog/src/percolator.rs:1370
 auto-numbers from 0 in declaration order. v12.17 wrapper at
 /tmp/wrapper-v12.17 should have a similar enum (sample-checked: same first 28).
 

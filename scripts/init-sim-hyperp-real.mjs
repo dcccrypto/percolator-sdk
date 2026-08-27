@@ -1,3 +1,4 @@
+import { requireRpcUrl } from "./config.mjs";
 // Real-params hyperp InitMarket sim — uses the EXACT defaults from
 // percolator-launch/scripts/create-market.ts to verify the production
 // param set passes engine validation against the deployed v12.19 wrapper.
@@ -13,9 +14,9 @@ import {
   TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync, createAssociatedTokenAccountInstruction,
 } from '@solana/spl-token';
-import { encodeInitMarket, deriveVaultAuthority, SLAB_TIERS_V12_19 } from '/Users/khubair/percolator-sdk/dist/index.js';
+import { encodeInitMarket, deriveVaultAuthority, SLAB_TIERS_V12_19 } from '../dist/index.js';
 
-const RPC = process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com';
+const RPC = requireRpcUrl();
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const REAL_ADMIN = new PublicKey('7JVQvrAfzj3aasLxCkoLYX5KQcrb5nEZhUe5Qa8PvV5G');
