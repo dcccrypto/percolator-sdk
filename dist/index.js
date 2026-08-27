@@ -2681,8 +2681,10 @@ function getCurrentNetwork() {
 
 // src/abi/nft.ts
 var KNOWN_NFT_PROGRAM_IDS = /* @__PURE__ */ new Set([
-  "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS"
+  "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS",
   // mainnet
+  PROGRAM_IDS_V17.nft
+  // v17 devnet — the default below
 ]);
 var NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");
 if (NFT_PROGRAM_OVERRIDE !== void 0 && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM_OVERRIDE)) {
@@ -2690,9 +2692,7 @@ if (NFT_PROGRAM_OVERRIDE !== void 0 && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM_OV
     `[percolator-sdk] NFT_PROGRAM_ID env var "${NFT_PROGRAM_OVERRIDE}" is not a known NFT program address. Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. Pass the programId argument explicitly to bypass env resolution.`
   );
 }
-var NFT_PROGRAM_ID = new PublicKey4(
-  NFT_PROGRAM_OVERRIDE ?? "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS"
-);
+var NFT_PROGRAM_ID = new PublicKey4(NFT_PROGRAM_OVERRIDE ?? PROGRAM_IDS_V17.nft);
 function getNftProgramId() {
   return NFT_PROGRAM_ID;
 }
@@ -6928,8 +6928,9 @@ function getStakeProgramId(network) {
     const n = safeEnv("NEXT_PUBLIC_DEFAULT_NETWORK")?.toLowerCase() ?? safeEnv("NETWORK")?.toLowerCase() ?? "";
     if (n === "mainnet" || n === "mainnet-beta") return "mainnet";
     if (n === "devnet") return "devnet";
-    if (typeof window !== "undefined") return "mainnet";
-    return "devnet";
+    throw new Error(
+      "getStakeProgramId: cannot determine the network. Neither NETWORK nor NEXT_PUBLIC_DEFAULT_NETWORK is set (in a browser bundle process.env is empty, so this is expected there; in Node it means the variable is unset). Pass an explicit network argument \u2014 getStakeProgramId('devnet') or getStakeProgramId('mainnet') \u2014 or set STAKE_PROGRAM_ID to override the address directly. Refusing to guess: this resolves a fund-custody program address, and callers that derive PDAs from it (deriveStakePool, deriveStakeVaultAuth, deriveDepositPda) would otherwise produce addresses for the wrong network."
+    );
   })();
   const id = STAKE_PROGRAM_IDS[detectedNetwork];
   if (!id) {
