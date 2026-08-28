@@ -16,6 +16,7 @@
  */
 
 import { PublicKey } from "@solana/web3.js";
+import { PROGRAM_IDS_V17 } from "../config/program-ids.js";
 import { safeEnv } from "../config/program-ids.js";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,7 @@ import { safeEnv } from "../config/program-ids.js";
 /** Allowlist of known NFT program addresses. */
 const KNOWN_NFT_PROGRAM_IDS = new Set([
   "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS", // mainnet
+  PROGRAM_IDS_V17.nft, // v17 devnet — the default below
 ]);
 
 const NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");
@@ -36,10 +38,17 @@ if (NFT_PROGRAM_OVERRIDE !== undefined && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM
   );
 }
 
-/** The standalone percolator-nft program (TransferHook + mint authority). */
-export const NFT_PROGRAM_ID = new PublicKey(
-  NFT_PROGRAM_OVERRIDE ?? "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS",
-);
+/**
+ * The standalone percolator-nft program (TransferHook + mint authority).
+ *
+ * Derived from `PROGRAM_IDS_V17.nft` rather than carrying its own literal, so this constant
+ * and `program-ids.ts` cannot drift apart. They previously did: this defaulted to the MAINNET
+ * address while every other id in the SDK is devnet, so any consumer importing it built
+ * transactions against a program that does not exist on devnet and failed late with
+ * "Account not found on-chain". The frontend hit exactly that and had to define its own
+ * constant to work around it.
+ */
+export const NFT_PROGRAM_ID = new PublicKey(NFT_PROGRAM_OVERRIDE ?? PROGRAM_IDS_V17.nft);
 
 export function getNftProgramId(): PublicKey {
   return NFT_PROGRAM_ID;
