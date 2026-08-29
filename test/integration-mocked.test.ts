@@ -711,18 +711,23 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
     expect(result!.name).toBe("CreatorFeeOverClaim");
   });
 
-  it("63 — decodeError returns undefined (not in v17)", () => {
-    expect(decodeError(63)).toBeUndefined();
-    expect(PERCOLATOR_ERRORS[63]).toBeUndefined();
+  it("63 — decodeError returns LpVaultBackingBucketNotEmpty (v17 reuses the v12 ADL ordinal)", () => {
+    // BOUNDARY MOVED 2026-08-29. 63 used to be undefined in v17; the LP-vault reachability
+    // guard now occupies it (DEPLOYED, wrapper 02326f4f). The property this file actually
+    // cares about is unchanged and asserted below: the v12 MEANING of 63 is gone. v17 reusing
+    // the ordinal for its own variant is the same thing that already happened at 61 and 62.
+    expect(decodeError(63)?.name).toBe("LpVaultBackingBucketNotEmpty");
+    expect(PERCOLATOR_ERRORS[63].name).toBe("LpVaultBackingBucketNotEmpty");
+    expect(decodeError(64), "64 is still past the tail").toBeUndefined();
   });
 
-  it("63 (0x3F) — parseErrorFromLogs returns Unknown(63)", () => {
+  it("63 (0x3F) — parseErrorFromLogs returns LpVaultBackingBucketNotEmpty", () => {
     const result = parseErrorFromLogs(makeErrorLogs("3F"));
     expect(result).not.toBeNull();
-    expect(result!.name).toBe("Unknown(63)");
+    expect(result!.name).toBe("LpVaultBackingBucketNotEmpty");
   });
 
-  it("63 — realistic log: error 0x3f returns Unknown(63) in v17", () => {
+  it("63 — realistic log: error 0x3f resolves to LpVaultBackingBucketNotEmpty", () => {
     const logs = [
       `Program ${PROGRAM_ID.toBase58()} invoke [1]`,
       "Program log: Instruction: SomeInstruction",
@@ -732,7 +737,7 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
     expect(result!.code).toBe(63);
-    expect(result!.name).toBe("Unknown(63)");
+    expect(result!.name).toBe("LpVaultBackingBucketNotEmpty");
   });
 
   it("64 — decodeError returns undefined (not in v17)", () => {
@@ -789,14 +794,16 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
   });
 
   it("v12 ADL error codes 63-65 are NOT in the v17 PERCOLATOR_ERRORS table", () => {
-    // 61 and 62 are deliberately excluded: v17 reuses those ordinals for
-    // AssetSlotAlreadyConfigured and CreatorFeeOverClaim. The v12 MEANINGS
-    // are still gone -- that is the property under test.
-    for (let code = 63; code <= 65; code++) {
+    // 61, 62 and now 63 are deliberately excluded from the loop: v17 REUSES those ordinals.
+    // The property under test is the one this comment always stated — the v12 MEANINGS are
+    // gone — NOT that the slots are empty. Checking `undefined` conflated the two, which is
+    // why adding a legitimate v17 variant at 63 turned this red.
+    for (let code = 64; code <= 65; code++) {
       expect(PERCOLATOR_ERRORS[code], `code ${code} should NOT be in v17 table`).toBeUndefined();
     }
     expect(PERCOLATOR_ERRORS[61].name).toBe("AssetSlotAlreadyConfigured");
     expect(PERCOLATOR_ERRORS[62].name).toBe("CreatorFeeOverClaim");
+    expect(PERCOLATOR_ERRORS[63].name).toBe("LpVaultBackingBucketNotEmpty");
   });
 
   it("uppercase hex (0x3D vs 0x3d) handled identically — both AssetSlotAlreadyConfigured", () => {
