@@ -22,6 +22,7 @@ import {
   encodeTradeNoCpi,
   encodeTradeCpiV2,
   encodeSetPythOracle,
+  EXPECTED_SLAB_VERSION,
 } from "../src/abi/instructions.js";
 import {
   STAKE_PROGRAM_ID,
@@ -390,6 +391,15 @@ describe("SDK drift guards", () => {
     expect(encodeStakeSetMarketResolved()[0]).toBe(18);
     // TransferAdmin (tag 5) no longer exists — tag 5 is now ProposeAdmin.
     expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
+  });
+
+  it("EXPECTED_SLAB_VERSION matches what the deployed wrapper writes", () => {
+    // percolator-prog `VERSION: u16 = 17` (v16_program.rs:51) is written to
+    // data[8..10] by write_header and hard-checked by check_header, which
+    // rejects a mismatch with InvalidVersion. Confirmed against the live devnet
+    // wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj: of 206
+    // wrapper-owned accounts, 204 carry version 17 and none carries 16.
+    expect(EXPECTED_SLAB_VERSION).toBe(17);
   });
 
   it("parses positionOwner from standalone NFT account bytes", () => {

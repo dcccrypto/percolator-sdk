@@ -598,7 +598,7 @@ var IX_TAG = {
   TradeCpiV: 105
 };
 Object.freeze(IX_TAG);
-var EXPECTED_SLAB_VERSION = 16;
+var EXPECTED_SLAB_VERSION = 17;
 var V17_SLAB_MAGIC = 0x5045524356313600n;
 function removedInstruction(name, tag, replacement) {
   const suffix = replacement ? ` Use ${replacement} instead.` : "";

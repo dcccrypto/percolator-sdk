@@ -62,6 +62,18 @@ this collects that change and everything since.
   resulting `{isSigner, isWritable}` booleans. The previous tests asserted the
   shorthand string codes, at which level the holder defect above was invisible.
   Nothing in this repo consumes these templates, so they had no coverage at all.
+`package.json` was bumped to 5.0.0 by `3704dfd` without a changelog section.
+
+### Fixed
+
+- **`EXPECTED_SLAB_VERSION` 16 → 17.** The deployed wrapper writes `VERSION = 17`
+  into bytes `[8..10]` of every account it owns and hard-rejects a mismatch in
+  `check_header`. Confirmed against the live devnet wrapper
+  `DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj`: of 206 wrapper-owned accounts,
+  204 carry version 17 and none carries 16. Nothing in this package consumed the
+  constant, but it is a public export, and any integrator gating on it rejected
+  every live account. percolator-nft needed the same correction in `3e26fe7`.
+  (dcccrypto/percolator-sdk#379)
 
 ---
 
