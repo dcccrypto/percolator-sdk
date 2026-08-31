@@ -2786,12 +2786,14 @@ var ACCOUNTS_NFT_EMERGENCY_BURN = [
 ];
 var ACCOUNTS_NFT_RECONCILE = [
   "w",
-  "r",
+  "w",
   "w",
   "r",
   "r",
   "r",
-  "w"
+  "w",
+  "w",
+  "r"
 ];
 var TEXT = new TextEncoder();
 function u16Buf(value, label) {
