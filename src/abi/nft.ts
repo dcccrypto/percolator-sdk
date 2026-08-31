@@ -362,7 +362,13 @@ export function deriveExtraAccountMetas(
  *   [119..127] epoch_snap_at_mint u64
  *   [127..159] position_owner_at_mint [u8; 32]
  *   [159..167] minted_at         i64
- *   [167..199] _reserved
+ *   [167..199] last_holder       [u8; 32]
+ *
+ * NOTE: [167..199] is `last_holder`, not reserved space. #138 claimed those
+ * bytes for the field the transfer hook rewrites on every transfer, and
+ * `ReconcileBurnedNft` reads it to decide who receives the released escrow and
+ * the rent — it is account 6 of that instruction and cannot be derived, only
+ * read from here.
  */
 export const POSITION_NFT_STATE_LEN = 199;
 const POSITION_NFT_MAGIC = 0x5045_5243_4e46_5400n;
@@ -383,6 +389,15 @@ export interface PositionNftState {
   /** Backward-compatible alias for positionOwnerAtMint. */
   positionOwner: PublicKey;
   mintedAt: bigint;
+  /**
+   * The wallet the transfer hook last recorded as holding this NFT (#138).
+   *
+   * This is the sole authorisation for `ReconcileBurnedNft`: the program
+   * releases the escrowed portfolio and all rent to whichever account matches
+   * it, and refuses any other. Supply it as account 6 of
+   * `ACCOUNTS_NFT_RECONCILE` — there is no way to derive it.
+   */
+  lastHolder: PublicKey;
 }
 
 /**
@@ -450,5 +465,6 @@ export function parsePositionNftAccount(data: Uint8Array): PositionNftState {
     positionOwnerAtMint,
     positionOwner: positionOwnerAtMint,
     mintedAt: view.getBigInt64(159, true),
+    lastHolder: new PublicKey(data.subarray(167, 199)),
   };
 }

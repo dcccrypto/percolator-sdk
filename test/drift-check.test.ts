@@ -403,6 +403,26 @@ describe("SDK drift guards", () => {
     expect(parsed.positionOwner.equals(owner)).toBe(true);
   });
 
+  it("parses lastHolder from bytes 167..199 — the Reconcile recipient (#138)", () => {
+    // [167..199] is `last_holder`, not reserved space. It is the sole
+    // authorisation for ReconcileBurnedNft: the program releases the escrow and
+    // all rent to whichever account matches it, and it is account 6 of
+    // ACCOUNTS_NFT_RECONCILE. It cannot be derived — only read from here.
+    const buf = new Uint8Array(POSITION_NFT_STATE_LEN);
+    const view = new DataView(buf.buffer);
+    const owner = PublicKey.unique();
+    const holder = PublicKey.unique();
+    view.setBigUint64(0, 0x5045_5243_4e46_5400n, true);
+    buf[8] = 2;
+    buf.set(owner.toBytes(), 127);
+    buf.set(holder.toBytes(), 167);
+    const parsed = parsePositionNftAccount(buf);
+    expect(parsed.lastHolder.equals(holder)).toBe(true);
+    // ...and it is a distinct field from the mint-time owner.
+    expect(parsed.positionOwnerAtMint.equals(owner)).toBe(true);
+    expect(parsed.lastHolder.equals(parsed.positionOwnerAtMint)).toBe(false);
+  });
+
   it("standalone NFT helpers use v16 portfolio model (mint=asset_index, PDA=market_id)", () => {
     const portfolio = PublicKey.unique();
     const assetIndex = 7;

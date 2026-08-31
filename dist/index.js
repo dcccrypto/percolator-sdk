@@ -2875,7 +2875,8 @@ function parsePositionNftAccount(data) {
     epochSnapAtMint: view.getBigUint64(119, true),
     positionOwnerAtMint,
     positionOwner: positionOwnerAtMint,
-    mintedAt: view.getBigInt64(159, true)
+    mintedAt: view.getBigInt64(159, true),
+    lastHolder: new PublicKey4(data.subarray(167, 199))
   };
 }
 
