@@ -40,6 +40,11 @@ import {
   encodeNftMint,
   deriveNftPda,
   deriveNftMint,
+  ACCOUNTS_NFT_MINT,
+  ACCOUNTS_NFT_BURN,
+  ACCOUNTS_NFT_EMERGENCY_BURN,
+  ACCOUNTS_NFT_RECONCILE,
+  buildNftAccountMetas,
 } from "../src/abi/nft.js";
 import {
   detectSlabLayout,
@@ -998,5 +1003,62 @@ describe("encoding roundtrip — manual decode verifies no endianness or off-by-
     expect(data.length).toBe(219);
     expect(readU128LE(data, 27)).toBe(MM_REQ);
     expect(readU128LE(data, 43)).toBe(IM_REQ);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// percolator-nft account-list ABI
+// ---------------------------------------------------------------------------
+//
+// These templates are the SDK's copy of the account tables in
+// percolator-nft/src/instruction.rs, and nothing in this repo consumes them —
+// only external callers do, so nothing here exercised them until now.
+//
+// Assertions round-trip through `buildNftAccountMetas`, because the shorthand
+// codes are not what the runtime sees: the builder turns them into
+// {isSigner, isWritable} booleans and THAT object goes on the wire. Asserting
+// the booleans is what makes a wrong flag visible — and is what would have
+// caught the historical wrong-builder bug documented above
+// `buildNftAccountMetas`, where every flag silently became `undefined`.
+
+describe("percolator-nft account-list ABI", () => {
+  const flagsOf = (spec: readonly ("s" | "w" | "sw" | "r")[]) =>
+    buildNftAccountMetas(
+      spec,
+      Array.from({ length: spec.length }, () => PublicKey.unique()),
+    ).map((m) => [m.isSigner, m.isWritable] as const);
+
+  it("MintPositionNft: 12 accounts; payer and the fresh mint keypair both sign", () => {
+    const f = flagsOf(ACCOUNTS_NFT_MINT);
+    expect(f.length).toBe(12);
+    expect(f[0]).toEqual([true, true]); // payer / position owner
+    expect(f[2]).toEqual([true, true]); // fresh mint keypair
+  });
+
+  it("BurnPositionNft: the holder is the rent recipient, so signer AND writable", () => {
+    // percolator-nft `require_writable_rent_recipient(holder)` (processor.rs:825)
+    // rejects a read-only holder with InvalidAccountData, and the program's own
+    // ABI table documents account 0 as `[signer, writable]` (instruction.rs:44).
+    const f = flagsOf(ACCOUNTS_NFT_BURN);
+    expect(f.length).toBe(10);
+    expect(f[0]).toEqual([true, true]);
+    expect(f[7]).toEqual([false, true]); // extra_metas, closed (#102)
+  });
+
+  it("EmergencyBurn: same holder requirement (processor.rs:1000)", () => {
+    const f = flagsOf(ACCOUNTS_NFT_EMERGENCY_BURN);
+    expect(f.length).toBe(10);
+    expect(f[0]).toEqual([true, true]);
+    expect(f[7]).toEqual([false, true]);
+  });
+
+  it("ReconcileBurnedNft is permissionless — no account may be a signer", () => {
+    expect(flagsOf(ACCOUNTS_NFT_RECONCILE).every(([signer]) => !signer)).toBe(true);
+  });
+
+  it("buildNftAccountMetas rejects a key-count mismatch rather than truncating", () => {
+    expect(() =>
+      buildNftAccountMetas(ACCOUNTS_NFT_RECONCILE, [PublicKey.unique()]),
+    ).toThrow(/account count mismatch/);
   });
 });
