@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.0.0] — unreleased
+
+`package.json` was bumped to 5.0.0 by `3704dfd` without a changelog section.
+
+### Fixed
+
+- **`EXPECTED_SLAB_VERSION` 16 → 17.** The deployed wrapper writes `VERSION = 17`
+  into bytes `[8..10]` of every account it owns and hard-rejects a mismatch in
+  `check_header`. Confirmed against the live devnet wrapper
+  `DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj`: of 206 wrapper-owned accounts,
+  204 carry version 17 and none carries 16. Nothing in this package consumed the
+  constant, but it is a public export, and any integrator gating on it rejected
+  every live account. percolator-nft needed the same correction in `3e26fe7`.
+  (dcccrypto/percolator-sdk#379)
+
+---
+
 ## [4.3.0] — 2026-07-24
 
 Creator fee claim: the read side (`creatorFeeClaimableAtoms`) and the write side
