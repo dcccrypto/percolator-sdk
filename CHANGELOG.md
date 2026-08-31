@@ -7,6 +7,67 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.0.0] — unreleased
+
+`package.json` was bumped to 5.0.0 by `3704dfd` without a changelog section.
+
+### Added
+
+- **`STAKE_POOL_SIZE_V4 = 408`** and a v4 arm in `decodeStakePool`.
+  `percolator-stake` `d0c6ecb` promoted the #242 cooldown timelock out of
+  `_reserved` (392 -> 408): `pending_cooldown_slots` and
+  `cooldown_proposed_at_slot` are now real struct fields at absolute 392 and
+  400. On v3 they were packed into `_reserved[10..26]`, which PERC-313 HWM
+  state already owned -- proposing a cooldown flipped `hwm_enabled` off, and an
+  HWM refresh rewrote the proposal slot so the timelock read as long-elapsed.
+
+  Before this change a 408-byte pool satisfied `length >= STAKE_POOL_SIZE_V3`,
+  so the decoder concluded v3, expected version 3, read 4, and threw
+  `StakePool unsupported version: 4 !== 3` -- every stake read failing at once.
+
+  The decoder now reads each pool at the offsets its OWN version wrote, so a
+  392-byte v3 pool still decodes bug-for-bug against the deployed program.
+
+- **`StakePoolState.version`** -- the layout version byte, previously read and
+  discarded. Exposed because field MEANING depends on it, not just offsets: on
+  `version <= 3`, `cooldownProposedAtSlot` can read non-zero on a pool where no
+  proposal was ever made (the HWM bytes sit inside its u64), which is the
+  interface's own documented "live proposal" sentinel. Gate on `version >= 4`
+  before trusting either timelock field.
+
+**NOT YET DEPLOYED.** Devnet `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3`
+holds 25 pools, all 392 bytes / version 3. The wrapper (`STAKE_POOL_LEN = 408`,
+`STAKE_POOL_VERSION = 4`) and the stake program pin v4 EXCLUSIVELY and must be
+deployed together; `percolator-stake` has no migration path, so the pools are
+re-seeded rather than upgraded. This release is ahead of chain.
+
+### Unchanged, deliberately
+
+- **`STAKE_POOL_SIZE` stays 392 and `STAKE_POOL_CURRENT_VERSION` stays 3.**
+  `decodeStakePool` accepting v4 is a strict superset -- it widens what decodes
+  and changes no existing pool's meaning. The aliases are not: they are bare
+  numbers that consumers use as an exact `getProgramAccounts({ dataSize })`
+  filter and as a `data.length < SIZE` gate, so re-pointing them to 408 today
+  would match and admit ZERO live pools. They flip with the coordinated v4
+  deploy. Pin `STAKE_POOL_SIZE_V4` explicitly if you want the new layout now.
+
+### Fixed
+
+- `specs/stake-parity.json` `stake_pool_size` 392 -> 408. The parity fixtures
+  mirror percolator-stake **source** (`scripts/update-parity-fixtures.mjs` runs
+  `cargo run --bin sdk_parity_fixtures` against the sibling repo's default
+  branch), not the deployed program, so 392 was drift against `main`. The
+  deployed layout is now pinned separately as a literal in
+  `test/parity-fixtures.test.ts`.
+
+- Doc corrections in `src/solana/stake.ts`: the `_reserved` HWM/cooldown
+  byte-aliasing block is scoped to "v3 and earlier; FIXED in v4" rather than
+  stated as unconditional present-tense reality, and
+  `totalRecoveredFromWrapper` is documented as v3 **and** v4 rather than
+  "v3 only".
+
+---
+
 ## [4.3.0] — 2026-07-24
 
 Creator fee claim: the read side (`creatorFeeClaimableAtoms`) and the write side

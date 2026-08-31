@@ -17,7 +17,7 @@ import {
   CTX_RETURN_OFFSET,
 } from "../src/abi/instructions.js";
 import { POSITION_NFT_STATE_LEN } from "../src/abi/nft.js";
-import { STAKE_IX, STAKE_POOL_SIZE_V3 } from "../src/solana/stake.js";
+import { STAKE_IX, STAKE_POOL_SIZE_V3, STAKE_POOL_SIZE_V4 } from "../src/solana/stake.js";
 
 function loadJson<T>(filename: string): T {
   const fullPath = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "specs", filename);
@@ -139,7 +139,13 @@ describe("Rust parity fixtures", () => {
       SetMarketResolved: STAKE_IX.SetMarketResolved,
     };
 
-    expect(STAKE_POOL_SIZE_V3).toBe(fixture.stake_pool_size);
+    // The fixture mirrors percolator-stake SOURCE (scripts/update-parity-fixtures.mjs
+    // runs `cargo run --bin sdk_parity_fixtures` against the sibling repo's default
+    // branch), NOT the deployed program. main is d0c6ecb / v4, so it reads 408.
+    expect(STAKE_POOL_SIZE_V4).toBe(fixture.stake_pool_size);
+    // Pin the DEPLOYED layout separately, as a literal, so it stays guarded even
+    // though the fixture has moved ahead of chain.
+    expect(STAKE_POOL_SIZE_V3).toBe(392);
     // v2 StakePool: pending_admin [u8;32] added at offset 288; _reserved shifts to 320.
     // All absolute offsets += 32 vs v1 (reserved_start was 288 in v1, now 320 in v2/v3).
     expect(fixture.layout.reserved_start).toBe(320);

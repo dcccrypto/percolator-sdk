@@ -7582,20 +7582,22 @@ function encodeStakeAdminSetInsurancePolicy(authority, minWithdrawBase, maxWithd
 var STAKE_POOL_SIZE_V1 = 352;
 var STAKE_POOL_SIZE_V2 = 384;
 var STAKE_POOL_SIZE_V3 = 392;
+var STAKE_POOL_SIZE_V4 = 408;
 var STAKE_POOL_SIZE = STAKE_POOL_SIZE_V3;
 var STAKE_POOL_DISCRIMINATOR = new Uint8Array([83, 80, 79, 79, 76, 95, 86, 49]);
 var STAKE_POOL_CURRENT_VERSION = 3;
 function decodeStakePool(data) {
-  const isV3 = data.length >= STAKE_POOL_SIZE_V3;
-  const isV2 = !isV3 && data.length >= STAKE_POOL_SIZE_V2;
-  const isV1 = !isV3 && !isV2 && data.length >= STAKE_POOL_SIZE_V1;
-  if (!isV3 && !isV2 && !isV1) {
+  const isV4 = data.length >= STAKE_POOL_SIZE_V4;
+  const isV3 = !isV4 && data.length >= STAKE_POOL_SIZE_V3;
+  const isV2 = !isV4 && !isV3 && data.length >= STAKE_POOL_SIZE_V2;
+  const isV1 = !isV4 && !isV3 && !isV2 && data.length >= STAKE_POOL_SIZE_V1;
+  if (!isV4 && !isV3 && !isV2 && !isV1) {
     throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE_V1}`);
   }
   const reservedOffset = isV1 ? 288 : 320;
   requireDiscriminator("StakePool", data, reservedOffset, STAKE_POOL_DISCRIMINATOR);
   const version = data[reservedOffset + 8];
-  const expectedVersion = isV3 ? 3 : isV2 ? 2 : 1;
+  const expectedVersion = isV4 ? 4 : isV3 ? 3 : isV2 ? 2 : 1;
   if (version !== expectedVersion) {
     throw new Error(`StakePool unsupported version: ${version} !== ${expectedVersion}`);
   }
@@ -7646,7 +7648,7 @@ function decodeStakePool(data) {
   off += 1;
   off += 7;
   let pendingAdmin = null;
-  if (isV2 || isV3) {
+  if (isV2 || isV3 || isV4) {
     const pendingAdminBytes = bytes.subarray(off, off + 32);
     off += 32;
     pendingAdmin = pendingAdminBytes.every((b) => b === 0) ? null : new PublicKey11(pendingAdminBytes);
@@ -7661,12 +7663,13 @@ function decodeStakePool(data) {
   const juniorBalance = readU64LE4(bytes, reservedStart + 33);
   const juniorTotalLp = readU64LE4(bytes, reservedStart + 41);
   const juniorFeeMultBps = readU16LE3(bytes, reservedStart + 49);
-  const pendingCooldownSlots = readU64LE4(bytes, reservedStart + 10);
-  const cooldownProposedAtSlot = readU64LE4(bytes, reservedStart + 18);
+  const pendingCooldownSlots = isV4 ? readU64LE4(bytes, reservedStart + 72) : readU64LE4(bytes, reservedStart + 10);
+  const cooldownProposedAtSlot = isV4 ? readU64LE4(bytes, reservedStart + 80) : readU64LE4(bytes, reservedStart + 18);
   const realizedJuniorLoss = readU64LE4(bytes, reservedStart + 51);
   const assetAdminBurned = bytes[reservedStart + 59] === 1;
-  const totalRecoveredFromWrapper = isV3 ? readU64LE4(bytes, reservedStart + 64) : null;
+  const totalRecoveredFromWrapper = isV4 || isV3 ? readU64LE4(bytes, reservedStart + 64) : null;
   return {
+    version,
     isInitialized,
     bump,
     vaultAuthorityBump,
@@ -9679,6 +9682,7 @@ export {
   STAKE_POOL_SIZE_V1,
   STAKE_POOL_SIZE_V2,
   STAKE_POOL_SIZE_V3,
+  STAKE_POOL_SIZE_V4,
   STAKE_PROGRAM_ID,
   STAKE_PROGRAM_IDS,
   TOKEN_2022_PROGRAM_ID,
