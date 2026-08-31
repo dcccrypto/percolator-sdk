@@ -49,6 +49,14 @@ this collects that change and everything since.
 
 ### Added
 
+- **`PositionNftState.lastHolder`.** Bytes `[167..199]` were documented as
+  `_reserved`; #138 claimed them for `last_holder`, the field the transfer hook
+  rewrites on every transfer. It is the sole authorisation for
+  `ReconcileBurnedNft` — the program releases the escrowed portfolio and all
+  rent to whichever account matches it — and it is account 6 of
+  `ACCOUNTS_NFT_RECONCILE`, which cannot be derived. Without this the SDK
+  shipped the Reconcile account template but no way to obtain the one key in it.
+
 - Account-list drift tests (`test/drift-check.test.ts`) that round-trip each
   `ACCOUNTS_NFT_*` template through `buildNftAccountMetas` and assert the
   resulting `{isSigner, isWritable}` booleans. The previous tests asserted the
