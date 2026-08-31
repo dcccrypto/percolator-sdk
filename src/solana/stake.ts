@@ -1498,11 +1498,20 @@ export function encodeStakeAdminSetInsurancePolicy(
  * no prior field offset shifts. Includes PERC-272 (fee yield), PERC-313 (HWM),
  * and PERC-303 (tranches).
  *
- * ⚠️ KNOWN BYTE-ALIASING BUG in the ADOPTED percolator-stake lineage's
- * `_reserved` layout (verified against `state.rs` on
- * feat/adopt-stake-lineage-plus-n7@9ec1c3a — this is a real on-chain bug, not
- * an SDK bug; flagged upstream, not fixed here since this module only decodes
- * whatever bytes the program actually writes):
+ * ⚠️ KNOWN BYTE-ALIASING BUG — **v3 and earlier ONLY; FIXED in v4.**
+ *
+ * percolator-stake `d0c6ecb` ("promote #242 cooldown timelock out of
+ * `_reserved`") resolved this by giving both timelock fields real struct
+ * fields at 392/400, leaving `_reserved[10..26]` to the HWM block alone. The
+ * decoder is therefore version-aware: on a v4 buffer it reads the dedicated
+ * fields and BOTH sets are trustworthy; on v3-and-earlier it keeps reading the
+ * aliased `_reserved` slots, because those are the bytes the deployed program
+ * actually writes. v3 is still the only DEPLOYED layout, so everything below
+ * remains live reality today — it stops applying the moment stake redeploys.
+ *
+ * The original report (verified against `state.rs` on
+ * feat/adopt-stake-lineage-plus-n7@9ec1c3a — a real on-chain bug, not an SDK
+ * bug), retained because it describes every pool currently on devnet:
  *
  *   - PERC-313 HWM fields (`hwm_enabled` @[10], `hwm_floor_bps` @[11..13],
  *     `epoch_high_water_tvl` @[16..24], `hwm_last_epoch` @[24..32]) and the
@@ -1524,6 +1533,20 @@ export function encodeStakeAdminSetInsurancePolicy(
  *     against a direct on-chain read before trusting either.
  */
 export interface StakePoolState {
+  /**
+   * Layout version byte, read from `_reserved[8]` (absolute 328, or 296 on v1).
+   *
+   * Exposed because several fields' MEANING depends on it, not just their
+   * offset. Most important: on `version <= 3`, `pendingCooldownSlots` and
+   * `cooldownProposedAtSlot` are read from `_reserved` bytes that the PERC-313
+   * HWM block also owns, so on a pool with HWM configured they decode as
+   * garbage — `cooldownProposedAtSlot` can read non-zero with no proposal ever
+   * made, which is this interface's own documented "live proposal" sentinel.
+   *
+   * Gate on `version >= 4` before trusting either field, and before trusting
+   * `hwmFloorBps`/`epochHighWaterTvl` on a pool that has used the timelock.
+   */
+  version: number;
   isInitialized: boolean;
   bump: number;
   vaultAuthorityBump: number;
@@ -1592,15 +1615,21 @@ export interface StakePoolState {
   juniorFeeMultBps: number;
 
   /**
-   * #242 timelock: the `cooldown_slots` INCREASE awaiting commit (from
-   * _reserved[10..18]). Meaningful only while `cooldownProposedAtSlot !== 0n`.
-   * ⚠️ Aliases HWM bytes — see interface doc.
+   * #242 timelock: the `cooldown_slots` INCREASE awaiting commit. Meaningful
+   * only while `cooldownProposedAtSlot !== 0n`.
+   *
+   * v4: real struct field at absolute offset 392..400 — trustworthy.
+   * v3 and earlier: read from `_reserved[10..18]`, which ⚠️ ALIASES the HWM
+   * block — see the interface doc.
    */
   pendingCooldownSlots: bigint;
   /**
    * #242 timelock: the slot at which the pending cooldown increase was
-   * proposed (from _reserved[18..26]). `0n` = no active proposal.
-   * ⚠️ Aliases HWM bytes — see interface doc.
+   * proposed. `0n` = no active proposal.
+   *
+   * v4: real struct field at absolute offset 400..408 — trustworthy.
+   * v3 and earlier: read from `_reserved[18..26]`, which ⚠️ ALIASES the HWM
+   * block — see the interface doc.
    */
   cooldownProposedAtSlot: bigint;
   /**
@@ -1617,7 +1646,7 @@ export interface StakePoolState {
    */
   assetAdminBurned: boolean;
   /**
-   * H-1 re-review fix (stake v3 only, `null` on v1/v2 pools): cumulative
+   * H-1 re-review fix (stake v3 and v4, `null` on v1/v2 pools): cumulative
    * collateral actually recovered from the WRAPPER via the tag-23
    * `RecoverFlushedInsurance` CPI (which itself CPIs the wrapper's tag-57
    * `WithdrawInsuranceAsset`) — the ONLY mechanism that pulls flushed
@@ -1667,8 +1696,12 @@ export const STAKE_POOL_SIZE_V1 = 352;
 export const STAKE_POOL_SIZE_V2 = 384;
 
 /**
- * Size of StakePool on-chain (bytes) — v3 layout (current, and the ONLY
- * layout the ADOPTED percolator-stake lineage creates as of `c5a901f`).
+ * Size of StakePool on-chain (bytes) — v3 layout.
+ *
+ * SUPERSEDED by v4 (`STAKE_POOL_SIZE_V4`, 408 bytes) as of percolator-stake
+ * `d0c6ecb`. v3 is still the only layout DEPLOYED today — devnet holds 25
+ * pools, all 392 bytes / version 3 — so this remains the layout the decoder
+ * meets in practice until the stake redeploy.
  * v3: 392 (stake v2 was 384; `total_recovered_from_wrapper: u64` appended at
  * the STRUCT TAIL, offset 384..392 — NOT inside `_reserved`, which stays a
  * fixed 64 bytes at [320..384] in both v2 and v3; every prior field offset is
@@ -1684,27 +1717,50 @@ export const STAKE_POOL_SIZE_V2 = 384;
 export const STAKE_POOL_SIZE_V3 = 392;
 
 /**
- * Size of StakePool on-chain (bytes) — alias for the CURRENT layout the
- * ADOPTED percolator-stake lineage creates. Currently equal to
- * `STAKE_POOL_SIZE_V3` (392). Prefer the explicit `STAKE_POOL_SIZE_V{1,2,3}`
- * constants in new code so a future version bump doesn't silently change the
- * meaning of call sites that hard-coded `STAKE_POOL_SIZE`.
- */
-/**
- * v4: 408 bytes. v3's 392 plus two appended u64s — `pending_cooldown_slots` (392)
- * and `cooldown_proposed_at_slot` (400). Nothing before offset 392 moved, which is
- * why every field read below is valid unchanged for v4; percolator-stake
- * `state.rs:209-223` const-asserts those offsets.
+ * Size of StakePool on-chain (bytes) for the v4 layout.
  *
- * DEPLOYED on devnet 2026-08-31 (stake d0c6ecb + wrapper 15eb8b0c, prog#441). The
- * wrapper pins v4 EXCLUSIVELY and length-checks with `<`, so 392-byte v3 pools are
- * rejected outright — they are stranded, not merely legacy.
+ * percolator-stake `d0c6ecb` — "promote #242 cooldown timelock out of
+ * `_reserved` (v4, 392 -> 408)" — moved `pending_cooldown_slots` and
+ * `cooldown_proposed_at_slot` from `_reserved[10..26]` to real struct fields at
+ * absolute 392 and 400, growing the account by 16 bytes. The wrapper matches:
+ * `percolator-prog` `v16_program.rs` pins `STAKE_POOL_LEN = 408` and
+ * `STAKE_POOL_VERSION = 4`.
+ *
+ * NOT YET DEPLOYED: devnet `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3`
+ * currently holds 25 pools, all 392 bytes / version 3.
  */
 export const STAKE_POOL_SIZE_V4 = 408;
 
-export const STAKE_POOL_SIZE = STAKE_POOL_SIZE_V4;
+/**
+ * Size of StakePool on-chain (bytes) — alias for the layout that is actually
+ * DEPLOYED. Still `STAKE_POOL_SIZE_V3` (392).
+ *
+ * ⚠️ DELIBERATELY NOT re-pointed to v4 yet. `decodeStakePool` accepting v4 is a
+ * strict superset — it widens what decodes and changes no existing pool's
+ * meaning — but this alias is a bare number that consumers use as an EXACT
+ * `getProgramAccounts({ dataSize })` filter and as a `data.length < SIZE` gate.
+ * Re-pointing it to 408 today would match and admit ZERO of the 25 live pools
+ * on devnet `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3`, all of which are
+ * 392 bytes / version 3. That is a swap, not a superset, so it belongs with
+ * the coordinated stake + wrapper v4 deploy — see CHANGELOG.
+ *
+ * Prefer the explicit `STAKE_POOL_SIZE_V{1,2,3,4}` constants in new code, so
+ * that flip-day is a no-op for your call site.
+ */
+export const STAKE_POOL_SIZE = STAKE_POOL_SIZE_V3;
 export const STAKE_POOL_DISCRIMINATOR = new Uint8Array([0x53, 0x50, 0x4f, 0x4f, 0x4c, 0x5f, 0x56, 0x31]);
-export const STAKE_POOL_CURRENT_VERSION = 4;
+/**
+ * Version byte of the DEPLOYED StakePool layout — still 3.
+ *
+ * Pinned to the chain, not to `percolator-stake`'s own `CURRENT_VERSION` (now
+ * 4), for the same reason as `STAKE_POOL_SIZE` above: a consumer's natural
+ * `pool.version === STAKE_POOL_CURRENT_VERSION` assertion must hold against
+ * pools that exist. `decodeStakePool` does not read this constant — it derives
+ * the expected version from the buffer length — so it is advisory only.
+ *
+ * Flip to 4 together with `STAKE_POOL_SIZE` when the v4 deploy lands.
+ */
+export const STAKE_POOL_CURRENT_VERSION = 3;
 
 /**
  * Decode a StakePool account from raw data buffer.
@@ -1713,22 +1769,23 @@ export const STAKE_POOL_CURRENT_VERSION = 4;
  * bytes, pending_admin at 288..320, _reserved starts at 320), and v3 (392
  * bytes, adds `total_recovered_from_wrapper: u64` at the struct tail,
  * offset 384..392 — outside `_reserved`, which stays at [320..384] in both
- * v2 and v3). The layout version is detected from the data length before
- * reading the discriminator.
+ * v2 and v3), and v4 (408 bytes, promoting the two #242 cooldown-timelock
+ * fields out of `_reserved` into real struct fields at 392 and 400).
+ * The layout version is detected from the data length before reading the
+ * discriminator.
  *
  * v1/v2 support exists only to decode legacy pools created before the
  * coordinated protocol-fee + stake-lineage redeploy (v1) or before the H-1
  * re-review fix (v2) — see the `STAKE_POOL_SIZE_V1`/`STAKE_POOL_SIZE_V2` docs
  * for why the ADOPTED program never creates new v1/v2 pools going forward.
- * See the `StakePoolState` interface doc for a known HWM / cooldown-timelock
- * byte-aliasing bug this decoder faithfully surfaces (not an SDK bug — a real
- * on-chain `_reserved` layout collision).
+ * See the `StakePoolState` interface doc for the HWM / cooldown-timelock
+ * byte-aliasing bug (a real on-chain `_reserved` layout collision, not an SDK
+ * bug) that this decoder faithfully surfaces on v3-and-earlier pools and that
+ * v4 fixes — which is why the two cooldown reads below are version-gated.
  *
  * Uses DataView for all u64/u16 reads — browser-safe.
  */
 export function decodeStakePool(data: Uint8Array): StakePoolState {
-  // Widest-first. These are `>=` tests, so v4 MUST be checked before v3 or a
-  // 408-byte pool matches the v3 arm and is rejected as "version 4 !== 3".
   const isV4 = data.length >= STAKE_POOL_SIZE_V4;
   const isV3 = !isV4 && data.length >= STAKE_POOL_SIZE_V3;
   const isV2 = !isV4 && !isV3 && data.length >= STAKE_POOL_SIZE_V2;
@@ -1778,8 +1835,11 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   const poolMode = bytes[off]; off += 1;
   off += 7; // _mode_padding  (off is now 288)
 
-  // stake v2/v3 only: pending_admin [u8;32] at offset 288 (ProposeAdmin/AcceptAdmin two-step rotation).
-  // v1 has no pending_admin — the _reserved block begins immediately at offset 288.
+  // stake v2+ only: pending_admin [u8;32] at offset 288 (ProposeAdmin/AcceptAdmin
+  // two-step rotation). v1 has no pending_admin — the _reserved block begins
+  // immediately at offset 288. Every later version keeps it, so this must list
+  // them all: omitting one leaves `off` at 288 and shifts _reserved and every
+  // field after it by 32 bytes.
   let pendingAdmin: PublicKey | null = null;
   if (isV2 || isV3 || isV4) {
     const pendingAdminBytes = bytes.subarray(off, off + 32); off += 32;
@@ -1806,19 +1866,22 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   const juniorTotalLp = readU64LE(bytes, reservedStart + 41);
   const juniorFeeMultBps = readU16LE(bytes, reservedStart + 49);
 
-  // #242 timelock. WHERE these live depends on the version, and that is the entire
-  // reason stake v4 exists:
+  // #242 timelock. Read at the offsets the pool's OWN version actually wrote:
   //
-  //   v1-v3: carved out of _reserved at [10..18] and [18..26], which ⚠️ ALIAS the HWM
-  //          fields read just above (epochHighWaterTvl at +16, hwmLastEpoch at +24).
-  //          That collision (PERC-313) silently disabled the redemption floor AND
-  //          bypassed the timelock itself. It is a live defect of the v3 layout.
-  //   v4:    promoted to REAL struct fields at absolute 392 / 400 (reservedStart + 72
-  //          / + 80), appended after total_recovered_from_wrapper. No aliasing.
-  //          percolator-stake #280; deployed to devnet 2026-08-31 with prog#441.
-  //
-  // Reading a v4 pool at the v3 offsets returns HWM bytes reinterpreted as a timelock:
-  // plausible-looking numbers that are entirely wrong.
+  //   v4+ : real struct fields at absolute 392 and 400 (percolator-stake
+  //         d0c6ecb) — expressed here as reservedStart + 72 / + 80 so they
+  //         move with the same base as every other post-_reserved field (cf.
+  //         totalRecoveredFromWrapper at + 64). Reading them as bare absolutes
+  //         would let an `off` bug shift the relative fields while these stayed
+  //         put, so the two halves would disagree instead of failing together.
+  //         No aliasing — this is the fixed layout.
+  //   v3- : packed into _reserved[10..18] and [18..26], which PERC-313 HWM
+  //         state already owned. The two features aliased on the DEPLOYED
+  //         program: proposing a cooldown flipped `hwm_enabled` off and rewrote
+  //         `hwm_floor_bps`, and an HWM refresh rewrote the proposal slot so the
+  //         timelock read as long-elapsed. That is the bug v4 fixes, and it is
+  //         why these values are only as trustworthy as the deployed program —
+  //         decoding them anywhere else would misreport live pools.
   const pendingCooldownSlots = isV4
     ? readU64LE(bytes, reservedStart + 72)
     : readU64LE(bytes, reservedStart + 10);
@@ -1830,16 +1893,15 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   const realizedJuniorLoss = readU64LE(bytes, reservedStart + 51);
   const assetAdminBurned = bytes[reservedStart + 59] === 1;
 
-  // H-1 re-review fix, stake v3 only: total_recovered_from_wrapper (u64) is a
+  // H-1 re-review fix, stake v3 and v4: total_recovered_from_wrapper (u64) is a
   // REAL struct field appended at the tail, offset reservedStart + 64 (== 384
   // absolute) — i.e. immediately AFTER the 64-byte _reserved block, not
   // carved out of it. `null` on v1/v2 pools, which don't have this field at all.
-  const totalRecoveredFromWrapper = (isV3 || isV4)
-    ? readU64LE(bytes, reservedStart + 64)
-    : null;
-
+  const totalRecoveredFromWrapper =
+    isV4 || isV3 ? readU64LE(bytes, reservedStart + 64) : null;
 
   return {
+    version,
     isInitialized,
     bump,
     vaultAuthorityBump,

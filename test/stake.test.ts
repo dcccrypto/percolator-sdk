@@ -32,11 +32,11 @@ import {
   STAKE_PROGRAM_ID,
   STAKE_POOL_DISCRIMINATOR,
   STAKE_POOL_CURRENT_VERSION,
-  STAKE_POOL_SIZE_V4,
   STAKE_POOL_SIZE,
   STAKE_POOL_SIZE_V1,
   STAKE_POOL_SIZE_V2,
   STAKE_POOL_SIZE_V3,
+  STAKE_POOL_SIZE_V4,
   STAKE_DEPOSIT_DISCRIMINATOR,
 } from "../src/solana/stake.js";
 
@@ -50,24 +50,23 @@ const TEST_USER = new PublicKey("GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24");
 /** Stamp a v2 (384-byte) StakePool identity at the v2 reserved offset (320), version = 2. */
 function stampStakePoolIdentity(buf: Uint8Array): void {
   buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
-  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 2; // version = 2 (STAKE_POOL_CURRENT_VERSION is now 3)
+  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 2; // version = 2 (v2 is retired; STAKE_POOL_CURRENT_VERSION is 3)
 }
 
 /** Stamp a v3 (392-byte) StakePool identity at the v2/v3-shared reserved offset (320), version = 3. */
 function stampStakePoolV3Identity(buf: Uint8Array): void {
   buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
-  // LITERAL 3, never STAKE_POOL_CURRENT_VERSION. This line used to read the alias and
-  // silently became "version = 4" when stake shipped v4, stamping a v4 version byte into
-  // a 392-byte v3 buffer and breaking a test that had nothing to do with the change.
-  // That is exactly the hazard stake.ts warns about: do not let a "current" alias into a
-  // fixture that is pinned to a specific historical version.
-  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 3;
+  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 3; // literal 3: this stamps a V3 pool,
+  // not "whatever the newest version is". They coincide today, but v4 exists
+  // and STAKE_POOL_CURRENT_VERSION flips to 4 at the deploy — this must not.
 }
 
-/** Stamp a v4 (408-byte) StakePool identity — same reserved offset (320), version = 4. */
-function stampStakePoolV4Identity(buf: Uint8Array): void {
+/** Stamp a minimal, valid v4 (408-byte) StakePool: discriminator + version = 4. */
+function makeV4Pool(): Uint8Array {
+  const buf = new Uint8Array(STAKE_POOL_SIZE_V4);
   buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
   buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 4;
+  return buf;
 }
 
 /** Stamp a v1 (352-byte) StakePool identity at the v1 reserved offset (288). */
@@ -404,55 +403,98 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(pool.totalRecoveredFromWrapper).toBeNull();
   });
 
-  it("STAKE_POOL_SIZE_V1..V4 constants, and the aliases are wired to v4 (deployed 2026-08-31)", () => {
+  it("decodes a v4 (408-byte) StakePool with the promoted #242 cooldown fields", () => {
+    // percolator-stake d0c6ecb, "promote #242 cooldown timelock out of _reserved
+    // (v4, 392->408)". On the deployed v3 program those two fields were packed
+    // into _reserved[10..26], which PERC-313 HWM state already owned — proposing
+    // a cooldown flipped hwm_enabled off, and an HWM refresh rewrote the proposal
+    // slot so the timelock read as long-elapsed. v4 promotes them to real struct
+    // fields at absolute 392 and 400.
+    const buf = new Uint8Array(408);
+    const dv = new DataView(buf.buffer);
+    buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
+    buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 4; // version = 4
+    dv.setBigUint64(384, 7n, true);   // total_recovered_from_wrapper
+    dv.setBigUint64(392, 111n, true); // pending_cooldown_slots
+    dv.setBigUint64(400, 222n, true); // cooldown_proposed_at_slot
+
+    const pool = decodeStakePool(buf);
+    expect(pool.version).toBe(4);
+    expect(pool.totalRecoveredFromWrapper).toBe(7n);
+    expect(pool.pendingCooldownSlots).toBe(111n);
+    expect(pool.cooldownProposedAtSlot).toBe(222n);
+  });
+
+  it("a v3 pool still reads its cooldown fields from the aliased _reserved slots", () => {
+    // v3 is what is deployed today. Its cooldown fields live at _reserved[10]
+    // and [18] and alias HWM state — decoding must keep matching the deployed
+    // program, bug and all, rather than reading the v4 offsets.
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V3);
+    const dv = new DataView(buf.buffer);
+    stampStakePoolV3Identity(buf);
+    dv.setBigUint64(STAKE_POOL_RESERVED_OFFSET_V2 + 10, 55n, true);
+    dv.setBigUint64(STAKE_POOL_RESERVED_OFFSET_V2 + 18, 66n, true);
+
+    const pool = decodeStakePool(buf);
+    expect(pool.version).toBe(3);
+    expect(pool.pendingCooldownSlots).toBe(55n);
+    expect(pool.cooldownProposedAtSlot).toBe(66n);
+  });
+
+  it("exposes `version` so a caller can tell a real v4 proposal from v3 HWM aliasing", () => {
+    // The reason `version` is on StakePoolState at all. This is what the 25
+    // pools live on devnet today look like: v3, HWM configured, no cooldown
+    // proposal ever made. The HWM bytes sit inside the cooldown fields' u64s,
+    // so the decoder reports a proposal that does not exist — and before
+    // `version` was exposed, the return value gave a caller no way to know.
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V3);
+    const dv = new DataView(buf.buffer);
+    stampStakePoolV3Identity(buf);
+    buf[STAKE_POOL_RESERVED_OFFSET_V2 + 10] = 1;                          // hwm_enabled
+    dv.setUint16(STAKE_POOL_RESERVED_OFFSET_V2 + 11, 9000, true);         // hwm_floor_bps
+    dv.setBigUint64(STAKE_POOL_RESERVED_OFFSET_V2 + 16, 1_000_000_000n, true); // epoch_high_water_tvl
+
+    const pool = decodeStakePool(buf);
+    expect(pool.hwmEnabled).toBe(true);
+    expect(pool.hwmFloorBps).toBe(9000);
+
+    // The documented "live proposal" sentinel fires on a pool with no proposal.
+    expect(pool.cooldownProposedAtSlot).not.toBe(0n);
+    // `version` is the discriminator that saves the caller.
+    expect(pool.version).toBeLessThan(4);
+
+    // Same HWM bytes on a v4 pool: the cooldown fields are elsewhere, so they
+    // stay clean and the sentinel means what it says.
+    const v4 = new Uint8Array(STAKE_POOL_SIZE_V4);
+    v4.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
+    v4[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 4;
+    v4.set(buf.subarray(STAKE_POOL_RESERVED_OFFSET_V2 + 9, STAKE_POOL_RESERVED_OFFSET_V2 + 32),
+           STAKE_POOL_RESERVED_OFFSET_V2 + 9);
+
+    const v4pool = decodeStakePool(v4);
+    expect(v4pool.version).toBe(4);
+    expect(v4pool.hwmEnabled).toBe(true);
+    expect(v4pool.hwmFloorBps).toBe(9000);
+    expect(v4pool.cooldownProposedAtSlot).toBe(0n);
+    expect(v4pool.pendingCooldownSlots).toBe(0n);
+  });
+
+  it("StakePool size constants, with the SIZE/CURRENT_VERSION aliases still pinned to DEPLOYED v3", () => {
     expect(STAKE_POOL_SIZE_V1).toBe(352);
     expect(STAKE_POOL_SIZE_V2).toBe(384);
     expect(STAKE_POOL_SIZE_V3).toBe(392);
     expect(STAKE_POOL_SIZE_V4).toBe(408);
-    // The aliases follow the DEPLOYED layout. stake d0c6ecb + wrapper 15eb8b0c (prog#441)
-    // moved devnet to v4/408; the wrapper pins v4 exclusively, so v3 pools are rejected.
-    expect(STAKE_POOL_SIZE).toBe(STAKE_POOL_SIZE_V4);
-    expect(STAKE_POOL_CURRENT_VERSION).toBe(4);
-  });
 
-  it("decodes a v4 (408-byte) StakePool and de-aliases the #242 timelock from the HWM bytes", () => {
-    // The POINT of v4: in v1-v3 pendingCooldownSlots/cooldownProposedAtSlot were carved
-    // from _reserved[10..18]/[18..26], overlapping the PERC-313 HWM fields. v4 promotes
-    // them to real fields at absolute 392/400. This test writes DISTINCT values into the
-    // old aliased bytes and the new tail fields, then asserts the decoder reads the TAIL.
-    // If the decoder regressed to the v3 offsets it would return the HWM values instead,
-    // which is a silent wrong-number bug rather than a throw.
-    const buf = new Uint8Array(STAKE_POOL_SIZE_V4);
-    stampStakePoolV4Identity(buf);
-    buf[0] = 1; // isInitialized
-    const dv = new DataView(buf.buffer);
-    const RES = STAKE_POOL_RESERVED_OFFSET_V2; // 320
-    dv.setBigUint64(RES + 10, 111n, true);  // v3 pendingCooldownSlots slot (HWM alias)
-    dv.setBigUint64(RES + 18, 222n, true);  // v3 cooldownProposedAtSlot slot (HWM alias)
-    dv.setBigUint64(RES + 72, 777n, true);  // v4 REAL pending_cooldown_slots  @ 392
-    dv.setBigUint64(RES + 80, 888n, true);  // v4 REAL cooldown_proposed_at_slot @ 400
+    // The aliases are a SWAP, not a superset: consumers use STAKE_POOL_SIZE as
+    // an exact getProgramAccounts({ dataSize }) filter and as a length gate, so
+    // re-pointing it to 408 matches zero of the 25 live 392-byte pools. It
+    // flips at the coordinated stake + wrapper v4 deploy, with CURRENT_VERSION.
+    expect(STAKE_POOL_SIZE).toBe(STAKE_POOL_SIZE_V3);
+    expect(STAKE_POOL_CURRENT_VERSION).toBe(3);
 
-    const pool = decodeStakePool(buf);
-    expect(pool.pendingCooldownSlots, "must read the v4 tail field, not the HWM alias").toBe(777n);
-    expect(pool.cooldownProposedAtSlot, "must read the v4 tail field, not the HWM alias").toBe(888n);
-    expect(pool.pendingCooldownSlots).not.toBe(111n);
-    expect(pool.cooldownProposedAtSlot).not.toBe(222n);
-  });
-
-  it("still decodes a v3 (392-byte) pool at the OLD aliased offsets — v4 support is additive", () => {
-    // Anti-regression for the other direction: adding v4 must not change how the stranded
-    // v3 pools decode. Same distinct-value trick, opposite expectation.
-    const buf = new Uint8Array(STAKE_POOL_SIZE_V3);
-    stampStakePoolV3Identity(buf);
-    buf[0] = 1;
-    const dv = new DataView(buf.buffer);
-    const RES = STAKE_POOL_RESERVED_OFFSET_V2;
-    dv.setBigUint64(RES + 10, 111n, true);
-    dv.setBigUint64(RES + 18, 222n, true);
-
-    const pool = decodeStakePool(buf);
-    expect(pool.pendingCooldownSlots, "v3 still reads the aliased _reserved bytes").toBe(111n);
-    expect(pool.cooldownProposedAtSlot, "v3 still reads the aliased _reserved bytes").toBe(222n);
+    // ...while the decoder ALREADY accepts v4. That asymmetry is the point of
+    // this change: widen what decodes, without moving what consumers filter on.
+    expect(decodeStakePool(makeV4Pool()).version).toBe(4);
   });
 
   it("decodes a v3 (392-byte) StakePool: totalRecoveredFromWrapper at the tail, all v2 fields intact, no offset shifts", () => {
