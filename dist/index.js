@@ -2761,7 +2761,7 @@ var ACCOUNTS_NFT_MINT = [
   "r"
 ];
 var ACCOUNTS_NFT_BURN = [
-  "s",
+  "sw",
   "w",
   "w",
   "w",
@@ -2773,7 +2773,7 @@ var ACCOUNTS_NFT_BURN = [
   "r"
 ];
 var ACCOUNTS_NFT_EMERGENCY_BURN = [
-  "s",
+  "sw",
   "w",
   "w",
   "w",

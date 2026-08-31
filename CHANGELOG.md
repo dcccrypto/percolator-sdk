@@ -7,6 +7,39 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.0.0] — unreleased
+
+`package.json` was bumped to 5.0.0 by `3704dfd` without a changelog section;
+this collects that change and everything since.
+
+### Fixed
+
+- **`ACCOUNTS_NFT_BURN` / `ACCOUNTS_NFT_EMERGENCY_BURN`: the NFT holder is now
+  `[signer, writable]`, not `[signer]`.** The holder is the rent recipient for
+  every account those instructions close — the ATA, the mint, the PositionNft
+  PDA and the ExtraAccountMetaList — and percolator-nft rejects a read-only
+  holder outright via `require_writable_rent_recipient` (`processor.rs:825`,
+  `:1000`); its own ABI table documents account 0 as `[signer, writable]`
+  (`instruction.rs:44`, `:99`). Every burn built from these templates through
+  `buildNftAccountMetas` previously went on the wire with `isWritable: false`
+  and was rejected with `InvalidAccountData`. This was a live break against the
+  deployed programs. (dcccrypto/percolator-sdk#376)
+
+### Breaking
+
+- **`fix(stake)!`** (`3704dfd`): an ambiguous network now throws instead of
+  defaulting to mainnet.
+
+### Added
+
+- Account-list drift tests (`test/drift-check.test.ts`) that round-trip each
+  `ACCOUNTS_NFT_*` template through `buildNftAccountMetas` and assert the
+  resulting `{isSigner, isWritable}` booleans. The previous tests asserted the
+  shorthand string codes, at which level the holder defect above was invisible.
+  Nothing in this repo consumes these templates, so they had no coverage at all.
+
+---
+
 ## [4.3.0] — 2026-07-24
 
 Creator fee claim: the read side (`creatorFeeClaimableAtoms`) and the write side

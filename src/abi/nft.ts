@@ -177,7 +177,8 @@ export const ACCOUNTS_NFT_MINT: AccountMeta[] = [
 /**
  * Account metas for BurnPositionNft (tag 1). 10 accounts.
  *
- *   0. [signer]    NFT holder
+ *   0. [signer, writable]  NFT holder (rent recipient — receives the ATA, mint,
+ *                          PositionNft PDA and ExtraAccountMetaList rent)
  *   1. [writable]  PositionNft PDA (closed)
  *   2. [writable]  NFT mint (supply → 0)
  *   3. [writable]  Holder's NFT ATA (closed)
@@ -192,13 +193,13 @@ export const ACCOUNTS_NFT_MINT: AccountMeta[] = [
  * release the escrow back to the holder, so #4 must be writable and #8/#9 are required.
  */
 export const ACCOUNTS_NFT_BURN: AccountMeta[] = [
-  "s", "w", "w", "w", "w", "r", "r", "w", "r", "r",
+  "sw", "w", "w", "w", "w", "r", "r", "w", "r", "r",
 ];
 
 /**
  * Account metas for EmergencyBurn (tag 5). 10 accounts.
  *
- *   0. [signer]    NFT holder
+ *   0. [signer, writable]  NFT holder (rent recipient)
  *   1. [writable]  PositionNft PDA (closed)
  *   2. [writable]  NFT mint
  *   3. [writable]  Holder's NFT ATA
@@ -210,7 +211,7 @@ export const ACCOUNTS_NFT_BURN: AccountMeta[] = [
  *   9. []          Percolator wrapper program (#105 — unwrap CPI target)
  */
 export const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[] = [
-  "s", "w", "w", "w", "w", "r", "r", "w", "r", "r",
+  "sw", "w", "w", "w", "w", "r", "r", "w", "r", "r",
 ];
 
 /**
