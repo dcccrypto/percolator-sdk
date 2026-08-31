@@ -1052,8 +1052,16 @@ describe("percolator-nft account-list ABI", () => {
     expect(f[7]).toEqual([false, true]);
   });
 
-  it("ReconcileBurnedNft is permissionless — no account may be a signer", () => {
-    expect(flagsOf(ACCOUNTS_NFT_RECONCILE).every(([signer]) => !signer)).toBe(true);
+  it("ReconcileBurnedNft: 9 accounts, permissionless, writable at 0/1/2/6/7", () => {
+    // dcccrypto/percolator-nft#182 gives Reconcile the rent reclamation the two
+    // burn paths have had since #102: extra_metas at 7, Token-2022 at 8, both
+    // REQUIRED. The mint at 1 becomes writable because the fix closes it.
+    const f = flagsOf(ACCOUNTS_NFT_RECONCILE);
+    expect(f.length).toBe(9);
+    expect(f.every(([signer]) => !signer)).toBe(true); // permissionless
+    expect(f.map(([, w]) => w)).toEqual([
+      true, true, true, false, false, false, true, true, false,
+    ]);
   });
 
   it("buildNftAccountMetas rejects a key-count mismatch rather than truncating", () => {

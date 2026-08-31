@@ -9,10 +9,16 @@
  *   - GetPositionValue (tag 3)
  *   - ExecuteTransferHook (tag 4, SPL interface — not called directly)
  *   - EmergencyBurn   (tag 5)
+ *   - RepairExtraMetas (tag 6)
+ *   - ReconcileBurnedNft (tag 7)
  *
  * PDA seeds (matches percolator-nft/src/state_v16.rs):
- *   PositionNft state : ["position_nft", portfolio_account, asset_index_u16_LE]
+ *   PositionNft state : ["position_nft", portfolio_account, market_id_u64_LE]
  *   Mint authority    : ["mint_authority"]
+ *
+ * NOTE: the PositionNft seed is keyed on `market_id`, NOT `asset_index` — see
+ * #108 and `deriveNftPda` below. This header claimed `asset_index_u16_LE` until
+ * 2026-08-31; the code was always correct.
  */
 
 import { PublicKey } from "@solana/web3.js";
@@ -215,18 +221,33 @@ export const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[] = [
 ];
 
 /**
- * Account metas for ReconcileBurnedNft (tag 7, #138). 7 accounts. Permissionless.
+ * Account metas for ReconcileBurnedNft (tag 7, #138). 9 accounts. Permissionless.
  *
  *   0. [writable]  PositionNft PDA (closed)
- *   1. []          NFT mint (Token-2022 — supply must be 0)
+ *   1. [writable]  NFT mint (Token-2022 — supply must be 0; closed, #182)
  *   2. [writable]  Portfolio account (escrow released to the last holder)
- *   3. []          Mint authority PDA (unwrap CPI signer)
+ *   3. []          Mint authority PDA (unwrap + mint-close CPI signer)
  *   4. []          Per-market NftRegistry PDA
  *   5. []          Percolator wrapper program (unwrap CPI target)
- *   6. [writable]  Recorded last-holder wallet (escrow + PDA-rent recipient)
+ *   6. [writable]  Recorded last-holder wallet (escrow + all rent recipient)
+ *   7. [writable]  ExtraAccountMetaList PDA (closed, #182)
+ *   8. []          Token-2022 program (mint-close CPI target, #182)
+ *
+ * dcccrypto/percolator-nft#182: Reconcile previously abandoned the NFT mint and
+ * the ExtraAccountMetaList PDA — 7,676,880 lamports per NFT, unrecoverable,
+ * because it closes the PositionNft PDA and every path that could later reclaim
+ * those two requires it to still be live. Accounts 7 and 8 are REQUIRED rather
+ * than optional: Reconcile is permissionless, irreversible and runs at most
+ * once, so an opt-in could be defeated permanently by whoever called first.
+ *
+ * Forward-compatible with the currently deployed programs: their handler pulls
+ * seven accounts off an iterator and never checks `accounts.len()`, so the two
+ * extra metas are simply unread, and it never checks `nft_mint.is_writable`.
+ * A nine-account call therefore behaves identically on both, which is why this
+ * can ship ahead of the program change rather than behind it.
  */
 export const ACCOUNTS_NFT_RECONCILE: AccountMeta[] = [
-  "w", "r", "w", "r", "r", "r", "w",
+  "w", "w", "w", "r", "r", "r", "w", "w", "r",
 ];
 
 // ---------------------------------------------------------------------------

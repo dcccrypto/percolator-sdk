@@ -30,6 +30,23 @@ this collects that change and everything since.
 - **`fix(stake)!`** (`3704dfd`): an ambiguous network now throws instead of
   defaulting to mainnet.
 
+### Changed
+
+- **`ACCOUNTS_NFT_RECONCILE` 7 → 9 accounts**, mirroring
+  dcccrypto/percolator-nft#183: `extra_metas` (writable) at index 7 and the
+  Token-2022 program at index 8, with the NFT mint at index 1 becoming writable
+  because the program now closes it. Recovers 7,676,880 lamports per NFT that
+  Reconcile previously abandoned unrecoverably.
+
+  **Ahead of chain, but forward-compatible.** The currently deployed programs
+  (`FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS` mainnet,
+  `CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3` devnet) pull seven accounts off
+  an iterator, never check `accounts.len()`, and never check
+  `nft_mint.is_writable` — so a nine-account call behaves identically on them.
+  The rent reclamation this documents only takes effect once percolator-nft#183
+  is deployed. Callers building the instruction by hand must pass nine keys:
+  `buildNftAccountMetas` throws `account count mismatch: expected 9, got 7`.
+
 ### Added
 
 - Account-list drift tests (`test/drift-check.test.ts`) that round-trip each
