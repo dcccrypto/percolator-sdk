@@ -1690,9 +1690,21 @@ export const STAKE_POOL_SIZE_V3 = 392;
  * constants in new code so a future version bump doesn't silently change the
  * meaning of call sites that hard-coded `STAKE_POOL_SIZE`.
  */
-export const STAKE_POOL_SIZE = STAKE_POOL_SIZE_V3;
+/**
+ * v4: 408 bytes. v3's 392 plus two appended u64s — `pending_cooldown_slots` (392)
+ * and `cooldown_proposed_at_slot` (400). Nothing before offset 392 moved, which is
+ * why every field read below is valid unchanged for v4; percolator-stake
+ * `state.rs:209-223` const-asserts those offsets.
+ *
+ * DEPLOYED on devnet 2026-08-31 (stake d0c6ecb + wrapper 15eb8b0c, prog#441). The
+ * wrapper pins v4 EXCLUSIVELY and length-checks with `<`, so 392-byte v3 pools are
+ * rejected outright — they are stranded, not merely legacy.
+ */
+export const STAKE_POOL_SIZE_V4 = 408;
+
+export const STAKE_POOL_SIZE = STAKE_POOL_SIZE_V4;
 export const STAKE_POOL_DISCRIMINATOR = new Uint8Array([0x53, 0x50, 0x4f, 0x4f, 0x4c, 0x5f, 0x56, 0x31]);
-export const STAKE_POOL_CURRENT_VERSION = 3;
+export const STAKE_POOL_CURRENT_VERSION = 4;
 
 /**
  * Decode a StakePool account from raw data buffer.
@@ -1715,10 +1727,13 @@ export const STAKE_POOL_CURRENT_VERSION = 3;
  * Uses DataView for all u64/u16 reads — browser-safe.
  */
 export function decodeStakePool(data: Uint8Array): StakePoolState {
-  const isV3 = data.length >= STAKE_POOL_SIZE_V3;
-  const isV2 = !isV3 && data.length >= STAKE_POOL_SIZE_V2;
-  const isV1 = !isV3 && !isV2 && data.length >= STAKE_POOL_SIZE_V1;
-  if (!isV3 && !isV2 && !isV1) {
+  // Widest-first. These are `>=` tests, so v4 MUST be checked before v3 or a
+  // 408-byte pool matches the v3 arm and is rejected as "version 4 !== 3".
+  const isV4 = data.length >= STAKE_POOL_SIZE_V4;
+  const isV3 = !isV4 && data.length >= STAKE_POOL_SIZE_V3;
+  const isV2 = !isV4 && !isV3 && data.length >= STAKE_POOL_SIZE_V2;
+  const isV1 = !isV4 && !isV3 && !isV2 && data.length >= STAKE_POOL_SIZE_V1;
+  if (!isV4 && !isV3 && !isV2 && !isV1) {
     throw new Error(`StakePool data too short: ${data.length} < ${STAKE_POOL_SIZE_V1}`);
   }
 
@@ -1727,7 +1742,7 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   const reservedOffset = isV1 ? 288 : 320;
   requireDiscriminator("StakePool", data, reservedOffset, STAKE_POOL_DISCRIMINATOR);
   const version = data[reservedOffset + 8];
-  const expectedVersion = isV3 ? 3 : isV2 ? 2 : 1;
+  const expectedVersion = isV4 ? 4 : isV3 ? 3 : isV2 ? 2 : 1;
   if (version !== expectedVersion) {
     throw new Error(`StakePool unsupported version: ${version} !== ${expectedVersion}`);
   }
@@ -1766,7 +1781,7 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   // stake v2/v3 only: pending_admin [u8;32] at offset 288 (ProposeAdmin/AcceptAdmin two-step rotation).
   // v1 has no pending_admin — the _reserved block begins immediately at offset 288.
   let pendingAdmin: PublicKey | null = null;
-  if (isV2 || isV3) {
+  if (isV2 || isV3 || isV4) {
     const pendingAdminBytes = bytes.subarray(off, off + 32); off += 32;
     pendingAdmin = pendingAdminBytes.every(b => b === 0)
       ? null
@@ -1791,10 +1806,25 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   const juniorTotalLp = readU64LE(bytes, reservedStart + 41);
   const juniorFeeMultBps = readU16LE(bytes, reservedStart + 49);
 
-  // #242 timelock: _reserved[10..18] = pending_cooldown_slots, [18..26] = cooldown_proposed_at_slot.
-  // ⚠️ ALIASES the HWM fields above — see StakePoolState's doc comment.
-  const pendingCooldownSlots = readU64LE(bytes, reservedStart + 10);
-  const cooldownProposedAtSlot = readU64LE(bytes, reservedStart + 18);
+  // #242 timelock. WHERE these live depends on the version, and that is the entire
+  // reason stake v4 exists:
+  //
+  //   v1-v3: carved out of _reserved at [10..18] and [18..26], which ⚠️ ALIAS the HWM
+  //          fields read just above (epochHighWaterTvl at +16, hwmLastEpoch at +24).
+  //          That collision (PERC-313) silently disabled the redemption floor AND
+  //          bypassed the timelock itself. It is a live defect of the v3 layout.
+  //   v4:    promoted to REAL struct fields at absolute 392 / 400 (reservedStart + 72
+  //          / + 80), appended after total_recovered_from_wrapper. No aliasing.
+  //          percolator-stake #280; deployed to devnet 2026-08-31 with prog#441.
+  //
+  // Reading a v4 pool at the v3 offsets returns HWM bytes reinterpreted as a timelock:
+  // plausible-looking numbers that are entirely wrong.
+  const pendingCooldownSlots = isV4
+    ? readU64LE(bytes, reservedStart + 72)
+    : readU64LE(bytes, reservedStart + 10);
+  const cooldownProposedAtSlot = isV4
+    ? readU64LE(bytes, reservedStart + 80)
+    : readU64LE(bytes, reservedStart + 18);
 
   // N-realized_junior_loss (issue #161) at _reserved[51..59]; asset_admin_burned flag at [59].
   const realizedJuniorLoss = readU64LE(bytes, reservedStart + 51);
@@ -1804,9 +1834,10 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   // REAL struct field appended at the tail, offset reservedStart + 64 (== 384
   // absolute) — i.e. immediately AFTER the 64-byte _reserved block, not
   // carved out of it. `null` on v1/v2 pools, which don't have this field at all.
-  const totalRecoveredFromWrapper = isV3
+  const totalRecoveredFromWrapper = (isV3 || isV4)
     ? readU64LE(bytes, reservedStart + 64)
     : null;
+
 
   return {
     isInitialized,

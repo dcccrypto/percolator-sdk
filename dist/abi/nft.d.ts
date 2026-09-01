@@ -15,7 +15,16 @@
  *   Mint authority    : ["mint_authority"]
  */
 import { PublicKey } from "@solana/web3.js";
-/** The standalone percolator-nft program (TransferHook + mint authority). */
+/**
+ * The standalone percolator-nft program (TransferHook + mint authority).
+ *
+ * Derived from `PROGRAM_IDS_V17.nft` rather than carrying its own literal, so this constant
+ * and `program-ids.ts` cannot drift apart. They previously did: this defaulted to the MAINNET
+ * address while every other id in the SDK is devnet, so any consumer importing it built
+ * transactions against a program that does not exist on devnet and failed late with
+ * "Account not found on-chain". The frontend hit exactly that and had to define its own
+ * constant to work around it.
+ */
 export declare const NFT_PROGRAM_ID: PublicKey;
 export declare function getNftProgramId(): PublicKey;
 export declare const NFT_IX_TAG: {

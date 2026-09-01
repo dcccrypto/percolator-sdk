@@ -1096,13 +1096,15 @@ describe("Error codes — v17 NFT/LP-vault boundary parsing in discovery/fallbac
     // Fee-collection split (percolator-prog feat/protocol-fee-taker-only@2b3a6a65)
     // extended the table 51 -> 60; the 2026-07-22 bug-fix pass
     // (percolator-prog@10acb5ae) appended 61; the creator-fee claim appended
-    // 62 (CreatorFeeOverClaim). 63+ remain undefined.
+    // 62 (CreatorFeeOverClaim), 63 (LpVaultBackingBucketNotEmpty, deployed 2026-08-29).
+    // 64+ remain undefined.
     expect(decodeError(52)?.name).toBe("FeeSplitSumInvalid");
     expect(decodeError(53)?.name).toBe("NoInsuranceReserveToClaim");
     expect(decodeError(60)?.name).toBe("StakeProgramNotPinned");
     expect(decodeError(61)?.name).toBe("AssetSlotAlreadyConfigured");
     expect(decodeError(62)?.name).toBe("CreatorFeeOverClaim");
-    expect(decodeError(63)).toBeUndefined();
+    expect(decodeError(63)?.name).toBe("LpVaultBackingBucketNotEmpty");
+    expect(decodeError(64)).toBeUndefined();
     expect(decodeError(65)).toBeUndefined();
   });
 });

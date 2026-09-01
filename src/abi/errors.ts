@@ -343,6 +343,16 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "CreatorFeeOverClaim",
     hint: "WithdrawCreatorFee (tag 90) requested more than the market has accrued: amount > creator_fee_claimable_atoms (WrapperConfigV16 bytes 568..576, u64 LE). The claim is exact-amount — it does NOT partial-fill, and nothing is debited on rejection. Read the current claimable balance and retry with amount <= it. Note the distinct codes on this handler: Custom(9) InvalidInstruction for amount == 0 (tag 90 does not use tag 84's '0 means withdraw everything' convention), and Custom(25) EngineCounterUnderflow only for the fail-closed internal checked_sub, which is unreachable behind this check and would indicate a broken invariant.",
   },
+
+  // ── LP-vault reachability guard, 2026-08-29 (63) ───────────────────────────
+  // Source: v16_program.rs PercolatorError variant appended after
+  // CreatorFeeOverClaim=62. Ordinals 0-62 are unmoved.
+  // ✅ DEPLOYED to devnet 2026-08-29 — wrapper 02326f4f, sha c9827970bf02098b,
+  // slot 490057417, verified byte-identical.
+  63: {
+    name: "LpVaultBackingBucketNotEmpty",
+    hint: "CreateLpVault (tag 72) targeted a domain whose backing bucket is ALREADY funded at an expiry that is not LP_VAULT_BACKING_EXPIRY_SLOT (u64::MAX/2). The range check on `domain` passed; this is the separate REACHABILITY check, and it fires BEFORE the registry PDA takes backing_bucket_authority so a refusal leaves the existing bucket owner intact. Without it the vault would be created dead: DepositToLpVault refuses for the whole remaining term on the expiry mismatch, the provider who funded that bucket can no longer withdraw because the authority is gone, and the only exit is CloseLpVault — which permanently forfeits this market's ability to ever have an LP vault, because it leaves the LP share mint on-chain and CreateLpVault requires both PDAs to be system-owned and empty. Fix: pick a domain whose bucket is Empty, or wait for the existing backing to expire. Do NOT confuse this with Custom(9) InvalidInstruction, which this handler also returns for an out-of-range domain (domain >= configured_slots * 2) and for fee_share_bps / oi_reservation_threshold_bps > 10_000.",
+  },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
 Object.freeze(PERCOLATOR_ERRORS);

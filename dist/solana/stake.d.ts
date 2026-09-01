@@ -1142,9 +1142,20 @@ export declare const STAKE_POOL_SIZE_V3 = 392;
  * constants in new code so a future version bump doesn't silently change the
  * meaning of call sites that hard-coded `STAKE_POOL_SIZE`.
  */
-export declare const STAKE_POOL_SIZE = 392;
+/**
+ * v4: 408 bytes. v3's 392 plus two appended u64s — `pending_cooldown_slots` (392)
+ * and `cooldown_proposed_at_slot` (400). Nothing before offset 392 moved, which is
+ * why every field read below is valid unchanged for v4; percolator-stake
+ * `state.rs:209-223` const-asserts those offsets.
+ *
+ * DEPLOYED on devnet 2026-08-31 (stake d0c6ecb + wrapper 15eb8b0c, prog#441). The
+ * wrapper pins v4 EXCLUSIVELY and length-checks with `<`, so 392-byte v3 pools are
+ * rejected outright — they are stranded, not merely legacy.
+ */
+export declare const STAKE_POOL_SIZE_V4 = 408;
+export declare const STAKE_POOL_SIZE = 408;
 export declare const STAKE_POOL_DISCRIMINATOR: Uint8Array<ArrayBuffer>;
-export declare const STAKE_POOL_CURRENT_VERSION = 3;
+export declare const STAKE_POOL_CURRENT_VERSION = 4;
 /**
  * Decode a StakePool account from raw data buffer.
  *

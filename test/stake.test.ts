@@ -32,6 +32,7 @@ import {
   STAKE_PROGRAM_ID,
   STAKE_POOL_DISCRIMINATOR,
   STAKE_POOL_CURRENT_VERSION,
+  STAKE_POOL_SIZE_V4,
   STAKE_POOL_SIZE,
   STAKE_POOL_SIZE_V1,
   STAKE_POOL_SIZE_V2,
@@ -55,7 +56,18 @@ function stampStakePoolIdentity(buf: Uint8Array): void {
 /** Stamp a v3 (392-byte) StakePool identity at the v2/v3-shared reserved offset (320), version = 3. */
 function stampStakePoolV3Identity(buf: Uint8Array): void {
   buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
-  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = STAKE_POOL_CURRENT_VERSION; // version = 3
+  // LITERAL 3, never STAKE_POOL_CURRENT_VERSION. This line used to read the alias and
+  // silently became "version = 4" when stake shipped v4, stamping a v4 version byte into
+  // a 392-byte v3 buffer and breaking a test that had nothing to do with the change.
+  // That is exactly the hazard stake.ts warns about: do not let a "current" alias into a
+  // fixture that is pinned to a specific historical version.
+  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 3;
+}
+
+/** Stamp a v4 (408-byte) StakePool identity — same reserved offset (320), version = 4. */
+function stampStakePoolV4Identity(buf: Uint8Array): void {
+  buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
+  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 4;
 }
 
 /** Stamp a v1 (352-byte) StakePool identity at the v1 reserved offset (288). */
@@ -392,12 +404,55 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(pool.totalRecoveredFromWrapper).toBeNull();
   });
 
-  it("STAKE_POOL_SIZE_V1/V2/V3 constants and the STAKE_POOL_SIZE/CURRENT_VERSION aliases are wired to v3", () => {
+  it("STAKE_POOL_SIZE_V1..V4 constants, and the aliases are wired to v4 (deployed 2026-08-31)", () => {
     expect(STAKE_POOL_SIZE_V1).toBe(352);
     expect(STAKE_POOL_SIZE_V2).toBe(384);
     expect(STAKE_POOL_SIZE_V3).toBe(392);
-    expect(STAKE_POOL_SIZE).toBe(STAKE_POOL_SIZE_V3);
-    expect(STAKE_POOL_CURRENT_VERSION).toBe(3);
+    expect(STAKE_POOL_SIZE_V4).toBe(408);
+    // The aliases follow the DEPLOYED layout. stake d0c6ecb + wrapper 15eb8b0c (prog#441)
+    // moved devnet to v4/408; the wrapper pins v4 exclusively, so v3 pools are rejected.
+    expect(STAKE_POOL_SIZE).toBe(STAKE_POOL_SIZE_V4);
+    expect(STAKE_POOL_CURRENT_VERSION).toBe(4);
+  });
+
+  it("decodes a v4 (408-byte) StakePool and de-aliases the #242 timelock from the HWM bytes", () => {
+    // The POINT of v4: in v1-v3 pendingCooldownSlots/cooldownProposedAtSlot were carved
+    // from _reserved[10..18]/[18..26], overlapping the PERC-313 HWM fields. v4 promotes
+    // them to real fields at absolute 392/400. This test writes DISTINCT values into the
+    // old aliased bytes and the new tail fields, then asserts the decoder reads the TAIL.
+    // If the decoder regressed to the v3 offsets it would return the HWM values instead,
+    // which is a silent wrong-number bug rather than a throw.
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V4);
+    stampStakePoolV4Identity(buf);
+    buf[0] = 1; // isInitialized
+    const dv = new DataView(buf.buffer);
+    const RES = STAKE_POOL_RESERVED_OFFSET_V2; // 320
+    dv.setBigUint64(RES + 10, 111n, true);  // v3 pendingCooldownSlots slot (HWM alias)
+    dv.setBigUint64(RES + 18, 222n, true);  // v3 cooldownProposedAtSlot slot (HWM alias)
+    dv.setBigUint64(RES + 72, 777n, true);  // v4 REAL pending_cooldown_slots  @ 392
+    dv.setBigUint64(RES + 80, 888n, true);  // v4 REAL cooldown_proposed_at_slot @ 400
+
+    const pool = decodeStakePool(buf);
+    expect(pool.pendingCooldownSlots, "must read the v4 tail field, not the HWM alias").toBe(777n);
+    expect(pool.cooldownProposedAtSlot, "must read the v4 tail field, not the HWM alias").toBe(888n);
+    expect(pool.pendingCooldownSlots).not.toBe(111n);
+    expect(pool.cooldownProposedAtSlot).not.toBe(222n);
+  });
+
+  it("still decodes a v3 (392-byte) pool at the OLD aliased offsets — v4 support is additive", () => {
+    // Anti-regression for the other direction: adding v4 must not change how the stranded
+    // v3 pools decode. Same distinct-value trick, opposite expectation.
+    const buf = new Uint8Array(STAKE_POOL_SIZE_V3);
+    stampStakePoolV3Identity(buf);
+    buf[0] = 1;
+    const dv = new DataView(buf.buffer);
+    const RES = STAKE_POOL_RESERVED_OFFSET_V2;
+    dv.setBigUint64(RES + 10, 111n, true);
+    dv.setBigUint64(RES + 18, 222n, true);
+
+    const pool = decodeStakePool(buf);
+    expect(pool.pendingCooldownSlots, "v3 still reads the aliased _reserved bytes").toBe(111n);
+    expect(pool.cooldownProposedAtSlot, "v3 still reads the aliased _reserved bytes").toBe(222n);
   });
 
   it("decodes a v3 (392-byte) StakePool: totalRecoveredFromWrapper at the tail, all v2 fields intact, no offset shifts", () => {

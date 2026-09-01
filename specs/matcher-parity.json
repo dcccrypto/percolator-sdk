@@ -18,11 +18,12 @@
   "ctx_field_offsets": {
     "_new_pad": 156,
     "_pad0": 13,
-    "_reserved": 168,
+    "_reserved": 176,
     "base_spread_bps": 52,
     "fee_to_insurance_bps": 152,
     "impact_k_bps": 60,
     "insurance_accrued_e6": 144,
+    "insurance_fee_remainder_e6": 168,
     "inventory_base": 96,
     "kind": 12,
     "last_exec_price_e6": 120,
@@ -80,6 +81,9 @@
     "CTX_VAMM_LEN": 256,
     "CTX_VAMM_OFFSET": 64,
     "INIT_CTX_LEN": 78,
+    "MATCHER_BATCH_HEADER_LEN": 18,
+    "MATCHER_BATCH_LEG_LEN": 26,
+    "MATCHER_BATCH_MAX_LEGS": 16,
     "MATCHER_CALL_LEN": 67,
     "MATCHER_CONTEXT_LEN": 320,
     "MATCHER_RETURN_LEN": 64,
@@ -93,6 +97,10 @@
     {
       "name": "InitMatcherCtx",
       "tag": 2
+    },
+    {
+      "name": "BatchMatcherCall",
+      "tag": 3
     }
   ]
 }
