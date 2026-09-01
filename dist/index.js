@@ -1697,7 +1697,12 @@ var ACCOUNTS_TOP_UP_BACKING_BUCKET = [
   { name: "market", signer: false, writable: true },
   { name: "sourceToken", signer: false, writable: true },
   { name: "vaultToken", signer: false, writable: true },
-  { name: "tokenProgram", signer: false, writable: false }
+  { name: "tokenProgram", signer: false, writable: false },
+  // #433: [5] ledger is REQUIRED and [6] systemProgram lets the handler CREATE it when it
+  // does not exist yet. That creation is what makes requiring the ledger on
+  // WithdrawBackingBucket safe — see ACCOUNTS_WITHDRAW_BACKING_BUCKET. The signer pays rent.
+  { name: "ledger", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false }
 ];
 var ACCOUNTS_WITHDRAW_BACKING_BUCKET = [
   { name: "authority", signer: true, writable: true },
@@ -1705,7 +1710,8 @@ var ACCOUNTS_WITHDRAW_BACKING_BUCKET = [
   { name: "destToken", signer: false, writable: true },
   { name: "vaultToken", signer: false, writable: true },
   { name: "vaultAuthority", signer: false, writable: false },
-  { name: "tokenProgram", signer: false, writable: false }
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "ledger", signer: false, writable: true }
 ];
 var ACCOUNTS_UPDATE_BACKING_FEE_POLICY = [
   { name: "authority", signer: true, writable: true },
