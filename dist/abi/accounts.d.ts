@@ -186,7 +186,22 @@ export declare const ACCOUNTS_TOPUP_INSURANCE: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_TOP_UP_BACKING_BUCKET: readonly AccountSpec[];
 /**
- * WithdrawBackingBucket (tag 50): 6 fixed accounts + optional ledger.
+ * WithdrawBackingBucket (tag 50): 6 fixed accounts + an OPTIONAL trailing ledger.
+ *
+ * ⚠️ The ledger is optional and MUST stay that way, even though percolator-prog#433 asks for
+ * it to be required. Making it mandatory (wrapper `45bba89e`) was deployed on 2026-09-01 and
+ * STRANDED FUNDS: the BackingDomainLedger PDA is only ever allocated by the LP-vault
+ * handlers, so on a market with no LP vault `expect_owner` failed and backing deposited
+ * through the 5-account TopUpBackingBucket could not be withdrawn at all. Reverted the same
+ * day. Upstream keeps it optional for the same reason.
+ *
+ * #433 is REAL and still open: when [6] is omitted, the program skips both the
+ * principal-consistency guard and the principal decrement, so the vault pays out while
+ * `total_principal_atoms` stays frozen. PASS THE LEDGER whenever one exists.
+ *
+ * When it IS supplied the program now pins it to its PDA (`expect_key` on
+ * `["lp_backing_ledger", market, domain_le_u16]`) — that hardening survived the revert, so a
+ * caller can no longer substitute any program-owned account.
  *
  * v17 wire account layout (v16_program.rs handle_withdraw_backing_bucket):
  *   [0] authority      signer — the asset's backing_bucket_authority (or marketauth)
@@ -195,7 +210,7 @@ export declare const ACCOUNTS_TOP_UP_BACKING_BUCKET: readonly AccountSpec[];
  *   [3] vaultToken     writable (program vault token account — source)
  *   [4] vaultAuthority read-only (PDA that signs the token CPI)
  *   [5] tokenProgram   read-only
- *   [6] ledger         writable, optional (per-domain BackingDomainLedger PDA)
+ *   [6] ledger         writable, OPTIONAL — append manually when the PDA exists
  */
 export declare const ACCOUNTS_WITHDRAW_BACKING_BUCKET: readonly AccountSpec[];
 /**
