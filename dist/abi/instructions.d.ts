@@ -436,6 +436,20 @@ export declare const IX_TAG: {
      * local).
      */
     readonly RebalanceLpVaultBacking: 91;
+    /**
+     * UpdateInsuranceWithdrawPolicy (tag 92) — sets the insurance-withdrawal rate limit
+     * (percolator-prog#427). Deployed devnet 2026-09-01 in wrapper `cc193dde`.
+     *
+     * Before this instruction existed, `insurance_withdraw_deposits_only` and
+     * `insurance_withdraw_cooldown_slots` were written in exactly one place each — `: 0,` in
+     * the market's init literal — and both enforcement helpers short-circuit on zero, so the
+     * F-1 cooldown and F-2 deposits-only ceiling could not fire in any market ever created.
+     *
+     * NOTE the deprecated v12.x `AdvanceOraclePhase(92)` below shares this number, the same
+     * way v17 `SetProtocolFeeAuthority(85)` and `WithdrawCreatorFee(90)` do. The v12 tag is
+     * not in v17; this is the live meaning of 92.
+     */
+    readonly UpdateInsuranceWithdrawPolicy: 92;
     /** @deprecated v12.x tag 85. COLLIDES with v17 SetProtocolFeeAuthority(85). Do NOT use. */
     readonly ReclaimEmptyAccount: 85;
     /** @deprecated v12.x tag 86. Not in v17. */
@@ -2564,6 +2578,26 @@ export declare function encodeRebalanceLpVaultBacking(args: {
     toDomain: number;
     amount: bigint | string;
 }): Uint8Array;
+/**
+ * UpdateInsuranceWithdrawPolicy (tag 92) — set the insurance-withdrawal rate limit.
+ *
+ * Wire: tag(1) + depositsOnly(u8) + cooldownSlots(u64) = 10 bytes.
+ * Accounts: [marketauth (signer), market (writable)].
+ *
+ * `cooldownSlots` is capped at `MAX_INSURANCE_WITHDRAW_COOLDOWN_SLOTS`; the program rejects
+ * anything above it, because an uncapped duration setter would let an admin freeze insurance
+ * withdrawals permanently. Zero is legal for both fields and is how a market turns the limit
+ * back OFF.
+ */
+export declare function encodeUpdateInsuranceWithdrawPolicy(args: {
+    depositsOnly: number;
+    cooldownSlots: bigint | string;
+}): Uint8Array;
+/**
+ * Upper bound the program enforces on `cooldownSlots` above (~1 year at 2.5 slots/s).
+ * Mirrors `percolator-prog::constants::MAX_INSURANCE_WITHDRAW_COOLDOWN_SLOTS`.
+ */
+export declare const MAX_INSURANCE_WITHDRAW_COOLDOWN_SLOTS = 78840000n;
 /**
  * SetLpVaultPaused (tag 79) — pause or unpause the LP vault.
  *

@@ -48,6 +48,7 @@ import {
   encodeExecuteRedemption,
   encodeLpVaultCrankFees,
   encodeRebalanceLpVaultBacking,
+  encodeUpdateInsuranceWithdrawPolicy,
   encodeSetLpVaultPaused,
   encodeCloseLpVault,
   encodeKeeperCrank,
@@ -1259,6 +1260,28 @@ console.log("\nTesting instruction encoders...\n");
     });
   } catch {
     oracleMarkThrew = true;
+  }
+
+  // UpdateInsuranceWithdrawPolicy (tag 92) — tag(1) + depositsOnly(u8) + cooldown(u64) = 10 bytes
+  // percolator-prog#427: this instruction is what makes the F-1 cooldown and F-2
+  // deposits-only ceiling reachable at all. Before it, both policy fields were pinned at
+  // zero by the market's init literal, and both enforcement helpers short-circuit there.
+  {
+    const data = encodeUpdateInsuranceWithdrawPolicy({
+      depositsOnly: 1,
+      cooldownSlots: 1_000n,
+    });
+    assert(
+      data.length === 10,
+      `UpdateInsuranceWithdrawPolicy length: expected 10, got ${data.length}`
+    );
+    assert(data[0] === IX_TAG.UpdateInsuranceWithdrawPolicy, "tag = IX_TAG entry");
+    assert(data[0] === 92, "tag 92 — v12 AdvanceOraclePhase(92) is deprecated, not in v17");
+    assert(data[1] === 1, "depositsOnly = 1");
+    assertBuf(data.subarray(2, 10), [232, 3, 0, 0, 0, 0, 0, 0], "cooldownSlots = 1000 LE u64");
+    const off = encodeUpdateInsuranceWithdrawPolicy({ depositsOnly: 0, cooldownSlots: 0n });
+    assertBuf(off, [92, 0, 0, 0, 0, 0, 0, 0, 0, 0], "clearing the policy encodes as all-zero");
+    console.log("\u2713 encodeUpdateInsuranceWithdrawPolicy (v17 10-byte wire)");
   }
   assert(oracleMarkThrew, "encodeConfigureEwmaMark rejects zero initialMarkE6");
 
