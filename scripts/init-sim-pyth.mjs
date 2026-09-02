@@ -1,3 +1,4 @@
+import { requireRpcUrl } from "./config.mjs";
 // Variant 2: use real-existing admin pubkey 7JVQvr... as payer (DO NOT SIGN — read-only).
 // Goal: get past preflight to see actual program execution logs.
 
@@ -7,9 +8,9 @@ import {
   SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { encodeInitMarket, deriveVaultAuthority } from '/Users/khubair/percolator-sdk/dist/index.js';
+import { encodeInitMarket, deriveVaultAuthority } from '../dist/index.js';
 
-const RPC = 'https://api.mainnet-beta.solana.com';
+const RPC = requireRpcUrl();
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const REAL_ADMIN = new PublicKey('7JVQvrAfzj3aasLxCkoLYX5KQcrb5nEZhUe5Qa8PvV5G');

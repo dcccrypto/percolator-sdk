@@ -1,11 +1,11 @@
 # Independent drift verification — FINAL
 
 Date: 2026-04-27.
-SDK: /Users/khubair/percolator-sdk @ sync/v12.19-sdk (HEAD ~911e879). READ-ONLY throughout.
+SDK: /path/to/percolator-sdk @ sync/v12.19-sdk (HEAD ~911e879). READ-ONLY throughout.
 Wrapper v12.17 mainnet pin: 06f86fb (worktree at /tmp/wrapper-v12.17, removed in cleanup).
-Wrapper v12.19: d760fc4 at /Users/khubair/perc-sync/work/percolator-prog.
+Wrapper v12.19: d760fc4 at /path/to/perc-sync/work/percolator-prog.
 Engine v12.17: 3f55f87 (worktree at /tmp/engine-v12.17, removed).
-Engine v12.19: c32bc0b at /Users/khubair/perc-sync/work/percolator.
+Engine v12.19: c32bc0b at /path/to/perc-sync/work/percolator.
 
 ## Verdict
 

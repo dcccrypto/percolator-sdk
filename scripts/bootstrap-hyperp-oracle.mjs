@@ -1,3 +1,4 @@
+import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 // Bootstrap fix: send UpdateHyperpMark on its own (no Crank bundled) so the
 // new market's oracle picks up a fresh slot timestamp. After this lands,
 // the keeper's bundled UpdateHyperpMark+Crank tx should pass freshness check.
@@ -6,19 +7,17 @@ import {
   Connection, Keypair, PublicKey, Transaction, TransactionInstruction,
   sendAndConfirmTransaction, ComputeBudgetProgram, SYSVAR_CLOCK_PUBKEY,
 } from '@solana/web3.js';
-import { encodeUpdateHyperpMark } from '/Users/khubair/percolator-sdk/dist/index.js';
+import { encodeUpdateHyperpMark } from '../dist/index.js';
 import fs from 'fs';
-import os from 'os';
-import path from 'path';
 
-const RPC = 'https://api.mainnet-beta.solana.com';
+const RPC = requireRpcUrl();
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
 const SLAB = new PublicKey('H7CVBttJmyAiae3bsKSCz8DbrPtKwMhs4NeFmQ9okhpz');
 const POOL = new PublicKey('3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv');
-const ADMIN_KEY = path.join(os.homedir(), '.percolator-mainnet', 'keys', 'deploy-authority.json');
+const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
 
 const conn = new Connection(RPC, 'confirmed');
-const admin = Keypair.fromSecretKey(new Uint8Array(JSON.parse(fs.readFileSync(ADMIN_KEY, 'utf8'))));
+const admin = Keypair.fromSecretKey(new Uint8Array(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, 'utf8'))));
 
 console.log('Sending solo UpdateHyperpMark...');
 

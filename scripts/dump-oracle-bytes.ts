@@ -1,15 +1,15 @@
+import { requireRpcUrl } from "./config.mjs";
 /**
  * Dump raw bytes around the oracle authority fields in the slab config.
  * oracleAuthority is at offset 320 (from our inspection).
  * authorityPriceE6 should be at 352 (32 bytes pubkey + 8 bytes price).
  * authorityTimestamp should be at 360.
  */
-import 'dotenv/config';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { parseConfig } from '../src/solana/slab.js';
 
-const HELIUS_RPC = 'https://mainnet.helius-rpc.com/?api-key=ecfc91c7-b704-4c37-b10e-a277392830aa';
-const conn = new Connection(HELIUS_RPC, 'confirmed');
+const RPC = requireRpcUrl();
+const conn = new Connection(RPC, 'confirmed');
 const SLAB = new PublicKey('FkNmxZJUmr2bF7kwsBDtKoHeajrNdSEQokgGmmzn69vC');
 
 function readU64LE(data: Uint8Array, off: number): bigint {

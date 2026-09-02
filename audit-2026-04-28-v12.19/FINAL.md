@@ -1,7 +1,7 @@
 # FINAL — v12.19-only SDK alignment
 
 **Date:** 2026-04-28.
-**SDK:** `/Users/khubair/percolator-sdk` @ branch `sync/v12.19-sdk` HEAD `<latest>`. Tag `v2.0.0-rc.1`.
+**SDK:** `/path/to/percolator-sdk` @ branch `sync/v12.19-sdk` HEAD `<latest>`. Tag `v2.0.0-rc.1`.
 **Wrapper target:** `d760fc4` (PR #271, branch `sync/v12.19-wrapper`).
 **Engine target:** `c32bc0b` (PR #88, branch `sync/v12.19-engine`).
 
@@ -48,7 +48,7 @@ once that deployment lands.
 - **W-1 wrapper sdk_parity_fixtures.rs**: edit + commit DONE locally on
   `sync/v12.19-wrapper` (commit `28d7cbd`). Push to PR #271 + merge to main
   pending user action. Parity:check stays red until main rolls forward
-  because the SDK script runs cargo from `/Users/khubair/percolator-prog`
+  because the SDK script runs cargo from `/path/to/percolator-prog`
   (a separate checkout on main, not the perc-sync work tree). See
   `phase-4-deferred.md`.
 
@@ -93,7 +93,7 @@ once that deployment lands.
 ## Reproducibility
 
 ```
-cd /Users/khubair/percolator-sdk
+cd /path/to/percolator-sdk
 git checkout v2.0.0-rc.1
 pnpm install
 pnpm test          # 792 PASS / 31 SKIPPED

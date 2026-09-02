@@ -1,3 +1,4 @@
+import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 // Probe: send solo KeeperCrank (no UpdateHyperpMark bundle).
 // Goal: isolate whether OracleStale fires from mark_ewma_last_slot staleness
 // or from something else.
@@ -7,18 +8,16 @@ import {
   TransactionMessage, VersionedTransaction,
   ComputeBudgetProgram, SYSVAR_CLOCK_PUBKEY,
 } from '@solana/web3.js';
-import { encodeKeeperCrank } from '/Users/khubair/percolator-sdk/dist/index.js';
+import { encodeKeeperCrank } from '../dist/index.js';
 import fs from 'fs';
-import os from 'os';
-import path from 'path';
 
-const RPC = 'https://api.mainnet-beta.solana.com';
+const RPC = requireRpcUrl();
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
 const SLAB = new PublicKey('H7CVBttJmyAiae3bsKSCz8DbrPtKwMhs4NeFmQ9okhpz');
-const ADMIN_KEY = path.join(os.homedir(), '.percolator-mainnet', 'keys', 'deploy-authority.json');
+const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
 
 const conn = new Connection(RPC, 'confirmed');
-const admin = Keypair.fromSecretKey(new Uint8Array(JSON.parse(fs.readFileSync(ADMIN_KEY, 'utf8'))));
+const admin = Keypair.fromSecretKey(new Uint8Array(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, 'utf8'))));
 
 const data = encodeKeeperCrank({ callerIdx: 65535 });
 console.log('KeeperCrank ix data:', Buffer.from(data).toString('hex'), '(', data.length, 'bytes)');

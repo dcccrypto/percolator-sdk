@@ -4,7 +4,7 @@ These are wrapper-side issues observed via the SDK audit. Per brief I cannot pus
 
 ## W-1: sdk_parity_fixtures.rs missing tag 83 UpdateAuthority
 
-**File:** /Users/khubair/perc-sync/work/percolator-prog/src/bin/sdk_parity_fixtures.rs
+**File:** /path/to/perc-sync/work/percolator-prog/src/bin/sdk_parity_fixtures.rs
 **Lines:** 5-85 (the `tags` array stops at AcceptAdmin / tag 82)
 
 The parity binary enumerates every wrapper tag. Tag 83 UpdateAuthority was added in v12.18.x (handler at src/percolator.rs:6876) but the parity binary was not updated.

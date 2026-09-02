@@ -28,6 +28,7 @@ export default defineConfig({
       "test/discovery-fallback-integration.test.ts",
       "test/lighthouse.test.ts",
       "test/rpc-pool.test.ts",
+      "test/script-config.test.ts",
       "test/drift-check.test.ts",
       "test/parity-fixtures.test.ts",
       "test/account-decode.test.ts",

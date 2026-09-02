@@ -36,7 +36,7 @@ post-update; SDK parseConfig may not surface it as a field.
 
 ASSUMED-VERIFIED for v12.17 read paths. Not exhaustively walked. A
 follow-up phase would byte-by-byte compare SDK reads against
-`/Users/khubair/perc-sync/work/percolator/src/state.rs` MarketConfig
+`/path/to/perc-sync/work/percolator/src/state.rs` MarketConfig
 field offsets.
 
 ## parseEngine (src/solana/slab.ts:2832)

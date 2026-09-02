@@ -1,9 +1,9 @@
 # Drift Report — independent verification 2026-04-27
 
-SDK at /Users/khubair/percolator-sdk @ sync/v12.19-sdk (HEAD ~911e879).
+SDK at /path/to/percolator-sdk @ sync/v12.19-sdk (HEAD ~911e879).
 Wrapper v12.17 at /tmp/wrapper-v12.17 @ 06f86fb (mainnet pin, dated
 2026-04-22).
-Wrapper v12.19 at /Users/khubair/perc-sync/work/percolator-prog @ d760fc4.
+Wrapper v12.19 at /path/to/perc-sync/work/percolator-prog @ d760fc4.
 
 ## BLOCKING (10 findings)
 

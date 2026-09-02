@@ -925,10 +925,10 @@ last_market_slot, etc.; removed last_crank_slot and gc_cursor).
 
 - `buildLayoutV12_19` now uses V12_19-specific engine field offsets
   derived by walking the v12.19 RiskEngine struct definition at
-  `/Users/khubair/perc-sync/work/percolator/src/percolator.rs:581`,
+  `/path/to/perc-sync/work/percolator/src/percolator.rs:581`,
   cross-checked against probe constants in
-  `/Users/khubair/perc-sync/work/percolator-prog/tests/test_conservation.rs:4574,4586`
-  and `/Users/khubair/perc-sync/work/percolator-prog/tests/common/mod.rs:2185`:
+  `/path/to/perc-sync/work/percolator-prog/tests/test_conservation.rs:4574,4586`
+  and `/path/to/perc-sync/work/percolator-prog/tests/common/mod.rs:2185`:
   - `c_tot` at engine+328 (was 336 in v2.0.0).
   - `pnl_pos_tot` at engine+344 (was 352).
   - `oi_eff_long/short` at engine+488/504 (was 504/520).

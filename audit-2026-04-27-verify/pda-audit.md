@@ -32,7 +32,7 @@
 **SDK uses `b"ins_lp"` but the live LP vault mint PDA in v12.19 wrapper
 uses `b"lp_vault_mint"`.**
 
-Evidence at /Users/khubair/perc-sync/work/percolator-prog/src/percolator.rs:
+Evidence at /path/to/perc-sync/work/percolator-prog/src/percolator.rs:
 the call `crate::insurance_lp::create_mint(...)` is invoked with
 `mint_seeds: &[&[u8]] = &[b"lp_vault_mint", a_slab.key.as_ref(), &[mint_bump]]`
 (seen in the create_mint callsite around the LP vault setup).

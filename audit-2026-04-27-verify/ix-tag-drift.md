@@ -2,9 +2,9 @@
 
 Source-of-truth wrappers:
 - v12.17 (mainnet pin): /tmp/wrapper-v12.17 @ 06f86fb (commit dated 2026-04-22).
-- v12.19: /Users/khubair/perc-sync/work/percolator-prog @ d760fc4.
+- v12.19: /path/to/perc-sync/work/percolator-prog @ d760fc4.
 
-SDK: /Users/khubair/percolator-sdk/src/abi/instructions.ts:17.
+SDK: /path/to/percolator-sdk/src/abi/instructions.ts:17.
 
 ## Per-tag verification table
 

@@ -1,7 +1,8 @@
+import { requireRpcUrl } from "./config.mjs";
 import { Connection, PublicKey } from '@solana/web3.js';
-import { parseConfig, parseHeader } from '/Users/khubair/percolator-sdk/dist/index.js';
+import { parseConfig, parseHeader } from '../dist/index.js';
 
-const conn = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+const conn = new Connection(requireRpcUrl(), 'confirmed');
 const SLAB = new PublicKey('H7CVBttJmyAiae3bsKSCz8DbrPtKwMhs4NeFmQ9okhpz');
 const info = await conn.getAccountInfo(SLAB);
 const data = new Uint8Array(info.data);
