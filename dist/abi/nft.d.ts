@@ -9,10 +9,16 @@
  *   - GetPositionValue (tag 3)
  *   - ExecuteTransferHook (tag 4, SPL interface — not called directly)
  *   - EmergencyBurn   (tag 5)
+ *   - RepairExtraMetas (tag 6)
+ *   - ReconcileBurnedNft (tag 7)
  *
  * PDA seeds (matches percolator-nft/src/state_v16.rs):
- *   PositionNft state : ["position_nft", portfolio_account, asset_index_u16_LE]
+ *   PositionNft state : ["position_nft", portfolio_account, market_id_u64_LE]
  *   Mint authority    : ["mint_authority"]
+ *
+ * NOTE: the PositionNft seed is keyed on `market_id`, NOT `asset_index` — see
+ * #108 and `deriveNftPda` below. This header claimed `asset_index_u16_LE` until
+ * 2026-08-31; the code was always correct.
  */
 import { PublicKey } from "@solana/web3.js";
 /**
@@ -103,7 +109,8 @@ export declare const ACCOUNTS_NFT_MINT: AccountMeta[];
 /**
  * Account metas for BurnPositionNft (tag 1). 10 accounts.
  *
- *   0. [signer]    NFT holder
+ *   0. [signer, writable]  NFT holder (rent recipient — receives the ATA, mint,
+ *                          PositionNft PDA and ExtraAccountMetaList rent)
  *   1. [writable]  PositionNft PDA (closed)
  *   2. [writable]  NFT mint (supply → 0)
  *   3. [writable]  Holder's NFT ATA (closed)
@@ -121,7 +128,7 @@ export declare const ACCOUNTS_NFT_BURN: AccountMeta[];
 /**
  * Account metas for EmergencyBurn (tag 5). 10 accounts.
  *
- *   0. [signer]    NFT holder
+ *   0. [signer, writable]  NFT holder (rent recipient)
  *   1. [writable]  PositionNft PDA (closed)
  *   2. [writable]  NFT mint
  *   3. [writable]  Holder's NFT ATA
@@ -134,15 +141,30 @@ export declare const ACCOUNTS_NFT_BURN: AccountMeta[];
  */
 export declare const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[];
 /**
- * Account metas for ReconcileBurnedNft (tag 7, #138). 7 accounts. Permissionless.
+ * Account metas for ReconcileBurnedNft (tag 7, #138). 9 accounts. Permissionless.
  *
  *   0. [writable]  PositionNft PDA (closed)
- *   1. []          NFT mint (Token-2022 — supply must be 0)
+ *   1. [writable]  NFT mint (Token-2022 — supply must be 0; closed, #182)
  *   2. [writable]  Portfolio account (escrow released to the last holder)
- *   3. []          Mint authority PDA (unwrap CPI signer)
+ *   3. []          Mint authority PDA (unwrap + mint-close CPI signer)
  *   4. []          Per-market NftRegistry PDA
  *   5. []          Percolator wrapper program (unwrap CPI target)
- *   6. [writable]  Recorded last-holder wallet (escrow + PDA-rent recipient)
+ *   6. [writable]  Recorded last-holder wallet (escrow + all rent recipient)
+ *   7. [writable]  ExtraAccountMetaList PDA (closed, #182)
+ *   8. []          Token-2022 program (mint-close CPI target, #182)
+ *
+ * dcccrypto/percolator-nft#182: Reconcile previously abandoned the NFT mint and
+ * the ExtraAccountMetaList PDA — 7,676,880 lamports per NFT, unrecoverable,
+ * because it closes the PositionNft PDA and every path that could later reclaim
+ * those two requires it to still be live. Accounts 7 and 8 are REQUIRED rather
+ * than optional: Reconcile is permissionless, irreversible and runs at most
+ * once, so an opt-in could be defeated permanently by whoever called first.
+ *
+ * Forward-compatible with the currently deployed programs: their handler pulls
+ * seven accounts off an iterator and never checks `accounts.len()`, so the two
+ * extra metas are simply unread, and it never checks `nft_mint.is_writable`.
+ * A nine-account call therefore behaves identically on both, which is why this
+ * can ship ahead of the program change rather than behind it.
  */
 export declare const ACCOUNTS_NFT_RECONCILE: AccountMeta[];
 /**
@@ -189,7 +211,13 @@ export declare function deriveExtraAccountMetas(nftMint: PublicKey, programId?: 
  *   [119..127] epoch_snap_at_mint u64
  *   [127..159] position_owner_at_mint [u8; 32]
  *   [159..167] minted_at         i64
- *   [167..199] _reserved
+ *   [167..199] last_holder       [u8; 32]
+ *
+ * NOTE: [167..199] is `last_holder`, not reserved space. #138 claimed those
+ * bytes for the field the transfer hook rewrites on every transfer, and
+ * `ReconcileBurnedNft` reads it to decide who receives the released escrow and
+ * the rent — it is account 6 of that instruction and cannot be derived, only
+ * read from here.
  */
 export declare const POSITION_NFT_STATE_LEN = 199;
 export interface PositionNftState {
@@ -207,6 +235,15 @@ export interface PositionNftState {
     /** Backward-compatible alias for positionOwnerAtMint. */
     positionOwner: PublicKey;
     mintedAt: bigint;
+    /**
+     * The wallet the transfer hook last recorded as holding this NFT (#138).
+     *
+     * This is the sole authorisation for `ReconcileBurnedNft`: the program
+     * releases the escrowed portfolio and all rent to whichever account matches
+     * it, and refuses any other. Supply it as account 6 of
+     * `ACCOUNTS_NFT_RECONCILE` — there is no way to derive it.
+     */
+    lastHolder: PublicKey;
 }
 /**
  * Parse a PositionNft account from raw bytes.

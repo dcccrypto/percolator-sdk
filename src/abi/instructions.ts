@@ -515,7 +515,7 @@ Object.freeze(IX_TAG);
  * The v17 MAGIC is 0x5045_5243_5631_3600n ("PERCV16\0" as u64 LE). When
  * reading an account header, verify both MAGIC at [0..8] and VERSION at [8..10].
  */
-export const EXPECTED_SLAB_VERSION = 16;
+export const EXPECTED_SLAB_VERSION = 17;
 
 /**
  * v17 account header magic — "PERCV16\0" stored as little-endian u64.

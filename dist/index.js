@@ -598,7 +598,7 @@ var IX_TAG = {
   TradeCpiV: 105
 };
 Object.freeze(IX_TAG);
-var EXPECTED_SLAB_VERSION = 16;
+var EXPECTED_SLAB_VERSION = 17;
 var V17_SLAB_MAGIC = 0x5045524356313600n;
 function removedInstruction(name, tag, replacement) {
   const suffix = replacement ? ` Use ${replacement} instead.` : "";
@@ -2789,7 +2789,7 @@ var ACCOUNTS_NFT_MINT = [
   "r"
 ];
 var ACCOUNTS_NFT_BURN = [
-  "s",
+  "sw",
   "w",
   "w",
   "w",
@@ -2801,7 +2801,7 @@ var ACCOUNTS_NFT_BURN = [
   "r"
 ];
 var ACCOUNTS_NFT_EMERGENCY_BURN = [
-  "s",
+  "sw",
   "w",
   "w",
   "w",
@@ -2814,12 +2814,14 @@ var ACCOUNTS_NFT_EMERGENCY_BURN = [
 ];
 var ACCOUNTS_NFT_RECONCILE = [
   "w",
-  "r",
+  "w",
   "w",
   "r",
   "r",
   "r",
-  "w"
+  "w",
+  "w",
+  "r"
 ];
 var TEXT = new TextEncoder();
 function u16Buf(value, label) {
@@ -2901,7 +2903,8 @@ function parsePositionNftAccount(data) {
     epochSnapAtMint: view.getBigUint64(119, true),
     positionOwnerAtMint,
     positionOwner: positionOwnerAtMint,
-    mintedAt: view.getBigInt64(159, true)
+    mintedAt: view.getBigInt64(159, true),
+    lastHolder: new PublicKey4(data.subarray(167, 199))
   };
 }
 

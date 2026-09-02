@@ -7,6 +7,76 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.0.0] — unreleased
+
+`package.json` was bumped to 5.0.0 by `3704dfd` without a changelog section;
+this collects that change and everything since.
+
+### Fixed
+
+- **`ACCOUNTS_NFT_BURN` / `ACCOUNTS_NFT_EMERGENCY_BURN`: the NFT holder is now
+  `[signer, writable]`, not `[signer]`.** The holder is the rent recipient for
+  every account those instructions close — the ATA, the mint, the PositionNft
+  PDA and the ExtraAccountMetaList — and percolator-nft rejects a read-only
+  holder outright via `require_writable_rent_recipient` (`processor.rs:825`,
+  `:1000`); its own ABI table documents account 0 as `[signer, writable]`
+  (`instruction.rs:44`, `:99`). Every burn built from these templates through
+  `buildNftAccountMetas` previously went on the wire with `isWritable: false`
+  and was rejected with `InvalidAccountData`. This was a live break against the
+  deployed programs. (dcccrypto/percolator-sdk#376)
+
+### Breaking
+
+- **`fix(stake)!`** (`3704dfd`): an ambiguous network now throws instead of
+  defaulting to mainnet.
+
+### Changed
+
+- **`ACCOUNTS_NFT_RECONCILE` 7 → 9 accounts**, mirroring
+  dcccrypto/percolator-nft#183: `extra_metas` (writable) at index 7 and the
+  Token-2022 program at index 8, with the NFT mint at index 1 becoming writable
+  because the program now closes it. Recovers 7,676,880 lamports per NFT that
+  Reconcile previously abandoned unrecoverably.
+
+  **Ahead of chain, but forward-compatible.** The currently deployed programs
+  (`FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS` mainnet,
+  `CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3` devnet) pull seven accounts off
+  an iterator, never check `accounts.len()`, and never check
+  `nft_mint.is_writable` — so a nine-account call behaves identically on them.
+  The rent reclamation this documents only takes effect once percolator-nft#183
+  is deployed. Callers building the instruction by hand must pass nine keys:
+  `buildNftAccountMetas` throws `account count mismatch: expected 9, got 7`.
+
+### Added
+
+- **`PositionNftState.lastHolder`.** Bytes `[167..199]` were documented as
+  `_reserved`; #138 claimed them for `last_holder`, the field the transfer hook
+  rewrites on every transfer. It is the sole authorisation for
+  `ReconcileBurnedNft` — the program releases the escrowed portfolio and all
+  rent to whichever account matches it — and it is account 6 of
+  `ACCOUNTS_NFT_RECONCILE`, which cannot be derived. Without this the SDK
+  shipped the Reconcile account template but no way to obtain the one key in it.
+
+- Account-list drift tests (`test/drift-check.test.ts`) that round-trip each
+  `ACCOUNTS_NFT_*` template through `buildNftAccountMetas` and assert the
+  resulting `{isSigner, isWritable}` booleans. The previous tests asserted the
+  shorthand string codes, at which level the holder defect above was invisible.
+  Nothing in this repo consumes these templates, so they had no coverage at all.
+`package.json` was bumped to 5.0.0 by `3704dfd` without a changelog section.
+
+### Fixed
+
+- **`EXPECTED_SLAB_VERSION` 16 → 17.** The deployed wrapper writes `VERSION = 17`
+  into bytes `[8..10]` of every account it owns and hard-rejects a mismatch in
+  `check_header`. Confirmed against the live devnet wrapper
+  `DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj`: of 206 wrapper-owned accounts,
+  204 carry version 17 and none carries 16. Nothing in this package consumed the
+  constant, but it is a public export, and any integrator gating on it rejected
+  every live account. percolator-nft needed the same correction in `3e26fe7`.
+  (dcccrypto/percolator-sdk#379)
+
+---
+
 ## [4.3.0] — 2026-07-24
 
 Creator fee claim: the read side (`creatorFeeClaimableAtoms`) and the write side

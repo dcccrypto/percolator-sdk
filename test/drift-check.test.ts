@@ -22,6 +22,7 @@ import {
   encodeTradeNoCpi,
   encodeTradeCpiV2,
   encodeSetPythOracle,
+  EXPECTED_SLAB_VERSION,
 } from "../src/abi/instructions.js";
 import {
   STAKE_PROGRAM_ID,
@@ -40,6 +41,11 @@ import {
   encodeNftMint,
   deriveNftPda,
   deriveNftMint,
+  ACCOUNTS_NFT_MINT,
+  ACCOUNTS_NFT_BURN,
+  ACCOUNTS_NFT_EMERGENCY_BURN,
+  ACCOUNTS_NFT_RECONCILE,
+  buildNftAccountMetas,
 } from "../src/abi/nft.js";
 import {
   detectSlabLayout,
@@ -387,6 +393,15 @@ describe("SDK drift guards", () => {
     expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
   });
 
+  it("EXPECTED_SLAB_VERSION matches what the deployed wrapper writes", () => {
+    // percolator-prog `VERSION: u16 = 17` (v16_program.rs:51) is written to
+    // data[8..10] by write_header and hard-checked by check_header, which
+    // rejects a mismatch with InvalidVersion. Confirmed against the live devnet
+    // wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj: of 206
+    // wrapper-owned accounts, 204 carry version 17 and none carries 16.
+    expect(EXPECTED_SLAB_VERSION).toBe(17);
+  });
+
   it("parses positionOwner from standalone NFT account bytes", () => {
     const buf = new Uint8Array(POSITION_NFT_STATE_LEN);
     const view = new DataView(buf.buffer);
@@ -396,6 +411,26 @@ describe("SDK drift guards", () => {
     buf.set(owner.toBytes(), 127);
     const parsed = parsePositionNftAccount(buf);
     expect(parsed.positionOwner.equals(owner)).toBe(true);
+  });
+
+  it("parses lastHolder from bytes 167..199 — the Reconcile recipient (#138)", () => {
+    // [167..199] is `last_holder`, not reserved space. It is the sole
+    // authorisation for ReconcileBurnedNft: the program releases the escrow and
+    // all rent to whichever account matches it, and it is account 6 of
+    // ACCOUNTS_NFT_RECONCILE. It cannot be derived — only read from here.
+    const buf = new Uint8Array(POSITION_NFT_STATE_LEN);
+    const view = new DataView(buf.buffer);
+    const owner = PublicKey.unique();
+    const holder = PublicKey.unique();
+    view.setBigUint64(0, 0x5045_5243_4e46_5400n, true);
+    buf[8] = 2;
+    buf.set(owner.toBytes(), 127);
+    buf.set(holder.toBytes(), 167);
+    const parsed = parsePositionNftAccount(buf);
+    expect(parsed.lastHolder.equals(holder)).toBe(true);
+    // ...and it is a distinct field from the mint-time owner.
+    expect(parsed.positionOwnerAtMint.equals(owner)).toBe(true);
+    expect(parsed.lastHolder.equals(parsed.positionOwnerAtMint)).toBe(false);
   });
 
   it("standalone NFT helpers use v16 portfolio model (mint=asset_index, PDA=market_id)", () => {
@@ -998,5 +1033,70 @@ describe("encoding roundtrip — manual decode verifies no endianness or off-by-
     expect(data.length).toBe(219);
     expect(readU128LE(data, 27)).toBe(MM_REQ);
     expect(readU128LE(data, 43)).toBe(IM_REQ);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// percolator-nft account-list ABI
+// ---------------------------------------------------------------------------
+//
+// These templates are the SDK's copy of the account tables in
+// percolator-nft/src/instruction.rs, and nothing in this repo consumes them —
+// only external callers do, so nothing here exercised them until now.
+//
+// Assertions round-trip through `buildNftAccountMetas`, because the shorthand
+// codes are not what the runtime sees: the builder turns them into
+// {isSigner, isWritable} booleans and THAT object goes on the wire. Asserting
+// the booleans is what makes a wrong flag visible — and is what would have
+// caught the historical wrong-builder bug documented above
+// `buildNftAccountMetas`, where every flag silently became `undefined`.
+
+describe("percolator-nft account-list ABI", () => {
+  const flagsOf = (spec: readonly ("s" | "w" | "sw" | "r")[]) =>
+    buildNftAccountMetas(
+      spec,
+      Array.from({ length: spec.length }, () => PublicKey.unique()),
+    ).map((m) => [m.isSigner, m.isWritable] as const);
+
+  it("MintPositionNft: 12 accounts; payer and the fresh mint keypair both sign", () => {
+    const f = flagsOf(ACCOUNTS_NFT_MINT);
+    expect(f.length).toBe(12);
+    expect(f[0]).toEqual([true, true]); // payer / position owner
+    expect(f[2]).toEqual([true, true]); // fresh mint keypair
+  });
+
+  it("BurnPositionNft: the holder is the rent recipient, so signer AND writable", () => {
+    // percolator-nft `require_writable_rent_recipient(holder)` (processor.rs:825)
+    // rejects a read-only holder with InvalidAccountData, and the program's own
+    // ABI table documents account 0 as `[signer, writable]` (instruction.rs:44).
+    const f = flagsOf(ACCOUNTS_NFT_BURN);
+    expect(f.length).toBe(10);
+    expect(f[0]).toEqual([true, true]);
+    expect(f[7]).toEqual([false, true]); // extra_metas, closed (#102)
+  });
+
+  it("EmergencyBurn: same holder requirement (processor.rs:1000)", () => {
+    const f = flagsOf(ACCOUNTS_NFT_EMERGENCY_BURN);
+    expect(f.length).toBe(10);
+    expect(f[0]).toEqual([true, true]);
+    expect(f[7]).toEqual([false, true]);
+  });
+
+  it("ReconcileBurnedNft: 9 accounts, permissionless, writable at 0/1/2/6/7", () => {
+    // dcccrypto/percolator-nft#182 gives Reconcile the rent reclamation the two
+    // burn paths have had since #102: extra_metas at 7, Token-2022 at 8, both
+    // REQUIRED. The mint at 1 becomes writable because the fix closes it.
+    const f = flagsOf(ACCOUNTS_NFT_RECONCILE);
+    expect(f.length).toBe(9);
+    expect(f.every(([signer]) => !signer)).toBe(true); // permissionless
+    expect(f.map(([, w]) => w)).toEqual([
+      true, true, true, false, false, false, true, true, false,
+    ]);
+  });
+
+  it("buildNftAccountMetas rejects a key-count mismatch rather than truncating", () => {
+    expect(() =>
+      buildNftAccountMetas(ACCOUNTS_NFT_RECONCILE, [PublicKey.unique()]),
+    ).toThrow(/account count mismatch/);
   });
 });
