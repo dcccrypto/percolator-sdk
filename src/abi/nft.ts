@@ -192,7 +192,12 @@ export const ACCOUNTS_NFT_MINT: AccountMeta[] = [
  * release the escrow back to the holder, so #4 must be writable and #8/#9 are required.
  */
 export const ACCOUNTS_NFT_BURN: AccountMeta[] = [
-  "s", "w", "w", "w", "w", "r", "r", "w", "r", "r",
+  // #376: the holder is the RENT RECIPIENT for every account this instruction
+  // closes, so the program requires it signer AND writable
+  // (percolator-nft `require_writable_rent_recipient`, processor.rs:884).
+  // Marking it "s" produced isWritable:false and the program rejected the
+  // transaction with InvalidAccountData.
+  "sw", "w", "w", "w", "w", "r", "r", "w", "r", "r",
 ];
 
 /**
@@ -210,7 +215,9 @@ export const ACCOUNTS_NFT_BURN: AccountMeta[] = [
  *   9. []          Percolator wrapper program (#105 — unwrap CPI target)
  */
 export const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[] = [
-  "s", "w", "w", "w", "w", "r", "r", "w", "r", "r",
+  // #376: same rent-recipient requirement as BurnPositionNft
+  // (percolator-nft `require_writable_rent_recipient`, processor.rs:1055).
+  "sw", "w", "w", "w", "w", "r", "r", "w", "r", "r",
 ];
 
 /**
