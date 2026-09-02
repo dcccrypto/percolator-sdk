@@ -494,7 +494,7 @@ export declare const IX_TAG: {
  * The v17 MAGIC is 0x5045_5243_5631_3600n ("PERCV16\0" as u64 LE). When
  * reading an account header, verify both MAGIC at [0..8] and VERSION at [8..10].
  */
-export declare const EXPECTED_SLAB_VERSION = 17;
+export declare const EXPECTED_SLAB_VERSION = 16;
 /**
  * v17 account header magic — "PERCV16\0" stored as little-endian u64.
  * bytes[0..8] = [0x00, 0x36, 0x31, 0x56, 0x43, 0x52, 0x45, 0x50]

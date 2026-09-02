@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: [
-      "test/issue-376-379-regression.test.ts",
+      "test/issue-370-regression.test.ts",
       "test/v17-kind-gate.test.ts",
       "test/token-program.test.ts",
       "test/encode.test.ts",

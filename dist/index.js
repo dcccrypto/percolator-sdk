@@ -598,7 +598,7 @@ var IX_TAG = {
   TradeCpiV: 105
 };
 Object.freeze(IX_TAG);
-var EXPECTED_SLAB_VERSION = 17;
+var EXPECTED_SLAB_VERSION = 16;
 var V17_SLAB_MAGIC = 0x5045524356313600n;
 function removedInstruction(name, tag, replacement) {
   const suffix = replacement ? ` Use ${replacement} instead.` : "";
@@ -2789,12 +2789,7 @@ var ACCOUNTS_NFT_MINT = [
   "r"
 ];
 var ACCOUNTS_NFT_BURN = [
-  // #376: the holder is the RENT RECIPIENT for every account this instruction
-  // closes, so the program requires it signer AND writable
-  // (percolator-nft `require_writable_rent_recipient`, processor.rs:884).
-  // Marking it "s" produced isWritable:false and the program rejected the
-  // transaction with InvalidAccountData.
-  "sw",
+  "s",
   "w",
   "w",
   "w",
@@ -2806,9 +2801,7 @@ var ACCOUNTS_NFT_BURN = [
   "r"
 ];
 var ACCOUNTS_NFT_EMERGENCY_BURN = [
-  // #376: same rent-recipient requirement as BurnPositionNft
-  // (percolator-nft `require_writable_rent_recipient`, processor.rs:1055).
-  "sw",
+  "s",
   "w",
   "w",
   "w",
