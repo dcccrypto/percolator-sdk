@@ -6720,7 +6720,11 @@ function computePumpSwapPriceE6(poolData, vaultData, decimals, solPriceE6) {
   const quoteDv = new DataView(vaultData.quote.buffer, vaultData.quote.byteOffset, vaultData.quote.byteLength);
   const baseAmount = readU64LE3(baseDv, 64);
   const quoteAmount = readU64LE3(quoteDv, 64);
-  if (baseAmount === 0n) return 0n;
+  if (baseAmount === 0n) {
+    throw new Error(
+      "PumpSwap pool has zero base reserves \u2014 uninitialized or fully drained; refusing to report a price"
+    );
+  }
   const baseScale = 10n ** BigInt(decimals.base);
   const quoteScale = 10n ** BigInt(decimals.quote);
   const quotePerBaseE6 = quoteAmount * baseScale * 1000000n / (quoteScale * baseAmount);
@@ -6768,7 +6772,11 @@ function computeRaydiumClmmPriceE6(data) {
     );
   }
   const sqrtPriceX64 = readU128LE3(dv3, 253);
-  if (sqrtPriceX64 === 0n) return 0n;
+  if (sqrtPriceX64 === 0n) {
+    throw new Error(
+      "Raydium CLMM pool has sqrt_price_x64 = 0 \u2014 uninitialized; refusing to report a price"
+    );
+  }
   const sq1e6 = sqrtPriceX64 * sqrtPriceX64 * 1000000n;
   const decimalDiff = 6 + decimals0 - decimals1;
   const adjustedDiff = decimalDiff - 6;
@@ -6801,7 +6809,11 @@ function computeMeteoraDlmmPriceE6(data, decimalsBase, decimalsQuote) {
   const dv3 = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const binStep = dv3.getUint16(80, true);
   const activeId = dv3.getInt32(76, true);
-  if (binStep === 0) return 0n;
+  if (binStep === 0) {
+    throw new Error(
+      "Meteora DLMM pair has binStep = 0 \u2014 uninitialized; refusing to report a price"
+    );
+  }
   if (binStep > MAX_BIN_STEP) {
     throw new Error(`Meteora DLMM: binStep ${binStep} exceeds max ${MAX_BIN_STEP}`);
   }
@@ -6827,7 +6839,11 @@ function computeMeteoraDlmmPriceE6(data, decimalsBase, decimalsQuote) {
   }
   const diff = decimalsBase - decimalsQuote;
   if (isNeg) {
-    if (result === 0n) return 0n;
+    if (result === 0n) {
+      throw new Error(
+        "Meteora DLMM inverse-price computation produced a zero divisor; refusing to report a price"
+      );
+    }
     const num = 1000000000000000000000000n;
     if (diff >= 0) {
       return num * 10n ** BigInt(diff) / result;

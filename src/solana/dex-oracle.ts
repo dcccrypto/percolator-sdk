@@ -274,7 +274,19 @@ function computePumpSwapPriceE6(
   const baseAmount = readU64LE(baseDv, 64);
   const quoteAmount = readU64LE(quoteDv, 64);
 
-  if (baseAmount === 0n) return 0n;
+  // #338: FAIL CLOSED. This used to return 0n, which every caller then had to
+  // recognise as "no price" — and none did. A zero propagates as a real price into
+  // the oracle path, so an uninitialized or fully drained pool could push a
+  // zero mark on-chain. There is no valid pool state in which the spot price is 0.
+  //
+  // Throwing matches this module's own contract: computeDexSpotPriceE6 already
+  // throws on missing vaultData and missing decimals rather than returning a
+  // sentinel. A parser that signals "bad input" two different ways is the bug.
+  if (baseAmount === 0n) {
+    throw new Error(
+      "PumpSwap pool has zero base reserves — uninitialized or fully drained; refusing to report a price",
+    );
+  }
 
   // Deferred truncation (same philosophy as Raydium #210 / Meteora #226): scale
   // the numerator by both the base-decimal correction AND the 1e6 output scale
@@ -360,7 +372,13 @@ function computeRaydiumClmmPriceE6(data: Uint8Array): bigint {
 
   const sqrtPriceX64 = readU128LE(dv, 253);
 
-  if (sqrtPriceX64 === 0n) return 0n;
+  // #338: FAIL CLOSED — see the PumpSwap note above. sqrt_price_x64 == 0 means the
+  // CLMM pool was never initialized; it is not a price of zero.
+  if (sqrtPriceX64 === 0n) {
+    throw new Error(
+      "Raydium CLMM pool has sqrt_price_x64 = 0 — uninitialized; refusing to report a price",
+    );
+  }
 
   // #210: defer truncation to a single shift at the very end. The previous form
   // truncated twice (`>> 64` then `>> 64`) BEFORE applying the decimal scale, so for
@@ -459,7 +477,13 @@ function computeMeteoraDlmmPriceE6(
   const binStep = dv.getUint16(80, true);
   const activeId = dv.getInt32(76, true);
 
-  if (binStep === 0) return 0n;
+  // #338: FAIL CLOSED — see the PumpSwap note above. A zero bin step is an
+  // uninitialized LbPair, and it is also the divisor of the bin formula below.
+  if (binStep === 0) {
+    throw new Error(
+      "Meteora DLMM pair has binStep = 0 — uninitialized; refusing to report a price",
+    );
+  }
   if (binStep > MAX_BIN_STEP) {
     throw new Error(`Meteora DLMM: binStep ${binStep} exceeds max ${MAX_BIN_STEP}`);
   }
@@ -498,7 +522,14 @@ function computeMeteoraDlmmPriceE6(
   const diff = decimalsBase - decimalsQuote;
 
   if (isNeg) {
-    if (result === 0n) return 0n;
+    // #338: FAIL CLOSED. This guards a division by `result` below. Returning 0n
+    // turned a would-be divide-by-zero into a silent zero price, which is the same
+    // hazard one layer down.
+    if (result === 0n) {
+      throw new Error(
+        "Meteora DLMM inverse-price computation produced a zero divisor; refusing to report a price",
+      );
+    }
     // price_e6 = (1e24 / result) * 10^diff   [1e24 = 1e18 (inverse) * 1e6 (e6 scale)]
     const num = 1_000_000_000_000_000_000_000_000n; // 1e24
     if (diff >= 0) {
