@@ -3483,7 +3483,18 @@ export function maxAccountIndex(dataLen: number): number {
   if (!layout) return 0;
   const accountsEnd = dataLen - layout.accountsOff;
   if (accountsEnd <= 0) return 0;
-  return Math.floor(accountsEnd / layout.accountSize);
+  // #370: the region after `accountsOff` is NOT solely the accounts array — on
+  // the v12.19 layout it also carries RISK_BUF (160 B) and the per-account
+  // generation table (N x 8 B). Dividing all of it by `accountSize` over-reports
+  // by 6 slots on every tier, and `parseAccount()` then happily decodes trailing
+  // non-account bytes as a phantom account (owner + capital included).
+  //
+  // Bound by the `maxAccounts` the SDK itself computed from those same layout
+  // constants: whatever the constants are, this must never exceed them.
+  return Math.min(
+    Math.floor(accountsEnd / layout.accountSize),
+    layout.maxAccounts,
+  );
 }
 
 /**
