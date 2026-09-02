@@ -175,7 +175,13 @@ describe("Rust parity fixtures", () => {
     expect(fixture.offsets.nft_mint).toBe(42);
     expect(fixture.offsets.asset_index).toBe(74);
     expect(fixture.offsets.position_owner_at_mint).toBe(127);
-    expect(fixture.offsets.reserved).toBe(167);
+    // #375: the field at 167 is `last_holder`, not `reserved`.
+    // percolator-nft#138 renamed `_reserved` -> `last_holder` IN PLACE — same
+    // offset, same 199-byte total — so nothing broke and nothing flagged it. The
+    // nft parity target could not run to catch it (no fixture binary until
+    // percolator-nft#188), and this assertion was pinning the stale name.
+    expect(fixture.offsets.last_holder).toBe(167);
+    expect(fixture.offsets.reserved).toBeUndefined();
   });
 
   describe("matcher", () => {
