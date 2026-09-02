@@ -201,13 +201,22 @@ assertThrows(
   assert(price === 300_730n, `pumpswap SOL→USD conversion: expected 300730, got ${price}`);
 }
 
-// Price — zero base returns 0
+// #338 INVERTED (was "zero base returns 0"): a zero is not a price, and every
+// caller would have had to recognise the sentinel as "no price" — none did, so it
+// propagated into the oracle path. This now THROWS, matching how
+// computeDexSpotPriceE6 already reports missing vaultData and missing decimals.
+// Re-introducing the `return 0n` fails here.
 {
   const poolData = makePumpSwapPoolData();
   const base = makeSplTokenAccount(0n);
   const quote = makeSplTokenAccount(100n);
-  const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 6 });
-  assert(price === 0n, "pumpswap zero base returns 0");
+  let threw = false;
+  try {
+    computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 6 });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "pumpswap zero base must THROW, not return a zero price");
 }
 
 // Price — very large amounts (equal decimals, no overflow with BigInt)
@@ -370,11 +379,16 @@ assertThrows(
   assert(price >= 15000n && price <= 16000n, `raydium micro-price ~15258, got ${price}`);
 }
 
-// Extreme: sqrt = 0 returns 0
+// #338 INVERTED (was "sqrt = 0 returns 0") — see the PumpSwap note above.
 {
   const data = makeRaydiumClmmData(6, 6, 0n);
-  const price = computeDexSpotPriceE6("raydium-clmm", data);
-  assert(price === 0n, "raydium zero sqrt returns 0");
+  let threw = false;
+  try {
+    computeDexSpotPriceE6("raydium-clmm", data);
+  } catch {
+    threw = true;
+  }
+  assert(threw, "raydium sqrt_price_x64 = 0 must THROW, not return a zero price");
 }
 
 // Large sqrt — won't overflow with BigInt
@@ -494,11 +508,16 @@ assertThrows(
   assert(price >= 900_000n && price <= 910_000n, `meteora negative activeId ~904837, got ${price}`);
 }
 
-// Zero bin_step returns 0
+// #338 INVERTED (was "zero bin_step returns 0") — see the PumpSwap note above.
 {
   const data = makeMeteoraData(0, 100);
-  const price = computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: 6 });
-  assert(price === 0n, "meteora zero bin_step returns 0");
+  let threw = false;
+  try {
+    computeDexSpotPriceE6("meteora-dlmm", data, undefined, { base: 6, quote: 6 });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "meteora binStep = 0 must THROW, not return a zero price");
 }
 
 // Large positive exponent
