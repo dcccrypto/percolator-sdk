@@ -7617,9 +7617,9 @@ var STAKE_POOL_SIZE_V1 = 352;
 var STAKE_POOL_SIZE_V2 = 384;
 var STAKE_POOL_SIZE_V3 = 392;
 var STAKE_POOL_SIZE_V4 = 408;
-var STAKE_POOL_SIZE = STAKE_POOL_SIZE_V4;
+var STAKE_POOL_SIZE = STAKE_POOL_SIZE_V3;
 var STAKE_POOL_DISCRIMINATOR = new Uint8Array([83, 80, 79, 79, 76, 95, 86, 49]);
-var STAKE_POOL_CURRENT_VERSION = 4;
+var STAKE_POOL_CURRENT_VERSION = 3;
 function decodeStakePool(data) {
   const isV4 = data.length >= STAKE_POOL_SIZE_V4;
   const isV3 = !isV4 && data.length >= STAKE_POOL_SIZE_V3;
@@ -7701,8 +7701,9 @@ function decodeStakePool(data) {
   const cooldownProposedAtSlot = isV4 ? readU64LE4(bytes, reservedStart + 80) : readU64LE4(bytes, reservedStart + 18);
   const realizedJuniorLoss = readU64LE4(bytes, reservedStart + 51);
   const assetAdminBurned = bytes[reservedStart + 59] === 1;
-  const totalRecoveredFromWrapper = isV3 || isV4 ? readU64LE4(bytes, reservedStart + 64) : null;
+  const totalRecoveredFromWrapper = isV4 || isV3 ? readU64LE4(bytes, reservedStart + 64) : null;
   return {
+    version,
     isInitialized,
     bump,
     vaultAuthorityBump,
