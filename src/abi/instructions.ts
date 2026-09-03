@@ -1083,8 +1083,27 @@ export function encodeWithdrawCollateral(args: WithdrawCollateralArgs): Uint8Arr
  *   1 = Liquidate — liquidate the portfolio identified by asset_index
  */
 export const CrankAction = {
+  /**
+   * #381: action 0 is `Refresh` in the program, not `FeeSweep`.
+   *
+   * `v16_program.rs` decodes `0 => PermissionlessCrankActionV16::Refresh`. The
+   * name is kept as an alias below so existing callers do not break, but
+   * `Refresh` is what the program calls it and what a reader should match
+   * against when comparing this file to the wrapper.
+   */
+  Refresh: 0,
+  /** @deprecated Alias for {@link CrankAction.Refresh} — the program's name. */
   FeeSweep: 0,
   Liquidate: 1,
+  /**
+   * #381: action 2 was MISSING from this enum entirely.
+   *
+   * `2 => PermissionlessCrankActionV16::SettleB` is the permissionless
+   * bankrupt-settlement path. Omitting it did not merely mislabel something — it
+   * hid the action's existence from every SDK consumer, so a keeper reading this
+   * file would conclude the crank had two modes and never call the third.
+   */
+  SettleB: 2,
 } as const;
 
 /**
@@ -1113,7 +1132,8 @@ export const CrankAction = {
  * Do NOT construct this payload manually and omit funding_rate_e9 — that
  * produces a truncated instruction (missing 16 bytes).
  *
- * @param action       CrankAction.FeeSweep or CrankAction.Liquidate.
+ * @param action       CrankAction.Refresh, .Liquidate or .SettleB (#381:
+ *                     SettleB was missing from the enum entirely).
  * @param assetIndex   Asset/domain index to operate on.
  * @param nowSlot      Current slot (for crank freshness check).
  * @param recoveryReason Recovery reason byte (0 for normal operations).

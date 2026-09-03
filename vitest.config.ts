@@ -31,6 +31,7 @@ export default defineConfig({
       "test/script-config.test.ts",
       "test/drift-check.test.ts",
       "test/dex-oracle-fail-closed.test.ts",
+      "test/sdk-drift-381.test.ts",
       "test/parity-fixtures.test.ts",
       "test/account-decode.test.ts",
       "test/parity/v12.17-encoder-bytes.parity.test.ts",
