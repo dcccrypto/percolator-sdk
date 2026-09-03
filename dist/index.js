@@ -754,8 +754,27 @@ function encodeWithdrawCollateral(args) {
   );
 }
 var CrankAction = {
+  /**
+   * #381: action 0 is `Refresh` in the program, not `FeeSweep`.
+   *
+   * `v16_program.rs` decodes `0 => PermissionlessCrankActionV16::Refresh`. The
+   * name is kept as an alias below so existing callers do not break, but
+   * `Refresh` is what the program calls it and what a reader should match
+   * against when comparing this file to the wrapper.
+   */
+  Refresh: 0,
+  /** @deprecated Alias for {@link CrankAction.Refresh} — the program's name. */
   FeeSweep: 0,
-  Liquidate: 1
+  Liquidate: 1,
+  /**
+   * #381: action 2 was MISSING from this enum entirely.
+   *
+   * `2 => PermissionlessCrankActionV16::SettleB` is the permissionless
+   * bankrupt-settlement path. Omitting it did not merely mislabel something — it
+   * hid the action's existence from every SDK consumer, so a keeper reading this
+   * file would conclude the crank had two modes and never call the third.
+   */
+  SettleB: 2
 };
 function encodePermissionlessCrank(args) {
   return concatBytes(
@@ -1746,6 +1765,16 @@ var ACCOUNTS_UPDATE_ADMIN = [
 var ACCOUNTS_ACCEPT_ADMIN = [
   { name: "pendingAdmin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true }
+];
+var ACCOUNTS_CLOSE_SLAB_SECONDARY = [
+  { name: "dest", signer: true, writable: true },
+  { name: "slab", signer: false, writable: true },
+  { name: "vault", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "destAta", signer: false, writable: true },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "secondaryVault", signer: false, writable: true },
+  { name: "secondaryDestAta", signer: false, writable: true }
 ];
 var ACCOUNTS_CLOSE_SLAB = [
   { name: "dest", signer: true, writable: true },
@@ -9557,6 +9586,7 @@ export {
   ACCOUNTS_CLOSE_ACCOUNT,
   ACCOUNTS_CLOSE_ORPHAN_SLAB,
   ACCOUNTS_CLOSE_SLAB,
+  ACCOUNTS_CLOSE_SLAB_SECONDARY,
   ACCOUNTS_CLOSE_STALE_SLABS,
   ACCOUNTS_CONFIGURE_AUTH_MARK,
   ACCOUNTS_CONFIGURE_EWMA_MARK,

@@ -277,6 +277,26 @@ export declare const ACCOUNTS_ACCEPT_ADMIN: readonly AccountSpec[];
  * [4] destAta         writable (dest's token ATA receiving drained tokens)
  * [5] tokenProgram    read-only
  */
+/**
+ * CloseSlab for a market that has a SECONDARY collateral mint. 8 accounts.
+ *
+ * #381: `handle_close_slab` reads two MORE accounts — both `expect_writable` —
+ * whenever `cfg.secondary_collateral_mint != [0u8; 32]`:
+ *
+ *   let secondary_close = if cfg_pre.secondary_collateral_mint != [0u8; 32] {
+ *       let secondary_vault_token = account(accounts, 6)?;
+ *       let secondary_dest_token  = account(accounts, 7)?;
+ *
+ * `ACCOUNTS_CLOSE_SLAB` above has six, so closing such a market fails with
+ * `NotEnoughAccountKeys` — and only for markets that have used
+ * `UpdateBaseUnitMints` (tag 60), which is why it went unnoticed.
+ *
+ * A separate template rather than two optional entries: the accounts are
+ * required-or-forbidden, not optional. Passing them on a single-collateral
+ * market is harmless (Solana ignores surplus accounts) but misleading, and the
+ * caller already knows which market it holds.
+ */
+export declare const ACCOUNTS_CLOSE_SLAB_SECONDARY: readonly AccountSpec[];
 export declare const ACCOUNTS_CLOSE_SLAB: readonly AccountSpec[];
 /**
  * UpdateConfig: 3 accounts (canonical) or 4 (with oracle).
