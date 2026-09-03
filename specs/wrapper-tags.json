@@ -23,7 +23,6 @@
     71
   ],
   "program": "percolator-prog",
-  "version": "v17",
   "tags": [
     { "name": "InitMarket", "tag": 0 },
     { "name": "InitPortfolio", "tag": 1 },
@@ -84,6 +83,19 @@
     { "name": "ExecuteRedemption", "tag": 77 },
     { "name": "LpVaultCrankFees", "tag": 78 },
     { "name": "SetLpVaultPaused", "tag": 79 },
-    { "name": "CloseLpVault", "tag": 80 }
-  ]
+    { "name": "CloseLpVault", "tag": 80 },
+    { "name": "CancelRedemption", "tag": 81 },
+    { "name": "UnwrapEscrowedPortfolio", "tag": 82 },
+    { "name": "InitMatcherCtx", "tag": 83 },
+    { "name": "WithdrawProtocolFee", "tag": 84 },
+    { "name": "SetProtocolFeeAuthority", "tag": 85 },
+    { "name": "UpdateFeeSplit", "tag": 86 },
+    { "name": "WithdrawInsuranceReserveToStake", "tag": 87 },
+    { "name": "UpdateMaintenanceFeePerSlot", "tag": 88 },
+    { "name": "ExpireBackingBucket", "tag": 89 },
+    { "name": "WithdrawCreatorFee", "tag": 90 },
+    { "name": "RebalanceLpVaultBacking", "tag": 91 },
+    { "name": "UpdateInsuranceWithdrawPolicy", "tag": 92 }
+  ],
+  "version": "v17"
 }

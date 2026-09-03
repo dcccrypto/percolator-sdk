@@ -205,6 +205,24 @@ export const IX_TAG = {
    * Wire: tag(1) = 1 byte.
    */
   CloseLpVault: 80,
+  /**
+   * CancelRedemption (tag 81) — withdraw a pending LP redemption request before it
+   * is executed, returning the shares to the holder.
+   * Wire: tag(1) = 1 byte.
+   *
+   * GH#375: this and UnwrapEscrowedPortfolio(82) were the only two v17 wrapper
+   * instructions with NO entry here. Tags 81 and 82 were represented solely by the
+   * deprecated v12 names below, both annotated "Not in v17" — which is false. The
+   * Parity Gate exists to catch exactly this and could not: its percolator-prog
+   * target had never once run.
+   */
+  CancelRedemption: 81,
+  /**
+   * UnwrapEscrowedPortfolio (tag 82) — burn a Position NFT and return the escrowed
+   * portfolio to `new_owner`.
+   * Wire: tag(1) + new_owner(32) = 33 bytes.
+   */
+  UnwrapEscrowedPortfolio: 82,
   // ── Legacy aliases retained for source-compat (do NOT assign new tags) ────
   /** @deprecated v12.x alias. Use DepositToLpVault(75) in v17. */
   LpVaultDeposit: 75,
@@ -289,9 +307,9 @@ export const IX_TAG = {
   SetOiCapMultiplier: 79,
   /** @deprecated v12.x tag 80. COLLIDES with v17 CloseLpVault(80). Do NOT use. */
   SetDisputeParams: 80,
-  /** @deprecated v12.x tag 81. Not in v17. */
+  /** @deprecated v12.x tag 81. COLLIDES with v17 CancelRedemption(81). Do NOT use. */
   SetLpCollateralParams: 81,
-  /** @deprecated v12.x tag 82. Not in v17. */
+  /** @deprecated v12.x tag 82. COLLIDES with v17 UnwrapEscrowedPortfolio(82). Do NOT use. */
   AcceptAdmin: 82,
   /**
    * InitMatcherCtx (tag 83) — bootstrap a matcher context by CPIing to the matcher program.

@@ -100,6 +100,26 @@ describe("Rust parity fixtures", () => {
       LpVaultCrankFees: IX_TAG.LpVaultCrankFees,
       SetLpVaultPaused: IX_TAG.SetLpVaultPaused,
       CloseLpVault: IX_TAG.CloseLpVault,
+      // GH#375: tags 81-92 were absent from the committed spec, so this map never
+      // needed them and the gap was invisible. IX_TAG already had 83-92; only
+      // CancelRedemption(81) and UnwrapEscrowedPortfolio(82) were genuinely
+      // missing from the SDK and are added in src/abi/instructions.ts.
+      //
+      // 84/85/86/87/90/91/92 are the protocol-fee, creator-fee and
+      // insurance-to-stake surface — the money-movement instructions — which is
+      // what makes this worth more than tidiness.
+      CancelRedemption: IX_TAG.CancelRedemption,
+      UnwrapEscrowedPortfolio: IX_TAG.UnwrapEscrowedPortfolio,
+      InitMatcherCtx: IX_TAG.InitMatcherCtx,
+      WithdrawProtocolFee: IX_TAG.WithdrawProtocolFee,
+      SetProtocolFeeAuthority: IX_TAG.SetProtocolFeeAuthority,
+      UpdateFeeSplit: IX_TAG.UpdateFeeSplit,
+      WithdrawInsuranceReserveToStake: IX_TAG.WithdrawInsuranceReserveToStake,
+      UpdateMaintenanceFeePerSlot: IX_TAG.UpdateMaintenanceFeePerSlot,
+      ExpireBackingBucket: IX_TAG.ExpireBackingBucket,
+      WithdrawCreatorFee: IX_TAG.WithdrawCreatorFee,
+      RebalanceLpVaultBacking: IX_TAG.RebalanceLpVaultBacking,
+      UpdateInsuranceWithdrawPolicy: IX_TAG.UpdateInsuranceWithdrawPolicy,
     };
 
     for (const entry of fixture.tags) {
@@ -137,6 +157,31 @@ describe("Rust parity fixtures", () => {
       AdminSetTrancheConfig: STAKE_IX.AdminSetTrancheConfig,
       DepositJunior: STAKE_IX.DepositJunior,
       SetMarketResolved: STAKE_IX.SetMarketResolved,
+      // GH#375: the fifteen below were missing from this map, from the committed
+      // spec, and from `removed_tags` — which actively asserted 5-9 were REMOVED.
+      // All fifteen are live in percolator-stake and always have been (identical
+      // at 474079f, d0c6ecb and main): they are the admin-transfer,
+      // cooldown-governance, insurance-authority and fee-policy surface.
+      // STAKE_IX already carried every one — only this curated subset and the spec
+      // disagreed, and they agreed with each OTHER, so nothing ever flagged it.
+      ProposeAdmin: STAKE_IX.ProposeAdmin,
+      AcceptAdmin: STAKE_IX.AcceptAdmin,
+      ProposeCooldownIncrease: STAKE_IX.ProposeCooldownIncrease,
+      CommitCooldownIncrease: STAKE_IX.CommitCooldownIncrease,
+      CancelCooldownIncrease: STAKE_IX.CancelCooldownIncrease,
+      BindInsuranceAuthority: STAKE_IX.BindInsuranceAuthority,
+      RotateInsuranceAuthority: STAKE_IX.RotateInsuranceAuthority,
+      BurnAssetAdmin: STAKE_IX.BurnAssetAdmin,
+      RotateInsuranceOperator: STAKE_IX.RotateInsuranceOperator,
+      RecoverFlushedInsurance: STAKE_IX.RecoverFlushedInsurance,
+      // Tag 24 is `AdminResolveMarket` in the PROGRAM. In STAKE_IX that name is a
+      // deprecated percolator-vault alias for tag 9, and the tag-24 entry is
+      // `AdminResolveMarketCpi` — so this pair is deliberately not name-matched.
+      AdminResolveMarket: STAKE_IX.AdminResolveMarketCpi,
+      AdminUpdateFeeSplit: STAKE_IX.AdminUpdateFeeSplit,
+      AdminUpdateMaintenanceFeePerSlot: STAKE_IX.AdminUpdateMaintenanceFeePerSlot,
+      AdminUpdateBackingFeePolicy: STAKE_IX.AdminUpdateBackingFeePolicy,
+      AdminUpdateTradeFeePolicy: STAKE_IX.AdminUpdateTradeFeePolicy,
     };
 
     // The fixture mirrors percolator-stake SOURCE (scripts/update-parity-fixtures.mjs
@@ -167,7 +212,10 @@ describe("Rust parity fixtures", () => {
       expect(sdkTags[entry.name]).toBe(entry.tag);
     }
 
-    expect(fixture.removed_tags).toEqual([5, 6, 7, 8, 9, 11, 17]);
+    // GH#375: was [5, 6, 7, 8, 9, 11, 17]. Tags 5-9 are ProposeAdmin,
+    // AcceptAdmin and the three cooldown-governance instructions, live in
+    // every ref. Only 11 and 17 are genuinely unallocated.
+    expect(fixture.removed_tags).toEqual([11, 17]);
   });
 
   it("PositionNft layout matches percolator-nft", () => {
