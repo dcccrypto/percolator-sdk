@@ -22,6 +22,13 @@ on:
   schedule:
     # 03:00 UTC daily
     - cron: "0 3 * * *"
+  # Manual trigger. This gate spent two weeks red with three of its four targets
+  # never running, and part of why that persisted is that nobody could ASK it to
+  # run: a fix had to wait for a PR touching the right paths, or for the nightly.
+  # After a sibling Rust repo merges an ABI change there is no SDK-side event at
+  # all, so this is the only way to check the thing the gate exists to check at
+  # the moment you want to know.
+  workflow_dispatch:
 
 jobs:
   parity-check:

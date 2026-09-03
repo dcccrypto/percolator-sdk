@@ -111,8 +111,12 @@ describe("Account orderings", () => {
   });
 
   // Verify expected account counts match Rust processor
-  it("ACCOUNTS_INIT_MARKET has 9 accounts", () => {
-    expect(ACCOUNTS_INIT_MARKET).toHaveLength(9);
+  it("ACCOUNTS_INIT_MARKET has 3 accounts (v17: admin, slab, mint only)", () => {
+    // GH#381: was 9 — the v12 shape, which additionally listed vault,
+    // tokenProgram, clock, rent, dummyAta and systemProgram. v17
+    // `handle_init_market` reads account(accounts, 0..=2) and nothing further,
+    // and upstream's handler reads the same three.
+    expect(ACCOUNTS_INIT_MARKET).toHaveLength(3);
   });
 
   it("ACCOUNTS_INIT_USER has 3 accounts (v17: owner, market, portfolio only)", () => {
@@ -325,22 +329,22 @@ describe("buildAccountMetas", () => {
     expect(metas[1].isWritable).toBe(true);
   });
 
-  it("builds correct metas for InitMarket (9 accounts)", () => {
-    const keys = makeKeys(9);
+  it("builds correct metas for InitMarket (3 accounts)", () => {
+    const keys = makeKeys(3);
     const metas = buildAccountMetas(ACCOUNTS_INIT_MARKET, keys);
 
-    expect(metas).toHaveLength(9);
-    // admin
+    expect(metas).toHaveLength(3);
+    // admin — signs and pays for the slab alloc
     expect(metas[0].isSigner).toBe(true);
     expect(metas[0].isWritable).toBe(true);
-    // slab
+    // slab — written
     expect(metas[1].isSigner).toBe(false);
     expect(metas[1].isWritable).toBe(true);
-    // mint (read-only)
+    // mint — read-only
     expect(metas[2].isSigner).toBe(false);
     expect(metas[2].isWritable).toBe(false);
     // All keys match
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 3; i++) {
       expect(metas[i].pubkey.equals(keys[i])).toBe(true);
     }
   });
@@ -355,7 +359,7 @@ describe("buildAccountMetas", () => {
   it("throws on key count mismatch (too many keys)", () => {
     const keys = makeKeys(10);
     expect(() => buildAccountMetas(ACCOUNTS_INIT_MARKET, keys)).toThrow(
-      "Account count mismatch: expected 9, got 10"
+      "Account count mismatch: expected 3, got 10"
     );
   });
 
@@ -397,15 +401,25 @@ describe("buildAccountMetas", () => {
     expect(metas[5].isWritable).toBe(false);
   });
 
-  it("accepts a named-map object for InitMarket (9 accounts)", () => {
-    const [admin, slab, mint, vault, tokenProgram, clock, rent, dummyAta, systemProgram] = makeKeys(9);
-    const metas = buildAccountMetas(ACCOUNTS_INIT_MARKET, {
-      admin, slab, mint, vault, tokenProgram, clock, rent, dummyAta, systemProgram,
-    });
-    expect(metas).toHaveLength(9);
+  it("accepts a named-map object for InitMarket (3 accounts)", () => {
+    const [admin, slab, mint] = makeKeys(3);
+    const metas = buildAccountMetas(ACCOUNTS_INIT_MARKET, { admin, slab, mint });
+    expect(metas).toHaveLength(3);
     expect(metas[0].pubkey.equals(admin)).toBe(true);
     expect(metas[1].pubkey.equals(slab)).toBe(true);
-    expect(metas[8].pubkey.equals(systemProgram)).toBe(true);
+    expect(metas[2].pubkey.equals(mint)).toBe(true);
+  });
+
+  it("REJECTS the v12 nine-key named map for InitMarket (GH#381)", () => {
+    // The point of shrinking the template: an integrator still passing the v12
+    // shape must be told, not silently handed three metas out of nine keys.
+    const [admin, slab, mint, vault, tokenProgram, clock, rent, dummyAta, systemProgram] =
+      makeKeys(9);
+    expect(() =>
+      buildAccountMetas(ACCOUNTS_INIT_MARKET, [
+        admin, slab, mint, vault, tokenProgram, clock, rent, dummyAta, systemProgram,
+      ])
+    ).toThrow("Account count mismatch: expected 3, got 9");
   });
 
   it("throws a clear error when a named-map is missing a required key", () => {
