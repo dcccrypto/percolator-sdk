@@ -36,6 +36,26 @@
       "tag": 4
     },
     {
+      "name": "ProposeAdmin",
+      "tag": 5
+    },
+    {
+      "name": "AcceptAdmin",
+      "tag": 6
+    },
+    {
+      "name": "ProposeCooldownIncrease",
+      "tag": 7
+    },
+    {
+      "name": "CommitCooldownIncrease",
+      "tag": 8
+    },
+    {
+      "name": "CancelCooldownIncrease",
+      "tag": 9
+    },
+    {
       "name": "ReturnInsurance",
       "tag": 10
     },
@@ -62,15 +82,50 @@
     {
       "name": "SetMarketResolved",
       "tag": 18
+    },
+    {
+      "name": "BindInsuranceAuthority",
+      "tag": 19
+    },
+    {
+      "name": "RotateInsuranceAuthority",
+      "tag": 20
+    },
+    {
+      "name": "BurnAssetAdmin",
+      "tag": 21
+    },
+    {
+      "name": "RotateInsuranceOperator",
+      "tag": 22
+    },
+    {
+      "name": "RecoverFlushedInsurance",
+      "tag": 23
+    },
+    {
+      "name": "AdminResolveMarket",
+      "tag": 24
+    },
+    {
+      "name": "AdminUpdateFeeSplit",
+      "tag": 25
+    },
+    {
+      "name": "AdminUpdateMaintenanceFeePerSlot",
+      "tag": 26
+    },
+    {
+      "name": "AdminUpdateBackingFeePolicy",
+      "tag": 27
+    },
+    {
+      "name": "AdminUpdateTradeFeePolicy",
+      "tag": 28
     }
   ],
   "program": "percolator-stake",
   "removed_tags": [
-    5,
-    6,
-    7,
-    8,
-    9,
     11,
     17
   ],

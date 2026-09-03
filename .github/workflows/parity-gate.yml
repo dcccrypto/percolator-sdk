@@ -45,6 +45,23 @@ jobs:
           repository: ${{ github.repository_owner }}/percolator-prog
           path: percolator-prog
 
+      # #375: percolator-prog compiles the engine through `percolator = { path =
+      # "../percolator" }`, so WITHOUT this checkout its fixture cannot build at
+      # all — `cargo run` dies with "failed to get `percolator` as a dependency of
+      # package `percolator-prog`" before a single tag is compared. That was the
+      # second of the two reasons the prog target never ran; the first was the
+      # fixture binary not existing.
+      #
+      # Deliberately NOT pinned. The engine is a path dependency compiled INTO the
+      # wrapper rather than a separate deployed program, so its main IS what the
+      # wrapper ships — the same reasoning percolator-prog's own ci.yml gives for
+      # leaving the engine unpinned while pinning the sibling programs.
+      - name: Checkout percolator (engine — path dependency of percolator-prog)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/percolator
+          path: percolator
+
       - name: Checkout percolator-stake
         uses: actions/checkout@v4
         with:
