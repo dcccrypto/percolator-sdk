@@ -177,7 +177,7 @@ export const IX_TAG = {
   CreateLpVault: 74,
   /**
    * DepositToLpVault (tag 75).
-   * Wire: tag(1) + amount(u128) = 17 bytes.
+   * Wire: tag(1) + amount(u128) + domain(u16) = 19 bytes.  // GH#381: was 17; `domain` was missing
    */
   DepositToLpVault: 75,
   /**
@@ -187,12 +187,12 @@ export const IX_TAG = {
   RequestRedeemLpShares: 76,
   /**
    * ExecuteRedemption (tag 77).
-   * Wire: tag(1) = 1 byte.
+   * Wire: tag(1) + domain(u16) = 3 bytes.  // GH#381: was 1 byte; `domain` was missing
    */
   ExecuteRedemption: 77,
   /**
    * LpVaultCrankFees (tag 78).
-   * Wire: tag(1) = 1 byte.
+   * Wire: tag(1) + domain(u16) = 3 bytes.  // GH#381: was 1 byte; `domain` was missing
    */
   LpVaultCrankFees: 78,
   /**
@@ -493,7 +493,7 @@ export const IX_TAG = {
   SettleAccount: 86,
   /** @deprecated v12.x tag 90. COLLIDES with v17 WithdrawCreatorFee(90). Do NOT use. */
   UpdateMarkPrice: 90,
-  /** @deprecated v12.x tag 91. Not in v17. */
+  /** @deprecated v12.x tag 91. COLLIDES with v17 RebalanceLpVaultBacking(91). Do NOT use. */
   AuditCrank: 91,
   /** @deprecated v12.x tag 92. Not in v17. */
   AdvanceOraclePhase: 92,
@@ -1207,7 +1207,7 @@ export function encodeKeeperCrank(_args: KeeperCrankArgs): Uint8Array {
  * TradeNoCpi instruction data (v17 wire format).
  *
  * v17 wire: tag(1) + asset_index(u16) + size_q(i128) + exec_price(u64) + fee_bps(u64)
- *   = 28 bytes.
+ *   = 35 bytes.  // GH#381: was 28; encodeTradeNoCpi already asserts 35
  *
  * BREAKING vs v12.x: payload fields changed completely. v12 had lpIdx+userIdx+size;
  * v17 has asset_index+size_q+exec_price+fee_bps.
@@ -1490,7 +1490,7 @@ export function encodeWithdrawBackingBucketEarnings(
  * TradeCpi instruction data (v17 wire format).
  *
  * v17 wire: tag(1) + asset_index(u16) + size_q(i128) + fee_bps(u64) + limit_price(u64)
- *   = 28 bytes.
+ *   = 35 bytes.  // GH#381: was 28; encodeTradeNoCpi already asserts 35
  *
  * BREAKING vs v12.x: payload fields changed. v12 had lpIdx+userIdx+size+limitPriceE6;
  * v17 has asset_index+size_q+fee_bps+limit_price.
