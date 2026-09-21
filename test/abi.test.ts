@@ -70,6 +70,13 @@ import {
   FEE_SPLIT,
   encodeSetProtocolFeeAuthority,
   IX_TAG,
+  decodeMatcherReturn,
+  encodeMatcherReturn,
+  MATCHER_RETURN_LEN,
+  MATCHER_RETURN_FLAG_VALID,
+  MATCHER_RETURN_FLAG_PARTIAL_OK,
+  MATCHER_RETURN_FLAG_REJECTED,
+  MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT,
 } from "../src/abi/instructions.js";
 import {
   parseWrapperConfigV17,
@@ -297,13 +304,13 @@ console.log("Testing encode functions...\n");
   assertThrowsMatch(() => encI128(unsafe as any), typeError, "encI128 unsafe runtime number");
 
   assertThrowsMatch(
-    () => encodeDepositCollateral({ amount: 1 as any }),
+    () => encodeDepositCollateral({ portfolioId: 1n, expectedSequence: 0n, amount: 1 as any }),
     typeError,
     "encodeDepositCollateral runtime number amount",
   );
 
   assertThrowsMatch(
-    () => encodeWithdrawCollateral({ amount: 1 as any }),
+    () => encodeWithdrawCollateral({ portfolioId: 1n, expectedSequence: 0n, amount: 1 as any }),
     typeError,
     "encodeWithdrawCollateral runtime number amount",
   );
@@ -311,10 +318,16 @@ console.log("Testing encode functions...\n");
   assertThrowsMatch(
     () =>
       encodeTradeNoCpi({
+        accountAPortfolioId: 1n,
+        accountAPositionEpoch: 0n,
+        accountBPortfolioId: 2n,
+        accountBPositionEpoch: 0n,
         assetIndex: 0,
+        marketId: 1n,
         sizeQ: 1 as any,
         execPrice: 1n,
         feeBps: 0n,
+        backingFeeCapBps: 0,
       }),
     typeError,
     "encodeTradeNoCpi runtime number sizeQ",
@@ -323,10 +336,16 @@ console.log("Testing encode functions...\n");
   assertThrowsMatch(
     () =>
       encodeTradeNoCpi({
+        accountAPortfolioId: 1n,
+        accountAPositionEpoch: 0n,
+        accountBPortfolioId: 2n,
+        accountBPositionEpoch: 0n,
         assetIndex: 0,
+        marketId: 1n,
         sizeQ: 1n,
         execPrice: 1 as any,
         feeBps: 0n,
+        backingFeeCapBps: 0,
       }),
     typeError,
     "encodeTradeNoCpi runtime number execPrice",
@@ -463,159 +482,206 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeInitUser");
 }
 
-// Test DepositCollateral encoding (17 bytes: tag + u128)
-// v17 wire: userIdx(u16) removed; amount promoted u64→u128.
+// Test DepositCollateral encoding (33 bytes: tag + portfolio_id + expected_sequence + u128)
+// v18 wire (integration a9318945): tag(1) + portfolio_id(u64) + expected_sequence(u64) + amount(u128) = 33 bytes.
 // userIdx arg is accepted for source-compat but is silently ignored.
 {
-  const data = encodeDepositCollateral({ userIdx: 5, amount: "1000000" });
-  assert(data.length === 17, "DepositCollateral length");
+  const data = encodeDepositCollateral({ userIdx: 5, portfolioId: 7n, expectedSequence: 2n, amount: "1000000" });
+  assert(data.length === 33, "DepositCollateral length");
   assert(data[0] === IX_TAG.DepositCollateral, "DepositCollateral tag byte");
-  // amount=1000000 (u128 LE) at [1..17]: 0x0F4240 in low bytes, rest zero
+  assertBuf(data.subarray(1, 9), [7, 0, 0, 0, 0, 0, 0, 0], "DepositCollateral portfolioId=7");
+  assertBuf(data.subarray(9, 17), [2, 0, 0, 0, 0, 0, 0, 0], "DepositCollateral expectedSequence=2");
+  // amount=1000000 (u128 LE) at [17..33]: 0x0F4240 in low bytes, rest zero
   assertBuf(
-    data.subarray(1, 17),
+    data.subarray(17, 33),
     [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "DepositCollateral amount"
   );
   console.log("✓ encodeDepositCollateral");
 }
 
-// Test WithdrawCollateral encoding (17 bytes: tag + u128)
-// v17 wire: userIdx(u16) removed; amount promoted u64→u128.
+// Test WithdrawCollateral encoding (33 bytes: tag + portfolio_id + expected_sequence + u128)
+// v18 wire: same identity-binding shape as DepositCollateral.
 // userIdx arg is accepted for source-compat but is silently ignored.
 {
-  const data = encodeWithdrawCollateral({ userIdx: 10, amount: "500000" });
-  assert(data.length === 17, "WithdrawCollateral length");
+  const data = encodeWithdrawCollateral({ userIdx: 10, portfolioId: 9n, expectedSequence: 4n, amount: "500000" });
+  assert(data.length === 33, "WithdrawCollateral length");
   assert(data[0] === IX_TAG.WithdrawCollateral, "WithdrawCollateral tag byte");
-  // amount=500000 (u128 LE) at [1..17]: 0x07A120 in low bytes, rest zero
+  assertBuf(data.subarray(1, 9), [9, 0, 0, 0, 0, 0, 0, 0], "WithdrawCollateral portfolioId=9");
+  assertBuf(data.subarray(9, 17), [4, 0, 0, 0, 0, 0, 0, 0], "WithdrawCollateral expectedSequence=4");
+  // amount=500000 (u128 LE) at [17..33]: 0x07A120 in low bytes, rest zero
   assertBuf(
-    data.subarray(1, 17),
+    data.subarray(17, 33),
     [32, 161, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "WithdrawCollateral amount"
   );
   console.log("✓ encodeWithdrawCollateral");
 }
 
-// Test encodeKeeperCrank throws (deprecated v12.17 wire — not accepted by v17 wrapper)
+// Test encodeKeeperCrank throws (deprecated v12.17 wire — not accepted by v17+ wrapper)
 {
   let threw = false;
   try { encodeKeeperCrank({ callerIdx: 1 }); } catch { threw = true; }
-  assert(threw, "encodeKeeperCrank must throw (v12 wire removed in v17)");
+  assert(threw, "encodeKeeperCrank must throw (v12 wire removed)");
   console.log("✓ encodeKeeperCrank rejects removed v12 wire");
 }
 
-// Test encodePermissionlessCrank (v17 W3 wire: 29 bytes)
-// FIX W3 (upstream wrapper #206): close_q(u128)/fee_bps(u64) are REMOVED from
-// the wire — liquidation size/fee are engine-selected, not caller-supplied.
-// Wire: tag(1) + action(u8) + asset_index(u16) + now_slot(u64) +
-//       funding_rate_e9=0n(i128) + recovery_reason(u8)
-// Total: 1+1+2+8+16+1 = 29 bytes
-// PINNED: this must stay 29 bytes. A regression back to the pre-W3 53-byte
-// layout (re-adding close_q/fee_bps) MUST fail this assertion.
+// Test encodePermissionlessCrank (v18 wire, integration a9318945)
+// BREAKING vs v17: the entire action/assetIndex/fundingRateE9/recoveryReason
+// payload is GONE. New wire: tag(1) + now_slot(u64) + n(u8) +
+// n×(asset_index(u16) + oracle_accounts(u8)).
+// PINNED: with one observation hint this must be 1+8+1+3 = 13 bytes.
 {
   const data = encodePermissionlessCrank({
-    action: CrankAction.FeeSweep,
-    assetIndex: 0,
     nowSlot: 1000n,
-    recoveryReason: 0,
+    observations: [{ assetIndex: 0, oracleAccounts: 1 }],
   });
-  assert(data.length === 29, `PermissionlessCrank length: expected 29 (W3 wire), got ${data.length}`);
+  assert(data.length === 13, `PermissionlessCrank length: expected 13 (v18 wire), got ${data.length}`);
   assert(data[0] === IX_TAG.PermissionlessCrank, "PermissionlessCrank tag byte = 5");
-  assert(data[1] === CrankAction.FeeSweep, "PermissionlessCrank action = 0 (FeeSweep)");
-  assertBuf(data.subarray(2, 4), [0, 0], "PermissionlessCrank assetIndex=0 LE");
   // now_slot=1000 LE u64: [0xe8,0x03,0x00,0x00, 0x00,0x00,0x00,0x00]
-  assertBuf(data.subarray(4, 12), [0xe8, 0x03, 0, 0, 0, 0, 0, 0], "PermissionlessCrank nowSlot=1000");
-  // funding_rate_e9 hardcoded 0n (i128 LE = 16 zero bytes) at [12..28]
-  assertBuf(
-    data.subarray(12, 28),
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "PermissionlessCrank fundingRateE9=0n (hardcoded)"
-  );
-  // recovery_reason=0 at [28] (close_q/fee_bps no longer on the wire — W3)
-  assert(data[28] === 0, "PermissionlessCrank recoveryReason=0");
-  // Exact-bytes pin: the full 29-byte payload, byte for byte.
+  assertBuf(data.subarray(1, 9), [0xe8, 0x03, 0, 0, 0, 0, 0, 0], "PermissionlessCrank nowSlot=1000");
+  assert(data[9] === 1, "PermissionlessCrank observations.length=1");
+  assertBuf(data.subarray(10, 12), [0, 0], "PermissionlessCrank observation[0].assetIndex=0 LE");
+  assert(data[12] === 1, "PermissionlessCrank observation[0].oracleAccounts=1");
+  // Exact-bytes pin: the full 13-byte payload, byte for byte.
   assertBuf(
     data,
     [
-      IX_TAG.PermissionlessCrank, CrankAction.FeeSweep, 0, 0,      // tag, action, assetIndex(u16)
-      0xe8, 0x03, 0, 0, 0, 0, 0, 0,                                 // nowSlot=1000 (u64)
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,               // fundingRateE9=0 (i128)
-      0,                                                             // recoveryReason
+      IX_TAG.PermissionlessCrank,
+      0xe8, 0x03, 0, 0, 0, 0, 0, 0, // nowSlot=1000 (u64)
+      1,                            // n = 1 observation
+      0, 0,                         // observation[0].assetIndex=0 (u16)
+      1,                            // observation[0].oracleAccounts=1
     ],
-    "PermissionlessCrank full 29-byte wire pin"
+    "PermissionlessCrank full 13-byte wire pin"
   );
-  console.log("✓ encodePermissionlessCrank (v17 W3 29-byte wire)");
+  console.log("✓ encodePermissionlessCrank (v18 wire, variable-length observations)");
 }
 
-// Test TradeNoCpi encoding (v17 wire: 28 bytes)
-// Wire: tag(1) + asset_index(u16) + size_q(i128) + exec_price(u64) + fee_bps(u64)
-// Total: 1+2+16+8+8 = 35 bytes
+// Test encodePermissionlessCrank with zero observations (bare liveness crank)
+{
+  const data = encodePermissionlessCrank({ nowSlot: 42n, observations: [] });
+  assert(data.length === 10, "PermissionlessCrank zero-observation length = 10");
+  assert(data[9] === 0, "PermissionlessCrank n=0");
+  console.log("✓ encodePermissionlessCrank (zero observations)");
+}
+
+// Test encodePermissionlessCrank rejects > CRANK_OBSERVATION_DECODE_MAX (16) observations
+{
+  let threw = false;
+  try {
+    encodePermissionlessCrank({
+      nowSlot: 1n,
+      observations: new Array(17).fill({ assetIndex: 0, oracleAccounts: 0 }),
+    });
+  } catch { threw = true; }
+  assert(threw, "encodePermissionlessCrank rejects > 16 observations");
+  console.log("✓ encodePermissionlessCrank rejects > CRANK_OBSERVATION_DECODE_MAX");
+}
+
+// Test TradeNoCpi encoding (v18 wire, integration a9318945: 77 bytes)
+// Wire: tag(1) + account_a_portfolio_id(u64) + account_a_position_epoch(u64) +
+//   account_b_portfolio_id(u64) + account_b_position_epoch(u64) + asset_index(u16) +
+//   market_id(u64) + size_q(i128) + exec_price(u64) + fee_bps(u64) + backing_fee_cap_bps(u16)
 {
   const data = encodeTradeNoCpi({
+    accountAPortfolioId: 1n,
+    accountAPositionEpoch: 0n,
+    accountBPortfolioId: 2n,
+    accountBPositionEpoch: 0n,
     assetIndex: 1,
+    marketId: 9n,
     sizeQ: 1_000_000n,
     execPrice: 50_000_000_000n,
     feeBps: 30n,
+    backingFeeCapBps: 0,
   });
-  assert(data.length === 35, `TradeNoCpi v17 length: expected 35, got ${data.length}`);
+  assert(data.length === 77, `TradeNoCpi v18 length: expected 77, got ${data.length}`);
   assert(data[0] === IX_TAG.TradeNoCpi, "TradeNoCpi tag byte = 6");
-  // asset_index=1 at [1..3]
-  assertBuf(data.subarray(1, 3), [1, 0], "TradeNoCpi assetIndex=1 LE");
-  // size_q=1_000_000 at [3..19]: 1000000 = 0x0F4240 LE
+  assertBuf(data.subarray(1, 9), [1, 0, 0, 0, 0, 0, 0, 0], "TradeNoCpi accountAPortfolioId=1");
+  assertBuf(data.subarray(9, 17), [0, 0, 0, 0, 0, 0, 0, 0], "TradeNoCpi accountAPositionEpoch=0");
+  assertBuf(data.subarray(17, 25), [2, 0, 0, 0, 0, 0, 0, 0], "TradeNoCpi accountBPortfolioId=2");
+  assertBuf(data.subarray(25, 33), [0, 0, 0, 0, 0, 0, 0, 0], "TradeNoCpi accountBPositionEpoch=0");
+  // asset_index=1 at [33..35]
+  assertBuf(data.subarray(33, 35), [1, 0], "TradeNoCpi assetIndex=1 LE");
+  // market_id=9 at [35..43]
+  assertBuf(data.subarray(35, 43), [9, 0, 0, 0, 0, 0, 0, 0], "TradeNoCpi marketId=9");
+  // size_q=1_000_000 at [43..59]: 1000000 = 0x0F4240 LE
   assertBuf(
-    data.subarray(3, 19),
+    data.subarray(43, 59),
     [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "TradeNoCpi sizeQ=1_000_000"
   );
   // exec_price=50_000_000_000 = 0xBA43B7400 LE = [0x00, 0x74, 0x3B, 0xA4, 0x0B, 0, 0, 0]
   assertBuf(
-    data.subarray(19, 27),
+    data.subarray(59, 67),
     [0x00, 0x74, 0x3b, 0xa4, 0x0b, 0, 0, 0],
     "TradeNoCpi execPrice=50_000_000_000"
   );
-  // fee_bps=30 at [27..35]
-  assertBuf(data.subarray(27, 35), [30, 0, 0, 0, 0, 0, 0, 0], "TradeNoCpi feeBps=30");
-  console.log("✓ encodeTradeNoCpi (v17 35-byte wire)");
+  // fee_bps=30 at [67..75]
+  assertBuf(data.subarray(67, 75), [30, 0, 0, 0, 0, 0, 0, 0], "TradeNoCpi feeBps=30");
+  // backing_fee_cap_bps=0 at [75..77]
+  assertBuf(data.subarray(75, 77), [0, 0], "TradeNoCpi backingFeeCapBps=0");
+  console.log("✓ encodeTradeNoCpi (v18 77-byte wire)");
 }
 
 // Test TradeNoCpi with negative size_q
 {
   const data = encodeTradeNoCpi({
+    accountAPortfolioId: 1n,
+    accountAPositionEpoch: 0n,
+    accountBPortfolioId: 2n,
+    accountBPositionEpoch: 0n,
     assetIndex: 0,
+    marketId: 1n,
     sizeQ: -1_000_000n,
     execPrice: 50_000_000_000n,
     feeBps: 30n,
+    backingFeeCapBps: 0,
   });
-  assert(data.length === 35, "TradeNoCpi v17 negative length");
-  // size_q=-1_000_000 (i128 LE) at [3..19]
+  assert(data.length === 77, "TradeNoCpi v18 negative length");
+  // size_q=-1_000_000 (i128 LE) at [43..59]
   assertBuf(
-    data.subarray(3, 19),
+    data.subarray(43, 59),
     [192, 189, 240, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255],
     "TradeNoCpi sizeQ=-1_000_000"
   );
-  console.log("✓ encodeTradeNoCpi (v17 negative sizeQ)");
+  console.log("✓ encodeTradeNoCpi (v18 negative sizeQ)");
 }
 
-// Test TradeCpi encoding (v17 wire)
-// Wire: tag(1) + asset_index(u16) + size_q(i128) + fee_bps(u64) + limit_price(u64)
-// Total: 1+2+16+8+8 = 35 bytes
+// Test TradeCpi encoding (v18 wire, integration a9318945: 85 bytes)
+// Wire: tag(1) + account_a_portfolio_id(u64) + account_a_position_epoch(u64) +
+//   account_b_portfolio_id(u64) + account_b_position_epoch(u64) +
+//   account_b_matcher_sequence(u64) + asset_index(u16) + market_id(u64) +
+//   size_q(i128) + fee_bps(u64) + limit_price(u64) + backing_fee_cap_bps(u16)
 {
   const data = encodeTradeCpi({
+    accountAPortfolioId: 1n,
+    accountAPositionEpoch: 0n,
+    accountBPortfolioId: 2n,
+    accountBPositionEpoch: 0n,
+    accountBMatcherSequence: 3n,
     assetIndex: 2,
+    marketId: 5n,
     sizeQ: -500n,
     feeBps: 20n,
     limitPrice: 50_000_000_000n,
+    backingFeeCapBps: 0,
   });
-  assert(data.length === 35, `TradeCpi v17 length: expected 35, got ${data.length}`);
+  assert(data.length === 85, `TradeCpi v18 length: expected 85, got ${data.length}`);
   assert(data[0] === IX_TAG.TradeCpi, "TradeCpi tag byte = 10");
-  // asset_index=2 at [1..3]
-  assertBuf(data.subarray(1, 3), [2, 0], "TradeCpi assetIndex=2 LE");
-  // size_q=-500 (i128 LE) at [3..19]
-  const sizeBytes = data.subarray(3, 19);
+  assertBuf(data.subarray(33, 41), [3, 0, 0, 0, 0, 0, 0, 0], "TradeCpi accountBMatcherSequence=3");
+  // asset_index=2 at [41..43]
+  assertBuf(data.subarray(41, 43), [2, 0], "TradeCpi assetIndex=2 LE");
+  // market_id=5 at [43..51]
+  assertBuf(data.subarray(43, 51), [5, 0, 0, 0, 0, 0, 0, 0], "TradeCpi marketId=5");
+  // size_q=-500 (i128 LE) at [51..67]
+  const sizeBytes = data.subarray(51, 67);
   const sizeVal = decI128Le(sizeBytes, 0);
   assert(sizeVal === -500n, `TradeCpi sizeQ decode: expected -500n, got ${sizeVal}`);
-  // fee_bps=20 at [19..27]
-  assertBuf(data.subarray(19, 27), [20, 0, 0, 0, 0, 0, 0, 0], "TradeCpi feeBps=20");
-  console.log("✓ encodeTradeCpi (v17 35-byte wire)");
+  // fee_bps=20 at [67..75]
+  assertBuf(data.subarray(67, 75), [20, 0, 0, 0, 0, 0, 0, 0], "TradeCpi feeBps=20");
+  console.log("✓ encodeTradeCpi (v18 85-byte wire)");
 }
 
 // Test LiquidateAtOracle (tag 7) — REMOVED in v17, must throw
@@ -626,26 +692,31 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeLiquidateAtOracle rejects removed tag 7 (v17)");
 }
 
-// Test CloseAccount encoding (1 byte: tag only, no userIdx in v17)
-// v17 wire: ClosePortfolio decoder reads ZERO bytes after the tag.
-// Sending the old 3-byte payload (tag + u16 userIdx) causes InvalidInstructionData.
+// Test CloseAccount encoding (v18 wire, integration a9318945: 25 bytes)
+// Wire: tag(1) + portfolio_id(u64) + expected_sequence(u64) + position_epoch(u64) = 25 bytes.
 // userIdx arg is accepted for source-compat but is silently ignored.
 {
-  const data = encodeCloseAccount({ userIdx: 100 });
-  assert(data.length === 1, "CloseAccount length");
+  const data = encodeCloseAccount({ userIdx: 100, portfolioId: 3n, expectedSequence: 1n, positionEpoch: 6n });
+  assert(data.length === 25, "CloseAccount length");
   assert(data[0] === IX_TAG.CloseAccount, "CloseAccount tag byte");
+  assertBuf(data.subarray(1, 9), [3, 0, 0, 0, 0, 0, 0, 0], "CloseAccount portfolioId=3");
+  assertBuf(data.subarray(9, 17), [1, 0, 0, 0, 0, 0, 0, 0], "CloseAccount expectedSequence=1");
+  assertBuf(data.subarray(17, 25), [6, 0, 0, 0, 0, 0, 0, 0], "CloseAccount positionEpoch=6");
   console.log("✓ encodeCloseAccount");
 }
 
-// Test TopUpInsurance encoding (17 bytes: tag + u128)
-// v17 wire: amount promoted u64→u128; old 8-byte payload is 8 bytes short.
+// Test TopUpInsurance encoding (v18 wire, integration a9318945: 41 bytes)
+// Wire: tag(1) + market_id(u64) + intent_id(u64) + authority_epoch(u64) + amount(u128) = 41 bytes.
 {
-  const data = encodeTopUpInsurance({ amount: "5000000" });
-  assert(data.length === 17, "TopUpInsurance length");
+  const data = encodeTopUpInsurance({ marketId: 1n, intentId: 5n, authorityEpoch: 0n, amount: "5000000" });
+  assert(data.length === 41, "TopUpInsurance length");
   assert(data[0] === IX_TAG.TopUpInsurance, "TopUpInsurance tag byte");
-  // amount=5000000 (u128 LE) at [1..17]: 0x4C4B40 in low bytes, rest zero
+  assertBuf(data.subarray(1, 9), [1, 0, 0, 0, 0, 0, 0, 0], "TopUpInsurance marketId=1");
+  assertBuf(data.subarray(9, 17), [5, 0, 0, 0, 0, 0, 0, 0], "TopUpInsurance intentId=5");
+  assertBuf(data.subarray(17, 25), [0, 0, 0, 0, 0, 0, 0, 0], "TopUpInsurance authorityEpoch=0");
+  // amount=5000000 (u128 LE) at [25..41]: 0x4C4B40 in low bytes, rest zero
   assertBuf(
-    data.subarray(1, 17),
+    data.subarray(25, 41),
     [64, 75, 76, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "TopUpInsurance amount=5000000"
   );
@@ -795,78 +866,101 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ v12 deprecated encoders (tags 64-71) all throw removedInstruction()");
 }
 
-// ── v17 NEW: UpdateAssetAuthority (tag 65) ────────────────────────────────────
-// Wire: tag(1) + asset_index(u16) + kind(u8) + new_pubkey[32] = 36 bytes
+// ── v18 (integration a9318945): UpdateAssetAuthority (tag 65) ────────────────
+// Wire: tag(1) + asset_index(u16) + market_id(u64) + kind(u8) + new_pubkey[32] + authority_epoch(u64) = 52 bytes
 {
   const newKey = new PublicKey("11111111111111111111111111111111");
   const data = encodeUpdateAssetAuthority({
     assetIndex: 0,
+    marketId: 1n,
     kind: ASSET_AUTH_KIND.Insurance,
     newPubkey: newKey,
+    authorityEpoch: 0n,
   });
-  assert(data.length === 36, `UpdateAssetAuthority length: expected 36, got ${data.length}`);
+  assert(data.length === 52, `UpdateAssetAuthority length: expected 52, got ${data.length}`);
   assert(data[0] === IX_TAG.UpdateAssetAuthority, "UpdateAssetAuthority tag = 65");
   assertBuf(data.subarray(1, 3), [0, 0], "UpdateAssetAuthority assetIndex=0 LE");
-  assert(data[3] === ASSET_AUTH_KIND.Insurance, "UpdateAssetAuthority kind = Insurance (0)");
-  // new_pubkey at [4..36] = all zeros for system pubkey
+  assertBuf(data.subarray(3, 11), [1, 0, 0, 0, 0, 0, 0, 0], "UpdateAssetAuthority marketId=1");
+  assert(data[11] === ASSET_AUTH_KIND.Insurance, "UpdateAssetAuthority kind = Insurance (1)");
+  // new_pubkey at [12..44] = all zeros for system pubkey
   const pkBytes = newKey.toBytes();
   assert(
-    data.subarray(4, 36).every((v, i) => v === pkBytes[i]),
+    data.subarray(12, 44).every((v, i) => v === pkBytes[i]),
     "UpdateAssetAuthority new_pubkey bytes"
   );
+  assertBuf(data.subarray(44, 52), [0, 0, 0, 0, 0, 0, 0, 0], "UpdateAssetAuthority authorityEpoch=0");
   // Test ASSET_AUTH_KIND.AssetAdmin
   const dataAdmin = encodeUpdateAssetAuthority({
     assetIndex: 1,
+    marketId: 2n,
     kind: ASSET_AUTH_KIND.AssetAdmin,
     newPubkey: newKey,
+    authorityEpoch: 3n,
   });
-  assert(dataAdmin[3] === ASSET_AUTH_KIND.AssetAdmin, "UpdateAssetAuthority kind = AssetAdmin (1)");
+  assert(dataAdmin[11] === ASSET_AUTH_KIND.AssetAdmin, "UpdateAssetAuthority kind = AssetAdmin (0)");
   assertBuf(dataAdmin.subarray(1, 3), [1, 0], "UpdateAssetAuthority assetIndex=1 LE");
-  console.log("✓ encodeUpdateAssetAuthority (v17 36-byte wire)");
+  assertBuf(dataAdmin.subarray(44, 52), [3, 0, 0, 0, 0, 0, 0, 0], "UpdateAssetAuthority authorityEpoch=3");
+  console.log("✓ encodeUpdateAssetAuthority (v18 52-byte wire)");
 }
 
-// ── v17 NEW: BatchTradeNoCpi (tag 66) ────────────────────────────────────────
-// Wire: tag(1) + n_legs(u8) + [asset_index(u16) + size_q(i128) + exec_price(u64) + fee_bps(u64)]×n
-// Per-leg: 2+16+8+8 = 34 bytes; header: 2 bytes; total 1 leg = 36 bytes
+// ── v18 (integration a9318945): BatchTradeNoCpi (tag 66) ─────────────────────
+// Wire: tag(1) + n_legs(u8) + [asset_index(u16)+market_id(u64)+size_q(i128)+exec_price(u64)+fee_bps(u64)]×n
+//   + account_a_portfolio_id(u64) + account_a_position_epoch(u64) + account_b_portfolio_id(u64) + account_b_position_epoch(u64)
+// Per-leg: 2+8+16+8+8 = 42 bytes; header: 2 bytes; trailer: 32 bytes; total 1 leg = 76 bytes
 {
   const data = encodeBatchTradeNoCpi({
     legs: [
-      { assetIndex: 0, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 30n },
+      { assetIndex: 0, marketId: 1n, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 30n },
     ],
+    accountAPortfolioId: 1n,
+    accountAPositionEpoch: 0n,
+    accountBPortfolioId: 2n,
+    accountBPositionEpoch: 0n,
   });
-  // 1(tag) + 1(n_legs) + 34(leg) = 36 bytes
-  assert(data.length === 36, `BatchTradeNoCpi 1-leg length: expected 36, got ${data.length}`);
+  assert(data.length === 76, `BatchTradeNoCpi 1-leg length: expected 76, got ${data.length}`);
   assert(data[0] === IX_TAG.BatchTradeNoCpi, "BatchTradeNoCpi tag = 66");
   assert(data[1] === 1, "BatchTradeNoCpi n_legs=1");
   assertBuf(data.subarray(2, 4), [0, 0], "BatchTradeNoCpi leg.assetIndex=0 LE");
-  // sizeQ=1_000_000 at [4..20]
+  assertBuf(data.subarray(4, 12), [1, 0, 0, 0, 0, 0, 0, 0], "BatchTradeNoCpi leg.marketId=1");
+  // sizeQ=1_000_000 at [12..28]
   assertBuf(
-    data.subarray(4, 20),
+    data.subarray(12, 28),
     [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "BatchTradeNoCpi leg.sizeQ=1_000_000"
   );
-  // fee_bps=30 at [28..36]
-  assertBuf(data.subarray(28, 36), [30, 0, 0, 0, 0, 0, 0, 0], "BatchTradeNoCpi leg.feeBps=30");
+  // fee_bps=30 at [36..44]
+  assertBuf(data.subarray(36, 44), [30, 0, 0, 0, 0, 0, 0, 0], "BatchTradeNoCpi leg.feeBps=30");
+  // trailer: accountAPortfolioId=1 at [44..52], accountBPortfolioId=2 at [60..68]
+  assertBuf(data.subarray(44, 52), [1, 0, 0, 0, 0, 0, 0, 0], "BatchTradeNoCpi accountAPortfolioId=1");
+  assertBuf(data.subarray(60, 68), [2, 0, 0, 0, 0, 0, 0, 0], "BatchTradeNoCpi accountBPortfolioId=2");
 
-  // 2-leg: 1+1+34+34 = 70 bytes
+  // 2-leg: 1+1+42+42+32 = 118 bytes
   const data2 = encodeBatchTradeNoCpi({
     legs: [
-      { assetIndex: 0, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 30n },
-      { assetIndex: 1, sizeQ: -500_000n, execPrice: 40_000_000_000n, feeBps: 20n },
+      { assetIndex: 0, marketId: 1n, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 30n },
+      { assetIndex: 1, marketId: 2n, sizeQ: -500_000n, execPrice: 40_000_000_000n, feeBps: 20n },
     ],
+    accountAPortfolioId: 1n,
+    accountAPositionEpoch: 0n,
+    accountBPortfolioId: 2n,
+    accountBPositionEpoch: 0n,
   });
-  assert(data2.length === 70, `BatchTradeNoCpi 2-leg length: expected 70, got ${data2.length}`);
+  assert(data2.length === 118, `BatchTradeNoCpi 2-leg length: expected 118, got ${data2.length}`);
   assert(data2[1] === 2, "BatchTradeNoCpi n_legs=2");
 
   // Too many legs throws
   let threw = false;
+  const baseTrailer = { accountAPortfolioId: 0n, accountAPositionEpoch: 0n, accountBPortfolioId: 0n, accountBPositionEpoch: 0n };
   try {
-    encodeBatchTradeNoCpi({ legs: new Array(256).fill({ assetIndex: 0, sizeQ: 0n, execPrice: 0n, feeBps: 0n }) });
+    encodeBatchTradeNoCpi({
+      legs: new Array(256).fill({ assetIndex: 0, marketId: 0n, sizeQ: 0n, execPrice: 0n, feeBps: 0n }),
+      ...baseTrailer,
+    });
   } catch { threw = true; }
   assert(threw, "encodeBatchTradeNoCpi rejects > 255 legs");
   threw = false;
   try {
-    encodeBatchTradeNoCpi({ legs: [] });
+    encodeBatchTradeNoCpi({ legs: [], ...baseTrailer });
   } catch { threw = true; }
   assert(threw, "encodeBatchTradeNoCpi rejects empty legs");
 
@@ -874,37 +968,52 @@ console.log("\nTesting instruction encoders...\n");
   try {
     encodeBatchTradeNoCpi({
       legs: [
-        { assetIndex: 0, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 10_001n },
+        { assetIndex: 0, marketId: 1n, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 10_001n },
       ],
+      ...baseTrailer,
     });
   } catch { threw = true; }
   assert(threw, "encodeBatchTradeNoCpi rejects feeBps > 10000");
 
-  console.log("✓ encodeBatchTradeNoCpi (v17)");
+  console.log("✓ encodeBatchTradeNoCpi (v18)");
 }
 
-// ── v17 NEW: BatchTradeCpi (tag 67) ──────────────────────────────────────────
-// Wire: tag(1) + n_legs(u8) + [asset_index(u16) + size_q(i128) + fee_bps(u64) + limit_price(u64)]×n
-// Per-leg: 2+16+8+8 = 34 bytes; header: 2 bytes; total 1 leg = 36 bytes
+// ── v18 (integration a9318945): BatchTradeCpi (tag 67) ───────────────────────
+// Wire: tag(1) + n_legs(u8) + [asset_index(u16)+market_id(u64)+size_q(i128)+fee_bps(u64)+limit_price(u64)]×n
+//   + max_slippage_atoms(u128) + max_fee_atoms(u128) + account_a_portfolio_id(u64) +
+//   account_a_position_epoch(u64) + account_b_portfolio_id(u64) + account_b_position_epoch(u64) +
+//   account_b_matcher_sequence(u64)
+// Per-leg: 2+8+16+8+8 = 42 bytes; header: 2 bytes; trailer: 16+16+8*5 = 72 bytes; total 1 leg = 116 bytes
 {
+  const cpiTrailer = {
+    maxSlippageAtoms: 0n,
+    maxFeeAtoms: 0n,
+    accountAPortfolioId: 1n,
+    accountAPositionEpoch: 0n,
+    accountBPortfolioId: 2n,
+    accountBPositionEpoch: 0n,
+    accountBMatcherSequence: 0n,
+  };
   const data = encodeBatchTradeCpi({
     legs: [
-      { assetIndex: 0, sizeQ: 1_000_000n, feeBps: 30n, limitPrice: 51_000_000_000n },
+      { assetIndex: 0, marketId: 1n, sizeQ: 1_000_000n, feeBps: 30n, limitPrice: 51_000_000_000n },
     ],
+    ...cpiTrailer,
   });
-  assert(data.length === 36, `BatchTradeCpi 1-leg length: expected 36, got ${data.length}`);
+  assert(data.length === 116, `BatchTradeCpi 1-leg length: expected 116, got ${data.length}`);
   assert(data[0] === IX_TAG.BatchTradeCpi, "BatchTradeCpi tag = 67");
   assert(data[1] === 1, "BatchTradeCpi n_legs=1");
   assertBuf(data.subarray(2, 4), [0, 0], "BatchTradeCpi leg.assetIndex=0 LE");
-  // sizeQ=1_000_000 at [4..20]
+  assertBuf(data.subarray(4, 12), [1, 0, 0, 0, 0, 0, 0, 0], "BatchTradeCpi leg.marketId=1");
+  // sizeQ=1_000_000 at [12..28]
   assertBuf(
-    data.subarray(4, 20),
+    data.subarray(12, 28),
     [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "BatchTradeCpi leg.sizeQ=1_000_000"
   );
   let threw = false;
   try {
-    encodeBatchTradeCpi({ legs: [] });
+    encodeBatchTradeCpi({ legs: [], ...cpiTrailer });
   } catch { threw = true; }
   assert(threw, "encodeBatchTradeCpi rejects empty legs");
 
@@ -912,57 +1021,76 @@ console.log("\nTesting instruction encoders...\n");
   try {
     encodeBatchTradeCpi({
       legs: [
-        { assetIndex: 0, sizeQ: 1_000_000n, feeBps: 10_001n, limitPrice: 51_000_000_000n },
+        { assetIndex: 0, marketId: 1n, sizeQ: 1_000_000n, feeBps: 10_001n, limitPrice: 51_000_000_000n },
       ],
+      ...cpiTrailer,
     });
   } catch { threw = true; }
   assert(threw, "encodeBatchTradeCpi rejects feeBps > 10000");
-  console.log("✓ encodeBatchTradeCpi (v17)");
+  console.log("✓ encodeBatchTradeCpi (v18)");
 }
 
-// ── v17 NEW: SetMatcherConfig (tag 68) ────────────────────────────────────────
-// Wire: tag(1) + enabled(u8) = 2 bytes
+// ── v18 (integration a9318945): SetMatcherConfig (tag 68) ────────────────────
+// Wire: tag(1) + portfolio_id(u64) + expected_sequence(u64) + asset_generation_frontier(u64)
+//   + enabled(u8) + trade_fee_cap_bps(u16) + expiry_slot(u64) = 36 bytes
 {
-  const enable = encodeSetMatcherConfig({ enabled: 1 });
-  assertBuf(enable, [68, 1], "SetMatcherConfig(enabled=1)");
-  const disable = encodeSetMatcherConfig({ enabled: 0 });
-  assertBuf(disable, [68, 0], "SetMatcherConfig(enabled=0)");
+  const enable = encodeSetMatcherConfig({
+    portfolioId: 1n, expectedSequence: 0n, assetGenerationFrontier: 0n,
+    enabled: 1, tradeFeeCapBps: 0, expirySlot: 0n,
+  });
+  assert(enable.length === 36, `SetMatcherConfig length: expected 36, got ${enable.length}`);
+  assert(enable[0] === 68 && enable[25] === 1, "SetMatcherConfig(enabled=1)");
+  const disable = encodeSetMatcherConfig({
+    portfolioId: 1n, expectedSequence: 0n, assetGenerationFrontier: 0n,
+    enabled: 0, tradeFeeCapBps: 0, expirySlot: 0n,
+  });
+  assert(disable[0] === 68 && disable[25] === 0, "SetMatcherConfig(enabled=0)");
   let threw = false;
-  try { encodeSetMatcherConfig({ enabled: 2 }); } catch { threw = true; }
+  try {
+    encodeSetMatcherConfig({
+      portfolioId: 1n, expectedSequence: 0n, assetGenerationFrontier: 0n,
+      enabled: 2, tradeFeeCapBps: 0, expirySlot: 0n,
+    });
+  } catch { threw = true; }
   assert(threw, "SetMatcherConfig rejects enabled != 0|1");
-  console.log("✓ encodeSetMatcherConfig (v17 2-byte wire)");
+  console.log("✓ encodeSetMatcherConfig (v18 36-byte wire)");
 }
 
-// ── v17 NEW: RestartAssetOracle (tag 69) ──────────────────────────────────────
-// Wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_price(u64) = 19 bytes
+// ── v18 (integration a9318945): RestartAssetOracle (tag 69) ──────────────────
+// Wire: tag(1) + asset_index(u16) + market_id(u64) + now_slot(u64) + initial_price(u64) + observation_sequence(u64) = 36 bytes
 {
   const data = encodeRestartAssetOracle({
     assetIndex: 0,
+    marketId: 1n,
     nowSlot: 1000n,
     initialPrice: 50_000_000_000n,
+    observationSequence: 0n,
   });
-  assert(data.length === 19, `RestartAssetOracle length: expected 19, got ${data.length}`);
+  assert(data.length === 35, `RestartAssetOracle length: expected 35, got ${data.length}`);
   assert(data[0] === IX_TAG.RestartAssetOracle, "RestartAssetOracle tag = 69");
   assertBuf(data.subarray(1, 3), [0, 0], "RestartAssetOracle assetIndex=0 LE");
-  // now_slot=1000 at [3..11]
-  assertBuf(data.subarray(3, 11), [0xe8, 0x03, 0, 0, 0, 0, 0, 0], "RestartAssetOracle nowSlot=1000");
-  console.log("✓ encodeRestartAssetOracle (v17 19-byte wire)");
+  assertBuf(data.subarray(3, 11), [1, 0, 0, 0, 0, 0, 0, 0], "RestartAssetOracle marketId=1");
+  // now_slot=1000 at [11..19]
+  assertBuf(data.subarray(11, 19), [0xe8, 0x03, 0, 0, 0, 0, 0, 0], "RestartAssetOracle nowSlot=1000");
+  console.log("✓ encodeRestartAssetOracle (v18 35-byte wire)");
 }
 
-// ── v17 NEW: WithdrawInsuranceAsset (tag 57) ──────────────────────────────────
-// Wire: tag(1) + asset_index(u16) + amount(u128) = 19 bytes
+// ── v18 (integration a9318945): WithdrawInsuranceAsset (tag 57) ──────────────
+// Wire: tag(1) + asset_index(u16) + market_id(u64) + amount(u128) + authority_epoch(u64) = 35 bytes
 {
-  const data = encodeWithdrawInsuranceAsset({ assetIndex: 0, amount: 1_000_000n });
-  assert(data.length === 19, `WithdrawInsuranceAsset length: expected 19, got ${data.length}`);
+  const data = encodeWithdrawInsuranceAsset({ assetIndex: 0, marketId: 1n, amount: 1_000_000n, authorityEpoch: 0n });
+  assert(data.length === 35, `WithdrawInsuranceAsset length: expected 35, got ${data.length}`);
   assert(data[0] === IX_TAG.WithdrawInsuranceAsset, "WithdrawInsuranceAsset tag = 57");
   assertBuf(data.subarray(1, 3), [0, 0], "WithdrawInsuranceAsset assetIndex=0 LE");
-  // amount=1_000_000 at [3..19]
+  assertBuf(data.subarray(3, 11), [1, 0, 0, 0, 0, 0, 0, 0], "WithdrawInsuranceAsset marketId=1");
+  // amount=1_000_000 at [11..27]
   assertBuf(
-    data.subarray(3, 19),
+    data.subarray(11, 27),
     [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "WithdrawInsuranceAsset amount=1_000_000"
   );
-  console.log("✓ encodeWithdrawInsuranceAsset (v17 19-byte wire)");
+  assertBuf(data.subarray(27, 35), [0, 0, 0, 0, 0, 0, 0, 0], "WithdrawInsuranceAsset authorityEpoch=0");
+  console.log("✓ encodeWithdrawInsuranceAsset (v18 35-byte wire)");
 }
 
 // ── v17 NFT B-3: TransferPortfolioOwnership (tag 72) ──────────────────────────
@@ -1119,18 +1247,20 @@ console.log("\nTesting instruction encoders...\n");
 
 // ── TASK A: oracle-config encoders (tags 34, 35, 36, 62, 63) ─────────────────
 
-// Test encodeConfigureHybridOracle — 156-byte wire
-// Wire: tag(1) + asset_index(u16=2bytes) + now_slot(u64=8) + now_unix_ts(i64=8) +
+// Test encodeConfigureHybridOracle — 172-byte wire (v18, integration a9318945)
+// Wire: tag(1) + asset_index(u16=2) + market_id(u64=8) + now_slot(u64=8) + now_unix_ts(i64=8) +
 //       oracle_leg_count(u8=1) + oracle_leg_flags(u8=1) + max_staleness_secs(u64=8) +
 //       hybrid_soft_stale_slots(u64=8) + mark_ewma_halflife_slots(u64=8) +
 //       mark_min_fee(u64=8) + invert(u8=1) + unit_scale(u32=4) + conf_filter_bps(u16=2) +
-//       oracle_leg_feeds[0..3](3×32=96) = 1+2+8+8+1+1+8+8+8+8+1+4+2+96 = 156 bytes
+//       oracle_leg_feeds[0..3](3×32=96) + observation_sequence(u64=8)
+//       = 1+2+8+8+8+1+1+8+8+8+8+1+4+2+96+8 = 172 bytes
 {
   const feed0 = PublicKey.unique();
   const feed1 = PublicKey.default;
   const feed2 = PublicKey.default;
   const data = encodeConfigureHybridOracle({
     assetIndex: 1,
+    marketId: 1n,
     nowSlot: 300_000_000n,
     nowUnixTs: 1_700_000_000n,
     oracleLegCount: 1,
@@ -1143,23 +1273,29 @@ console.log("\nTesting instruction encoders...\n");
     unitScale: 1_000_000,
     confFilterBps: 200,
     oracleLegFeeds: [feed0, feed1, feed2],
+    observationSequence: 0n,
   });
-  assert(data.length === 156, `encodeConfigureHybridOracle length: expected 156, got ${data.length}`);
+  assert(data.length === 172, `encodeConfigureHybridOracle length: expected 172, got ${data.length}`);
   assert(data[0] === IX_TAG.ConfigureHybridOracle, "ConfigureHybridOracle tag byte");
   // asset_index=1 at [1..3] little-endian
   assertBuf(data.subarray(1, 3), [1, 0], "ConfigureHybridOracle asset_index=1");
-  // oracle_leg_count=1 at [19]
-  assert(data[19] === 1, "ConfigureHybridOracle oracle_leg_count=1");
-  // feed0 starts at [60] (1+2+8+8+1+1+8+8+8+8+1+4+2=60)
+  // market_id=1 at [3..11]
+  assertBuf(data.subarray(3, 11), [1, 0, 0, 0, 0, 0, 0, 0], "ConfigureHybridOracle market_id=1");
+  // oracle_leg_count=1 at [27] (1+2+8+8+8=27)
+  assert(data[27] === 1, "ConfigureHybridOracle oracle_leg_count=1");
+  // feed0 starts at [68] (1+2+8+8+8+1+1+8+8+8+8+1+4+2=68)
   const feedBytes = feed0.toBytes();
-  assert(data.slice(60, 92).every((v, i) => v === feedBytes[i]), "ConfigureHybridOracle feed0 bytes");
-  console.log("✓ encodeConfigureHybridOracle (156-byte wire)");
+  assert(data.slice(68, 100).every((v, i) => v === feedBytes[i]), "ConfigureHybridOracle feed0 bytes");
+  // observation_sequence=0 at the final 8 bytes [164..172]
+  assertBuf(data.subarray(164, 172), [0, 0, 0, 0, 0, 0, 0, 0], "ConfigureHybridOracle observationSequence=0");
+  console.log("✓ encodeConfigureHybridOracle (172-byte wire)");
 }
 
 // encodeConfigureHybridOracle must reject leg counts that cannot fit the 3-feed wire.
 {
   const baseArgs = {
     assetIndex: 1,
+    marketId: 1n,
     nowSlot: 300_000_000n,
     nowUnixTs: 1_700_000_000n,
     oracleLegCount: 1,
@@ -1172,6 +1308,7 @@ console.log("\nTesting instruction encoders...\n");
     unitScale: 1_000_000,
     confFilterBps: 200,
     oracleLegFeeds: [PublicKey.default, PublicKey.default, PublicKey.default],
+    observationSequence: 0n,
   } as const;
   assertThrows(
     () => encodeConfigureHybridOracle({ ...baseArgs, oracleLegCount: 0 }),
@@ -1188,63 +1325,75 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeConfigureHybridOracle oracle_leg_count validation");
 }
 
-// Test encodeConfigureEwmaMark — 35-byte wire
-// Wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_mark_e6(u64) +
-//       mark_ewma_halflife_slots(u64) + mark_min_fee(u64) = 1+2+8+8+8+8 = 35 bytes
+// Test encodeConfigureEwmaMark — 51-byte wire (v18, integration a9318945)
+// Wire: tag(1) + asset_index(u16) + market_id(u64) + now_slot(u64) + initial_mark_e6(u64) +
+//       mark_ewma_halflife_slots(u64) + mark_min_fee(u64) + observation_sequence(u64)
+//       = 1+2+8+8+8+8+8+8 = 51 bytes
 {
   const data = encodeConfigureEwmaMark({
     assetIndex: 2,
+    marketId: 1n,
     nowSlot: 400_000_000n,
     initialMarkE6: 50_000_000_000n,
     markEwmaHalflifeSlots: 500n,
     markMinFee: 0n,
+    observationSequence: 0n,
   });
-  assert(data.length === 35, `encodeConfigureEwmaMark length: expected 35, got ${data.length}`);
+  assert(data.length === 51, `encodeConfigureEwmaMark length: expected 51, got ${data.length}`);
   assert(data[0] === IX_TAG.ConfigureEwmaMark, "ConfigureEwmaMark tag byte");
   assertBuf(data.subarray(1, 3), [2, 0], "ConfigureEwmaMark asset_index=2");
-  console.log("✓ encodeConfigureEwmaMark (35-byte wire)");
+  console.log("✓ encodeConfigureEwmaMark (51-byte wire)");
 }
 
-// Test encodePushEwmaMark — 19-byte wire
-// Wire: tag(1) + asset_index(u16) + now_slot(u64) + mark_e6(u64) = 1+2+8+8 = 19 bytes
+// Test encodePushEwmaMark — 35-byte wire (v18, integration a9318945)
+// Wire: tag(1) + asset_index(u16) + market_id(u64) + now_slot(u64) + mark_e6(u64) +
+//       observation_sequence(u64) = 1+2+8+8+8+8 = 35 bytes
 {
   const data = encodePushEwmaMark({
     assetIndex: 2,
+    marketId: 1n,
     nowSlot: 400_000_001n,
     markE6: 50_100_000_000n,
+    observationSequence: 0n,
   });
-  assert(data.length === 19, `encodePushEwmaMark length: expected 19, got ${data.length}`);
+  assert(data.length === 35, `encodePushEwmaMark length: expected 35, got ${data.length}`);
   assert(data[0] === IX_TAG.PushEwmaMark, "PushEwmaMark tag byte");
   assertBuf(data.subarray(1, 3), [2, 0], "PushEwmaMark asset_index=2");
-  console.log("✓ encodePushEwmaMark (19-byte wire)");
+  console.log("✓ encodePushEwmaMark (35-byte wire)");
 }
 
-// Test encodeConfigureAuthMark — 19-byte wire
-// Wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_mark_e6(u64) = 1+2+8+8 = 19 bytes
+// Test encodeConfigureAuthMark — 35-byte wire (v18, integration a9318945)
+// Wire: tag(1) + asset_index(u16) + market_id(u64) + now_slot(u64) + initial_mark_e6(u64) +
+//       observation_sequence(u64) = 1+2+8+8+8+8 = 35 bytes
 {
   const data = encodeConfigureAuthMark({
     assetIndex: 3,
+    marketId: 1n,
     nowSlot: 300_000_000n,
     initialMarkE6: 25_000_000_000n,
+    observationSequence: 0n,
   });
-  assert(data.length === 19, `encodeConfigureAuthMark length: expected 19, got ${data.length}`);
+  assert(data.length === 35, `encodeConfigureAuthMark length: expected 35, got ${data.length}`);
   assert(data[0] === IX_TAG.ConfigureAuthMark, "ConfigureAuthMark tag byte");
   assertBuf(data.subarray(1, 3), [3, 0], "ConfigureAuthMark asset_index=3");
-  console.log("✓ encodeConfigureAuthMark (19-byte wire)");
+  console.log("✓ encodeConfigureAuthMark (35-byte wire)");
 }
 
-// Test encodePushAuthMark — 19-byte wire
-// Wire: tag(1) + asset_index(u16) + now_slot(u64) + mark_e6(u64) = 1+2+8+8 = 19 bytes
+// Test encodePushAuthMark — 35-byte wire (v18, integration a9318945)
+// Wire: tag(1) + asset_index(u16) + market_id(u64) + now_slot(u64) + mark_e6(u64) +
+//       observation_sequence(u64) = 1+2+8+8+8+8 = 35 bytes
 {
   const data = encodePushAuthMark({
     assetIndex: 3,
+    marketId: 1n,
     nowSlot: 300_000_001n,
     markE6: 25_050_000_000n,
+    observationSequence: 0n,
   });
-  assert(data.length === 19, `encodePushAuthMark length: expected 19, got ${data.length}`);
+  assert(data.length === 35, `encodePushAuthMark length: expected 35, got ${data.length}`);
   assert(data[0] === IX_TAG.PushAuthMark, "PushAuthMark tag byte");
   assertBuf(data.subarray(1, 3), [3, 0], "PushAuthMark asset_index=3");
-  console.log("✓ encodePushAuthMark (19-byte wire)");
+  console.log("✓ encodePushAuthMark (35-byte wire)");
 }
 
 // Regression: oracle mark encoders reject zero mark values and zero halflife
@@ -1253,35 +1402,41 @@ console.log("\nTesting instruction encoders...\n");
   try {
     encodeConfigureEwmaMark({
       assetIndex: 1,
+      marketId: 1n,
       nowSlot: 300_000_000n,
       initialMarkE6: 0n,
       markEwmaHalflifeSlots: 500n,
       markMinFee: 0n,
+      observationSequence: 0n,
     });
   } catch {
     oracleMarkThrew = true;
   }
 
-  // UpdateInsuranceWithdrawPolicy (tag 92) — tag(1) + depositsOnly(u8) + cooldown(u64) = 10 bytes
+  // UpdateInsuranceWithdrawPolicy (tag 92, v18 wire, integration a9318945) --
+  // tag(1) + depositsOnly(u8) + cooldown(u64) + authorityEpoch(u64) = 18 bytes
   // percolator-prog#427: this instruction is what makes the F-1 cooldown and F-2
   // deposits-only ceiling reachable at all. Before it, both policy fields were pinned at
   // zero by the market's init literal, and both enforcement helpers short-circuit there.
+  // v18 appends `authorityEpoch` -- a CAS check (live current epoch, not current+1).
   {
     const data = encodeUpdateInsuranceWithdrawPolicy({
       depositsOnly: 1,
       cooldownSlots: 1_000n,
+      authorityEpoch: 0n,
     });
     assert(
-      data.length === 10,
-      `UpdateInsuranceWithdrawPolicy length: expected 10, got ${data.length}`
+      data.length === 18,
+      `UpdateInsuranceWithdrawPolicy length: expected 18, got ${data.length}`
     );
     assert(data[0] === IX_TAG.UpdateInsuranceWithdrawPolicy, "tag = IX_TAG entry");
-    assert(data[0] === 92, "tag 92 — v12 AdvanceOraclePhase(92) is deprecated, not in v17");
+    assert(data[0] === 92, "tag 92 -- v12 AdvanceOraclePhase(92) is deprecated, not in v17");
     assert(data[1] === 1, "depositsOnly = 1");
     assertBuf(data.subarray(2, 10), [232, 3, 0, 0, 0, 0, 0, 0], "cooldownSlots = 1000 LE u64");
-    const off = encodeUpdateInsuranceWithdrawPolicy({ depositsOnly: 0, cooldownSlots: 0n });
-    assertBuf(off, [92, 0, 0, 0, 0, 0, 0, 0, 0, 0], "clearing the policy encodes as all-zero");
-    console.log("\u2713 encodeUpdateInsuranceWithdrawPolicy (v17 10-byte wire)");
+    assertBuf(data.subarray(10, 18), [0, 0, 0, 0, 0, 0, 0, 0], "authorityEpoch = 0 LE u64");
+    const off = encodeUpdateInsuranceWithdrawPolicy({ depositsOnly: 0, cooldownSlots: 0n, authorityEpoch: 0n });
+    assertBuf(off, [92, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "clearing the policy encodes as all-zero");
+    console.log("\u2713 encodeUpdateInsuranceWithdrawPolicy (v18 18-byte wire)");
   }
   assert(oracleMarkThrew, "encodeConfigureEwmaMark rejects zero initialMarkE6");
 
@@ -1289,10 +1444,12 @@ console.log("\nTesting instruction encoders...\n");
   try {
     encodeConfigureEwmaMark({
       assetIndex: 1,
+      marketId: 1n,
       nowSlot: 300_000_000n,
       initialMarkE6: 50_000_000_000n,
       markEwmaHalflifeSlots: 0n,
       markMinFee: 0n,
+      observationSequence: 0n,
     });
   } catch {
     oracleMarkThrew = true;
@@ -1306,8 +1463,10 @@ console.log("\nTesting instruction encoders...\n");
   try {
     encodePushEwmaMark({
       assetIndex: 1,
+      marketId: 1n,
       nowSlot: 300_000_001n,
       markE6: 0n,
+      observationSequence: 0n,
     });
   } catch {
     oracleMarkThrew = true;
@@ -1318,8 +1477,10 @@ console.log("\nTesting instruction encoders...\n");
   try {
     encodeConfigureAuthMark({
       assetIndex: 1,
+      marketId: 1n,
       nowSlot: 300_000_000n,
       initialMarkE6: 0n,
+      observationSequence: 0n,
     });
   } catch {
     oracleMarkThrew = true;
@@ -1330,8 +1491,10 @@ console.log("\nTesting instruction encoders...\n");
   try {
     encodePushAuthMark({
       assetIndex: 1,
+      marketId: 1n,
       nowSlot: 300_000_001n,
       markE6: 0n,
+      observationSequence: 0n,
     });
   } catch {
     oracleMarkThrew = true;
@@ -1347,10 +1510,12 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   try {
     encodeConfigureEwmaMark({
       assetIndex: 1,
+      marketId: 1n,
       nowSlot: 300_000_000n,
       initialMarkE6: 0n,
       markEwmaHalflifeSlots: 500n,
       markMinFee: 0n,
+      observationSequence: 0n,
     });
   } catch {
     oracleMarkThrew = true;
@@ -1361,10 +1526,12 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   try {
     encodeConfigureEwmaMark({
       assetIndex: 1,
+      marketId: 1n,
       nowSlot: 300_000_000n,
       initialMarkE6: 50_000_000_000n,
       markEwmaHalflifeSlots: 0n,
       markMinFee: 0n,
+      observationSequence: 0n,
     });
   } catch {
     oracleMarkThrew = true;
@@ -1378,8 +1545,10 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   try {
     encodePushEwmaMark({
       assetIndex: 1,
+      marketId: 1n,
       nowSlot: 300_000_001n,
       markE6: 0n,
+      observationSequence: 0n,
     });
   } catch {
     oracleMarkThrew = true;
@@ -1390,8 +1559,10 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   try {
     encodeConfigureAuthMark({
       assetIndex: 1,
+      marketId: 1n,
       nowSlot: 300_000_000n,
       initialMarkE6: 0n,
+      observationSequence: 0n,
     });
   } catch {
     oracleMarkThrew = true;
@@ -1402,8 +1573,10 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   try {
     encodePushAuthMark({
       assetIndex: 1,
+      marketId: 1n,
       nowSlot: 300_000_001n,
       markE6: 0n,
+      observationSequence: 0n,
     });
   } catch {
     oracleMarkThrew = true;
@@ -1449,17 +1622,106 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   console.log("✓ encodeMatcherInitPassive finite max_fill_abs");
 }
 
+// ── MatcherReturn (v18, integration a9318945) — 64-byte CPI response wire ────
+// Byte-verified against percolator-prog::matcher_abi::{MatcherReturn, read_matcher_return}.
+{
+  const args = {
+    abiVersion: 3,
+    execPriceE6: 50_000_000_000n,
+    execSize: -1_000_000n,
+    reqId: 42n,
+    lpAccountId: 7n,
+    oraclePriceE6: 50_100_000_000n,
+    assetIndex: 1n,
+    valid: true,
+    partialOk: false,
+    rejected: false,
+    backingFeeCapBps: 250,
+  };
+  const data = encodeMatcherReturn(args);
+  assert(data.length === MATCHER_RETURN_LEN, `encodeMatcherReturn length: expected ${MATCHER_RETURN_LEN}, got ${data.length}`);
+  assert(data.length === 64, "MATCHER_RETURN_LEN is 64");
+
+  // abi_version:u32@0
+  assertBuf(data.subarray(0, 4), [3, 0, 0, 0], "MatcherReturn abi_version=3");
+  // exec_price_e6:u64@8
+  assertBuf(data.subarray(8, 16), [0x00, 0x74, 0x3b, 0xa4, 0x0b, 0, 0, 0], "MatcherReturn exec_price_e6");
+  // req_id:u64@32, lp_account_id:u64@40, asset_index:u64@56
+  assertBuf(data.subarray(32, 40), [42, 0, 0, 0, 0, 0, 0, 0], "MatcherReturn req_id=42");
+  assertBuf(data.subarray(40, 48), [7, 0, 0, 0, 0, 0, 0, 0], "MatcherReturn lp_account_id=7");
+  assertBuf(data.subarray(56, 64), [1, 0, 0, 0, 0, 0, 0, 0], "MatcherReturn asset_index=1");
+
+  // flags:u32@4 — bit0=VALID, bits8..21=backing_fee_cap_bps(250)
+  const flags = new DataView(data.buffer, data.byteOffset + 4, 4).getUint32(0, true);
+  assert((flags & MATCHER_RETURN_FLAG_VALID) !== 0, "MatcherReturn flags bit0 VALID set");
+  assert((flags & MATCHER_RETURN_FLAG_PARTIAL_OK) === 0, "MatcherReturn flags bit1 PARTIAL_OK clear");
+  assert((flags & MATCHER_RETURN_FLAG_REJECTED) === 0, "MatcherReturn flags bit2 REJECTED clear");
+  assert(
+    ((flags >>> MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT) & 0x3fff) === 250,
+    `MatcherReturn flags bits 8..21 backing_fee_cap_bps: expected 250, got ${(flags >>> 8) & 0x3fff}`,
+  );
+
+  // Round-trip through decodeMatcherReturn.
+  const decoded = decodeMatcherReturn(data);
+  assert(decoded.abiVersion === 3, "decodeMatcherReturn abiVersion");
+  assert(decoded.execPriceE6 === 50_000_000_000n, "decodeMatcherReturn execPriceE6");
+  assert(decoded.execSize === -1_000_000n, `decodeMatcherReturn execSize (i128 sign extension): got ${decoded.execSize}`);
+  assert(decoded.reqId === 42n, "decodeMatcherReturn reqId");
+  assert(decoded.lpAccountId === 7n, "decodeMatcherReturn lpAccountId");
+  assert(decoded.oraclePriceE6 === 50_100_000_000n, "decodeMatcherReturn oraclePriceE6");
+  assert(decoded.assetIndex === 1n, "decodeMatcherReturn assetIndex");
+  assert(decoded.valid === true, "decodeMatcherReturn valid=true");
+  assert(decoded.partialOk === false, "decodeMatcherReturn partialOk=false");
+  assert(decoded.rejected === false, "decodeMatcherReturn rejected=false");
+  assert(decoded.backingFeeCapBps === 250, `decodeMatcherReturn backingFeeCapBps: expected 250, got ${decoded.backingFeeCapBps}`);
+  console.log("✓ encodeMatcherReturn / decodeMatcherReturn round-trip (64-byte wire, bits 8..21 backing_fee_cap_bps)");
+}
+
+// decodeMatcherReturn fails closed on any unknown flag bit — matches the
+// wrapper's own KNOWN_FLAGS gate exactly (an unupgraded/buggy matcher must
+// not silently pass through with garbage high bits).
+{
+  const raw = new Uint8Array(MATCHER_RETURN_LEN);
+  const dv = new DataView(raw.buffer);
+  dv.setUint32(0, 3, true); // abi_version
+  dv.setUint32(4, 1 | (1 << 22), true); // VALID | an unknown bit (bit 22, outside 8..21)
+  let threw = false;
+  try {
+    decodeMatcherReturn(raw);
+  } catch {
+    threw = true;
+  }
+  assert(threw, "decodeMatcherReturn rejects unknown flag bits (fails closed, matching the wrapper's KNOWN_FLAGS gate)");
+  console.log("✓ decodeMatcherReturn rejects unknown flag bits");
+}
+
+// backingFeeCapBps out of range (>10000) is rejected client-side.
+{
+  let threw = false;
+  try {
+    encodeMatcherReturn({
+      abiVersion: 3, execPriceE6: 0n, execSize: 0n, reqId: 0n, lpAccountId: 0n,
+      oraclePriceE6: 0n, assetIndex: 0n, valid: true, partialOk: false, rejected: false,
+      backingFeeCapBps: 10_001,
+    });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "encodeMatcherReturn rejects backingFeeCapBps > 10000");
+  console.log("✓ encodeMatcherReturn rejects out-of-range backingFeeCapBps");
+}
+
 // ── Protocol-fee program change (tags 84/85) ─────────────────────────────────
 // Renumbered 2026-07-15: WithdrawProtocolFee 83→84, SetProtocolFeeAuthority
 // 84→85, freeing tag 83 for InitMatcherCtx (confirmed live on the deployed
 // wrapper percolator-prog@e26c97a4 by forensic rebuild + live
 // simulateTransaction — see ~/v17/DECISIONS-LEDGER.md).
 
-// WithdrawProtocolFee (tag 84)
-// Wire: tag(1) + amount(u128) = 17 bytes
+// WithdrawProtocolFee (tag 84, v18 wire, integration a9318945)
+// Wire: tag(1) + amount(u128) + authority_epoch(u64) = 25 bytes
 {
-  const data = encodeWithdrawProtocolFee({ amount: 1_000_000n });
-  assert(data.length === 17, `WithdrawProtocolFee length: expected 17, got ${data.length}`);
+  const data = encodeWithdrawProtocolFee({ amount: 1_000_000n, authorityEpoch: 0n });
+  assert(data.length === 25, `WithdrawProtocolFee length: expected 25, got ${data.length}`);
   assert(data[0] === IX_TAG.WithdrawProtocolFee, "WithdrawProtocolFee tag = 84");
   assert(data[0] === 84, "WithdrawProtocolFee tag literal = 84");
   assertBuf(
@@ -1467,15 +1729,16 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
     [64, 66, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "WithdrawProtocolFee amount=1_000_000"
   );
-  console.log("✓ encodeWithdrawProtocolFee (v17 17-byte wire, tag 84)");
+  assertBuf(data.subarray(17, 25), [0, 0, 0, 0, 0, 0, 0, 0], "WithdrawProtocolFee authorityEpoch=0");
+  console.log("✓ encodeWithdrawProtocolFee (v18 25-byte wire, tag 84)");
 }
 
 // WithdrawProtocolFee (tag 84) — amount=0 means "withdraw all"
 {
-  const data = encodeWithdrawProtocolFee({ amount: 0n });
-  assert(data.length === 17, "WithdrawProtocolFee amount=0 length=17");
+  const data = encodeWithdrawProtocolFee({ amount: 0n, authorityEpoch: 0n });
+  assert(data.length === 25, "WithdrawProtocolFee amount=0 length=25");
   assert(data[0] === 84, "WithdrawProtocolFee amount=0 tag=84");
-  assert(data.subarray(1, 17).every(v => v === 0), "WithdrawProtocolFee amount=0 payload all zero");
+  assert(data.subarray(1, 25).every(v => v === 0), "WithdrawProtocolFee amount=0 payload all zero");
   console.log("✓ encodeWithdrawProtocolFee amount=0 (withdraw-all sentinel)");
 }
 
@@ -1678,16 +1941,17 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
 
 // ── v17 fee-split instruction encoders (wrapper tags 86/87/88, 55) ───────────
 
-// UpdateFeeSplit (tag 86)
-// Wire: tag(1) + creator_share_bps(u16) + lp_share_bps(u16) + insurance_share_bps(u16) = 7 bytes
-// Verified against v16_program.rs tag-86 decode arm: read_u16 x3, in this order.
+// UpdateFeeSplit (tag 86, v18 wire, integration a9318945)
+// Wire: tag(1) + creator_share_bps(u16) + lp_share_bps(u16) + insurance_share_bps(u16) + authority_epoch(u64) = 15 bytes
+// Verified against v16_program.rs tag-86 decode arm: read_u16 x3, read_u64, in this order.
 {
   const data = encodeUpdateFeeSplit({
     creatorShareBps: 1600,
     lpShareBps: 4800,
     insuranceShareBps: 1600,
+    authorityEpoch: 0n,
   });
-  assert(data.length === 7, `UpdateFeeSplit length: expected 7, got ${data.length}`);
+  assert(data.length === 15, `UpdateFeeSplit length: expected 15, got ${data.length}`);
   assert(data[0] === IX_TAG.UpdateFeeSplit, "UpdateFeeSplit tag = IX_TAG.UpdateFeeSplit");
   assert(data[0] === 86, "UpdateFeeSplit tag literal = 86");
   // 1600 = 0x0640 -> 40 06 ; 4800 = 0x12C0 -> C0 12 ; 1600 -> 40 06
@@ -1696,7 +1960,8 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
     [0x40, 0x06, 0xc0, 0x12, 0x40, 0x06],
     "UpdateFeeSplit defaults 1600/4800/1600"
   );
-  console.log("✓ encodeUpdateFeeSplit (v17 7-byte wire, tag 86)");
+  assertBuf(data.subarray(7, 15), [0, 0, 0, 0, 0, 0, 0, 0], "UpdateFeeSplit authorityEpoch=0");
+  console.log("✓ encodeUpdateFeeSplit (v18 15-byte wire, tag 86)");
 }
 
 // Field ORDER within tag 86 — three distinct values so a swapped pair fails.
@@ -1705,13 +1970,15 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
     creatorShareBps: 0x1111,
     lpShareBps: 0x2222,
     insuranceShareBps: 0x3333,
+    authorityEpoch: 7n,
   });
   assertBuf(
     data.subarray(1, 7),
     [0x11, 0x11, 0x22, 0x22, 0x33, 0x33],
     "UpdateFeeSplit field order creator/lp/insurance"
   );
-  console.log("✓ encodeUpdateFeeSplit field order (creator, lp, insurance)");
+  assertBuf(data.subarray(7, 15), [7, 0, 0, 0, 0, 0, 0, 0], "UpdateFeeSplit authorityEpoch=7");
+  console.log("✓ encodeUpdateFeeSplit field order (creator, lp, insurance, authorityEpoch)");
 }
 
 // WithdrawInsuranceReserveToStake (tag 87)
@@ -1761,16 +2028,17 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   console.log("✓ encodeUpdateMaintenanceFeePerSlot carries values above u64::MAX (proves u128)");
 }
 
-// UpdateTradeFeePolicy (tag 55)
-// Wire: tag(1) + trade_fee_base_bps(u64) = 9 bytes.
+// UpdateTradeFeePolicy (tag 55, v18 wire, integration a9318945)
+// Wire: tag(1) + trade_fee_base_bps(u64) + policy_sequence(u64) = 17 bytes.
 // ⚠ Type asymmetry with tag 88: v16_program.rs tag-55 arm uses read_u64.
 {
-  const data = encodeUpdateTradeFeePolicy({ tradeFeeBaseBps: 30n });
-  assert(data.length === 9, `UpdateTradeFeePolicy length: expected 9, got ${data.length}`);
+  const data = encodeUpdateTradeFeePolicy({ tradeFeeBaseBps: 30n, policySequence: 0n });
+  assert(data.length === 17, `UpdateTradeFeePolicy length: expected 17, got ${data.length}`);
   assert(data[0] === IX_TAG.UpdateTradeFeePolicy, "tag = IX_TAG.UpdateTradeFeePolicy");
   assert(data[0] === 55, "UpdateTradeFeePolicy tag literal = 55");
   assertBuf(data.subarray(1, 9), [30, 0, 0, 0, 0, 0, 0, 0], "UpdateTradeFeePolicy bps=30");
-  console.log("✓ encodeUpdateTradeFeePolicy (v17 9-byte wire, tag 55, u64 NOT u128)");
+  assertBuf(data.subarray(9, 17), [0, 0, 0, 0, 0, 0, 0, 0], "UpdateTradeFeePolicy policySequence=0");
+  console.log("✓ encodeUpdateTradeFeePolicy (v18 17-byte wire, tag 55, u64 NOT u128)");
 }
 
 // Tag distinctness across the fee-split additions.
@@ -2099,19 +2367,20 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   console.log("✓ creatorFeeClaimableAtoms @568 does not disturb the shares @560/562/564");
 }
 
-// WithdrawCreatorFee (tag 90) — wire: tag(1) + amount(u128 LE) = 17 bytes.
+// WithdrawCreatorFee (tag 90, v18 wire, integration a9318945) — wire:
+// tag(1) + amount(u128 LE) + asset_index(u16 LE) + authority_epoch(u64 LE) = 27 bytes.
 {
-  const data = encodeWithdrawCreatorFee({ amount: 1_000_000n });
-  assert(data.length === 17, `WithdrawCreatorFee length: expected 17, got ${data.length}`);
+  const data = encodeWithdrawCreatorFee({ amount: 1_000_000n, assetIndex: 0, authorityEpoch: 0n });
+  assert(data.length === 27, `WithdrawCreatorFee length: expected 27, got ${data.length}`);
   assert(data[0] === IX_TAG.WithdrawCreatorFee, "tag = IX_TAG.WithdrawCreatorFee");
   assert(data[0] === 90, "WithdrawCreatorFee tag literal = 90");
   // 1_000_000 = 0x0F4240 -> LE
   assertBuf(
     data,
-    [90, 0x40, 0x42, 0x0f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    "WithdrawCreatorFee amount=1_000_000 full 17-byte wire"
+    [90, 0x40, 0x42, 0x0f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "WithdrawCreatorFee amount=1_000_000 full 27-byte wire"
   );
-  console.log("✓ encodeWithdrawCreatorFee (v17 17-byte wire, tag 90)");
+  console.log("✓ encodeWithdrawCreatorFee (v18 27-byte wire, tag 90)");
 }
 
 // Endianness pinned byte-for-byte with 16 DISTINCT payload bytes. A big-endian
@@ -2119,9 +2388,9 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
 // order all fail this single assertion.
 {
   const amount = 0x0f0e_0d0c_0b0a_0908_0706_0504_0302_0100n;
-  const data = encodeWithdrawCreatorFee({ amount });
+  const data = encodeWithdrawCreatorFee({ amount, assetIndex: 0, authorityEpoch: 0n });
   assertBuf(
-    data,
+    data.subarray(0, 17),
     [90, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f],
     "WithdrawCreatorFee payload is u128 LITTLE-endian, all 16 bytes distinct"
   );
@@ -2130,11 +2399,11 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
 
 // u128-not-u64: a value needing bit 100 must survive into the high word. This
 // is the assertion that catches an encU64 payload (which would also make the
-// instruction 9 bytes and the program reject it outright).
+// instruction shorter and the program reject it outright).
 {
   const big = (1n << 100n) + 5n;
-  const data = encodeWithdrawCreatorFee({ amount: big });
-  assert(data.length === 17, "WithdrawCreatorFee stays 17 bytes for a >u64 value");
+  const data = encodeWithdrawCreatorFee({ amount: big, assetIndex: 0, authorityEpoch: 0n });
+  assert(data.length === 27, "WithdrawCreatorFee stays 27 bytes for a >u64 value");
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const lo = dv.getBigUint64(1, true);
   const hi = dv.getBigUint64(9, true);
@@ -2147,50 +2416,67 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
 // Decimal-string args must encode identically to the bigint form — a claim
 // amount read out of JSON must not silently differ from the parsed balance.
 {
-  const fromBigint = encodeWithdrawCreatorFee({ amount: 123_456_789n });
-  const fromString = encodeWithdrawCreatorFee({ amount: "123456789" });
+  const fromBigint = encodeWithdrawCreatorFee({ amount: 123_456_789n, assetIndex: 0, authorityEpoch: 0n });
+  const fromString = encodeWithdrawCreatorFee({ amount: "123456789", assetIndex: 0, authorityEpoch: 0n });
   assertBuf(fromString, [...fromBigint], "WithdrawCreatorFee string arg === bigint arg");
   console.log("✓ encodeWithdrawCreatorFee accepts decimal strings identically");
+}
+
+// asset_index selects WHICH asset's creator fees are claimed (GH#420) — pin
+// its offset (right after the u128 amount) and confirm distinct asset
+// indices produce distinct wire bytes at that offset only.
+{
+  const asset0 = encodeWithdrawCreatorFee({ amount: 1n, assetIndex: 0, authorityEpoch: 0n });
+  const asset3 = encodeWithdrawCreatorFee({ amount: 1n, assetIndex: 3, authorityEpoch: 0n });
+  assertBuf(asset0.subarray(17, 19), [0, 0], "WithdrawCreatorFee assetIndex=0 LE @17");
+  assertBuf(asset3.subarray(17, 19), [3, 0], "WithdrawCreatorFee assetIndex=3 LE @17");
+  assert(
+    asset0.subarray(0, 17).every((v, i) => v === asset3[i]),
+    "WithdrawCreatorFee tag+amount unaffected by assetIndex"
+  );
+  console.log("✓ encodeWithdrawCreatorFee assetIndex selects the target asset (offset 17)");
+}
+
+// authority_epoch (W4-AE-EXTEND CAS) is the trailing u64, distinct from
+// UpdateAssetAuthority's own per-asset authority_epoch lane in VALUE but the
+// SAME lane conceptually (this asset's AssetControlSequencesV16.authority_epoch).
+{
+  const data = encodeWithdrawCreatorFee({ amount: 1n, assetIndex: 0, authorityEpoch: 9n });
+  assertBuf(data.subarray(19, 27), [9, 0, 0, 0, 0, 0, 0, 0], "WithdrawCreatorFee authorityEpoch=9 @19");
+  console.log("✓ encodeWithdrawCreatorFee authorityEpoch trails at offset 19");
 }
 
 // amount=0 encodes (the SDK does not pre-validate), but it is NOT tag 84's
 // withdraw-all sentinel — the program REJECTS it with InvalidInstruction. Pin
 // the bytes so nobody "helpfully" turns 0 into a u128::MAX drain.
 {
-  const data = encodeWithdrawCreatorFee({ amount: 0n });
-  assert(data.length === 17, "WithdrawCreatorFee amount=0 length=17");
+  const data = encodeWithdrawCreatorFee({ amount: 0n, assetIndex: 0, authorityEpoch: 0n });
+  assert(data.length === 27, "WithdrawCreatorFee amount=0 length=27");
   assert(data[0] === 90, "WithdrawCreatorFee amount=0 tag=90");
   assert(
-    data.subarray(1, 17).every((v) => v === 0),
+    data.subarray(1, 27).every((v) => v === 0),
     "WithdrawCreatorFee amount=0 payload is all zero (NOT a withdraw-all sentinel)"
   );
   console.log("✓ encodeWithdrawCreatorFee amount=0 encodes literally (rejected on-chain, not withdraw-all)");
 }
 
-// Tag 90 and tag 84 share a payload shape but MUST differ in dispatch. Assert
-// the two encodings differ in exactly one byte — index 0 — for the same amount.
+// Tag 90 and tag 84 no longer share a payload shape (v18: tag 90 gained
+// asset_index, tag 84 did not) — assert they now differ in LENGTH, not just tag byte.
 {
   const amount = 42_424_242n;
-  const creator = encodeWithdrawCreatorFee({ amount });
-  const protocol = encodeWithdrawProtocolFee({ amount });
-  assert(creator.length === protocol.length, "tag 90 and tag 84 are both 17 bytes");
-  const differing: number[] = [];
-  for (let i = 0; i < creator.length; i++) {
-    if (creator[i] !== protocol[i]) differing.push(i);
-  }
-  assert(
-    differing.length === 1 && differing[0] === 0,
-    `tag 90 vs tag 84 must differ ONLY at the tag byte, differed at [${differing.join(", ")}]`
-  );
-  assert(creator[0] === 90 && protocol[0] === 84, "the differing byte is 90 vs 84");
-  console.log("✓ WithdrawCreatorFee(90) and WithdrawProtocolFee(84) differ only in the tag byte");
+  const creator = encodeWithdrawCreatorFee({ amount, assetIndex: 0, authorityEpoch: 0n });
+  const protocol = encodeWithdrawProtocolFee({ amount, authorityEpoch: 0n });
+  assert(creator.length === 27, "tag 90 is 27 bytes (v18)");
+  assert(protocol.length === 25, "tag 84 is 25 bytes (v18)");
+  assert(creator[0] === 90 && protocol[0] === 84, "tag bytes remain 90 vs 84");
+  console.log("✓ WithdrawCreatorFee(90, 27B) and WithdrawProtocolFee(84, 25B) no longer share a payload shape");
 }
 
 // Out-of-range amounts are refused client-side rather than silently truncated
 // into a DIFFERENT valid claim.
 {
-  assertThrows(() => encodeWithdrawCreatorFee({ amount: -1n }), "negative amount throws");
-  assertThrows(() => encodeWithdrawCreatorFee({ amount: 1n << 128n }), "amount > u128::MAX throws");
+  assertThrows(() => encodeWithdrawCreatorFee({ amount: -1n, assetIndex: 0, authorityEpoch: 0n }), "negative amount throws");
+  assertThrows(() => encodeWithdrawCreatorFee({ amount: 1n << 128n, assetIndex: 0, authorityEpoch: 0n }), "amount > u128::MAX throws");
   console.log("✓ encodeWithdrawCreatorFee rejects out-of-range amounts (no silent truncation)");
 }
 

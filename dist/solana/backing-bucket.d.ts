@@ -49,6 +49,25 @@
  *
  * Every `V16Pod*` field is an align-1 `[u8; N]` and every struct derives `bytemuck::Pod`
  * (which forbids implicit padding), so these are byte offsets with no alignment gaps.
+ *
+ * ## v18 update (v16-migration, integration `sync/integration-v16`@a9318945)
+ *
+ * Re-verified via `cargo run --example dump_layout` against the integration
+ * branch's pinned engine (`~/percolator` @ c141d47f):
+ *
+ * ```
+ * EngineAssetSlotV16Account size=1301   backing_long @ 963   backing_short @ 1060
+ * ```
+ *
+ * `BackingBucketV16Account` itself is UNCHANGED (still 97 bytes, same field
+ * offsets — re-verified against `~/percolator/src/v16.rs:7294`). The wrapper
+ * slot preceding `EngineAssetSlotV16Account` grew 512 -> 1024
+ * ({@link V17_ASSET_SLOT_WRAPPER_LEN}, see `slab.ts`'s
+ * `V17_ASSET_ORACLE_WRAPPER_LEN`), and `EngineAssetSlotV16Account` itself
+ * independently grew 1285 -> 1301 (+16 — the SAME undocumented extra
+ * `AssetStateV16Account` field `slab.ts`'s `V17_ASSET_STATE_OI_LONG_REL`
+ * doc comment flags), so `backing_long`/`backing_short`'s offsets relative
+ * to the engine-slot start both shift +16 (947 -> 963, 1044 -> 1060).
  */
 /** `MarketGroupV16HeaderAccount::config` (V16ConfigAccount), relative to the group header. */
 export declare const V17_GROUP_CONFIG_REL = 32;
@@ -58,12 +77,16 @@ export declare const V17_GROUP_CURRENT_SLOT_REL = 613;
 export declare const V17_GROUP_MODE_REL = 626;
 /** `V16ConfigAccount::max_market_slots` (u32), relative to the config block. */
 export declare const V17_CONFIG_MAX_MARKET_SLOTS_REL = 2;
-/** The 512-byte wrapper oracle-storage prefix that precedes `EngineAssetSlotV16Account` in `Market<T>`. */
-export declare const V17_ASSET_SLOT_WRAPPER_LEN = 512;
-/** `EngineAssetSlotV16Account::backing_long`, relative to the engine slot start. */
-export declare const V17_ENGINE_BACKING_LONG_REL = 947;
-/** `EngineAssetSlotV16Account::backing_short`, relative to the engine slot start. */
-export declare const V17_ENGINE_BACKING_SHORT_REL = 1044;
+/**
+ * The wrapper oracle-storage prefix that precedes `EngineAssetSlotV16Account`
+ * in `Market<T>`. v18 (integration `a9318945`): grew 512 -> 1024 — see this
+ * module's own doc comment and `slab.ts`'s `V17_ASSET_ORACLE_WRAPPER_LEN`.
+ */
+export declare const V17_ASSET_SLOT_WRAPPER_LEN = 1024;
+/** `EngineAssetSlotV16Account::backing_long`, relative to the engine slot start. v18: 947 -> 963 (see module doc comment). */
+export declare const V17_ENGINE_BACKING_LONG_REL = 963;
+/** `EngineAssetSlotV16Account::backing_short`, relative to the engine slot start. v18: 1044 -> 1060 (see module doc comment). */
+export declare const V17_ENGINE_BACKING_SHORT_REL = 1060;
 /** `size_of::<BackingBucketV16Account>()`. */
 export declare const V17_BACKING_BUCKET_LEN = 97;
 /** Market mode discriminant (`MarketGroupV16HeaderAccount::mode`). */

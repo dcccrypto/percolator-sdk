@@ -596,16 +596,31 @@ describe('fee-split CPI proxies (stake tags 25-28)', () => {
     expect(Array.from(data.subarray(1, 7))).toEqual([0x11, 0x11, 0x22, 0x22, 0x33, 0x33]);
   });
 
-  // The stake payload must be byte-identical to the wrapper payload it proxies,
-  // because cpi.rs forwards the decoded args straight into wrapper tag 86.
-  it('stake tag 25 payload is byte-identical to wrapper tag 86 payload', () => {
+  // v18 FLAG (v16-migration, integration a9318945): wrapper tag 86
+  // (UpdateFeeSplit) grew an appended `authority_epoch(u64)` field
+  // (W4-AE-EXTEND CAS). Per WRAPPER_SYNC_LOCKED_WIRE.md's consumer note,
+  // `stake src/cpi.rs` needs a coordinated update for the tags it forwards —
+  // but percolator-stake is a SEPARATE repo/program, out of scope for this
+  // SDK-only branch (no on-chain program edits here). Until stake's cpi.rs
+  // is migrated in lockstep, `encodeStakeAdminUpdateFeeSplit` (this SDK's
+  // CPI-proxy encoder, targeting the CURRENTLY DEPLOYED stake program) and
+  // `encodeUpdateFeeSplit` (the wrapper-direct v18 encoder) are NO LONGER
+  // byte-identical — only their shared creator/lp/insurance prefix is.
+  it('stake tag 25 shares its creator/lp/insurance prefix with wrapper tag 86 (payloads now diverge at the v18 authority_epoch tail)', () => {
     const stakeData = encodeStakeAdminUpdateFeeSplit(1600, 4800, 1600);
     const wrapperData = encodeUpdateFeeSplit({
       creatorShareBps: 1600,
       lpShareBps: 4800,
       insuranceShareBps: 1600,
+      authorityEpoch: 0n,
     });
-    expect(Array.from(stakeData.subarray(1))).toEqual(Array.from(wrapperData.subarray(1)));
+    // Shared prefix: creator_share_bps/lp_share_bps/insurance_share_bps (6 bytes after the tag).
+    expect(Array.from(stakeData.subarray(1))).toEqual(Array.from(wrapperData.subarray(1, 7)));
+    // The wrapper payload is now longer (15 bytes vs the stake proxy's 7) —
+    // pin this divergence so nobody "fixes" it back to a false byte-identity
+    // assumption without also migrating stake's cpi.rs.
+    expect(stakeData.length).toBe(7);
+    expect(wrapperData.length).toBe(15);
   });
 
   // tag 26 -> wrapper 88. Wire: tag(1) + u128 = 17 bytes (rest.len() == 16).
@@ -655,10 +670,17 @@ describe('fee-split CPI proxies (stake tags 25-28)', () => {
     expect(Array.from(data.subarray(1, 9))).toEqual([30, 0, 0, 0, 0, 0, 0, 0]);
   });
 
-  it('stake tag 28 payload is byte-identical to wrapper tag 55 payload', () => {
+  // v18 FLAG (v16-migration, integration a9318945): wrapper tag 55
+  // (UpdateTradeFeePolicy) grew an appended `policy_sequence(u64)` field
+  // (TB-2b replay-nonce binding). Same out-of-scope-stake-cpi caveat as tag
+  // 25/86 above — see that test's comment.
+  it('stake tag 28 shares its trade_fee_base_bps prefix with wrapper tag 55 (payloads now diverge at the v18 policy_sequence tail)', () => {
     const stakeData = encodeStakeAdminUpdateTradeFeePolicy(30n);
-    const wrapperData = encodeUpdateTradeFeePolicy({ tradeFeeBaseBps: 30n });
-    expect(Array.from(stakeData.subarray(1))).toEqual(Array.from(wrapperData.subarray(1)));
+    const wrapperData = encodeUpdateTradeFeePolicy({ tradeFeeBaseBps: 30n, policySequence: 0n });
+    // Shared prefix: trade_fee_base_bps (8 bytes after the tag).
+    expect(Array.from(stakeData.subarray(1))).toEqual(Array.from(wrapperData.subarray(1, 9)));
+    expect(stakeData.length).toBe(9);
+    expect(wrapperData.length).toBe(17);
   });
 
   // GROUP A (25, 26): pool PDA is the marketauth and SIGNS via invoke_signed.

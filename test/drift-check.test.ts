@@ -393,13 +393,20 @@ describe("SDK drift guards", () => {
     expect(() => encodeStakeTransferAdmin()).toThrow(/tag 5/i);
   });
 
-  it("EXPECTED_SLAB_VERSION matches what the deployed wrapper writes", () => {
-    // percolator-prog `VERSION: u16 = 17` (v16_program.rs:51) is written to
+  it("EXPECTED_SLAB_VERSION matches the v16-migration (VERSION=18) wire", () => {
+    // percolator-prog `VERSION: u16 = 18` (integration branch
+    // `sync/integration-v16`@a9318945, `v16_program.rs:72`) is written to
     // data[8..10] by write_header and hard-checked by check_header, which
-    // rejects a mismatch with InvalidVersion. Confirmed against the live devnet
-    // wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj: of 206
-    // wrapper-owned accounts, 204 carry version 17 and none carries 16.
-    expect(EXPECTED_SLAB_VERSION).toBe(17);
+    // rejects a mismatch with InvalidVersion.
+    //
+    // NOTE: as of this SDK change the CURRENTLY DEPLOYED devnet wrapper
+    // (DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj) still writes VERSION=17
+    // — the migration to 18 is a HELD, human-gated redeploy (F-01 full
+    // re-seed) that has not shipped yet. This SDK build therefore
+    // intentionally fails closed on the CURRENTLY-live VERSION=17 accounts
+    // and only accepts the not-yet-deployed VERSION=18 layout. Do not read
+    // this as "confirmed against live devnet" until F-01 ships.
+    expect(EXPECTED_SLAB_VERSION).toBe(18);
   });
 
   it("parses positionOwner from standalone NFT account bytes", () => {
@@ -483,38 +490,44 @@ describe("encodeKeeperCrank — deprecated in v17 (throws removedInstruction)", 
   });
 });
 
-describe("encodeDepositCollateral — tag + amount(u128) roundtrip (v17: userIdx removed)", () => {
-  // v17 BREAKING: wire format is tag(1) + amount(u128 LE) = 17 bytes.
-  // userIdx arg is silently ignored; amount promoted from u64 to u128.
-  it("encodes tag=3, amount=1000000 (userIdx silently ignored in v17)", () => {
-    const data = encodeDepositCollateral({ userIdx: 5, amount: "1000000" });
-    expect(data.length).toBe(17);
+describe("encodeDepositCollateral — tag + portfolio_id + expected_sequence + amount(u128) roundtrip (v18: identity-bound)", () => {
+  // v18 BREAKING (integration a9318945): wire format is tag(1) + portfolio_id(u64)
+  // + expected_sequence(u64) + amount(u128 LE) = 33 bytes.
+  // userIdx arg is silently ignored; amount promoted from u64 to u128 (v17), then
+  // CAS-bound to portfolio_id/expected_sequence on top (v18).
+  it("encodes tag=3, amount=1000000 (userIdx silently ignored)", () => {
+    const data = encodeDepositCollateral({ userIdx: 5, portfolioId: 7n, expectedSequence: 2n, amount: "1000000" });
+    expect(data.length).toBe(33);
     expect(data[0]).toBe(IX_TAG.DepositCollateral);  // tag = 3
     expect(data[0]).toBe(3);
-    // amount is at bytes [1..17] as u128 LE; lo 8 bytes = amount for small values
-    expect(readU64LE(data, 1)).toBe(1_000_000n);     // amount (lo 64 bits of u128)
-    expect(readU64LE(data, 9)).toBe(0n);              // amount (hi 64 bits of u128 = 0)
+    expect(readU64LE(data, 1)).toBe(7n);              // portfolio_id
+    expect(readU64LE(data, 9)).toBe(2n);              // expected_sequence
+    // amount is at bytes [17..33] as u128 LE; lo 8 bytes = amount for small values
+    expect(readU64LE(data, 17)).toBe(1_000_000n);     // amount (lo 64 bits of u128)
+    expect(readU64LE(data, 25)).toBe(0n);              // amount (hi 64 bits of u128 = 0)
   });
 
   it("encodes large amount (u128 supports values beyond u64 max)", () => {
-    // v17: amount is u128 so u64 max fits exactly in the lo 8 bytes
-    const data = encodeDepositCollateral({ userIdx: 0, amount: "18446744073709551615" });
-    expect(readU64LE(data, 1)).toBe(18446744073709551615n);  // lo bits = u64 max
-    expect(readU64LE(data, 9)).toBe(0n);                     // hi bits = 0
+    // amount is u128 so u64 max fits exactly in the lo 8 bytes
+    const data = encodeDepositCollateral({ userIdx: 0, portfolioId: 1n, expectedSequence: 0n, amount: "18446744073709551615" });
+    expect(readU64LE(data, 17)).toBe(18446744073709551615n);  // lo bits = u64 max
+    expect(readU64LE(data, 25)).toBe(0n);                     // hi bits = 0
   });
 });
 
-describe("encodeWithdrawCollateral — tag + amount(u128) roundtrip (v17: userIdx removed)", () => {
-  // v17 BREAKING: wire format is tag(1) + amount(u128 LE) = 17 bytes.
-  // userIdx arg is silently ignored; amount promoted from u64 to u128.
-  it("encodes tag=4, amount=500000 (userIdx silently ignored in v17)", () => {
-    const data = encodeWithdrawCollateral({ userIdx: 10, amount: "500000" });
-    expect(data.length).toBe(17);
+describe("encodeWithdrawCollateral — tag + portfolio_id + expected_sequence + amount(u128) roundtrip (v18: identity-bound)", () => {
+  // v18 BREAKING (integration a9318945): wire format is tag(1) + portfolio_id(u64)
+  // + expected_sequence(u64) + amount(u128 LE) = 33 bytes.
+  it("encodes tag=4, amount=500000 (userIdx silently ignored)", () => {
+    const data = encodeWithdrawCollateral({ userIdx: 10, portfolioId: 9n, expectedSequence: 4n, amount: "500000" });
+    expect(data.length).toBe(33);
     expect(data[0]).toBe(IX_TAG.WithdrawCollateral); // tag = 4
     expect(data[0]).toBe(4);
-    // amount is at bytes [1..17] as u128 LE; lo 8 bytes = amount for small values
-    expect(readU64LE(data, 1)).toBe(500_000n);       // amount (lo 64 bits of u128)
-    expect(readU64LE(data, 9)).toBe(0n);              // hi bits = 0
+    expect(readU64LE(data, 1)).toBe(9n);              // portfolio_id
+    expect(readU64LE(data, 9)).toBe(4n);              // expected_sequence
+    // amount is at bytes [17..33] as u128 LE; lo 8 bytes = amount for small values
+    expect(readU64LE(data, 17)).toBe(500_000n);       // amount (lo 64 bits of u128)
+    expect(readU64LE(data, 25)).toBe(0n);              // hi bits = 0
   });
 });
 
@@ -949,25 +962,38 @@ describe("IX_TAG — v17 value correctness and uniqueness", () => {
 // ===========================================================================
 
 describe("encoding roundtrip — manual decode verifies no endianness or off-by-one bugs", () => {
-  it("encodeTradeNoCpi v17: assetIndex, sizeQ, execPrice, feeBps round-trip (35 bytes)", () => {
+  it("encodeTradeNoCpi v18: identity + asset_index/market_id, sizeQ, execPrice, feeBps, backingFeeCapBps round-trip (77 bytes)", () => {
     const SIZE_Q = -9_876_543_210n;
-    const data = encodeTradeNoCpi({ assetIndex: 3, sizeQ: SIZE_Q, execPrice: 50_000_000_000n, feeBps: 30n });
-    // v17 wire: tag(1) + asset_index(u16) + size_q(i128) + exec_price(u64) + fee_bps(u64) = 35 bytes
-    expect(data.length).toBe(35);
+    const data = encodeTradeNoCpi({
+      accountAPortfolioId: 1n,
+      accountAPositionEpoch: 0n,
+      accountBPortfolioId: 2n,
+      accountBPositionEpoch: 0n,
+      assetIndex: 3,
+      marketId: 9n,
+      sizeQ: SIZE_Q,
+      execPrice: 50_000_000_000n,
+      feeBps: 30n,
+      backingFeeCapBps: 0,
+    });
+    // v18 wire (integration a9318945): tag(1) + 4×u64 identity + asset_index(u16)
+    // + market_id(u64) + size_q(i128) + exec_price(u64) + fee_bps(u64) + backing_fee_cap_bps(u16) = 77 bytes
+    expect(data.length).toBe(77);
     expect(data[0]).toBe(IX_TAG.TradeNoCpi);
-    expect(readU16LE(data, 1)).toBe(3);          // assetIndex
-    // Decode i128 sizeQ at [3..19]
-    const lo = readU64LE(data, 3);
-    const hi = readI64LE(data, 11);
+    expect(readU16LE(data, 33)).toBe(3);          // assetIndex @33
+    expect(readU64LE(data, 35)).toBe(9n);         // marketId @35
+    // Decode i128 sizeQ at [43..59]
+    const lo = readU64LE(data, 43);
+    const hi = readI64LE(data, 51);
     const decoded = lo | (hi << 64n);
     expect(decoded).toBe(SIZE_Q);
-    // fee_bps at [27..35]
-    expect(readU64LE(data, 27)).toBe(30n);
+    // fee_bps at [67..75]
+    expect(readU64LE(data, 67)).toBe(30n);
   });
 
-  it("encodeDepositCollateral: amount round-trip at various amounts (v17: userIdx ignored, u128 wire)", () => {
-    // v17 BREAKING: userIdx no longer encoded. Wire is tag(1) + amount(u128 LE) = 17 bytes.
-    // amount lo 64 bits at [1..9], hi 64 bits at [9..17] = 0 for normal amounts.
+  it("encodeDepositCollateral: amount round-trip at various amounts (v18: identity-bound, u128 wire)", () => {
+    // v18 BREAKING: wire is tag(1) + portfolio_id(u64) + expected_sequence(u64)
+    // + amount(u128 LE) = 33 bytes. amount lo 64 bits at [17..25], hi at [25..33] = 0 for normal amounts.
     const cases: Array<[number, bigint]> = [
       [0, 0n],
       [1, 1n],
@@ -975,20 +1001,20 @@ describe("encoding roundtrip — manual decode verifies no endianness or off-by-
       [65534, 18_000_000_000_000_000n],
     ];
     for (const [userIdx, amount] of cases) {
-      const data = encodeDepositCollateral({ userIdx, amount: amount.toString() });
-      // amount as u128 LE: lo 8 bytes at offset 1
-      expect(readU64LE(data, 1)).toBe(amount);
-      expect(readU64LE(data, 9)).toBe(0n); // hi bits always 0 for these amounts
+      const data = encodeDepositCollateral({ userIdx, portfolioId: 1n, expectedSequence: 0n, amount: amount.toString() });
+      // amount as u128 LE: lo 8 bytes at offset 17
+      expect(readU64LE(data, 17)).toBe(amount);
+      expect(readU64LE(data, 25)).toBe(0n); // hi bits always 0 for these amounts
     }
   });
 
-  it("encodeWithdrawCollateral: amount round-trip (v17: userIdx ignored, u128 wire)", () => {
-    // v17 BREAKING: wire is tag(1) + amount(u128 LE) = 17 bytes; userIdx not encoded.
-    const data = encodeWithdrawCollateral({ userIdx: 42, amount: "123456789" });
+  it("encodeWithdrawCollateral: amount round-trip (v18: identity-bound, u128 wire)", () => {
+    // v18 BREAKING: wire is tag(1) + portfolio_id(u64) + expected_sequence(u64) + amount(u128 LE) = 33 bytes.
+    const data = encodeWithdrawCollateral({ userIdx: 42, portfolioId: 1n, expectedSequence: 0n, amount: "123456789" });
     expect(data[0]).toBe(IX_TAG.WithdrawCollateral);
-    // amount as u128 LE at [1..17]: lo 64 bits at [1..9]
-    expect(readU64LE(data, 1)).toBe(123_456_789n);
-    expect(readU64LE(data, 9)).toBe(0n); // hi bits = 0
+    // amount as u128 LE at [17..33]: lo 64 bits at [17..25]
+    expect(readU64LE(data, 17)).toBe(123_456_789n);
+    expect(readU64LE(data, 25)).toBe(0n); // hi bits = 0
   });
 
   it("encodeKeeperCrank: deprecated in v17 — throws for all callerIdx values", () => {

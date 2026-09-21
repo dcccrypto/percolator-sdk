@@ -481,14 +481,20 @@ export declare function parseAccount(data: Uint8Array, idx: number): Account;
  */
 export declare const V17_MAGIC = 5784119745589622272n;
 /**
- * v17 account version (u16 at offset 8).
+ * v18 account version (u16 at offset 8).
  *
- * Bumped 16 -> 17 by the protocol-fee program change (WrapperConfigV16
- * 432 -> 496 bytes; percolator-prog@626fb617, `v16_program.rs:51`
- * `pub const VERSION: u16 = 17`). Fails closed on any pre-protocol-fee
- * (VERSION=16) account — those must be re-seeded, not read with this parser.
+ * Bumped 17 -> 18 by the v16-migration integration (percolator-prog
+ * `sync/integration-v16`@a9318945, `v16_program.rs:72` `pub const VERSION:
+ * u16 = 18`) — the identity-binding overhaul (market_id/intent_id/
+ * authority_epoch CAS binding), PortfolioAccountV16's +24B identity trailer
+ * (9539 -> 9563), and the AssetOracleProfileV16/AssetControlSequencesV16
+ * per-asset slot growth (512 -> 1024) are all account-layout/wire-breaking.
+ * Fails closed on any pre-migration (VERSION=17) account — those must be
+ * re-seeded (F-01), not read with this parser. The constant keeps its
+ * `V17_`-prefixed name for source-compat with existing callers; only the
+ * value changed.
  */
-export declare const V17_EXPECTED_VERSION = 17;
+export declare const V17_EXPECTED_VERSION = 18;
 /**
  * v17 account-kind byte (offset 10 of the 16-byte header).
  *
@@ -553,8 +559,132 @@ export declare const V17_WRAPPER_CONFIG_LEN = 576;
  * `const _: () = assert!(size_of::<WrapperConfigV16>() == WRAPPER_CONFIG_LEN)`.
  */
 export declare const V17_CREATOR_FEE_CLAIMABLE_OFF = 568;
-/** v17 AssetOracleProfileV16 length (400 bytes). */
-export declare const V17_ASSET_ORACLE_PROFILE_LEN = 400;
+/**
+ * v18 AssetOracleProfileV16 length (integration `a9318945`, `sync/integration-v16`).
+ *
+ * Grew 400 -> 512 across several PURELY ADDITIVE tail-append merges, none of
+ * which moved any pre-existing offset (all confirmed by the wrapper's own
+ * `const _: () = assert!(size_of::<AssetOracleProfileV16>() == ASSET_ORACLE_PROFILE_LEN)`
+ * compile-time guard):
+ *   400 -> 408  GH#420 `creator_fee_claimable_atoms: u64` (per-asset creator
+ *               fee counter — see {@link AssetOracleProfileV17.creatorFeeClaimableAtoms}).
+ *   408 -> 432  GH#444 `maintenance_fee_checkpoint_slot: u64` +
+ *               `maintenance_fee_previous_rate: u128`.
+ *   432 -> 464  zero-move-funding accrual: `funding_mark_e6`/
+ *               `funding_mark_pending_e6`/`funding_mark_pending_slot` (3×u64)
+ *               + `price_move_remainder_bps_num`(u16) carved from padding +
+ *               explicit `_padding1`.
+ *   464 -> 480  `terminal_slab_scan_progress: u128` (CloseSlab windowed scan cursor).
+ *   480 -> 496  TB-1a `next_portfolio_id: u64` + explicit `_padding2`.
+ *   496 -> 512  TB-3 `insurance_top_up: u64` + `backing_top_up: u64` (one-shot
+ *               top-up replay nonces).
+ * The fixed per-asset wrapper slot ({@link V17_ASSET_ORACLE_WRAPPER_LEN})
+ * separately grew 512 -> 1024 (TB-2a, to fit `AssetControlSequencesV16` +
+ * W4-AE-84's `protocol_fee_authority_epoch`) — see that constant's own doc
+ * comment. `ASSET_ORACLE_PROFILE_LEN` itself (this constant) stops at 512;
+ * [512, 1024) is the control-sequences region + spare headroom, not part of
+ * the profile struct.
+ */
+export declare const V17_ASSET_ORACLE_PROFILE_LEN = 512;
+/**
+ * v18 fixed per-asset wrapper slot size (integration `a9318945`). Grew
+ * 512 -> 1024 (TB-2a, "asset control-sequences infra") to fit
+ * `AssetControlSequencesV16` (88B, {@link V17_ASSET_CONTROL_SEQUENCES_LEN})
+ * immediately after the profile, plus W4-AE-84's market-wide
+ * `protocol_fee_authority_epoch` counter (8B,
+ * {@link V17_PROTOCOL_FEE_AUTHORITY_EPOCH_OFF}) — 1024 was the smallest
+ * engine-precedented `MarketWrapperPod` array length above 512 (the engine's
+ * `impl_market_wrapper_pod_for_byte_arrays!` macro only covers a fixed list:
+ * 0..=32, 64, 128, 256, 512, 1024).
+ *
+ * Layout inside this 1024-byte slot:
+ *   [   0,  512) AssetOracleProfileV16 ({@link V17_ASSET_ORACLE_PROFILE_LEN})
+ *   [ 512,  600) AssetControlSequencesV16 (88B, {@link V17_ASSET_CONTROL_SEQUENCES_OFF})
+ *   [ 600,  608) protocol_fee_authority_epoch (8B, asset-0 slot only, {@link V17_PROTOCOL_FEE_AUTHORITY_EPOCH_OFF})
+ *   [ 608, 1024) spare headroom (416B)
+ */
+export declare const V17_ASSET_ORACLE_WRAPPER_LEN = 1024;
+/**
+ * v18 NEW: byte offset of `AssetControlSequencesV16` within each asset's
+ * {@link V17_ASSET_ORACLE_WRAPPER_LEN}-byte wrapper slot. Collapses to
+ * `= V17_ASSET_ORACLE_PROFILE_LEN` (TB-2a, matching upstream `ef3b1a55`'s own definition).
+ */
+export declare const V17_ASSET_CONTROL_SEQUENCES_OFF = 512;
+/**
+ * v18 NEW: `size_of::<AssetControlSequencesV16>()` — 9 strictly-increasing
+ * replay-nonce lanes (oracle_observation, backing_fee_long, backing_fee_short,
+ * trade_fee, liquidation_fee, maintenance_fee, fee_redirect, market_init_fee,
+ * permissionless_resolve) + TB-2b's `authority_epoch` CAS lane + an 8B
+ * reserved tail, matching upstream `ef3b1a55`'s struct size exactly (88B total).
+ */
+export declare const V17_ASSET_CONTROL_SEQUENCES_LEN = 88;
+/**
+ * v18 NEW (W4-AE-84): byte offset of the market-wide
+ * `protocol_fee_authority_epoch` CAS counter, gating `WithdrawProtocolFee`
+ * (tag 84) against a replayed signed withdrawal surviving an intervening
+ * `SetProtocolFeeAuthority` (tag 85) A->B->A cycle. Market-wide, not
+ * per-asset — only asset 0's copy is ever read or written (same precedent as
+ * `AssetOracleProfileV16::maintenance_fee_checkpoint_slot`/
+ * `terminal_slab_scan_progress`).
+ */
+export declare const V17_PROTOCOL_FEE_AUTHORITY_EPOCH_OFF: number;
+/** A single u64 counter — no struct needed. */
+export declare const V17_PROTOCOL_FEE_AUTHORITY_EPOCH_LEN = 8;
+/** Decoded `AssetControlSequencesV16` — per-asset replay-nonce/CAS watermarks (v18 NEW, TB-2a/TB-2b). */
+export interface AssetControlSequencesV17 {
+    /** Strictly-increasing replay nonce for ConfigureHybridOracle/ConfigureEwmaMark/PushEwmaMark/ConfigureAuthMark/PushAuthMark/RestartAssetOracle's `observation_sequence`. */
+    oracleObservation: bigint;
+    /** Strictly-increasing replay nonce for UpdateBackingFeePolicy's long-domain `policy_sequence`. */
+    backingFeeLong: bigint;
+    /** Strictly-increasing replay nonce for UpdateBackingFeePolicy's short-domain `policy_sequence`. */
+    backingFeeShort: bigint;
+    /** Strictly-increasing replay nonce for UpdateTradeFeePolicy's `policy_sequence`. */
+    tradeFee: bigint;
+    /** Strictly-increasing replay nonce for UpdateLiquidationFeePolicy's `policy_sequence`. */
+    liquidationFee: bigint;
+    /** Strictly-increasing replay nonce for UpdateMaintenanceFeePolicy's `policy_sequence`. */
+    maintenanceFee: bigint;
+    /** Strictly-increasing replay nonce for UpdateFeeRedirectPolicy's `policy_sequence`. */
+    feeRedirect: bigint;
+    /** Strictly-increasing replay nonce for UpdateMarketInitFeePolicy's `policy_sequence`. */
+    marketInitFee: bigint;
+    /** Strictly-increasing replay nonce for ConfigurePermissionlessResolve's `policy_sequence`. */
+    permissionlessResolve: bigint;
+    /**
+     * CAS (compare-and-swap) counter for `UpdateAssetAuthority` (tag 65) and
+     * every other tag CAS-bound to THIS asset's `authority_epoch` lane
+     * (WithdrawBackingBucket-50, WithdrawBackingBucketEarnings-52,
+     * WithdrawInsuranceAsset-57, UpdateFeeSplit-86, WithdrawCreatorFee-90,
+     * UpdateInsuranceWithdrawPolicy-92 where applicable). Pass the value read
+     * here as the LIVE current epoch — NOT current+1 — to every such
+     * instruction's `authorityEpoch` argument.
+     */
+    authorityEpoch: bigint;
+}
+/**
+ * Parse `AssetControlSequencesV16` for one asset within a v18 market account
+ * (v18 NEW, TB-2a/TB-2b).
+ *
+ * @param data       Raw market-group account bytes.
+ * @param assetSlotOff  Absolute byte offset where this asset's
+ *   {@link V17_ASSET_ORACLE_WRAPPER_LEN}-byte wrapper slot starts (i.e. the
+ *   SAME offset passed as `profileOff` to {@link parseAssetOracleProfileV17}).
+ * @returns Decoded control-sequences state.
+ * @throws If `data` is too short to hold the control-sequences region.
+ */
+export declare function parseAssetControlSequencesV17(data: Uint8Array, assetSlotOff: number): AssetControlSequencesV17;
+/**
+ * Parse the market-wide `protocol_fee_authority_epoch` counter (v18 NEW,
+ * W4-AE-84). Lives at a fixed offset inside ASSET 0's wrapper slot only —
+ * pass asset 0's slot offset (the SAME value used for asset index 0's
+ * {@link parseAssetOracleProfileV17}/{@link parseAssetControlSequencesV17} calls).
+ *
+ * @param data          Raw market-group account bytes.
+ * @param asset0SlotOff Absolute byte offset where ASSET 0's wrapper slot starts.
+ * @returns The live `protocol_fee_authority_epoch` value — pass this as
+ *   `authorityEpoch` to {@link encodeWithdrawProtocolFee} (CAS, expected-current).
+ */
+export declare function parseProtocolFeeAuthorityEpoch(data: Uint8Array, asset0SlotOff: number): bigint;
 /** v17 header length (16 bytes: magic[8] + version[2] + kind[1] + pad[1] + reserved[4]). */
 export declare const V17_HEADER_LEN = 16;
 /**
@@ -565,11 +695,24 @@ export declare const V17_HEADER_LEN = 16;
  */
 export declare const V17_MARKET_GROUP_OFF: number;
 /**
- * v17 MarketGroupV16HeaderAccount size (758 bytes) and per-asset slot stride (1797 bytes),
- * verified against percolator-prog `cargo run --example dump_layout`.
+ * v18 MarketGroupV16HeaderAccount size (758 bytes, UNCHANGED by the
+ * v16-migration) and per-asset slot stride, verified against percolator-prog
+ * `cargo run --example dump_layout` on integration branch
+ * `sync/integration-v16`@a9318945.
+ *
+ * Per-asset slot stride grew 1797 -> 2325 (+528): `MARKET_ASSET_SLOT_LEN =
+ * size_of::<Market<[u8; ASSET_ORACLE_WRAPPER_LEN]>>()` and
+ * `ASSET_ORACLE_WRAPPER_LEN` itself grew 512 -> 1024 (+512, TB-2a's
+ * `AssetControlSequencesV16` + W4-AE-84's `protocol_fee_authority_epoch` —
+ * see {@link V17_ASSET_ORACLE_PROFILE_LEN}), and the engine-owned
+ * `EngineAssetSlotV16Account` (the part of the slot AFTER the wrapper
+ * prefix) independently grew 1285 -> 1301 (+16, one extra `u64` field inside
+ * `AssetStateV16Account` — see {@link V17_ASSET_STATE_OI_LONG_REL}). Ground
+ * truth: `cargo run --example dump_layout` printed `market slot stride=2325`
+ * directly (not hand-derived from the two deltas above).
  */
 export declare const V17_MARKET_GROUP_LEN = 758;
-export declare const V17_MARKET_ASSET_SLOT_LEN = 1797;
+export declare const V17_MARKET_ASSET_SLOT_LEN = 2325;
 /**
  * Exact byte length of a v17 market (slab) account for a given asset-slot capacity, matching the
  * program's state::market_account_len_for_capacity. v17 markets are DYNAMICALLY sized — the wrapper's
@@ -579,13 +722,51 @@ export declare const V17_MARKET_ASSET_SLOT_LEN = 1797;
  */
 export declare function v17MarketAccountLen(maxPortfolioAssets: number): number;
 /**
- * v17 portfolio account total length = HEADER_LEN(16) + PortfolioAccountV16Account(9227) +
- * PORTFOLIO_MATCHER_CONFIG_LEN(104) = 9347. Single source of truth for the System.createAccount
- * size/rent: the program's InitPortfolio reallocs UP to this and adds no lamports, so an undersized
- * createAccount (e.g. 2048) leaves the account below rent-exempt → InitPortfolio fails with
- * InsufficientFundsForRent. (Matches the keeper's getProgramAccounts dataSize filter.)
+ * v18 portfolio account total length (integration `a9318945`,
+ * `sync/integration-v16`) = HEADER_LEN(16) + PortfolioAccountV16Account(9419)
+ * + PORTFOLIO_MATCHER_CONFIG_LEN(104) + PORTFOLIO_IDENTITY_TRAILER_LEN(24) =
+ * 9563. Single source of truth for the System.createAccount size/rent: the
+ * program's InitPortfolio reallocs UP to this and adds no lamports, so an
+ * undersized createAccount (e.g. 2048) leaves the account below rent-exempt
+ * -> InitPortfolio fails with InsufficientFundsForRent. (Matches the
+ * keeper's getProgramAccounts dataSize filter.)
+ *
+ * FLAGGED DISCREPANCY vs the wrapper_scope spec summary (WRAPPER_SYNC_LOCKED_WIRE.md
+ * says "was 9539", i.e. the v18 total minus ONLY TB-1a's +24B identity
+ * trailer): this SDK's prior VERSION-17 value was 9347, not 9539. The full
+ * 9347 -> 9563 delta (+216B) is NOT purely the wrapper's +24B trailer —
+ * ground-truthed via `cargo run --example dump_layout` (offset_of! against
+ * the pinned engine, `~/percolator` @ c141d47f) against BOTH the deployed
+ * wrapper's engine snapshot and the integration branch's:
+ *   - PortfolioAccountV16Account itself (engine-owned, percolator-core, NOT
+ *     a wrapper-source change) grew 9227 -> 9419 (+192B): FOUR new
+ *     `V16PodU128` fields (`funding_long_paid_atoms_total`,
+ *     `funding_long_received_atoms_total`, `funding_short_paid_atoms_total`,
+ *     `funding_short_received_atoms_total`, 64B) were inserted between
+ *     `residual_received_atoms_total` and `fee_credits`, AND
+ *     `PortfolioLegV16Account` gained a `kf_epoch_snap: V16PodU64` field
+ *     (inserted between `f_snap` and `epoch_snap`), growing each of the 16
+ *     legs 144 -> 152 bytes (128B across all legs). 64 + 128 = 192B,
+ *     confirmed against the engine's own
+ *     `assert!(size_of::<PortfolioAccountV16Account>() == 9419)` compile-time
+ *     guard (`~/percolator/src/v16.rs`).
+ *   - The wrapper's own +24B identity trailer (TB-1a: portfolio_id,
+ *     matcher_sequence/expected_sequence, matcher_expiry_slot) accounts for
+ *     the remaining 24B, confirmed against `PORTFOLIO_ACCOUNT_LEN == 9563`
+ *     (`percolator-prog/src/v16_program.rs`, compile-time-asserted).
+ * This is a real engine-crate delta this migration's own doc summary did not
+ * enumerate — see {@link PortfolioV17} / {@link parsePortfolioV17} for how
+ * the new fields are decoded.
  */
-export declare const V17_PORTFOLIO_ACCOUNT_LEN = 9347;
+export declare const V17_PORTFOLIO_ACCOUNT_LEN = 9563;
+/** `PortfolioLegV16Account` grew 144 -> 152 bytes: see {@link V17_PORTFOLIO_ACCOUNT_LEN}'s doc comment. */
+export declare const V17_PORTFOLIO_LEG_SIZE = 152;
+/**
+ * The wrapper-owned identity trailer appended AFTER `PortfolioMatcherConfigV16`
+ * (TB-1a): `portfolio_id: u64` + `matcher_sequence(expected_sequence): u64` +
+ * `matcher_expiry_slot: u64` = 24 bytes total.
+ */
+export declare const V17_PORTFOLIO_IDENTITY_TRAILER_LEN = 24;
 /**
  * Parsed WrapperConfigV16 — the 496-byte v17 market config block.
  *
@@ -863,9 +1044,33 @@ export interface AssetOracleProfileV17 {
     oracleLegPublishTimes: bigint[];
     /** v17 NEW: asset_admin pubkey at offset 368. */
     assetAdmin: PublicKey;
+    /** v18 NEW (GH#420, offset 400): this asset's unclaimed creator share of trade fees. Claim via {@link encodeWithdrawCreatorFee}. */
+    creatorFeeClaimableAtoms: bigint;
+    /** v18 NEW (GH#444, offset 408): slot at which `maintenance_fee_per_slot` last changed (asset-0 only; market-wide). */
+    maintenanceFeeCheckpointSlot: bigint;
+    /** v18 NEW (GH#444, offset 416): the maintenance fee rate in force before the last change (asset-0 only; market-wide). */
+    maintenanceFeePreviousRate: bigint;
+    /** v18 NEW (zero-move-funding, offset 432): mark whose premium applies at the engine asset's current slot. Zero = not-yet-initialized. */
+    fundingMarkE6: bigint;
+    /** v18 NEW (offset 440): first prospective mark that must not affect funding before its slot. */
+    fundingMarkPendingE6: bigint;
+    /** v18 NEW (offset 448): slot at which `fundingMarkPendingE6` takes effect. */
+    fundingMarkPendingSlot: bigint;
+    /** v18 NEW (offset 456): canonical price-move-cap numerator remainder carried across accrual calls. */
+    priceMoveRemainderBpsNum: number;
+    /** v18 NEW (offset 464): CloseSlab windowed terminal-slab-scan continuation cursor (asset-0 only; market-wide). 0 = start of scan. */
+    terminalSlabScanProgress: bigint;
+    /** v18 NEW (TB-1a, offset 480): market-scoped monotonic counter allocating each `InitPortfolio`'s `portfolio_id` (asset-0 only; market-wide). */
+    nextPortfolioId: bigint;
+    /** v18 NEW (TB-3, offset 496): one-shot replay nonce for TopUpInsurance(9)/TopUpInsuranceDomain(56) — asset-0 only, market-wide, shared by both entrypoints. */
+    insuranceTopUp: bigint;
+    /** v18 NEW (TB-3, offset 504): one-shot replay nonce for TopUpBackingBucket(24), keyed per-asset (`domain / 2`). */
+    backingTopUp: bigint;
 }
 /**
- * Parse a v17 AssetOracleProfileV16 block from raw account data.
+ * Parse a v18 AssetOracleProfileV16 block from raw account data (integration
+ * `a9318945`). See {@link V17_ASSET_ORACLE_PROFILE_LEN}'s doc comment for the
+ * full 400 -> 512 tail-append history.
  *
  * @param data      Raw bytes containing the profile block.
  * @param profileOff Byte offset where the AssetOracleProfileV16 starts.
@@ -956,6 +1161,24 @@ export interface V17MarketGroupOI {
  * ```
  */
 export declare function parseMarketGroupV17OI(data: Uint8Array): V17MarketGroupOI;
+/**
+ * Decode `PortfolioMatcherConfigV16.control` (u64) into its three bit-packed
+ * fields (TB-1a, ADOPT upstream b594bc21/6b627b43):
+ *   bit 0        = enabled
+ *   bits 1..49   = position_epoch (49 bits)
+ *   bits 50..63  = trade_fee_cap_bps (14 bits, 0..=10000)
+ *
+ * A legacy pre-migration account only ever wrote 0 or 1 into this word (the
+ * plain `enabled: u64` it used to be), which decodes correctly under this
+ * scheme too — bit0 is unchanged, and the higher bits are naturally zero.
+ *
+ * @param control Raw u64 value of `PortfolioMatcherConfigV16.control`.
+ */
+export declare function decodePortfolioMatcherControl(control: bigint): {
+    enabled: boolean;
+    positionEpoch: bigint;
+    tradeFeeCapBps: number;
+};
 /** Per-leg decoded data returned by parsePortfolioV17. */
 export interface PortfolioLegV17 {
     active: boolean;
@@ -967,6 +1190,12 @@ export interface PortfolioLegV17 {
     aBasis: bigint;
     kSnap: bigint;
     fSnap: bigint;
+    /**
+     * NEW (engine-owned, not in the migration's own spec summary — see
+     * {@link V17_PORTFOLIO_ACCOUNT_LEN}'s doc comment): funding accrual epoch
+     * snapshot, inserted between `fSnap` and `epochSnap`.
+     */
+    kfEpochSnap: bigint;
     epochSnap: bigint;
     lossWeight: bigint;
     bSnap: bigint;
@@ -1014,6 +1243,18 @@ export interface PortfolioV17 {
     residualSpentPrincipalAtomsTotal: bigint;
     /** Genesis farming: cumulative received atoms (u128). */
     residualReceivedAtomsTotal: bigint;
+    /**
+     * NEW (engine-owned, not in the migration's own spec summary — see
+     * {@link V17_PORTFOLIO_ACCOUNT_LEN}'s doc comment): cumulative funding
+     * paid on long positions (u128).
+     */
+    fundingLongPaidAtomsTotal: bigint;
+    /** NEW: cumulative funding received on long positions (u128). */
+    fundingLongReceivedAtomsTotal: bigint;
+    /** NEW: cumulative funding paid on short positions (u128). */
+    fundingShortPaidAtomsTotal: bigint;
+    /** NEW: cumulative funding received on short positions (u128). */
+    fundingShortReceivedAtomsTotal: bigint;
     /** Fee credits (i128, can be negative). */
     feeCredits: bigint;
     /** Cancel-deposit escrow holding (u128). */
@@ -1032,8 +1273,29 @@ export interface PortfolioV17 {
     matcherContext: PublicKey;
     /** PDA the wrapper signs CPI calls to matcherProgram with (PublicKey.default if unset). */
     matcherDelegate: PublicKey;
-    /** Whether the external matcher is enabled for this portfolio (SetMatcherConfig). */
+    /** Whether the external matcher is enabled for this portfolio (SetMatcherConfig). Decoded from `control` bit 0. */
     matcherEnabled: boolean;
+    /** v18 NEW: position-episode counter decoded from `control` bits 1..49 (TB-1a). */
+    matcherPositionEpoch: bigint;
+    /** v18 NEW: LP's maximum accepted market base fee in bps, decoded from `control` bits 50..63 (TB-1a). */
+    matcherTradeFeeCapBps: number;
+    /**
+     * v18 NEW identity trailer (TB-1a, +24B after PortfolioMatcherConfigV16):
+     * program-assigned, permanent, never-reused portfolio incarnation ID. Zero
+     * on a not-yet-decoded/short buffer.
+     */
+    portfolioId: bigint;
+    /**
+     * v18 NEW: the portfolio's current matcher-sequence / replay-ordering
+     * watermark (`expected_sequence` on the wire) — pass this LIVE value as
+     * `expectedSequence` to every CAS-bound instruction that asks for it
+     * (Deposit, Withdraw, ClosePortfolio, ConvertReleasedPnl,
+     * CureAndCancelClose, ForfeitRecoveryLeg, RebalanceReduce,
+     * SetMatcherConfig, and the trade tags).
+     */
+    matcherSequence: bigint;
+    /** v18 NEW: slot at which the current matcher grant (SetMatcherConfig) stops being live; 0 = disabled/never granted. */
+    matcherExpirySlot: bigint;
 }
 /**
  * Parse a v17 PortfolioAccountV16Account from raw account data.

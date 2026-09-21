@@ -268,7 +268,7 @@ var IX_TAG = {
   CreateLpVault: 74,
   /**
    * DepositToLpVault (tag 75).
-   * Wire: tag(1) + amount(u128) = 17 bytes.
+   * Wire: tag(1) + amount(u128) + domain(u16) = 19 bytes.  // GH#381: was 17; `domain` was missing
    */
   DepositToLpVault: 75,
   /**
@@ -278,12 +278,12 @@ var IX_TAG = {
   RequestRedeemLpShares: 76,
   /**
    * ExecuteRedemption (tag 77).
-   * Wire: tag(1) = 1 byte.
+   * Wire: tag(1) + domain(u16) = 3 bytes.  // GH#381: was 1 byte; `domain` was missing
    */
   ExecuteRedemption: 77,
   /**
    * LpVaultCrankFees (tag 78).
-   * Wire: tag(1) = 1 byte.
+   * Wire: tag(1) + domain(u16) = 3 bytes.  // GH#381: was 1 byte; `domain` was missing
    */
   LpVaultCrankFees: 78,
   /**
@@ -296,6 +296,24 @@ var IX_TAG = {
    * Wire: tag(1) = 1 byte.
    */
   CloseLpVault: 80,
+  /**
+   * CancelRedemption (tag 81) — withdraw a pending LP redemption request before it
+   * is executed, returning the shares to the holder.
+   * Wire: tag(1) = 1 byte.
+   *
+   * GH#375: this and UnwrapEscrowedPortfolio(82) were the only two v17 wrapper
+   * instructions with NO entry here. Tags 81 and 82 were represented solely by the
+   * deprecated v12 names below, both annotated "Not in v17" — which is false. The
+   * Parity Gate exists to catch exactly this and could not: its percolator-prog
+   * target had never once run.
+   */
+  CancelRedemption: 81,
+  /**
+   * UnwrapEscrowedPortfolio (tag 82) — burn a Position NFT and return the escrowed
+   * portfolio to `new_owner`.
+   * Wire: tag(1) + new_owner(32) = 33 bytes.
+   */
+  UnwrapEscrowedPortfolio: 82,
   // ── Legacy aliases retained for source-compat (do NOT assign new tags) ────
   /** @deprecated v12.x alias. Use DepositToLpVault(75) in v17. */
   LpVaultDeposit: 75,
@@ -380,9 +398,9 @@ var IX_TAG = {
   SetOiCapMultiplier: 79,
   /** @deprecated v12.x tag 80. COLLIDES with v17 CloseLpVault(80). Do NOT use. */
   SetDisputeParams: 80,
-  /** @deprecated v12.x tag 81. Not in v17. */
+  /** @deprecated v12.x tag 81. COLLIDES with v17 CancelRedemption(81). Do NOT use. */
   SetLpCollateralParams: 81,
-  /** @deprecated v12.x tag 82. Not in v17. */
+  /** @deprecated v12.x tag 82. COLLIDES with v17 UnwrapEscrowedPortfolio(82). Do NOT use. */
   AcceptAdmin: 82,
   /**
    * InitMatcherCtx (tag 83) — bootstrap a matcher context by CPIing to the matcher program.
@@ -566,7 +584,7 @@ var IX_TAG = {
   SettleAccount: 86,
   /** @deprecated v12.x tag 90. COLLIDES with v17 WithdrawCreatorFee(90). Do NOT use. */
   UpdateMarkPrice: 90,
-  /** @deprecated v12.x tag 91. Not in v17. */
+  /** @deprecated v12.x tag 91. COLLIDES with v17 RebalanceLpVaultBacking(91). Do NOT use. */
   AuditCrank: 91,
   /** @deprecated v12.x tag 92. Not in v17. */
   AdvanceOraclePhase: 92,
@@ -598,7 +616,7 @@ var IX_TAG = {
   TradeCpiV: 105
 };
 Object.freeze(IX_TAG);
-var EXPECTED_SLAB_VERSION = 17;
+var EXPECTED_SLAB_VERSION = 18;
 var V17_SLAB_MAGIC = 0x5045524356313600n;
 function removedInstruction(name, tag, replacement) {
   const suffix = replacement ? ` Use ${replacement} instead.` : "";
@@ -744,12 +762,16 @@ function encodeInitLP(_args) {
 function encodeDepositCollateral(args) {
   return concatBytes(
     encU8(IX_TAG.DepositCollateral),
+    encU64(args.portfolioId),
+    encU64(args.expectedSequence),
     encU128(args.amount)
   );
 }
 function encodeWithdrawCollateral(args) {
   return concatBytes(
     encU8(IX_TAG.WithdrawCollateral),
+    encU64(args.portfolioId),
+    encU64(args.expectedSequence),
     encU128(args.amount)
   );
 }
@@ -776,16 +798,23 @@ var CrankAction = {
    */
   SettleB: 2
 };
+var CRANK_OBSERVATION_DECODE_MAX = 16;
 function encodePermissionlessCrank(args) {
-  return concatBytes(
+  const observations = args.observations ?? [];
+  if (observations.length > CRANK_OBSERVATION_DECODE_MAX) {
+    throw new Error(
+      `encodePermissionlessCrank: ${observations.length} observations exceeds CRANK_OBSERVATION_DECODE_MAX (${CRANK_OBSERVATION_DECODE_MAX}) \u2014 the wrapper rejects this with InvalidInstructionData before reading any hint bytes.`
+    );
+  }
+  const parts = [
     encU8(IX_TAG.PermissionlessCrank),
-    encU8(args.action),
-    encU16(args.assetIndex),
     encU64(args.nowSlot),
-    encI128(0n),
-    // funding_rate_e9 HARDCODED=0n (program rejects nonzero)
-    encU8(args.recoveryReason)
-  );
+    encU8(observations.length)
+  ];
+  for (const obs of observations) {
+    parts.push(encU16(obs.assetIndex), encU8(obs.oracleAccounts));
+  }
+  return concatBytes(...parts);
 }
 function encodeKeeperCrank(_args) {
   throw new Error(
@@ -795,14 +824,20 @@ function encodeKeeperCrank(_args) {
 function encodeTradeNoCpi(args) {
   const data = concatBytes(
     encU8(IX_TAG.TradeNoCpi),
+    encU64(args.accountAPortfolioId),
+    encU64(args.accountAPositionEpoch),
+    encU64(args.accountBPortfolioId),
+    encU64(args.accountBPositionEpoch),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encI128(args.sizeQ),
     encU64(args.execPrice),
-    encU64(args.feeBps)
+    encU64(args.feeBps),
+    encU16(args.backingFeeCapBps)
   );
-  if (data.length !== 35) {
+  if (data.length !== 77) {
     throw new Error(
-      `encodeTradeNoCpi: expected 35 bytes (tag+u16+i128+u64+u64), got ${data.length}`
+      `encodeTradeNoCpi: expected 77 bytes, got ${data.length}`
     );
   }
   return data;
@@ -814,17 +849,41 @@ function encodeLiquidateAtOracle(_args) {
     "PermissionlessCrank (tag 5)"
   );
 }
-function encodeCloseAccount(_args) {
-  return new Uint8Array([IX_TAG.ClosePortfolio]);
+function encodeCloseAccount(args) {
+  return concatBytes(
+    encU8(IX_TAG.ClosePortfolio),
+    encU64(args.portfolioId),
+    encU64(args.expectedSequence),
+    encU64(args.positionEpoch)
+  );
 }
 function encodeTopUpInsurance(args) {
-  return concatBytes(encU8(IX_TAG.TopUpInsurance), encU128(args.amount));
+  return concatBytes(
+    encU8(IX_TAG.TopUpInsurance),
+    encU64(args.marketId),
+    encU64(args.intentId),
+    encU64(args.authorityEpoch),
+    encU128(args.amount)
+  );
+}
+function encodeTopUpInsuranceDomain(args) {
+  return concatBytes(
+    encU8(IX_TAG.TopUpInsuranceDomain),
+    encU16(args.domain),
+    encU64(args.marketId),
+    encU64(args.intentId),
+    encU64(args.authorityEpoch),
+    encU128(args.amount)
+  );
 }
 var MAX_BACKING_BUCKET_EXPIRY_SLOT = 9223372036854775807n;
 function encodeTopUpBackingBucket(args) {
   return concatBytes(
     encU8(IX_TAG.TopUpBackingBucket),
     encU16(args.domain),
+    encU64(args.marketId),
+    encU64(args.intentId),
+    encU64(args.authorityEpoch),
     encU128(args.amount),
     encU64(args.expirySlot)
   );
@@ -833,35 +892,48 @@ function encodeWithdrawBackingBucket(args) {
   return concatBytes(
     encU8(IX_TAG.WithdrawBackingBucket),
     encU16(args.domain),
-    encU128(args.amount)
+    encU64(args.marketId),
+    encU128(args.amount),
+    encU64(args.authorityEpoch)
   );
 }
 function encodeUpdateBackingFeePolicy(args) {
   return concatBytes(
     encU8(IX_TAG.UpdateBackingFeePolicy),
     encU16(args.domain),
+    encU64(args.marketId),
     encU16(args.feeBps),
-    encU16(args.insuranceShareBps)
+    encU16(args.insuranceShareBps),
+    encU64(args.policySequence)
   );
 }
 function encodeWithdrawBackingBucketEarnings(args) {
   return concatBytes(
     encU8(IX_TAG.WithdrawBackingBucketEarnings),
     encU16(args.domain),
-    encU128(args.amount)
+    encU64(args.marketId),
+    encU128(args.amount),
+    encU64(args.authorityEpoch)
   );
 }
 function encodeTradeCpi(args) {
   const data = concatBytes(
     encU8(IX_TAG.TradeCpi),
+    encU64(args.accountAPortfolioId),
+    encU64(args.accountAPositionEpoch),
+    encU64(args.accountBPortfolioId),
+    encU64(args.accountBPositionEpoch),
+    encU64(args.accountBMatcherSequence),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encI128(args.sizeQ),
     encU64(args.feeBps),
-    encU64(args.limitPrice)
+    encU64(args.limitPrice),
+    encU16(args.backingFeeCapBps)
   );
-  if (data.length !== 35) {
+  if (data.length !== 85) {
     throw new Error(
-      `encodeTradeCpi: expected 35 bytes (tag+u16+i128+u64+u64), got ${data.length}`
+      `encodeTradeCpi: expected 85 bytes, got ${data.length}`
     );
   }
   return data;
@@ -882,8 +954,8 @@ function encodeUpdateAdmin(_args) {
     "UpdateAuthority (tag 32) or UpdateAssetAuthority (tag 65)"
   );
 }
-function encodeCloseSlab() {
-  return encU8(IX_TAG.CloseSlab);
+function encodeCloseSlab(authorityEpoch) {
+  return concatBytes(encU8(IX_TAG.CloseSlab), encU64(authorityEpoch));
 }
 function encodeUpdateConfig(_args) {
   return removedInstruction("UpdateConfig (v12 tag 14 \u2014 not in v17)", IX_TAG.UpdateConfig, void 0);
@@ -896,8 +968,12 @@ function encodeSetOraclePriceCap(_args) {
 }
 var RESOLVE_MODE_ORDINARY = 0;
 var RESOLVE_MODE_DEGENERATE = 1;
-function encodeResolveMarket(_args = {}) {
-  return new Uint8Array([IX_TAG.ResolveMarket]);
+function encodeResolveMarket(args) {
+  return concatBytes(
+    encU8(IX_TAG.ResolveMarket),
+    encU64(args.assetGenerationFrontier),
+    encU64(args.authorityEpoch)
+  );
 }
 function encodeWithdrawInsurance(args) {
   return concatBytes(encU8(IX_TAG.WithdrawInsurance), encU128(args.amount));
@@ -1014,6 +1090,63 @@ function encodeReclaimSlabRent() {
 function encodeAuditCrank() {
   return removedInstruction("AuditCrank (v12 tag 91 \u2014 not in v17)", IX_TAG.AuditCrank, void 0);
 }
+function encodeUpdateAssetLifecycle(args) {
+  return concatBytes(
+    encU8(IX_TAG.UpdateAssetLifecycle),
+    encU8(args.action),
+    encU16(args.assetIndex),
+    encU64(args.marketId),
+    encU64(args.authorityEpoch),
+    encU64(args.nowSlot),
+    encU64(args.initialPrice),
+    encU128(args.maxInitFee),
+    encPubkey(args.insuranceAuthority),
+    encPubkey(args.insuranceOperator),
+    encPubkey(args.backingBucketAuthority),
+    encPubkey(args.oracleAuthority)
+  );
+}
+function encodeCureAndCancelClose(args) {
+  return concatBytes(
+    encU8(IX_TAG.CureAndCancelClose),
+    encU64(args.portfolioId),
+    encU64(args.positionEpoch),
+    encU128(args.optionalDeposit)
+  );
+}
+function encodeForfeitRecoveryLeg(args) {
+  return concatBytes(
+    encU8(IX_TAG.ForfeitRecoveryLeg),
+    encU64(args.portfolioId),
+    encU64(args.positionEpoch),
+    encU16(args.assetIndex),
+    encU128(args.bLossAtomBudget)
+  );
+}
+function encodeRebalanceReduce(args) {
+  return concatBytes(
+    encU8(IX_TAG.RebalanceReduce),
+    encU64(args.portfolioId),
+    encU64(args.positionEpoch),
+    encU16(args.assetIndex),
+    encU128(args.reduceQ)
+  );
+}
+function encodeUpdateBaseUnitMints(args) {
+  return concatBytes(
+    encU8(IX_TAG.UpdateBaseUnitMints),
+    encPubkey(args.primaryMint),
+    encPubkey(args.secondaryMint),
+    encU64(args.authorityEpoch)
+  );
+}
+function encodeSwapSecondaryForPrimary(args) {
+  return concatBytes(
+    encU8(IX_TAG.SwapSecondaryForPrimary),
+    encU128(args.amount),
+    encU64(args.authorityEpoch)
+  );
+}
 var VAMM_MAGIC = 0x504552434d415443n;
 var MATCHER_MAGIC = VAMM_MAGIC;
 var CTX_RETURN_OFFSET = 0;
@@ -1021,6 +1154,66 @@ var MATCHER_RETURN_LEN = 64;
 var CTX_VAMM_OFFSET = 64;
 var CTX_VAMM_LEN = 256;
 var MATCHER_CONTEXT_LEN = 320;
+var MATCHER_RETURN_FLAG_VALID = 1;
+var MATCHER_RETURN_FLAG_PARTIAL_OK = 2;
+var MATCHER_RETURN_FLAG_REJECTED = 4;
+var MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT = 8;
+var MATCHER_RETURN_FLAG_BACKING_FEE_CAP_MASK = 16383 << MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT;
+var MATCHER_RETURN_KNOWN_FLAGS = MATCHER_RETURN_FLAG_VALID | MATCHER_RETURN_FLAG_PARTIAL_OK | MATCHER_RETURN_FLAG_REJECTED | MATCHER_RETURN_FLAG_BACKING_FEE_CAP_MASK;
+function decodeMatcherReturn(data, offset = CTX_RETURN_OFFSET) {
+  if (data.length < offset + MATCHER_RETURN_LEN) {
+    throw new Error(
+      `decodeMatcherReturn: data too short \u2014 need ${offset + MATCHER_RETURN_LEN} bytes, got ${data.length}`
+    );
+  }
+  const view = new DataView(data.buffer, data.byteOffset + offset, MATCHER_RETURN_LEN);
+  const abiVersion = view.getUint32(0, true);
+  const flags = view.getUint32(4, true);
+  const execPriceE6 = view.getBigUint64(8, true);
+  const execSizeLo = view.getBigUint64(16, true);
+  const execSizeHi = view.getBigUint64(24, true);
+  let execSize = execSizeHi << 64n | execSizeLo;
+  if (execSize >= 1n << 127n) execSize -= 1n << 128n;
+  const reqId = view.getBigUint64(32, true);
+  const lpAccountId = view.getBigUint64(40, true);
+  const oraclePriceE6 = view.getBigUint64(48, true);
+  const assetIndex = view.getBigUint64(56, true);
+  if ((flags & ~MATCHER_RETURN_KNOWN_FLAGS) !== 0) {
+    throw new Error(
+      `decodeMatcherReturn: unknown flag bits set (flags=0x${flags.toString(16)}, known=0x${MATCHER_RETURN_KNOWN_FLAGS.toString(16)})`
+    );
+  }
+  return {
+    abiVersion,
+    flags,
+    execPriceE6,
+    execSize,
+    reqId,
+    lpAccountId,
+    oraclePriceE6,
+    assetIndex,
+    valid: (flags & MATCHER_RETURN_FLAG_VALID) !== 0,
+    partialOk: (flags & MATCHER_RETURN_FLAG_PARTIAL_OK) !== 0,
+    rejected: (flags & MATCHER_RETURN_FLAG_REJECTED) !== 0,
+    backingFeeCapBps: (flags & MATCHER_RETURN_FLAG_BACKING_FEE_CAP_MASK) >>> MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT
+  };
+}
+function encodeMatcherReturn(args) {
+  if (args.backingFeeCapBps < 0 || args.backingFeeCapBps > 1e4) {
+    throw new Error(`encodeMatcherReturn: backingFeeCapBps must be 0..=10000, got ${args.backingFeeCapBps}`);
+  }
+  const flags = (args.valid ? MATCHER_RETURN_FLAG_VALID : 0) | (args.partialOk ? MATCHER_RETURN_FLAG_PARTIAL_OK : 0) | (args.rejected ? MATCHER_RETURN_FLAG_REJECTED : 0) | args.backingFeeCapBps << MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT & MATCHER_RETURN_FLAG_BACKING_FEE_CAP_MASK;
+  return concatBytes(
+    encU32(args.abiVersion),
+    encU32(flags),
+    encU64(args.execPriceE6),
+    encI128(args.execSize),
+    encU64(args.reqId),
+    encU64(args.lpAccountId),
+    encU64(args.oraclePriceE6),
+    encU64(args.assetIndex)
+  );
+}
 var MATCHER_CALL_LEN = 67;
 var INIT_CTX_LEN = 78;
 var BPS_DENOM = 10000n;
@@ -1298,13 +1491,16 @@ function encodeDepositFeeCredits(_args) {
 function encodeConvertReleasedPnl(args) {
   return concatBytes(
     encU8(IX_TAG.ConvertReleasedPnl),
+    encU64(args.portfolioId),
+    encU64(args.positionEpoch),
     encU128(args.amount)
   );
 }
 function encodeUpdateAuthority(args) {
   return concatBytes(
     encU8(IX_TAG.UpdateAuthority),
-    encPubkey(args.newPubkey)
+    encPubkey(args.newPubkey),
+    encU64(args.authorityEpoch)
   );
 }
 var ASSET_AUTH_KIND = {
@@ -1324,8 +1520,10 @@ function encodeUpdateAssetAuthority(args) {
   return concatBytes(
     encU8(IX_TAG.UpdateAssetAuthority),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU8(args.kind),
-    encPubkey(args.newPubkey)
+    encPubkey(args.newPubkey),
+    encU64(args.authorityEpoch)
   );
 }
 function validateBatchTradeFeeBps(value, caller) {
@@ -1348,10 +1546,15 @@ function encodeBatchTradeNoCpi(args) {
   for (const leg of args.legs) {
     validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeNoCpi");
     parts.push(encU16(leg.assetIndex));
+    parts.push(encU64(leg.marketId));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.execPrice));
     parts.push(encU64(leg.feeBps));
   }
+  parts.push(encU64(args.accountAPortfolioId));
+  parts.push(encU64(args.accountAPositionEpoch));
+  parts.push(encU64(args.accountBPortfolioId));
+  parts.push(encU64(args.accountBPositionEpoch));
   return concatBytes(...parts);
 }
 function encodeBatchTradeCpi(args) {
@@ -1368,31 +1571,51 @@ function encodeBatchTradeCpi(args) {
   for (const leg of args.legs) {
     validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeCpi");
     parts.push(encU16(leg.assetIndex));
+    parts.push(encU64(leg.marketId));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.feeBps));
     parts.push(encU64(leg.limitPrice));
   }
+  parts.push(encU128(args.maxSlippageAtoms));
+  parts.push(encU128(args.maxFeeAtoms));
+  parts.push(encU64(args.accountAPortfolioId));
+  parts.push(encU64(args.accountAPositionEpoch));
+  parts.push(encU64(args.accountBPortfolioId));
+  parts.push(encU64(args.accountBPositionEpoch));
+  parts.push(encU64(args.accountBMatcherSequence));
   return concatBytes(...parts);
 }
 function encodeSetMatcherConfig(args) {
   if (args.enabled !== 0 && args.enabled !== 1) {
     throw new Error(`encodeSetMatcherConfig: enabled must be 0 or 1, got ${args.enabled}`);
   }
-  return concatBytes(encU8(IX_TAG.SetMatcherConfig), encU8(args.enabled));
+  return concatBytes(
+    encU8(IX_TAG.SetMatcherConfig),
+    encU64(args.portfolioId),
+    encU64(args.expectedSequence),
+    encU64(args.assetGenerationFrontier),
+    encU8(args.enabled),
+    encU16(args.tradeFeeCapBps),
+    encU64(args.expirySlot)
+  );
 }
 function encodeRestartAssetOracle(args) {
   return concatBytes(
     encU8(IX_TAG.RestartAssetOracle),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
-    encU64(args.initialPrice)
+    encU64(args.initialPrice),
+    encU64(args.observationSequence)
   );
 }
 function encodeWithdrawInsuranceAsset(args) {
   return concatBytes(
     encU8(IX_TAG.WithdrawInsuranceAsset),
     encU16(args.assetIndex),
-    encU128(args.amount)
+    encU64(args.marketId),
+    encU128(args.amount),
+    encU64(args.authorityEpoch)
   );
 }
 function encodeCreateLpVaultV17(args) {
@@ -1432,7 +1655,8 @@ function encodeUpdateInsuranceWithdrawPolicy(args) {
   return concatBytes(
     encU8(IX_TAG.UpdateInsuranceWithdrawPolicy),
     encU8(args.depositsOnly),
-    encU64(args.cooldownSlots)
+    encU64(args.cooldownSlots),
+    encU64(args.authorityEpoch)
   );
 }
 var MAX_INSURANCE_WITHDRAW_COOLDOWN_SLOTS = 78840000n;
@@ -1463,6 +1687,7 @@ function encodeConfigureHybridOracle(args) {
   return concatBytes(
     encU8(IX_TAG.ConfigureHybridOracle),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
     encI64(args.nowUnixTs),
     encU8(args.oracleLegCount),
@@ -1476,7 +1701,8 @@ function encodeConfigureHybridOracle(args) {
     encU16(args.confFilterBps),
     encPubkey(args.oracleLegFeeds[0]),
     encPubkey(args.oracleLegFeeds[1]),
-    encPubkey(args.oracleLegFeeds[2])
+    encPubkey(args.oracleLegFeeds[2]),
+    encU64(args.observationSequence)
   );
 }
 function requirePositiveU64(value, field) {
@@ -1491,10 +1717,12 @@ function encodeConfigureEwmaMark(args) {
   return concatBytes(
     encU8(IX_TAG.ConfigureEwmaMark),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
     encU64(args.initialMarkE6),
     encU64(args.markEwmaHalflifeSlots),
-    encU64(args.markMinFee)
+    encU64(args.markMinFee),
+    encU64(args.observationSequence)
   );
 }
 function encodePushEwmaMark(args) {
@@ -1502,8 +1730,10 @@ function encodePushEwmaMark(args) {
   return concatBytes(
     encU8(IX_TAG.PushEwmaMark),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
-    encU64(args.markE6)
+    encU64(args.markE6),
+    encU64(args.observationSequence)
   );
 }
 function encodeConfigureAuthMark(args) {
@@ -1511,8 +1741,10 @@ function encodeConfigureAuthMark(args) {
   return concatBytes(
     encU8(IX_TAG.ConfigureAuthMark),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
-    encU64(args.initialMarkE6)
+    encU64(args.initialMarkE6),
+    encU64(args.observationSequence)
   );
 }
 function encodePushAuthMark(args) {
@@ -1520,8 +1752,10 @@ function encodePushAuthMark(args) {
   return concatBytes(
     encU8(IX_TAG.PushAuthMark),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
-    encU64(args.markE6)
+    encU64(args.markE6),
+    encU64(args.observationSequence)
   );
 }
 function encodeMatcherInitPassive(args) {
@@ -1537,7 +1771,8 @@ function encodeMatcherInitPassive(args) {
 function encodeWithdrawProtocolFee(args) {
   return concatBytes(
     encU8(IX_TAG.WithdrawProtocolFee),
-    encU128(args.amount)
+    encU128(args.amount),
+    encU64(args.authorityEpoch)
   );
 }
 function encodeSetProtocolFeeAuthority(args) {
@@ -1584,7 +1819,8 @@ function encodeUpdateFeeSplit(args) {
     encU8(IX_TAG.UpdateFeeSplit),
     encU16(args.creatorShareBps),
     encU16(args.lpShareBps),
-    encU16(args.insuranceShareBps)
+    encU16(args.insuranceShareBps),
+    encU64(args.authorityEpoch)
   );
 }
 function encodeWithdrawInsuranceReserveToStake() {
@@ -1599,7 +1835,8 @@ function encodeUpdateMaintenanceFeePerSlot(args) {
 function encodeUpdateTradeFeePolicy(args) {
   return concatBytes(
     encU8(IX_TAG.UpdateTradeFeePolicy),
-    encU64(args.tradeFeeBaseBps)
+    encU64(args.tradeFeeBaseBps),
+    encU64(args.policySequence)
   );
 }
 function encodeExpireBackingBucket(args) {
@@ -1611,7 +1848,9 @@ function encodeExpireBackingBucket(args) {
 function encodeWithdrawCreatorFee(args) {
   return concatBytes(
     encU8(IX_TAG.WithdrawCreatorFee),
-    encU128(args.amount)
+    encU128(args.amount),
+    encU16(args.assetIndex),
+    encU64(args.authorityEpoch)
   );
 }
 
@@ -1625,13 +1864,7 @@ import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 var ACCOUNTS_INIT_MARKET = [
   { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
-  { name: "mint", signer: false, writable: false },
-  { name: "vault", signer: false, writable: false },
-  { name: "tokenProgram", signer: false, writable: false },
-  { name: "clock", signer: false, writable: false },
-  { name: "rent", signer: false, writable: false },
-  { name: "dummyAta", signer: false, writable: false },
-  { name: "systemProgram", signer: false, writable: false }
+  { name: "mint", signer: false, writable: false }
 ];
 var ACCOUNTS_INIT_USER = [
   { name: "owner", signer: true, writable: true },
@@ -5309,23 +5542,71 @@ function parseAccount(data, idx) {
   };
 }
 var V17_MAGIC = 0x5045524356313600n;
-var V17_EXPECTED_VERSION = 17;
+var V17_EXPECTED_VERSION = 18;
 var V17_KIND_MARKET = 1;
 var V17_KIND_OFF = 10;
 var V17_WRAPPER_CONFIG_LEN = 576;
 var V17_CREATOR_FEE_CLAIMABLE_OFF = 568;
-var V17_ASSET_ORACLE_PROFILE_LEN = 400;
+var V17_ASSET_ORACLE_PROFILE_LEN = 512;
+var V17_ASSET_ORACLE_WRAPPER_LEN = 1024;
+var V17_ASSET_CONTROL_SEQUENCES_OFF = V17_ASSET_ORACLE_PROFILE_LEN;
+var V17_ASSET_CONTROL_SEQUENCES_LEN = 88;
+var V17_PROTOCOL_FEE_AUTHORITY_EPOCH_OFF = V17_ASSET_CONTROL_SEQUENCES_OFF + V17_ASSET_CONTROL_SEQUENCES_LEN;
+var V17_PROTOCOL_FEE_AUTHORITY_EPOCH_LEN = 8;
+var ACS_ORACLE_OBSERVATION_OFF = 0;
+var ACS_BACKING_FEE_LONG_OFF = 8;
+var ACS_BACKING_FEE_SHORT_OFF = 16;
+var ACS_TRADE_FEE_OFF = 24;
+var ACS_LIQUIDATION_FEE_OFF = 32;
+var ACS_MAINTENANCE_FEE_OFF = 40;
+var ACS_FEE_REDIRECT_OFF = 48;
+var ACS_MARKET_INIT_FEE_OFF = 56;
+var ACS_PERMISSIONLESS_RESOLVE_OFF = 64;
+var ACS_AUTHORITY_EPOCH_OFF = 72;
+function parseAssetControlSequencesV17(data, assetSlotOff) {
+  const base = assetSlotOff + V17_ASSET_CONTROL_SEQUENCES_OFF;
+  const MIN_LEN = base + V17_ASSET_CONTROL_SEQUENCES_LEN;
+  if (data.length < MIN_LEN) {
+    throw new Error(
+      `parseAssetControlSequencesV17: data too short \u2014 need ${MIN_LEN} bytes, got ${data.length}`
+    );
+  }
+  return {
+    oracleObservation: readU64LE(data, base + ACS_ORACLE_OBSERVATION_OFF),
+    backingFeeLong: readU64LE(data, base + ACS_BACKING_FEE_LONG_OFF),
+    backingFeeShort: readU64LE(data, base + ACS_BACKING_FEE_SHORT_OFF),
+    tradeFee: readU64LE(data, base + ACS_TRADE_FEE_OFF),
+    liquidationFee: readU64LE(data, base + ACS_LIQUIDATION_FEE_OFF),
+    maintenanceFee: readU64LE(data, base + ACS_MAINTENANCE_FEE_OFF),
+    feeRedirect: readU64LE(data, base + ACS_FEE_REDIRECT_OFF),
+    marketInitFee: readU64LE(data, base + ACS_MARKET_INIT_FEE_OFF),
+    permissionlessResolve: readU64LE(data, base + ACS_PERMISSIONLESS_RESOLVE_OFF),
+    authorityEpoch: readU64LE(data, base + ACS_AUTHORITY_EPOCH_OFF)
+  };
+}
+function parseProtocolFeeAuthorityEpoch(data, asset0SlotOff) {
+  const off = asset0SlotOff + V17_PROTOCOL_FEE_AUTHORITY_EPOCH_OFF;
+  const MIN_LEN = off + V17_PROTOCOL_FEE_AUTHORITY_EPOCH_LEN;
+  if (data.length < MIN_LEN) {
+    throw new Error(
+      `parseProtocolFeeAuthorityEpoch: data too short \u2014 need ${MIN_LEN} bytes, got ${data.length}`
+    );
+  }
+  return readU64LE(data, off);
+}
 var V17_HEADER_LEN = 16;
 var V17_MARKET_GROUP_OFF = V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN;
 var V17_MARKET_GROUP_LEN = 758;
-var V17_MARKET_ASSET_SLOT_LEN = 1797;
+var V17_MARKET_ASSET_SLOT_LEN = 2325;
 function v17MarketAccountLen(maxPortfolioAssets) {
   if (!Number.isInteger(maxPortfolioAssets) || maxPortfolioAssets < 1) {
     throw new Error(`v17MarketAccountLen: maxPortfolioAssets must be a positive integer, got ${maxPortfolioAssets}`);
   }
   return V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + maxPortfolioAssets * V17_MARKET_ASSET_SLOT_LEN;
 }
-var V17_PORTFOLIO_ACCOUNT_LEN = 9347;
+var V17_PORTFOLIO_ACCOUNT_LEN = 9563;
+var V17_PORTFOLIO_LEG_SIZE = 152;
+var V17_PORTFOLIO_IDENTITY_TRAILER_LEN = 24;
 function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const MIN_LEN = configOff + V17_WRAPPER_CONFIG_LEN;
   if (data.length < MIN_LEN) {
@@ -5497,7 +5778,20 @@ function parseAssetOracleProfileV17(data, profileOff) {
     oracleLegFeeds,
     oracleLegPricesE6,
     oracleLegPublishTimes,
-    assetAdmin: new PublicKey5(data.subarray(b + 368, b + 400))
+    assetAdmin: new PublicKey5(data.subarray(b + 368, b + 400)),
+    creatorFeeClaimableAtoms: readU64LE(data, b + 400),
+    maintenanceFeeCheckpointSlot: readU64LE(data, b + 408),
+    maintenanceFeePreviousRate: readU128LE(data, b + 416),
+    fundingMarkE6: readU64LE(data, b + 432),
+    fundingMarkPendingE6: readU64LE(data, b + 440),
+    fundingMarkPendingSlot: readU64LE(data, b + 448),
+    priceMoveRemainderBpsNum: readU16LE(data, b + 456),
+    // bytes [458, 464) are `_padding1: [u8; 6]`, always zero, not decoded.
+    terminalSlabScanProgress: readU128LE(data, b + 464),
+    nextPortfolioId: readU64LE(data, b + 480),
+    // bytes [488, 496) are `_padding2: [u8; 8]`, always zero, not decoded.
+    insuranceTopUp: readU64LE(data, b + 496),
+    backingTopUp: readU64LE(data, b + 504)
   };
 }
 function isV17Account(data) {
@@ -5512,9 +5806,9 @@ function isV17MarketAccount(data) {
   return data[V17_KIND_OFF] === V17_KIND_MARKET;
 }
 var V17_HEADER_INSURANCE_OFF = 301;
-var V17_ASSET_SLOT_WRAPPER_SIZE = 512;
-var V17_ASSET_STATE_OI_LONG_REL = 273;
-var V17_ASSET_STATE_OI_SHORT_REL = 289;
+var V17_ASSET_SLOT_WRAPPER_SIZE = V17_ASSET_ORACLE_WRAPPER_LEN;
+var V17_ASSET_STATE_OI_LONG_REL = 289;
+var V17_ASSET_STATE_OI_SHORT_REL = 305;
 function parseMarketGroupV17OI(data) {
   const MIN_LEN = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN;
   if (data.length < MIN_LEN) {
@@ -5586,22 +5880,42 @@ var PF_RESERVED_PNL_OFF = PF_BODY_OFF + 64;
 var PF_RESIDUAL_LOSS_OFF = PF_BODY_OFF + 80;
 var PF_RESIDUAL_PRINCIPAL_OFF = PF_BODY_OFF + 96;
 var PF_RESIDUAL_RECEIVED_OFF = PF_BODY_OFF + 112;
-var PF_FEE_CREDITS_OFF = PF_BODY_OFF + 128;
-var PF_CANCEL_ESCROW_OFF = PF_BODY_OFF + 144;
-var PF_LAST_FEE_SLOT_OFF = PF_BODY_OFF + 160;
-var PF_ACTIVE_BITMAP_OFF = PF_BODY_OFF + 168;
-var PF_LEG_SIZE = 144;
-var PF_LEGS_OFF = PF_BODY_OFF + 176;
+var PF_FUNDING_LONG_PAID_OFF = PF_BODY_OFF + 128;
+var PF_FUNDING_LONG_RECEIVED_OFF = PF_BODY_OFF + 144;
+var PF_FUNDING_SHORT_PAID_OFF = PF_BODY_OFF + 160;
+var PF_FUNDING_SHORT_RECEIVED_OFF = PF_BODY_OFF + 176;
+var PF_FEE_CREDITS_OFF = PF_BODY_OFF + 192;
+var PF_CANCEL_ESCROW_OFF = PF_BODY_OFF + 208;
+var PF_LAST_FEE_SLOT_OFF = PF_BODY_OFF + 224;
+var PF_ACTIVE_BITMAP_OFF = PF_BODY_OFF + 232;
+var PF_LEG_SIZE = V17_PORTFOLIO_LEG_SIZE;
+var PF_LEGS_OFF = PF_BODY_OFF + 240;
 var PF_LEGS_COUNT = 16;
 var PF_SOURCE_DOMAIN_SIZE = 196;
 var PF_SOURCE_DOMAINS_OFF = PF_LEGS_OFF + PF_LEGS_COUNT * PF_LEG_SIZE;
 var PF_SOURCE_DOMAINS_CAP = 32;
 var PF_HEALTH_CERT_OFF = PF_SOURCE_DOMAINS_OFF + PF_SOURCE_DOMAINS_CAP * PF_SOURCE_DOMAIN_SIZE;
 var PF_MATCHER_CONFIG_LEN = 104;
-var PF_MATCHER_PROGRAM_OFF = V17_PORTFOLIO_ACCOUNT_LEN - PF_MATCHER_CONFIG_LEN;
+var PF_MATCHER_PROGRAM_OFF = V17_PORTFOLIO_ACCOUNT_LEN - PF_MATCHER_CONFIG_LEN - V17_PORTFOLIO_IDENTITY_TRAILER_LEN;
 var PF_MATCHER_CONTEXT_OFF = PF_MATCHER_PROGRAM_OFF + 32;
 var PF_MATCHER_DELEGATE_OFF = PF_MATCHER_CONTEXT_OFF + 32;
-var PF_MATCHER_ENABLED_OFF = PF_MATCHER_DELEGATE_OFF + 32;
+var PF_MATCHER_CONTROL_OFF = PF_MATCHER_DELEGATE_OFF + 32;
+var PF_PORTFOLIO_ID_OFF = PF_MATCHER_PROGRAM_OFF + PF_MATCHER_CONFIG_LEN;
+var PF_MATCHER_SEQUENCE_OFF = PF_PORTFOLIO_ID_OFF + 8;
+var PF_MATCHER_EXPIRY_OFF = PF_MATCHER_SEQUENCE_OFF + 8;
+function decodePortfolioMatcherControl(control) {
+  const ENABLED_MASK = 1n;
+  const POSITION_EPOCH_BITS = 49n;
+  const POSITION_EPOCH_SHIFT = 1n;
+  const POSITION_EPOCH_MASK = (1n << POSITION_EPOCH_BITS) - 1n << POSITION_EPOCH_SHIFT;
+  const TRADE_FEE_CAP_SHIFT = 50n;
+  const TRADE_FEE_CAP_MASK = 0x3fffn << TRADE_FEE_CAP_SHIFT;
+  return {
+    enabled: (control & ENABLED_MASK) === 1n,
+    positionEpoch: (control & POSITION_EPOCH_MASK) >> POSITION_EPOCH_SHIFT,
+    tradeFeeCapBps: Number((control & TRADE_FEE_CAP_MASK) >> TRADE_FEE_CAP_SHIFT)
+  };
+}
 function parsePortfolioV17(data) {
   const MIN_PORTFOLIO_BYTES = PF_RESERVED_PNL_OFF + 16;
   if (data.length < MIN_PORTFOLIO_BYTES) {
@@ -5618,6 +5932,10 @@ function parsePortfolioV17(data) {
   const residualCrystallizedLossAtomsTotal = data.length >= PF_RESIDUAL_LOSS_OFF + 16 ? readU128LE(data, PF_RESIDUAL_LOSS_OFF) : 0n;
   const residualSpentPrincipalAtomsTotal = data.length >= PF_RESIDUAL_PRINCIPAL_OFF + 16 ? readU128LE(data, PF_RESIDUAL_PRINCIPAL_OFF) : 0n;
   const residualReceivedAtomsTotal = data.length >= PF_RESIDUAL_RECEIVED_OFF + 16 ? readU128LE(data, PF_RESIDUAL_RECEIVED_OFF) : 0n;
+  const fundingLongPaidAtomsTotal = data.length >= PF_FUNDING_LONG_PAID_OFF + 16 ? readU128LE(data, PF_FUNDING_LONG_PAID_OFF) : 0n;
+  const fundingLongReceivedAtomsTotal = data.length >= PF_FUNDING_LONG_RECEIVED_OFF + 16 ? readU128LE(data, PF_FUNDING_LONG_RECEIVED_OFF) : 0n;
+  const fundingShortPaidAtomsTotal = data.length >= PF_FUNDING_SHORT_PAID_OFF + 16 ? readU128LE(data, PF_FUNDING_SHORT_PAID_OFF) : 0n;
+  const fundingShortReceivedAtomsTotal = data.length >= PF_FUNDING_SHORT_RECEIVED_OFF + 16 ? readU128LE(data, PF_FUNDING_SHORT_RECEIVED_OFF) : 0n;
   const feeCredits = data.length >= PF_FEE_CREDITS_OFF + 16 ? readI128LE(data, PF_FEE_CREDITS_OFF) : 0n;
   const cancelDepositEscrow = data.length >= PF_CANCEL_ESCROW_OFF + 16 ? readU128LE(data, PF_CANCEL_ESCROW_OFF) : 0n;
   const lastFeeSlot = data.length >= PF_LAST_FEE_SLOT_OFF + 8 ? readU64LE(data, PF_LAST_FEE_SLOT_OFF) : 0n;
@@ -5635,13 +5953,14 @@ function parsePortfolioV17(data) {
       aBasis: readU128LE(data, b + 30),
       kSnap: readI128LE(data, b + 46),
       fSnap: readI128LE(data, b + 62),
-      epochSnap: readU64LE(data, b + 78),
-      lossWeight: readU128LE(data, b + 86),
-      bSnap: readU128LE(data, b + 102),
-      bRem: readU128LE(data, b + 118),
-      bEpochSnap: readU64LE(data, b + 134),
-      bStale: data[b + 142] !== 0,
-      stale: data[b + 143] !== 0
+      kfEpochSnap: readU64LE(data, b + 78),
+      epochSnap: readU64LE(data, b + 86),
+      lossWeight: readU128LE(data, b + 94),
+      bSnap: readU128LE(data, b + 110),
+      bRem: readU128LE(data, b + 126),
+      bEpochSnap: readU64LE(data, b + 142),
+      bStale: data[b + 150] !== 0,
+      stale: data[b + 151] !== 0
     });
   }
   const sourceDomains = [];
@@ -5669,15 +5988,18 @@ function parsePortfolioV17(data) {
   const matcherContext = data.length >= PF_MATCHER_CONTEXT_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_CONTEXT_OFF, PF_MATCHER_CONTEXT_OFF + 32)) : PublicKey5.default;
   const matcherDelegate = data.length >= PF_MATCHER_DELEGATE_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_DELEGATE_OFF, PF_MATCHER_DELEGATE_OFF + 32)) : PublicKey5.default;
   let matcherEnabled = false;
-  if (data.length >= PF_MATCHER_ENABLED_OFF + 8) {
-    const rawEnabled = readU64LE(data, PF_MATCHER_ENABLED_OFF);
-    if (rawEnabled > 1n) {
-      throw new Error(
-        `parsePortfolioV17: matcher config 'enabled' is ${rawEnabled}, expected 0 or 1`
-      );
-    }
-    matcherEnabled = rawEnabled === 1n;
+  let matcherPositionEpoch = 0n;
+  let matcherTradeFeeCapBps = 0;
+  if (data.length >= PF_MATCHER_CONTROL_OFF + 8) {
+    const control = readU64LE(data, PF_MATCHER_CONTROL_OFF);
+    const decoded = decodePortfolioMatcherControl(control);
+    matcherEnabled = decoded.enabled;
+    matcherPositionEpoch = decoded.positionEpoch;
+    matcherTradeFeeCapBps = decoded.tradeFeeCapBps;
   }
+  const portfolioId = data.length >= PF_PORTFOLIO_ID_OFF + 8 ? readU64LE(data, PF_PORTFOLIO_ID_OFF) : 0n;
+  const matcherSequence = data.length >= PF_MATCHER_SEQUENCE_OFF + 8 ? readU64LE(data, PF_MATCHER_SEQUENCE_OFF) : 0n;
+  const matcherExpirySlot = data.length >= PF_MATCHER_EXPIRY_OFF + 8 ? readU64LE(data, PF_MATCHER_EXPIRY_OFF) : 0n;
   return {
     marketGroupId,
     portfolioAccountId,
@@ -5689,6 +6011,10 @@ function parsePortfolioV17(data) {
     residualCrystallizedLossAtomsTotal,
     residualSpentPrincipalAtomsTotal,
     residualReceivedAtomsTotal,
+    fundingLongPaidAtomsTotal,
+    fundingLongReceivedAtomsTotal,
+    fundingShortPaidAtomsTotal,
+    fundingShortReceivedAtomsTotal,
     feeCredits,
     cancelDepositEscrow,
     lastFeeSlot,
@@ -5698,7 +6024,12 @@ function parsePortfolioV17(data) {
     matcherProgram,
     matcherContext,
     matcherDelegate,
-    matcherEnabled
+    matcherEnabled,
+    matcherPositionEpoch,
+    matcherTradeFeeCapBps,
+    portfolioId,
+    matcherSequence,
+    matcherExpirySlot
   };
 }
 var LP_VAULT_REGISTRY_TOTAL = 176;
@@ -8092,9 +8423,9 @@ var V17_GROUP_CONFIG_REL = 32;
 var V17_GROUP_CURRENT_SLOT_REL = 613;
 var V17_GROUP_MODE_REL = 626;
 var V17_CONFIG_MAX_MARKET_SLOTS_REL = 2;
-var V17_ASSET_SLOT_WRAPPER_LEN = 512;
-var V17_ENGINE_BACKING_LONG_REL = 947;
-var V17_ENGINE_BACKING_SHORT_REL = 1044;
+var V17_ASSET_SLOT_WRAPPER_LEN = 1024;
+var V17_ENGINE_BACKING_LONG_REL = 963;
+var V17_ENGINE_BACKING_SHORT_REL = 1060;
 var V17_BACKING_BUCKET_LEN = 97;
 var BB_MARKET_ID = 0;
 var BB_FRESH_UNLIENED = 8;
@@ -9681,6 +10012,7 @@ export {
   CHAINLINK_DECIMALS_OFFSET,
   CHAINLINK_MIN_SIZE,
   CHAINLINK_TIMESTAMP_OFFSET,
+  CRANK_OBSERVATION_DECODE_MAX,
   CREATOR_LOCK_SEED,
   CTX_RETURN_OFFSET,
   CTX_VAMM_LEN,
@@ -9705,6 +10037,12 @@ export {
   MATCHER_CALL_LEN,
   MATCHER_CONTEXT_LEN,
   MATCHER_MAGIC,
+  MATCHER_RETURN_FLAG_BACKING_FEE_CAP_MASK,
+  MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT,
+  MATCHER_RETURN_FLAG_PARTIAL_OK,
+  MATCHER_RETURN_FLAG_REJECTED,
+  MATCHER_RETURN_FLAG_VALID,
+  MATCHER_RETURN_KNOWN_FLAGS,
   MATCHER_RETURN_LEN,
   MAX_BACKING_BUCKET_EXPIRY_SLOT,
   MAX_DECIMALS,
@@ -9768,7 +10106,10 @@ export {
   STAKE_PROGRAM_IDS,
   TOKEN_2022_PROGRAM_ID,
   UNRESOLVE_CONFIRMATION,
+  V17_ASSET_CONTROL_SEQUENCES_LEN,
+  V17_ASSET_CONTROL_SEQUENCES_OFF,
   V17_ASSET_ORACLE_PROFILE_LEN,
+  V17_ASSET_ORACLE_WRAPPER_LEN,
   V17_ASSET_SLOT_WRAPPER_LEN,
   V17_BACKING_BUCKET_LEN,
   V17_CONFIG_MAX_MARKET_SLOTS_REL,
@@ -9788,6 +10129,10 @@ export {
   V17_MARKET_GROUP_OFF,
   V17_MARKET_MODE_LIVE,
   V17_PORTFOLIO_ACCOUNT_LEN,
+  V17_PORTFOLIO_IDENTITY_TRAILER_LEN,
+  V17_PORTFOLIO_LEG_SIZE,
+  V17_PROTOCOL_FEE_AUTHORITY_EPOCH_LEN,
+  V17_PROTOCOL_FEE_AUTHORITY_EPOCH_OFF,
   V17_SLAB_MAGIC,
   V17_WRAPPER_CONFIG_LEN,
   V17_WRAPPER_HEAP_FRAME_BYTES,
@@ -9837,6 +10182,8 @@ export {
   countLighthouseInstructions,
   decodeDepositPda,
   decodeError,
+  decodeMatcherReturn,
+  decodePortfolioMatcherControl,
   decodeStakePool,
   depositAccounts,
   deriveCanonicalVault,
@@ -9904,6 +10251,7 @@ export {
   encodeCreateInsuranceMint,
   encodeCreateLpVault,
   encodeCreateLpVaultV17,
+  encodeCureAndCancelClose,
   encodeDepositCollateral,
   encodeDepositFeeCredits,
   encodeDepositInsuranceLP,
@@ -9914,6 +10262,7 @@ export {
   encodeExpireBackingBucket,
   encodeFeedId,
   encodeForceCloseResolved,
+  encodeForfeitRecoveryLeg,
   encodeFundMarketInsurance,
   encodeInitLP,
   encodeInitMarket,
@@ -9926,6 +10275,7 @@ export {
   encodeLpVaultDeposit,
   encodeLpVaultWithdraw,
   encodeMatcherInitPassive,
+  encodeMatcherReturn,
   encodeMintPositionNft,
   encodeNftBurn,
   encodeNftEmergencyBurn,
@@ -9939,6 +10289,7 @@ export {
   encodeQueueWithdrawal,
   encodeQueueWithdrawalSV,
   encodeRebalanceLpVaultBacking,
+  encodeRebalanceReduce,
   encodeReclaimEmptyAccount,
   encodeReclaimSlabRent,
   encodeRenounceAdmin,
@@ -10003,8 +10354,10 @@ export {
   encodeStakeTransferAdmin,
   encodeStakeUpdateConfig,
   encodeStakeWithdraw,
+  encodeSwapSecondaryForPrimary,
   encodeTopUpBackingBucket,
   encodeTopUpInsurance,
+  encodeTopUpInsuranceDomain,
   encodeTradeCpi,
   encodeTradeCpiV2,
   encodeTradeNoCpi,
@@ -10015,8 +10368,10 @@ export {
   encodeUnresolveMarket,
   encodeUpdateAdmin,
   encodeUpdateAssetAuthority,
+  encodeUpdateAssetLifecycle,
   encodeUpdateAuthority,
   encodeUpdateBackingFeePolicy,
+  encodeUpdateBaseUnitMints,
   encodeUpdateConfig,
   encodeUpdateFeeSplit,
   encodeUpdateHyperpMark,
@@ -10072,6 +10427,7 @@ export {
   parseAccount,
   parseAdlEvent,
   parseAllAccounts,
+  parseAssetControlSequencesV17,
   parseAssetOracleProfileV17,
   parseBackingBucketsV17,
   parseChainlinkPrice,
@@ -10087,6 +10443,7 @@ export {
   parseParams,
   parsePortfolioV17,
   parsePositionNftAccount,
+  parseProtocolFeeAuthorityEpoch,
   parseUsedIndices,
   parseWrapperConfigV17,
   rankAdlPositions,

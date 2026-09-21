@@ -9,7 +9,23 @@ export interface AccountSpec {
     writable: boolean;
 }
 /**
- * InitMarket: 9 accounts (Pyth Pull - feed_id is in instruction data, not as accounts)
+ * InitMarket (tag 0): 3 accounts.
+ *
+ * v17 wire account layout (v16_program.rs `handle_init_market`):
+ *   [0] admin   signer, writable  (market admin; pays for the slab alloc)
+ *   [1] slab    writable          (the market account)
+ *   [2] mint    readonly          (collateral mint)
+ *
+ * GH#381: this template was still the v12 NINE-account shape — it additionally
+ * listed `vault`, `tokenProgram`, `clock`, `rent`, `dummyAta` and `systemProgram`.
+ * The first three entries were correctly ordered and Solana ignores surplus
+ * accounts, so transactions still landed; the cost was that the template told an
+ * integrator to derive and pass five accounts v17 never reads, including a
+ * `dummyAta` that has no meaning in v17 at all.
+ *
+ * Verified against `handle_init_market`, which reads `account(accounts, 0..=2)`
+ * and nothing further, and against upstream aeyakovenko/percolator-prog, whose
+ * handler reads the same three.
  */
 export declare const ACCOUNTS_INIT_MARKET: readonly AccountSpec[];
 /**
@@ -122,7 +138,10 @@ export declare const ACCOUNTS_PERMISSIONLESS_CRANK_BASE: readonly AccountSpec[];
  */
 export declare const ACCOUNTS_RESTART_ASSET_ORACLE: readonly AccountSpec[];
 /**
- * TradeNoCpi (tag 9): 5 accounts.
+ * TradeNoCpi (tag 6): 5 accounts.
+ *
+ * GH#381: the header said "tag 9". TradeNoCpi is tag 6; tag 9 is TopUpInsurance.
+ * The accounts themselves were correct — only the tag in the prose was wrong.
  *
  * v17 wire account layout (v16_program.rs handle_trade_nocpi):
  *   [0] signerA   signer, writable (party A — portfolio owner)

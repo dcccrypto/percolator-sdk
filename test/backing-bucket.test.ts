@@ -193,8 +193,15 @@ const GROUP_HEADER_FIELDS = [
 ] as const;
 
 // percolator/src/v16.rs — `pub struct EngineAssetSlotV16Account`, in declaration order.
+// v18 (v16-migration, `~/percolator` @ c141d47f, pinned by integration `a9318945`):
+// `AssetStateV16Account` grew 499 -> 515 (+16B) — two new fields
+// `kf_epoch_long: V16PodU64` + `kf_epoch_short: V16PodU64` (8B each), inserted
+// between `f_short_num` and `k_epoch_start_long` (`~/percolator/src/v16.rs:7385-7386`).
+// This is the SAME shift documented on slab.ts's `V17_ASSET_STATE_OI_LONG_REL`
+// (273 -> 289) and backing-bucket.ts's own module doc comment
+// (`V17_ENGINE_BACKING_LONG_REL` 947 -> 963) — confirmed here as its root cause.
 const ENGINE_SLOT_FIELDS = [
-  ["asset", 499], // AssetStateV16Account
+  ["asset", 515], // AssetStateV16Account (v18: +16B, kf_epoch_long/kf_epoch_short)
   ["insurance_domain_budget_long", 16],
   ["insurance_domain_budget_short", 16],
   ["insurance_domain_spent_long", 16],

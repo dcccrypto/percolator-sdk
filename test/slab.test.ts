@@ -12,6 +12,7 @@ import {
   AccountKind,
   detectSlabLayout,
   parsePortfolioV17,
+  decodePortfolioMatcherControl,
   parseLpVaultRegistry,
   parseLpRedemption,
   V17_EXPECTED_VERSION,
@@ -43,7 +44,7 @@ function assertThrows(fn: () => unknown, msg: string): void {
 
 function writeV17Header(buf: Buffer, kind: number): void {
   buf.writeBigUInt64LE(0x5045_5243_5631_3600n, 0);
-  buf.writeUInt16LE(V17_EXPECTED_VERSION, 8); // 17 post-protocol-fee (was 16)
+  buf.writeUInt16LE(V17_EXPECTED_VERSION, 8); // 18 post-v16-migration (was 17)
   buf.writeUInt8(kind, 10);
 }
 
@@ -953,38 +954,72 @@ console.log("\n✅ All slab tests passed!");
   assert(shortPortfolio.matcherEnabled === false, "parsePortfolioV17 defaults matcherEnabled to false on short buffer");
 
   // Full-length buffer: matcherProgram/matcherContext/matcherDelegate/matcherEnabled
-  // must decode from the PortfolioMatcherConfigV16 trailer at the correct offset
-  // (V17_PORTFOLIO_ACCOUNT_LEN - 104), verified against percolator-prog's struct
-  // layout and percolator-keeper's independently-computed byte accounting.
+  // must decode from the PortfolioMatcherConfigV16 trailer at the correct offset.
+  // v18 (integration a9318945): the matcher-config region is no longer anchored
+  // at (V17_PORTFOLIO_ACCOUNT_LEN - 104) -- TB-1a's +24B identity trailer
+  // (portfolio_id/matcher_sequence/matcher_expiry_slot) now follows it, so the
+  // matcher-config region is anchored at (V17_PORTFOLIO_ACCOUNT_LEN - 104 - 24).
   const fullPortfolio = Buffer.alloc(V17_PORTFOLIO_ACCOUNT_LEN);
   writeV17Header(fullPortfolio, 2);
   const matcherProgramKey = PublicKey.unique();
   const matcherContextKey = PublicKey.unique();
   const matcherDelegateKey = PublicKey.unique();
-  const matcherConfigOff = V17_PORTFOLIO_ACCOUNT_LEN - 104;
+  const IDENTITY_TRAILER_LEN = 24;
+  const matcherConfigOff = V17_PORTFOLIO_ACCOUNT_LEN - 104 - IDENTITY_TRAILER_LEN;
   matcherProgramKey.toBuffer().copy(fullPortfolio, matcherConfigOff);
   matcherContextKey.toBuffer().copy(fullPortfolio, matcherConfigOff + 32);
   matcherDelegateKey.toBuffer().copy(fullPortfolio, matcherConfigOff + 64);
-  fullPortfolio.writeBigUInt64LE(1n, matcherConfigOff + 96); // enabled
+  fullPortfolio.writeBigUInt64LE(1n, matcherConfigOff + 96); // control: bit0=enabled, legacy-compatible value
+  // v18 NEW identity trailer, immediately after the 104-byte matcher config.
+  const identityOff = matcherConfigOff + 104;
+  fullPortfolio.writeBigUInt64LE(777n, identityOff); // portfolio_id
+  fullPortfolio.writeBigUInt64LE(3n, identityOff + 8); // matcher_sequence (expected_sequence)
+  fullPortfolio.writeBigUInt64LE(999_999n, identityOff + 16); // matcher_expiry_slot
 
   const decoded = parsePortfolioV17(fullPortfolio);
   assert(decoded.matcherProgram.equals(matcherProgramKey), "parsePortfolioV17 decodes matcherProgram at the correct offset");
   assert(decoded.matcherContext.equals(matcherContextKey), "parsePortfolioV17 decodes matcherContext at the correct offset");
   assert(decoded.matcherDelegate.equals(matcherDelegateKey), "parsePortfolioV17 decodes matcherDelegate at the correct offset");
   assert(decoded.matcherEnabled === true, "parsePortfolioV17 decodes matcherEnabled at the correct offset");
+  assert(decoded.portfolioId === 777n, `parsePortfolioV17 decodes portfolioId: got ${decoded.portfolioId}`);
+  assert(decoded.matcherSequence === 3n, `parsePortfolioV17 decodes matcherSequence: got ${decoded.matcherSequence}`);
+  assert(decoded.matcherExpirySlot === 999_999n, `parsePortfolioV17 decodes matcherExpirySlot: got ${decoded.matcherExpirySlot}`);
   console.log("  ✓ parsePortfolioV17 decodes the PortfolioMatcherConfigV16 trailer (matcherProgram/Context/Delegate/Enabled)");
+  console.log("  ✓ parsePortfolioV17 decodes the v18 identity trailer (portfolioId/matcherSequence/matcherExpirySlot)");
 
-  // enabled is a u64 the wrapper only ever writes as 0 or 1. The deployed
-  // read_portfolio_matcher_config (v16_program.rs:1482) returns InvalidAccountData
-  // for anything > 1, so the SDK must not coerce e.g. 2 to `true`.
+  // v18: the trailing u64 was RENAMED `enabled` -> `control` and is now
+  // bit-packed (bit0=enabled, bits1..49=position_epoch, bits50..63=trade_fee_cap_bps).
+  // A legacy value of 0 or 1 still decodes correctly (bit0 unchanged).
   const enabledZero = Buffer.from(fullPortfolio);
   enabledZero.writeBigUInt64LE(0n, matcherConfigOff + 96);
-  assert(parsePortfolioV17(enabledZero).matcherEnabled === false, "parsePortfolioV17 decodes enabled=0 as false");
+  assert(parsePortfolioV17(enabledZero).matcherEnabled === false, "parsePortfolioV17 decodes control=0 as enabled=false");
 
-  const enabledBogus = Buffer.from(fullPortfolio);
-  enabledBogus.writeBigUInt64LE(2n, matcherConfigOff + 96);
-  assertThrows(() => parsePortfolioV17(enabledBogus), "parsePortfolioV17 rejects matcher enabled > 1");
-  console.log("  ✓ parsePortfolioV17 rejects a malformed matcher 'enabled' (> 1), matching the program");
+  // A `control` value with bit0=0 but high bits set (position_epoch nonzero)
+  // is now a LEGAL bit-packed value -- NOT an error, unlike the old plain-u64
+  // "enabled" semantics. Confirms the SDK does not resurrect the old ">1 throws" check.
+  const withPositionEpoch = Buffer.from(fullPortfolio);
+  // control = enabled(1) | position_epoch(5) << 1 | trade_fee_cap_bps(250) << 50
+  const control = 1n | (5n << 1n) | (250n << 50n);
+  withPositionEpoch.writeBigUInt64LE(control, matcherConfigOff + 96);
+  const withEpochDecoded = parsePortfolioV17(withPositionEpoch);
+  assert(withEpochDecoded.matcherEnabled === true, "parsePortfolioV17 decodes control bit0=1 as enabled=true");
+  assert(
+    withEpochDecoded.matcherPositionEpoch === 5n,
+    `parsePortfolioV17 decodes matcherPositionEpoch: got ${withEpochDecoded.matcherPositionEpoch}`,
+  );
+  assert(
+    withEpochDecoded.matcherTradeFeeCapBps === 250,
+    `parsePortfolioV17 decodes matcherTradeFeeCapBps: got ${withEpochDecoded.matcherTradeFeeCapBps}`,
+  );
+  console.log("  ✓ parsePortfolioV17 decodes bit-packed control (enabled/positionEpoch/tradeFeeCapBps)");
+
+  // decodePortfolioMatcherControl exact round-trip, matching the wrapper's own
+  // ENABLED_MASK/POSITION_EPOCH_MASK/TRADE_FEE_CAP_MASK bit layout exactly.
+  const roundTrip = decodePortfolioMatcherControl(control);
+  assert(roundTrip.enabled === true, "decodePortfolioMatcherControl enabled");
+  assert(roundTrip.positionEpoch === 5n, "decodePortfolioMatcherControl positionEpoch");
+  assert(roundTrip.tradeFeeCapBps === 250, "decodePortfolioMatcherControl tradeFeeCapBps");
+  console.log("  ✓ decodePortfolioMatcherControl matches PortfolioMatcherConfigV16's bit layout");
 
   const registry = Buffer.alloc(176);
   writeV17Header(registry, 5);

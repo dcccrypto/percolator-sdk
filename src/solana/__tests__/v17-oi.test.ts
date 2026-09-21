@@ -18,11 +18,15 @@ const INS_ABS_OFF = V17_MARKET_GROUP_OFF + 301;
 // Slot base starts at V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN
 const SLOTS_BASE = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN; // 1350 post-fee-split (was 1270, was 1206)
 
-// EngineAssetSlotV16Account starts after wrapper T (512 bytes).
-// oi_eff_long_q is at AssetStateV16Account+273, oi_eff_short_q at +289.
-const WRAPPER_SIZE = 512;
-const OI_LONG_REL = 273;
-const OI_SHORT_REL = 289;
+// EngineAssetSlotV16Account starts after wrapper T (1024 bytes, v18 --
+// integration a9318945 grew ASSET_ORACLE_WRAPPER_LEN 512 -> 1024).
+// oi_eff_long_q is at AssetStateV16Account+289, oi_eff_short_q at +305 (v18:
+// +16 vs pre-migration 273/289 -- AssetStateV16Account gained two new u64
+// fields, kf_epoch_long/kf_epoch_short, see slab.ts's
+// V17_ASSET_STATE_OI_LONG_REL doc comment).
+const WRAPPER_SIZE = 1024;
+const OI_LONG_REL = 289;
+const OI_SHORT_REL = 305;
 
 /**
  * Build a minimal synthetic v17 market account with known field values.

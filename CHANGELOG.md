@@ -7,6 +7,98 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [6.0.0] — unreleased (HELD — do not `npm publish` without explicit human go)
+
+Brings the SDK from the deployed VERSION-17 wire (`percolator-prog`@`e8acd708`)
+to the v16-migration integration branch's VERSION-18 wire
+(`sync/integration-v16`@`a9318945`). This is a full account-layout and
+instruction-wire break: every VERSION=17 account must be re-seeded (F-01),
+not read with this SDK build. **HELD pending the coordinated, human-gated
+migration** (sibling on-chain deploys + F-01 re-seed) — this release must not
+ship to npm before that migration ships on-chain.
+
+### Breaking
+
+- **`V17_EXPECTED_VERSION` / `EXPECTED_SLAB_VERSION` 17 → 18.** The SDK now
+  fails closed on VERSION=17 (currently-live) accounts and only accepts the
+  not-yet-deployed VERSION=18 layout.
+- **Identity-binding overhaul across ~41 instruction tags** — CAS/replay-nonce
+  binding added to market_id/intent_id/authority_epoch/policy_sequence/
+  observation_sequence/expected_sequence/position_epoch across: Deposit(3),
+  Withdraw(4), PermissionlessCrank(5, fully redesigned — `action`/
+  `funding_rate_e9`/`recovery_reason` REMOVED, replaced by
+  `now_slot`+variable-length `observations`), TradeNoCpi(6), ClosePortfolio(8),
+  TopUpInsurance(9), TradeCpi(10), CloseSlab(13), ResolveMarket(19),
+  TopUpBackingBucket(24), ConvertReleasedPnl(28), UpdateAuthority(32),
+  ConfigureHybridOracle(34), ConfigureEwmaMark(35), PushEwmaMark(36),
+  BatchTradeNoCpi(66), BatchTradeCpi(67), SetMatcherConfig(68),
+  RestartAssetOracle(69), UpdateAssetAuthority(65), WithdrawBackingBucket(50),
+  UpdateBackingFeePolicy(51), WithdrawBackingBucketEarnings(52),
+  UpdateTradeFeePolicy(55), TopUpInsuranceDomain(56, encoder added for the
+  first time), WithdrawInsuranceAsset(57), UpdateAssetLifecycle(40, encoder
+  added), CureAndCancelClose(42, encoder added), ForfeitRecoveryLeg(43,
+  encoder added — also renames `b_delta_budget` → `b_loss_atom_budget`),
+  RebalanceReduce(44, encoder added), UpdateBaseUnitMints(60, encoder added),
+  SwapSecondaryForPrimary(61, encoder added), WithdrawProtocolFee(84),
+  UpdateFeeSplit(86), WithdrawCreatorFee(90, gains `assetIndex` — GH#420 —
+  plus `authorityEpoch`), UpdateInsuranceWithdrawPolicy(92). CAS tags
+  (65/84/86/90/92 and others) take the caller's LIVE-READ current
+  `authority_epoch` (expected-current), NOT current+1.
+- **`parsePortfolioV17` / `PortfolioAccountV17`: PortfolioAccountV16 layout
+  changed, PORTFOLIO_ACCOUNT_LEN 9347 → 9563.** Beyond the documented +24B
+  wrapper-owned identity trailer (`portfolioId`/`matcherSequence`/
+  `matcherExpirySlot`, new fields), the underlying engine struct
+  (`percolator-core`, pinned `c141d47f`) independently grew +192B: four new
+  `V16PodU128` funding-accounting fields (`fundingLongPaidAtomsTotal`/
+  `fundingLongReceivedAtomsTotal`/`fundingShortPaidAtomsTotal`/
+  `fundingShortReceivedAtomsTotal`) and a new per-leg `kfEpochSnap: u64`
+  field (`PortfolioLegV17`, leg size 144 → 152B) — neither called out in the
+  migration's own spec summary; found via `cargo run --example dump_layout`
+  ground-truthing. `PortfolioMatcherConfigV16`'s trailing `enabled: u64` field
+  is renamed `control: u64` and bit-packed (bit0=enabled, bits1..49=
+  positionEpoch, bits50..63=tradeFeeCapBps) — decode via the new
+  `decodePortfolioMatcherControl()` export; `matcherEnabled`/
+  `matcherPositionEpoch`/`matcherTradeFeeCapBps` are exposed directly on
+  `PortfolioV17`.
+- **`V17_ASSET_ORACLE_PROFILE_LEN` 400 → 512, `V17_ASSET_ORACLE_WRAPPER_LEN`
+  512 → 1024** (new export), **`V17_MARKET_ASSET_SLOT_LEN` 1797 → 2325.**
+  `parseAssetOracleProfileV17` decodes 11 new tail fields (see
+  `AssetOracleProfileV17`). New `parseAssetControlSequencesV17` +
+  `parseProtocolFeeAuthorityEpoch` exports decode the new
+  `AssetControlSequencesV16` region (offset 512, 88B — 9 replay-nonce lanes +
+  1 CAS `authorityEpoch` lane) and the market-wide
+  `protocol_fee_authority_epoch` counter (offset 600) inside each asset's
+  wrapper slot. `backing-bucket.ts`'s `V17_ASSET_SLOT_WRAPPER_LEN` (512 →
+  1024), `V17_ENGINE_BACKING_LONG_REL` (947 → 963) and
+  `V17_ENGINE_BACKING_SHORT_REL` (1044 → 1060) move in lockstep — root cause
+  is the SAME undocumented engine-side `AssetStateV16Account` growth (two new
+  `kf_epoch_long`/`kf_epoch_short: u64` fields) that shifts the OI parser's
+  offsets (`V17_ASSET_STATE_OI_LONG_REL` 273 → 289,
+  `V17_ASSET_STATE_OI_SHORT_REL` 289 → 305).
+- **New `decodeMatcherReturn`/`encodeMatcherReturn` exports** (`abi/instructions.ts`)
+  for the 64-byte matcher CPI-response wire, including `backingFeeCapBps`
+  decoded from `flags` bits 8..21 (`sync/w2-e24cf78e`, "require matcher
+  consent for CPI backing fees") — fails closed (throws) on any flag bit
+  outside `MATCHER_RETURN_KNOWN_FLAGS`, matching the wrapper's own gate.
+- **`encodeStakeAdminUpdateFeeSplit`(stake tag 25) and
+  `encodeStakeAdminUpdateTradeFeePolicy`(stake tag 28) are NO LONGER
+  byte-identical to `encodeUpdateFeeSplit`/`encodeUpdateTradeFeePolicy`.**
+  percolator-stake's `cpi.rs` is a separate on-chain program, out of scope
+  for this SDK-only branch — it needs its own coordinated migration to
+  forward the new `authorityEpoch`/`policySequence` trailing fields before
+  those stake-proxy tags can reach the v18 wrapper correctly.
+
+### Notes
+
+- VERSION-17 (currently deployed) markets/portfolios/asset profiles are
+  handled by re-seeding under F-01, per the coordinated migration runbook —
+  this SDK build does not attempt any in-place VERSION-17 → 18 migration path.
+- `~/percolator-ops/sync/wrapper_scope/WRAPPER_SYNC_LOCKED_WIRE.md`'s
+  PortfolioAccountV16 note ("was 9539") reflects the integration branch's own
+  pre-TB1a baseline, not this SDK's prior deployed-VERSION-17 value (9347) —
+  see `V17_PORTFOLIO_ACCOUNT_LEN`'s doc comment in `slab.ts` for the full
+  reconciliation.
+
 ## [5.0.0] — unreleased
 
 `package.json` was bumped to 5.0.0 by `3704dfd` without a changelog section;

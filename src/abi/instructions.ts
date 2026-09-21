@@ -527,13 +527,24 @@ export const IX_TAG = {
 Object.freeze(IX_TAG);
 
 /**
- * v17 slab version discriminator. Stored as u16 LE at byte offset 8 of every
+ * v18 slab version discriminator. Stored as u16 LE at byte offset 8 of every
  * percolator-owned account (market-group, portfolio, insurance-ledger, etc.).
  *
- * The v17 MAGIC is 0x5045_5243_5631_3600n ("PERCV16\0" as u64 LE). When
- * reading an account header, verify both MAGIC at [0..8] and VERSION at [8..10].
+ * Bumped 17 -> 18 by the v16-migration integration (percolator-prog
+ * `sync/integration-v16`@a9318945, `v16_program.rs:72` `pub const VERSION: u16
+ * = 18`): the identity-binding overhaul (market_id/intent_id/authority_epoch
+ * CAS binding across ~41 instruction tags), the PortfolioAccountV16 +24B
+ * identity trailer (9539 -> 9563), and the AssetOracleProfileV16/
+ * AssetControlSequencesV16 per-asset slot growth (512 -> 1024) are all
+ * account-layout/wire-breaking, so VERSION fails closed on any pre-migration
+ * (VERSION=17) account — those must be re-seeded (F-01), not read with this
+ * parser.
+ *
+ * The v18 MAGIC is unchanged: 0x5045_5243_5631_3600n ("PERCV16\0" as u64 LE).
+ * When reading an account header, verify both MAGIC at [0..8] and VERSION at
+ * [8..10].
  */
-export const EXPECTED_SLAB_VERSION = 17;
+export const EXPECTED_SLAB_VERSION = 18;
 
 /**
  * v17 account header magic — "PERCV16\0" stored as little-endian u64.
@@ -1037,29 +1048,43 @@ export function encodeInitLP(_args: InitLPArgs): Uint8Array {
 /**
  * DepositCollateral instruction data.
  *
- * v17 wire: tag(1) + amount(u128 LE) = 17 bytes.
+ * v18 wire (integration `a9318945`, tag 3): tag(1) + portfolio_id(u64) +
+ * expected_sequence(u64) + amount(u128 LE) = 33 bytes.
  *
- * BREAKING vs v12.x: userIdx(u16) removed; amount promoted u64→u128.
- * The v17 decoder reads `amount: read_u128(&mut rest)?` at bytes [1..17].
- * Sending the old 11-byte payload (userIdx+u64) gives a 10-byte rest which
- * is 6 bytes short for read_u128 — InvalidInstructionData on every call.
+ * BREAKING vs v17: `portfolio_id` and `expected_sequence` were added
+ * BEFORE `amount` as part of the v16-migration identity-binding overhaul —
+ * Deposit is now CAS-bound to the portfolio's identity/sequence the same way
+ * ClosePortfolio and ConvertReleasedPnl are. `expected_sequence` is the
+ * portfolio's CURRENT `PortfolioMatcherConfigV16` sequence watermark
+ * (`expected_sequence`/`matcher_sequence`), read live before signing — NOT
+ * incremented client-side.
  *
- * @param amount  Collateral to deposit (u128; supports sub-cent precision).
+ * @param portfolioId       The portfolio's program-assigned identity (`PORTFOLIO_ID_OFF`).
+ * @param expectedSequence  The portfolio's current matcher-sequence watermark, read live.
+ * @param amount            Collateral to deposit (u128; supports sub-cent precision).
  *
  * @example
  * ```ts
- * const data = encodeDepositCollateral({ amount: 1_000_000n });
+ * const data = encodeDepositCollateral({
+ *   portfolioId: portfolio.portfolioId,
+ *   expectedSequence: portfolio.matcherSequence,
+ *   amount: 1_000_000n,
+ * });
  * ```
  */
 export interface DepositCollateralArgs {
-  /** @deprecated userIdx is no longer needed — portfolios are identified by account key in v17. */
+  /** @deprecated userIdx is no longer needed — portfolios are identified by account key in v17+. */
   userIdx?: number;
+  portfolioId: bigint | string;
+  expectedSequence: bigint | string;
   amount: bigint | string;
 }
 
 export function encodeDepositCollateral(args: DepositCollateralArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.DepositCollateral),
+    encU64(args.portfolioId),
+    encU64(args.expectedSequence),
     encU128(args.amount),
   );
 }
@@ -1067,28 +1092,39 @@ export function encodeDepositCollateral(args: DepositCollateralArgs): Uint8Array
 /**
  * WithdrawCollateral instruction data.
  *
- * v17 wire: tag(1) + amount(u128 LE) = 17 bytes.
+ * v18 wire (integration `a9318945`, tag 4): tag(1) + portfolio_id(u64) +
+ * expected_sequence(u64) + amount(u128 LE) = 33 bytes.
  *
- * BREAKING vs v12.x: userIdx(u16) removed; amount promoted u64→u128.
- * The v17 decoder reads `amount: read_u128(&mut rest)?` at bytes [1..17].
- * The old 11-byte payload gives a 10-byte rest — InvalidInstructionData.
+ * BREAKING vs v17: `portfolio_id` and `expected_sequence` were added
+ * BEFORE `amount` as part of the v16-migration identity-binding overhaul —
+ * same CAS binding as {@link encodeDepositCollateral}.
  *
- * @param amount  Collateral to withdraw (u128).
+ * @param portfolioId       The portfolio's program-assigned identity.
+ * @param expectedSequence  The portfolio's current matcher-sequence watermark, read live.
+ * @param amount            Collateral to withdraw (u128).
  *
  * @example
  * ```ts
- * const data = encodeWithdrawCollateral({ amount: 500_000n });
+ * const data = encodeWithdrawCollateral({
+ *   portfolioId: portfolio.portfolioId,
+ *   expectedSequence: portfolio.matcherSequence,
+ *   amount: 500_000n,
+ * });
  * ```
  */
 export interface WithdrawCollateralArgs {
-  /** @deprecated userIdx is no longer needed — portfolios are identified by account key in v17. */
+  /** @deprecated userIdx is no longer needed — portfolios are identified by account key in v17+. */
   userIdx?: number;
+  portfolioId: bigint | string;
+  expectedSequence: bigint | string;
   amount: bigint | string;
 }
 
 export function encodeWithdrawCollateral(args: WithdrawCollateralArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.WithdrawCollateral),
+    encU64(args.portfolioId),
+    encU64(args.expectedSequence),
     encU128(args.amount),
   );
 }
@@ -1096,9 +1132,11 @@ export function encodeWithdrawCollateral(args: WithdrawCollateralArgs): Uint8Arr
 /**
  * PermissionlessCrank (tag 5) action byte values.
  *
- * Source: v16_program.rs Instruction::PermissionlessCrank handler.
- *   0 = FeeSweep  — accrue fees + dust sweep (no liquidation)
- *   1 = Liquidate — liquidate the portfolio identified by asset_index
+ * @deprecated REMOVED from the wire in the v16-migration (VERSION 18,
+ * integration `a9318945`). The v18 decoder for tag 5 no longer reads an
+ * `action` byte at all — see {@link encodePermissionlessCrank}. Kept only so
+ * source referencing `CrankAction.*` for other purposes does not break at
+ * compile time.
  */
 export const CrankAction = {
   /**
@@ -1125,64 +1163,101 @@ export const CrankAction = {
 } as const;
 
 /**
+ * Maximum number of {@link CrankObservationHint} entries `encodePermissionlessCrank`
+ * will encode in one instruction. Matches the wrapper's
+ * `CRANK_OBSERVATION_DECODE_MAX = 16` (`v16_program.rs:5602`) — the decoder
+ * hard-rejects `n > 16` with `InvalidInstructionData` before reading any hint
+ * bytes, so exceeding this client-side is always a wasted transaction, never
+ * a partial success.
+ */
+export const CRANK_OBSERVATION_DECODE_MAX = 16;
+
+/**
+ * One asset/oracle-account hint for {@link PermissionlessCrankArgs.observations}.
+ * Mirrors the wrapper's `CrankObservationHint { asset_index: u16, oracle_accounts: u8 }`
+ * (`v16_program.rs:5593`).
+ *
+ * @param assetIndex      Asset/domain index this hint targets.
+ * @param oracleAccounts  Count of oracle accounts supplied in the instruction's
+ *                        account list for this asset (consumed by the wrapper's
+ *                        variable-length account-list walk).
+ */
+export interface CrankObservationHint {
+  assetIndex: number;
+  oracleAccounts: number;
+}
+
+/**
  * PermissionlessCrank (tag 5) instruction args.
  *
- * FIX W3 (upstream wrapper #206, pairs with engine E3 / upstream #92):
- * BREAKING wire change. `close_q`/`fee_bps` are NO LONGER caller-supplied —
- * liquidation size is engine-selected (`liquidation_engine_close_request_q`)
- * and the fee rate is always read from config inside
- * `liquidate_account_not_atomic`. This closes the "min-fee chunking" exploit
- * where a keeper could pick a tiny close_q to under-pay the liquidation fee
- * while still making forward progress. Any client still encoding the old
- * 53-byte layout (with close_q/fee_bps) will be rejected by the v17 program
- * as a decode error — this is a compile-time-shaped guarantee on the Rust
- * side, not a runtime check.
+ * BREAKING WIRE CHANGE in the v16-migration (VERSION 18, integration
+ * `a9318945`): the entire v17 payload (`action`/`asset_index`/`now_slot`/
+ * `funding_rate_e9`/`recovery_reason`, 29 bytes) is GONE. The v18 decoder
+ * reads:
  *
- * v17 wire: tag(1) + action(u8) + asset_index(u16) + now_slot(u64) +
- *   funding_rate_e9(i128 HARDCODED=0) + recovery_reason(u8) = 29 bytes.
+ * ```
+ * 5 => {
+ *     let now_slot = read_u64(&mut rest)?;
+ *     let n = read_u8(&mut rest)? as usize;   // observations.len(), <= CRANK_OBSERVATION_DECODE_MAX
+ *     // n × { asset_index: u16, oracle_accounts: u8 }
+ *     Self::PermissionlessCrank { now_slot, observations }
+ * }
+ * ```
  *
- * Source: v16_program.rs Instruction::PermissionlessCrank decode/encode
- * (tag 5), verified byte-for-byte against the Rust `read_u8`/`read_u16`/
- * `read_u64`/`read_i128`/`push_*` call sequence.
+ * v18 wire: tag(1) + now_slot(u64) + n(u8) + n×(asset_index(u16) +
+ *   oracle_accounts(u8)) = 10 + 3n bytes (variable length; n=0 is legal and
+ *   encodes a bare liveness/no-op crank).
  *
- * CRITICAL: funding_rate_e9 is always hardcoded to 0n by this encoder.
- * The program hard-rejects any nonzero value with InvalidInstructionData.
- * Do NOT construct this payload manually and omit funding_rate_e9 — that
- * produces a truncated instruction (missing 16 bytes).
+ * There is no `action` byte, no `funding_rate_e9`, and no `recovery_reason`
+ * on this wire anymore — liquidation/settlement dispatch and the crank's
+ * per-asset work are now driven entirely by on-chain state plus which assets
+ * the caller hints via `observations`, not by a caller-chosen mode byte.
+ * Encoding the old 29-byte v17 payload against a v18 wrapper misparses:
+ * `now_slot` would read the old `action`+`asset_index`+3 bytes of `now_slot`
+ * as its own 8-byte `now_slot`, and `n` would read whatever byte happened to
+ * land at offset 9 — silently wrong, not a decode error, unless `n` happens
+ * to exceed 16 or overrun the buffer.
  *
- * @param action       CrankAction.Refresh, .Liquidate or .SettleB (#381:
- *                     SettleB was missing from the enum entirely).
- * @param assetIndex   Asset/domain index to operate on.
- * @param nowSlot      Current slot (for crank freshness check).
- * @param recoveryReason Recovery reason byte (0 for normal operations).
+ * @param nowSlot       Current slot (for crank freshness checks).
+ * @param observations  Per-asset oracle-account hints (0..=16 entries).
  *
  * @example
  * ```ts
- * // Simple fee-sweep crank
  * const data = encodePermissionlessCrank({
- *   action: CrankAction.FeeSweep,
- *   assetIndex: 0,
  *   nowSlot: currentSlot,
- *   recoveryReason: 0,
+ *   observations: [{ assetIndex: 0, oracleAccounts: 1 }],
  * });
  * ```
  */
 export interface PermissionlessCrankArgs {
-  action: number;
-  assetIndex: number;
   nowSlot: bigint | string;
-  recoveryReason: number;
+  observations: CrankObservationHint[];
+  /** @deprecated Removed from the v18 wire — no longer encoded. */
+  action?: number;
+  /** @deprecated Removed from the v18 wire — no longer encoded. */
+  assetIndex?: number;
+  /** @deprecated Removed from the v18 wire — no longer encoded. */
+  recoveryReason?: number;
 }
 
 export function encodePermissionlessCrank(args: PermissionlessCrankArgs): Uint8Array {
-  return concatBytes(
+  const observations = args.observations ?? [];
+  if (observations.length > CRANK_OBSERVATION_DECODE_MAX) {
+    throw new Error(
+      `encodePermissionlessCrank: ${observations.length} observations exceeds ` +
+      `CRANK_OBSERVATION_DECODE_MAX (${CRANK_OBSERVATION_DECODE_MAX}) — the wrapper ` +
+      `rejects this with InvalidInstructionData before reading any hint bytes.`,
+    );
+  }
+  const parts: Uint8Array[] = [
     encU8(IX_TAG.PermissionlessCrank),
-    encU8(args.action),
-    encU16(args.assetIndex),
     encU64(args.nowSlot),
-    encI128(0n),           // funding_rate_e9 HARDCODED=0n (program rejects nonzero)
-    encU8(args.recoveryReason),
-  );
+    encU8(observations.length),
+  ];
+  for (const obs of observations) {
+    parts.push(encU16(obs.assetIndex), encU8(obs.oracleAccounts));
+  }
+  return concatBytes(...parts);
 }
 
 /**
@@ -1204,47 +1279,81 @@ export function encodeKeeperCrank(_args: KeeperCrankArgs): Uint8Array {
 }
 
 /**
- * TradeNoCpi instruction data (v17 wire format).
+ * TradeNoCpi instruction data (v18 wire format, integration `a9318945`).
  *
- * v17 wire: tag(1) + asset_index(u16) + size_q(i128) + exec_price(u64) + fee_bps(u64)
- *   = 35 bytes.  // GH#381: was 28; encodeTradeNoCpi already asserts 35
+ * v18 wire: tag(1) + account_a_portfolio_id(u64) + account_a_position_epoch(u64) +
+ *   account_b_portfolio_id(u64) + account_b_position_epoch(u64) + asset_index(u16) +
+ *   market_id(u64) + size_q(i128) + exec_price(u64) + fee_bps(u64) +
+ *   backing_fee_cap_bps(u16) = 77 bytes.
  *
- * BREAKING vs v12.x: payload fields changed completely. v12 had lpIdx+userIdx+size;
- * v17 has asset_index+size_q+exec_price+fee_bps.
+ * BREAKING vs v17 (35-byte payload): the v16-migration identity-binding
+ * overhaul CAS-binds BOTH legs' portfolio identity/position-epoch, adds
+ * `market_id` (TB-4's market-id-bearing cluster) right after `asset_index`,
+ * and appends `backing_fee_cap_bps` — the caller-supplied ceiling on the
+ * matcher-authorized backing fee for this fill (0 fails closed against any
+ * nonzero backing-domain fee; see the matcher-return `backing_fee_cap_bps`
+ * bits 8..21 this value is checked against on the CPI-trade path).
+ * `accountAPositionEpoch`/`accountBPositionEpoch` must be each side's LIVE
+ * current `position_epoch`, read immediately before signing — NOT
+ * incremented client-side (CAS, not a monotonic nonce).
  *
+ * @param accountAPortfolioId    Account A's portfolio identity.
+ * @param accountAPositionEpoch  Account A's current position epoch (CAS, live-read).
+ * @param accountBPortfolioId    Account B's portfolio identity.
+ * @param accountBPositionEpoch  Account B's current position epoch (CAS, live-read).
  * @param assetIndex Asset/domain index.
+ * @param marketId   The traded asset's market_id.
  * @param sizeQ      Trade quantity (signed; positive=long, negative=short).
  * @param execPrice  Execution price in e6 units.
  * @param feeBps     Fee in basis points.
+ * @param backingFeeCapBps  Caller's ceiling on the backing-domain fee (0..=10000).
  *
  * @example
  * ```ts
  * const data = encodeTradeNoCpi({
+ *   accountAPortfolioId: a.portfolioId,
+ *   accountAPositionEpoch: a.legs[0].epochSnap,
+ *   accountBPortfolioId: b.portfolioId,
+ *   accountBPositionEpoch: b.legs[0].epochSnap,
  *   assetIndex: 0,
+ *   marketId: 1n,
  *   sizeQ: 1_000_000n,
  *   execPrice: 50_000_000_000n,
  *   feeBps: 30n,
+ *   backingFeeCapBps: 0,
  * });
  * ```
  */
 export interface TradeNoCpiArgs {
+  accountAPortfolioId: bigint | string;
+  accountAPositionEpoch: bigint | string;
+  accountBPortfolioId: bigint | string;
+  accountBPositionEpoch: bigint | string;
   assetIndex: number;
+  marketId: bigint | string;
   sizeQ: bigint | string;
   execPrice: bigint | string;
   feeBps: bigint | string;
+  backingFeeCapBps: number;
 }
 
 export function encodeTradeNoCpi(args: TradeNoCpiArgs): Uint8Array {
   const data = concatBytes(
     encU8(IX_TAG.TradeNoCpi),
+    encU64(args.accountAPortfolioId),
+    encU64(args.accountAPositionEpoch),
+    encU64(args.accountBPortfolioId),
+    encU64(args.accountBPositionEpoch),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encI128(args.sizeQ),
     encU64(args.execPrice),
     encU64(args.feeBps),
+    encU16(args.backingFeeCapBps),
   );
-  if (data.length !== 35) {
+  if (data.length !== 77) {
     throw new Error(
-      `encodeTradeNoCpi: expected 35 bytes (tag+u16+i128+u64+u64), got ${data.length}`,
+      `encodeTradeNoCpi: expected 77 bytes, got ${data.length}`,
     );
   }
   return data;
@@ -1271,57 +1380,158 @@ export function encodeLiquidateAtOracle(_args: LiquidateAtOracleArgs): Uint8Arra
 }
 
 /**
- * ClosePortfolio / CloseAccount instruction data.
+ * ClosePortfolio / CloseAccount instruction data (v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) only — 1 byte total.
+ * v18 wire: tag(1) + portfolio_id(u64) + expected_sequence(u64) +
+ *   position_epoch(u64) = 25 bytes.
  *
- * BREAKING vs v12.x: userIdx(u16) removed. The v17 decoder at
- * `8 => Self::ClosePortfolio` reads no bytes after the tag. The extra 2
- * bytes from the old userIdx field cause InvalidInstructionData.
+ * BREAKING vs v17 (bare 1-byte tag): the v16-migration identity-binding
+ * overhaul CAS-binds ClosePortfolio to the portfolio's identity, matcher
+ * sequence AND position epoch. All three must be the LIVE current values,
+ * read immediately before signing.
+ *
+ * @param portfolioId       The portfolio's program-assigned identity.
+ * @param expectedSequence  The portfolio's current matcher-sequence watermark, read live.
+ * @param positionEpoch     The portfolio's current position epoch, read live.
  *
  * @example
  * ```ts
- * const data = encodeCloseAccount();
+ * const data = encodeCloseAccount({
+ *   portfolioId: portfolio.portfolioId,
+ *   expectedSequence: portfolio.matcherSequence,
+ *   positionEpoch: portfolio.legs[0].epochSnap,
+ * });
  * ```
  */
 export interface CloseAccountArgs {
-  /** @deprecated userIdx is not read in v17; portfolios are identified by account key. */
+  /** @deprecated userIdx is not read in v17+; portfolios are identified by account key. */
   userIdx?: number;
+  portfolioId: bigint | string;
+  expectedSequence: bigint | string;
+  positionEpoch: bigint | string;
 }
 
-export function encodeCloseAccount(_args?: CloseAccountArgs): Uint8Array {
-  return new Uint8Array([IX_TAG.ClosePortfolio]);
+export function encodeCloseAccount(args: CloseAccountArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.ClosePortfolio),
+    encU64(args.portfolioId),
+    encU64(args.expectedSequence),
+    encU64(args.positionEpoch),
+  );
 }
 
 /**
- * TopUpInsurance instruction data.
+ * TopUpInsurance instruction data (v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) + amount(u128 LE) = 17 bytes.
+ * v18 wire: tag(1) + market_id(u64) + intent_id(u64) + authority_epoch(u64) +
+ *   amount(u128 LE) = 41 bytes.
  *
- * BREAKING vs v12.x: amount promoted u64→u128. The v17 decoder at tag 9
- * reads `amount: read_u128(&mut rest)?` which requires 16 bytes after the
- * tag. The old 8-byte u64 payload is 8 bytes short — InvalidInstructionData.
+ * BREAKING vs v17 (17-byte payload): the v16-migration identity-binding
+ * overhaul (§4-locked common cluster order `market_id, intent_id,
+ * authority_epoch, amount`) adds all three fields before `amount`.
+ * `intent_id` is a one-shot, strictly-increasing replay nonce (per-asset-0
+ * `insurance_top_up` lane, shared with {@link encodeTopUpInsuranceDomain}) —
+ * a value that is not strictly greater than the stored lane is rejected.
+ * `authority_epoch` here is NOT a CAS/current-epoch value the way the
+ * UpdateAssetAuthority-family tags are — read the field from the live asset
+ * control-sequences state before signing regardless.
  *
- * @param amount  Amount to top up the insurance fund (u128).
+ * @param marketId        The asset's market_id.
+ * @param intentId        Strictly-increasing one-shot replay nonce (asset-0 `insurance_top_up` lane).
+ * @param authorityEpoch  Live authority-epoch value for this top-up.
+ * @param amount          Amount to top up the insurance fund (u128).
  *
  * @example
  * ```ts
- * const data = encodeTopUpInsurance({ amount: 10_000_000n });
+ * const data = encodeTopUpInsurance({
+ *   marketId: 1n,
+ *   intentId: nextIntentId,
+ *   authorityEpoch: 0n,
+ *   amount: 10_000_000n,
+ * });
  * ```
  */
 export interface TopUpInsuranceArgs {
+  marketId: bigint | string;
+  intentId: bigint | string;
+  authorityEpoch: bigint | string;
   amount: bigint | string;
 }
 
 export function encodeTopUpInsurance(args: TopUpInsuranceArgs): Uint8Array {
-  return concatBytes(encU8(IX_TAG.TopUpInsurance), encU128(args.amount));
+  return concatBytes(
+    encU8(IX_TAG.TopUpInsurance),
+    encU64(args.marketId),
+    encU64(args.intentId),
+    encU64(args.authorityEpoch),
+    encU128(args.amount),
+  );
 }
 
 /**
- * TopUpBackingBucket instruction data (tag 24).
+ * TopUpInsuranceDomain instruction data (tag 56, v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) + domain(u16 LE) + amount(u128 LE) + expiry_slot(u64 LE)
- *   = 27 bytes.
+ * v18 wire: tag(1) + domain(u16 LE) + market_id(u64) + intent_id(u64) +
+ *   authority_epoch(u64) + amount(u128 LE) = 43 bytes.
+ *
+ * Domain-scoped sibling of {@link encodeTopUpInsurance} — same §4-locked
+ * common cluster order (`market_id, intent_id, authority_epoch, amount`)
+ * plus the leading `domain`. `intent_id` is the SAME asset-0 `insurance_top_up`
+ * one-shot replay lane TopUpInsurance(9) uses — "Both insurance top-up
+ * entrypoints share `insurance_top_up` so an intent cannot be replayed
+ * through the alternate route" (wrapper source comment).
+ *
+ * No encoder existed for this tag prior to the v16-migration SDK update —
+ * added here for the first time, matching a9318945 exactly.
+ *
+ * @param domain          Domain index (2*assetIndex long, 2*assetIndex+1 short).
+ * @param marketId        The asset's market_id.
+ * @param intentId        Strictly-increasing one-shot replay nonce (asset-0 `insurance_top_up` lane, shared with {@link encodeTopUpInsurance}).
+ * @param authorityEpoch  Live authority-epoch value for this top-up.
+ * @param amount          Amount to top up the insurance fund (u128).
+ *
+ * @example
+ * ```ts
+ * const data = encodeTopUpInsuranceDomain({
+ *   domain: 0,
+ *   marketId: 1n,
+ *   intentId: nextIntentId,
+ *   authorityEpoch: 0n,
+ *   amount: 10_000_000n,
+ * });
+ * ```
+ */
+export interface TopUpInsuranceDomainArgs {
+  domain: number;
+  marketId: bigint | string;
+  intentId: bigint | string;
+  authorityEpoch: bigint | string;
+  amount: bigint | string;
+}
+
+export function encodeTopUpInsuranceDomain(args: TopUpInsuranceDomainArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.TopUpInsuranceDomain),
+    encU16(args.domain),
+    encU64(args.marketId),
+    encU64(args.intentId),
+    encU64(args.authorityEpoch),
+    encU128(args.amount),
+  );
+}
+
+/**
+ * TopUpBackingBucket instruction data (tag 24, v18 wire, integration `a9318945`).
+ *
+ * v18 wire: tag(1) + domain(u16 LE) + market_id(u64) + intent_id(u64) +
+ *   authority_epoch(u64) + amount(u128 LE) + expiry_slot(u64 LE) = 51 bytes.
+ *
+ * BREAKING vs v17 (27-byte payload): the v16-migration identity-binding
+ * overhaul adds `market_id`/`intent_id`/`authority_epoch` between `domain`
+ * and `amount` (the §4-locked common cluster order). `intent_id` is a
+ * strictly-increasing one-shot replay nonce, PER-ASSET (keyed by
+ * `domain / 2`), distinct from TopUpInsurance/TopUpInsuranceDomain's shared
+ * asset-0 `insurance_top_up` lane.
  *
  * Deposits `amount` quote atoms of external collateral into a source domain's
  * counterparty backing bucket, requesting `expirySlot` as the bucket's fresh
@@ -1344,8 +1554,11 @@ export function encodeTopUpInsurance(args: TopUpInsuranceArgs): Uint8Array {
  * every later automatic loss-reserve requests the SAME existing expiry and
  * hits the harmless no-op arm instead of the LockActive trap.
  *
- * @param domain     Backing-bucket domain index (2*assetIndex for long,
- *                   2*assetIndex+1 for short).
+ * @param domain         Backing-bucket domain index (2*assetIndex for long,
+ *                       2*assetIndex+1 for short).
+ * @param marketId       The asset's market_id.
+ * @param intentId       Strictly-increasing one-shot replay nonce, per-asset (`domain / 2`).
+ * @param authorityEpoch Live authority-epoch value for this top-up.
  * @param amount     Quote atoms to deposit (u128; must be > 0). A small
  *                   nonzero "dust" amount is sufficient — there is no
  *                   minimum floor enforced by the engine.
@@ -1357,6 +1570,9 @@ export function encodeTopUpInsurance(args: TopUpInsuranceArgs): Uint8Array {
  * // Seed the long domain (asset 0) immortal, while the bucket is still Empty.
  * const data = encodeTopUpBackingBucket({
  *   domain: 0,
+ *   marketId: 1n,
+ *   intentId: nextIntentId,
+ *   authorityEpoch: 0n,
  *   amount: 10_000n, // 0.01 Sim-USDC dust
  *   expirySlot: MAX_BACKING_BUCKET_EXPIRY_SLOT,
  * });
@@ -1366,6 +1582,9 @@ export const MAX_BACKING_BUCKET_EXPIRY_SLOT: bigint = 9_223_372_036_854_775_807n
 
 export interface TopUpBackingBucketArgs {
   domain: number;
+  marketId: bigint | string;
+  intentId: bigint | string;
+  authorityEpoch: bigint | string;
   amount: bigint | string;
   expirySlot: bigint | string;
 }
@@ -1374,15 +1593,26 @@ export function encodeTopUpBackingBucket(args: TopUpBackingBucketArgs): Uint8Arr
   return concatBytes(
     encU8(IX_TAG.TopUpBackingBucket),
     encU16(args.domain),
+    encU64(args.marketId),
+    encU64(args.intentId),
+    encU64(args.authorityEpoch),
     encU128(args.amount),
     encU64(args.expirySlot),
   );
 }
 
 /**
- * WithdrawBackingBucket instruction data (tag 50).
+ * WithdrawBackingBucket instruction data (tag 50, v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) + domain(u16 LE) + amount(u128 LE) = 19 bytes.
+ * v18 wire: tag(1) + domain(u16 LE) + market_id(u64) + amount(u128 LE) +
+ *   authority_epoch(u64) = 35 bytes.
+ *
+ * BREAKING vs v17 (19-byte payload): adds `market_id` after `domain` and
+ * appends `authority_epoch` — a CAS check against the asset's OWN
+ * `AssetControlSequencesV16.authority_epoch` lane (W3A-1 direct-withdrawal
+ * binding). Pass the LIVE current epoch, NOT current+1 — the program itself
+ * decides and stores the next value; the caller only proves it read the
+ * current one.
  *
  * Withdraws `amount` quote atoms of backing-bucket PRINCIPAL from a domain
  * back to the authority's token account. Gated by the asset's
@@ -1397,26 +1627,36 @@ export function encodeTopUpBackingBucket(args: TopUpBackingBucketArgs): Uint8Arr
  *
  * @param domain Backing-bucket domain index (2*assetIndex for long,
  *               2*assetIndex+1 for short).
+ * @param marketId       The asset's market_id.
  * @param amount Quote atoms to withdraw (u128; must be > 0).
+ * @param authorityEpoch Live-read current `authority_epoch` for this asset (CAS, expected-current).
  */
 export interface WithdrawBackingBucketArgs {
   domain: number;
+  marketId: bigint | string;
   amount: bigint | string;
+  authorityEpoch: bigint | string;
 }
 
 export function encodeWithdrawBackingBucket(args: WithdrawBackingBucketArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.WithdrawBackingBucket),
     encU16(args.domain),
+    encU64(args.marketId),
     encU128(args.amount),
+    encU64(args.authorityEpoch),
   );
 }
 
 /**
- * UpdateBackingFeePolicy instruction data (tag 51).
+ * UpdateBackingFeePolicy instruction data (tag 51, v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) + domain(u16 LE) + fee_bps(u16 LE) +
- *   insurance_share_bps(u16 LE) = 7 bytes.
+ * v18 wire: tag(1) + domain(u16 LE) + market_id(u64) + fee_bps(u16 LE) +
+ *   insurance_share_bps(u16 LE) + policy_sequence(u64) = 23 bytes.
+ *
+ * BREAKING vs v17 (7-byte payload): adds `market_id` after `domain` and
+ * appends `policy_sequence` — a strictly-increasing replay nonce (this
+ * asset's control-sequences lane), NOT a CAS/current-epoch value.
  *
  * THE switch that turns on LP-vault yield for a domain: sets the
  * backing-trade fee charged on that domain's fills, of which
@@ -1436,29 +1676,40 @@ export function encodeWithdrawBackingBucket(args: WithdrawBackingBucketArgs): Ui
  * ≤ MAX_DYNAMIC_TRADE_FEE_BPS.
  *
  * @param domain            Domain index (2*assetIndex long, 2*assetIndex+1 short).
+ * @param marketId          The asset's market_id.
  * @param feeBps            Backing-trade fee in bps (0 turns the fee off).
  * @param insuranceShareBps Share of that fee diverted to insurance, in bps
  *                          of the fee (the rest goes to backing providers).
+ * @param policySequence    Strictly-increasing replay nonce (this asset's control-sequences lane).
  */
 export interface UpdateBackingFeePolicyArgs {
   domain: number;
+  marketId: bigint | string;
   feeBps: number;
   insuranceShareBps: number;
+  policySequence: bigint | string;
 }
 
 export function encodeUpdateBackingFeePolicy(args: UpdateBackingFeePolicyArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.UpdateBackingFeePolicy),
     encU16(args.domain),
+    encU64(args.marketId),
     encU16(args.feeBps),
     encU16(args.insuranceShareBps),
+    encU64(args.policySequence),
   );
 }
 
 /**
- * WithdrawBackingBucketEarnings instruction data (tag 52).
+ * WithdrawBackingBucketEarnings instruction data (tag 52, v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) + domain(u16 LE) + amount(u128 LE) = 19 bytes.
+ * v18 wire: tag(1) + domain(u16 LE) + market_id(u64) + amount(u128 LE) +
+ *   authority_epoch(u64) = 35 bytes.
+ *
+ * BREAKING vs v17 (19-byte payload): adds `market_id` after `domain` and
+ * appends `authority_epoch` (same CAS binding as {@link encodeWithdrawBackingBucket} —
+ * pass the LIVE current epoch, not current+1).
  *
  * Withdraws accrued `utilization_fee_earnings` (the LP-provider share of the
  * backing-trade fee enabled via tag 51) from a domain's backing bucket to
@@ -1469,11 +1720,15 @@ export function encodeUpdateBackingFeePolicy(args: UpdateBackingFeePolicyArgs): 
  * per-domain ledger account is REQUIRED (account [2]).
  *
  * @param domain Domain index (2*assetIndex long, 2*assetIndex+1 short).
+ * @param marketId       The asset's market_id.
  * @param amount Earnings quote atoms to withdraw (u128; must be > 0).
+ * @param authorityEpoch Live-read current `authority_epoch` for this asset (CAS, expected-current).
  */
 export interface WithdrawBackingBucketEarningsArgs {
   domain: number;
+  marketId: bigint | string;
   amount: bigint | string;
+  authorityEpoch: bigint | string;
 }
 
 export function encodeWithdrawBackingBucketEarnings(
@@ -1482,55 +1737,91 @@ export function encodeWithdrawBackingBucketEarnings(
   return concatBytes(
     encU8(IX_TAG.WithdrawBackingBucketEarnings),
     encU16(args.domain),
+    encU64(args.marketId),
     encU128(args.amount),
+    encU64(args.authorityEpoch),
   );
 }
 
 /**
- * TradeCpi instruction data (v17 wire format).
+ * TradeCpi instruction data (v18 wire format, integration `a9318945`).
  *
- * v17 wire: tag(1) + asset_index(u16) + size_q(i128) + fee_bps(u64) + limit_price(u64)
- *   = 35 bytes.  // GH#381: was 28; encodeTradeNoCpi already asserts 35
+ * v18 wire: tag(1) + account_a_portfolio_id(u64) + account_a_position_epoch(u64) +
+ *   account_b_portfolio_id(u64) + account_b_position_epoch(u64) +
+ *   account_b_matcher_sequence(u64) + asset_index(u16) + market_id(u64) +
+ *   size_q(i128) + fee_bps(u64) + limit_price(u64) + backing_fee_cap_bps(u16)
+ *   = 87 bytes.
  *
- * BREAKING vs v12.x: payload fields changed. v12 had lpIdx+userIdx+size+limitPriceE6;
- * v17 has asset_index+size_q+fee_bps+limit_price.
+ * BREAKING vs v17 (35-byte payload): same identity-binding additions as
+ * {@link encodeTradeNoCpi} (both legs' portfolio id/position epoch,
+ * `market_id`, `backing_fee_cap_bps`), PLUS `account_b_matcher_sequence` —
+ * account B is the CPI-matched side, and this binds the matcher-authorized
+ * fill to B's LIVE current matcher-sequence watermark (CAS).
  *
+ * @param accountAPortfolioId       Account A's portfolio identity.
+ * @param accountAPositionEpoch     Account A's current position epoch (CAS, live-read).
+ * @param accountBPortfolioId       Account B's portfolio identity.
+ * @param accountBPositionEpoch     Account B's current position epoch (CAS, live-read).
+ * @param accountBMatcherSequence   Account B's current matcher-sequence watermark (CAS, live-read).
  * @param assetIndex Asset/domain index.
+ * @param marketId   The traded asset's market_id.
  * @param sizeQ      Trade quantity (signed).
  * @param feeBps     Fee in basis points.
  * @param limitPrice Limit price in e6 units. 0 = no limit (accept any price).
  *                   Buys: reject if exec_price > limit_price.
  *                   Sells: reject if exec_price < limit_price.
+ * @param backingFeeCapBps  Caller's ceiling on the backing-domain fee (0..=10000).
  *
  * @example
  * ```ts
  * const data = encodeTradeCpi({
+ *   accountAPortfolioId: a.portfolioId,
+ *   accountAPositionEpoch: a.legs[0].epochSnap,
+ *   accountBPortfolioId: b.portfolioId,
+ *   accountBPositionEpoch: b.legs[0].epochSnap,
+ *   accountBMatcherSequence: b.matcherSequence,
  *   assetIndex: 0,
+ *   marketId: 1n,
  *   sizeQ: 1_000_000n,
  *   feeBps: 30n,
  *   limitPrice: 51_000_000_000n,  // max price for a buy
+ *   backingFeeCapBps: 0,
  * });
  * ```
  */
 export interface TradeCpiArgs {
+  accountAPortfolioId: bigint | string;
+  accountAPositionEpoch: bigint | string;
+  accountBPortfolioId: bigint | string;
+  accountBPositionEpoch: bigint | string;
+  accountBMatcherSequence: bigint | string;
   assetIndex: number;
+  marketId: bigint | string;
   sizeQ: bigint | string;
   feeBps: bigint | string;
   /** Limit price in e6 units. 0 = no limit. */
   limitPrice: bigint | string;
+  backingFeeCapBps: number;
 }
 
 export function encodeTradeCpi(args: TradeCpiArgs): Uint8Array {
   const data = concatBytes(
     encU8(IX_TAG.TradeCpi),
+    encU64(args.accountAPortfolioId),
+    encU64(args.accountAPositionEpoch),
+    encU64(args.accountBPortfolioId),
+    encU64(args.accountBPositionEpoch),
+    encU64(args.accountBMatcherSequence),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encI128(args.sizeQ),
     encU64(args.feeBps),
     encU64(args.limitPrice),
+    encU16(args.backingFeeCapBps),
   );
-  if (data.length !== 35) {
+  if (data.length !== 85) {
     throw new Error(
-      `encodeTradeCpi: expected 35 bytes (tag+u16+i128+u64+u64), got ${data.length}`,
+      `encodeTradeCpi: expected 85 bytes, got ${data.length}`,
     );
   }
   return data;
@@ -1599,10 +1890,17 @@ export function encodeUpdateAdmin(_args: UpdateAdminArgs): Uint8Array {
 }
 
 /**
- * CloseSlab instruction data (1 byte)
+ * CloseSlab instruction data (tag 13, v18 wire, integration `a9318945`).
+ *
+ * v18 wire: tag(1) + authority_epoch(u64) = 9 bytes.
+ *
+ * BREAKING vs v17 (bare 1-byte tag): appends `authority_epoch` — a CAS check
+ * (strict `current == expected`). Pass the LIVE current epoch, NOT current+1.
+ *
+ * @param authorityEpoch Live-read current authority_epoch (CAS, expected-current).
  */
-export function encodeCloseSlab(): Uint8Array {
-  return encU8(IX_TAG.CloseSlab);
+export function encodeCloseSlab(authorityEpoch: bigint | string): Uint8Array {
+  return concatBytes(encU8(IX_TAG.CloseSlab), encU64(authorityEpoch));
 }
 
 /**
@@ -1678,24 +1976,38 @@ export const RESOLVE_MODE_DEGENERATE = 1 as const;
 export type ResolveMode = typeof RESOLVE_MODE_ORDINARY | typeof RESOLVE_MODE_DEGENERATE;
 
 /**
- * ResolveMarket instruction data.
+ * ResolveMarket instruction data (v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) only — 1 byte total.
+ * v18 wire: tag(1) + asset_generation_frontier(u64) + authority_epoch(u64) = 17 bytes.
  *
- * BREAKING vs v12.x PORT-1 / Wave-12-J: the mode byte has been REMOVED.
- * The v17 decoder at `19 => Self::ResolveMarket` reads no bytes after the
- * tag. Sending a 2-byte payload causes the extra byte to be consumed by the
- * next read in a subsequent call, corrupting the instruction stream.
+ * BREAKING vs v17 (bare 1-byte tag): the v16-migration identity-binding
+ * overhaul adds `asset_generation_frontier` (the caller's live-read view of
+ * the market's asset-set generation, guarding against resolving mid asset
+ * activation/retirement) and `authority_epoch` (CAS — the live current
+ * epoch, not current+1).
  *
- * The `mode` argument is accepted for source compatibility but is silently ignored.
+ * The `mode` argument remains accepted for v12.x source compatibility but is
+ * silently ignored — v18 ResolveMarket has no mode byte either.
+ *
+ * @param assetGenerationFrontier  Live-read current asset-set generation.
+ * @param authorityEpoch           Live-read current authority_epoch (CAS, expected-current).
  *
  * @example
  * ```ts
- * const data = encodeResolveMarket();
+ * const data = encodeResolveMarket({
+ *   assetGenerationFrontier: cfg.assetSetEpoch,
+ *   authorityEpoch: 0n,
+ * });
  * ```
  */
-export function encodeResolveMarket(_args: { mode?: ResolveMode } = {}): Uint8Array {
-  return new Uint8Array([IX_TAG.ResolveMarket]);
+export function encodeResolveMarket(
+  args: { mode?: ResolveMode; assetGenerationFrontier: bigint | string; authorityEpoch: bigint | string },
+): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.ResolveMarket),
+    encU64(args.assetGenerationFrontier),
+    encU64(args.authorityEpoch),
+  );
 }
 
 /**
@@ -2160,6 +2472,222 @@ export function encodeAuditCrank(): Uint8Array {
 }
 
 // ============================================================================
+// v18 wire (integration `a9318945`) — encoders added for the first time by
+// the v16-migration SDK update. These tags existed in the v17 wrapper (some
+// unchanged, some reshaped) but had NO encoder anywhere in this file before
+// now.
+// ============================================================================
+
+/**
+ * UpdateAssetLifecycle (tag 40) — activate, retire or reconfigure an asset
+ * slot (v18 wire, integration `a9318945`).
+ *
+ * Wire: tag(1) + action(u8) + asset_index(u16) + market_id(u64) +
+ *   authority_epoch(u64) + now_slot(u64) + initial_price(u64) +
+ *   max_init_fee(u128) + insurance_authority[32] + insurance_operator[32] +
+ *   backing_bucket_authority[32] + oracle_authority[32] = 180 bytes.
+ *
+ * BREAKING vs v17: adds `market_id` and `authority_epoch` (right after
+ * `asset_index`) and `max_init_fee` (u128, right after `initial_price`).
+ * `authority_epoch` is a CAS check against the TARGET asset's own
+ * `AssetControlSequencesV16.authority_epoch` lane — pass the LIVE current
+ * epoch, NOT current+1.
+ *
+ * @param action   Lifecycle action byte (program-defined — activate/retire/reconfigure).
+ * @param assetIndex Asset index being acted on.
+ * @param marketId   The asset's market_id.
+ * @param authorityEpoch  Live-read current authority_epoch for this asset (CAS, expected-current).
+ * @param nowSlot    Current slot.
+ * @param initialPrice  Initial mark price in e6 units.
+ * @param maxInitFee    Maximum permissionless-market-init fee the caller will accept (u128).
+ * @param insuranceAuthority     New/current insurance authority for this asset.
+ * @param insuranceOperator      New/current insurance operator for this asset.
+ * @param backingBucketAuthority New/current backing-bucket authority for this asset.
+ * @param oracleAuthority        New/current oracle authority for this asset.
+ */
+export interface UpdateAssetLifecycleArgs {
+  action: number;
+  assetIndex: number;
+  marketId: bigint | string;
+  authorityEpoch: bigint | string;
+  nowSlot: bigint | string;
+  initialPrice: bigint | string;
+  maxInitFee: bigint | string;
+  insuranceAuthority: PublicKey | string;
+  insuranceOperator: PublicKey | string;
+  backingBucketAuthority: PublicKey | string;
+  oracleAuthority: PublicKey | string;
+}
+
+export function encodeUpdateAssetLifecycle(args: UpdateAssetLifecycleArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.UpdateAssetLifecycle),
+    encU8(args.action),
+    encU16(args.assetIndex),
+    encU64(args.marketId),
+    encU64(args.authorityEpoch),
+    encU64(args.nowSlot),
+    encU64(args.initialPrice),
+    encU128(args.maxInitFee),
+    encPubkey(args.insuranceAuthority),
+    encPubkey(args.insuranceOperator),
+    encPubkey(args.backingBucketAuthority),
+    encPubkey(args.oracleAuthority),
+  );
+}
+
+/**
+ * CureAndCancelClose (tag 42) — deposit to cure a bankrupt/closing portfolio
+ * and cancel its in-progress close (v18 wire, integration `a9318945`).
+ *
+ * Wire: tag(1) + portfolio_id(u64) + position_epoch(u64) +
+ *   optional_deposit(u128) = 33 bytes.
+ *
+ * BREAKING vs v17 (17-byte, deposit-only payload): CAS-binds to the
+ * portfolio's identity and current position epoch (both live-read).
+ *
+ * @param portfolioId      The portfolio's program-assigned identity.
+ * @param positionEpoch    The portfolio's current position epoch, read live.
+ * @param optionalDeposit  Atoms to deposit while curing (u128; 0 = no deposit, cancel only).
+ */
+export interface CureAndCancelCloseArgs {
+  portfolioId: bigint | string;
+  positionEpoch: bigint | string;
+  optionalDeposit: bigint | string;
+}
+
+export function encodeCureAndCancelClose(args: CureAndCancelCloseArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.CureAndCancelClose),
+    encU64(args.portfolioId),
+    encU64(args.positionEpoch),
+    encU128(args.optionalDeposit),
+  );
+}
+
+/**
+ * ForfeitRecoveryLeg (tag 43) — forfeit a leg's residual B budget during
+ * bankruptcy recovery (v18 wire, integration `a9318945`).
+ *
+ * Wire: tag(1) + portfolio_id(u64) + position_epoch(u64) + asset_index(u16) +
+ *   b_loss_atom_budget(u128) = 35 bytes.
+ *
+ * BREAKING vs v17: adds `portfolio_id`/`position_epoch` CAS binding (both
+ * live-read) BEFORE `asset_index`. The trailing field itself was also
+ * renamed on the wrapper side: `b_delta_budget` -> `b_loss_atom_budget`
+ * (same position/type/width — cosmetic rename only, not a wire-shape
+ * change).
+ *
+ * @param portfolioId      The portfolio's program-assigned identity.
+ * @param positionEpoch    The portfolio's current position epoch, read live.
+ * @param assetIndex       Leg's asset index.
+ * @param bLossAtomBudget  Budget of B-domain loss atoms to forfeit (u128).
+ */
+export interface ForfeitRecoveryLegArgs {
+  portfolioId: bigint | string;
+  positionEpoch: bigint | string;
+  assetIndex: number;
+  bLossAtomBudget: bigint | string;
+}
+
+export function encodeForfeitRecoveryLeg(args: ForfeitRecoveryLegArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.ForfeitRecoveryLeg),
+    encU64(args.portfolioId),
+    encU64(args.positionEpoch),
+    encU16(args.assetIndex),
+    encU128(args.bLossAtomBudget),
+  );
+}
+
+/**
+ * RebalanceReduce (tag 44) — reduce a leg's position during bankruptcy
+ * recovery rebalancing (v18 wire, integration `a9318945`).
+ *
+ * Wire: tag(1) + portfolio_id(u64) + position_epoch(u64) + asset_index(u16) +
+ *   reduce_q(u128) = 35 bytes.
+ *
+ * BREAKING vs v17: adds `portfolio_id`/`position_epoch` CAS binding (both
+ * live-read) BEFORE `asset_index`.
+ *
+ * @param portfolioId    The portfolio's program-assigned identity.
+ * @param positionEpoch  The portfolio's current position epoch, read live.
+ * @param assetIndex     Leg's asset index.
+ * @param reduceQ        Quantity to reduce the leg by (u128).
+ */
+export interface RebalanceReduceArgs {
+  portfolioId: bigint | string;
+  positionEpoch: bigint | string;
+  assetIndex: number;
+  reduceQ: bigint | string;
+}
+
+export function encodeRebalanceReduce(args: RebalanceReduceArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.RebalanceReduce),
+    encU64(args.portfolioId),
+    encU64(args.positionEpoch),
+    encU16(args.assetIndex),
+    encU128(args.reduceQ),
+  );
+}
+
+/**
+ * UpdateBaseUnitMints (tag 60) — rotate the primary/secondary base-unit
+ * mints (v18 wire, integration `a9318945`).
+ *
+ * Wire: tag(1) + primary_mint[32] + secondary_mint[32] + authority_epoch(u64)
+ *   = 73 bytes.
+ *
+ * BREAKING vs v17 (65-byte payload): appends `authority_epoch` — a CAS
+ * check (strict `current == expected`). Pass the LIVE current epoch, NOT
+ * current+1.
+ *
+ * @param primaryMint     New primary base-unit mint.
+ * @param secondaryMint   New secondary base-unit mint.
+ * @param authorityEpoch  Live-read current authority_epoch (CAS, expected-current).
+ */
+export interface UpdateBaseUnitMintsArgs {
+  primaryMint: PublicKey | string;
+  secondaryMint: PublicKey | string;
+  authorityEpoch: bigint | string;
+}
+
+export function encodeUpdateBaseUnitMints(args: UpdateBaseUnitMintsArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.UpdateBaseUnitMints),
+    encPubkey(args.primaryMint),
+    encPubkey(args.secondaryMint),
+    encU64(args.authorityEpoch),
+  );
+}
+
+/**
+ * SwapSecondaryForPrimary (tag 61) — swap secondary base-unit atoms for
+ * primary (v18 wire, integration `a9318945`).
+ *
+ * Wire: tag(1) + amount(u128) + authority_epoch(u64) = 25 bytes.
+ *
+ * BREAKING vs v17 (17-byte payload): appends `authority_epoch` — a CAS
+ * check. Pass the LIVE current epoch, NOT current+1.
+ *
+ * @param amount          Secondary atoms to swap (u128).
+ * @param authorityEpoch  Live-read current authority_epoch (CAS, expected-current).
+ */
+export interface SwapSecondaryForPrimaryArgs {
+  amount: bigint | string;
+  authorityEpoch: bigint | string;
+}
+
+export function encodeSwapSecondaryForPrimary(args: SwapSecondaryForPrimaryArgs): Uint8Array {
+  return concatBytes(
+    encU8(IX_TAG.SwapSecondaryForPrimary),
+    encU128(args.amount),
+    encU64(args.authorityEpoch),
+  );
+}
+
+// ============================================================================
 // SMART PRICE ROUTER — quote computation for LP selection
 // ============================================================================
 
@@ -2190,6 +2718,177 @@ export const CTX_VAMM_OFFSET = 64;
 export const CTX_VAMM_LEN = 256;
 /** Total matcher context account size: MATCHER_RETURN_LEN + CTX_VAMM_LEN */
 export const MATCHER_CONTEXT_LEN = 320;
+
+// ============================================================================
+// MatcherReturn (v18, integration `a9318945`) — the 64-byte CPI response a
+// matcher program writes into its own context account for the wrapper to
+// read back after `TradeCpi`/`BatchTradeCpi`. Locked wire per
+// WRAPPER_SYNC_LOCKED_WIRE.md, byte-verified against
+// `percolator-prog::matcher_abi::{MatcherReturn, read_matcher_return}`.
+// ============================================================================
+
+/** `matcher_abi::FLAG_VALID` — bit0 of `MatcherReturn.flags`. */
+export const MATCHER_RETURN_FLAG_VALID = 1;
+/** `matcher_abi::FLAG_PARTIAL_OK` — bit1 of `MatcherReturn.flags`. */
+export const MATCHER_RETURN_FLAG_PARTIAL_OK = 2;
+/** `matcher_abi::FLAG_REJECTED` — bit2 of `MatcherReturn.flags`. */
+export const MATCHER_RETURN_FLAG_REJECTED = 4;
+/**
+ * `matcher_abi::FLAG_BACKING_FEE_CAP_SHIFT` (sync/w2-e24cf78e, ADOPT upstream
+ * e24cf78e "require matcher consent for CPI backing fees"). Bits 8..21 of
+ * `flags` carry the LP matcher's self-declared cap (bps, 0..=10000) on how
+ * much backing-domain fee it consents to being charged on its own
+ * (account_b) side of a CPI-filled trade. An unupgraded matcher (one that
+ * never sets these bits) reads back cap=0, which fails closed — the wrapper
+ * REJECTS any CPI trade that would actually charge a nonzero backing-domain
+ * fee against the LP until the matcher program is updated to emit a real cap.
+ */
+export const MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT = 8;
+/** `matcher_abi::FLAG_BACKING_FEE_CAP_MASK` = `0x3fff << 8`. */
+export const MATCHER_RETURN_FLAG_BACKING_FEE_CAP_MASK = 0x3fff << MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT;
+/**
+ * Every flag bit the wrapper's `read_matcher_return` gate recognizes. ANY
+ * bit outside this mask set anywhere in `flags` makes the wrapper reject the
+ * whole CPI trade — matches the wrapper's own
+ * `KNOWN_FLAGS = FLAG_VALID | FLAG_PARTIAL_OK | FLAG_REJECTED | FLAG_BACKING_FEE_CAP_MASK`
+ * check exactly, and {@link decodeMatcherReturn} enforces the identical gate
+ * client-side.
+ */
+export const MATCHER_RETURN_KNOWN_FLAGS =
+  MATCHER_RETURN_FLAG_VALID |
+  MATCHER_RETURN_FLAG_PARTIAL_OK |
+  MATCHER_RETURN_FLAG_REJECTED |
+  MATCHER_RETURN_FLAG_BACKING_FEE_CAP_MASK;
+
+/**
+ * Decoded 64-byte `MatcherReturn` — the CPI response wire, byte-identical to
+ * `percolator-prog::matcher_abi::MatcherReturn`:
+ *   abi_version:u32@0, flags:u32@4, exec_price_e6:u64@8, exec_size:i128@16,
+ *   req_id:u64@32, lp_account_id:u64@40, oracle_price_e6:u64@48, asset_index:u64@56.
+ */
+export interface MatcherReturn {
+  abiVersion: number;
+  flags: number;
+  execPriceE6: bigint;
+  execSize: bigint;
+  reqId: bigint;
+  lpAccountId: bigint;
+  oraclePriceE6: bigint;
+  assetIndex: bigint;
+  /** Decoded from `flags` bit0 (`FLAG_VALID`). */
+  valid: boolean;
+  /** Decoded from `flags` bit1 (`FLAG_PARTIAL_OK`). */
+  partialOk: boolean;
+  /** Decoded from `flags` bit2 (`FLAG_REJECTED`). */
+  rejected: boolean;
+  /**
+   * Decoded from `flags` bits 8..21 (`FLAG_BACKING_FEE_CAP_MASK`), 0..=10000.
+   * 0 fails closed against any nonzero backing-domain fee — see
+   * {@link MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT}'s doc comment.
+   */
+  backingFeeCapBps: number;
+}
+
+/**
+ * Decode a 64-byte `MatcherReturn` from a matcher context account's raw
+ * bytes, mirroring `percolator-prog::matcher_abi::read_matcher_return`
+ * EXACTLY, including its `KNOWN_FLAGS` gate.
+ *
+ * @param data    Raw matcher context account bytes.
+ * @param offset  Byte offset where the MatcherReturn starts (default
+ *                {@link CTX_RETURN_OFFSET} = 0, per ABI).
+ * @throws If `data` is too short, or `flags` has any bit set outside
+ *   {@link MATCHER_RETURN_KNOWN_FLAGS} (matches the wrapper's own
+ *   fail-closed gate — the wrapper would reject the CPI trade the same way).
+ */
+export function decodeMatcherReturn(data: Uint8Array, offset: number = CTX_RETURN_OFFSET): MatcherReturn {
+  if (data.length < offset + MATCHER_RETURN_LEN) {
+    throw new Error(
+      `decodeMatcherReturn: data too short — need ${offset + MATCHER_RETURN_LEN} bytes, got ${data.length}`,
+    );
+  }
+  const view = new DataView(data.buffer, data.byteOffset + offset, MATCHER_RETURN_LEN);
+  const abiVersion = view.getUint32(0, true);
+  const flags = view.getUint32(4, true);
+  const execPriceE6 = view.getBigUint64(8, true);
+  const execSizeLo = view.getBigUint64(16, true);
+  const execSizeHi = view.getBigUint64(24, true);
+  let execSize = (execSizeHi << 64n) | execSizeLo;
+  if (execSize >= 1n << 127n) execSize -= 1n << 128n; // i128 sign extension
+  const reqId = view.getBigUint64(32, true);
+  const lpAccountId = view.getBigUint64(40, true);
+  const oraclePriceE6 = view.getBigUint64(48, true);
+  const assetIndex = view.getBigUint64(56, true);
+
+  if ((flags & ~MATCHER_RETURN_KNOWN_FLAGS) !== 0) {
+    throw new Error(
+      `decodeMatcherReturn: unknown flag bits set (flags=0x${flags.toString(16)}, ` +
+      `known=0x${MATCHER_RETURN_KNOWN_FLAGS.toString(16)})`,
+    );
+  }
+
+  return {
+    abiVersion,
+    flags,
+    execPriceE6,
+    execSize,
+    reqId,
+    lpAccountId,
+    oraclePriceE6,
+    assetIndex,
+    valid: (flags & MATCHER_RETURN_FLAG_VALID) !== 0,
+    partialOk: (flags & MATCHER_RETURN_FLAG_PARTIAL_OK) !== 0,
+    rejected: (flags & MATCHER_RETURN_FLAG_REJECTED) !== 0,
+    backingFeeCapBps: (flags & MATCHER_RETURN_FLAG_BACKING_FEE_CAP_MASK) >>> MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT,
+  };
+}
+
+/**
+ * Encode a `MatcherReturn` to its 64-byte wire form — the inverse of
+ * {@link decodeMatcherReturn}. Useful for a TypeScript-side reference/test
+ * matcher writing its own CPI response.
+ *
+ * Composes `flags` from the individual boolean/bps fields rather than taking
+ * a raw `flags` number, so a caller cannot accidentally set an unknown bit —
+ * the wire is always exactly `MATCHER_RETURN_KNOWN_FLAGS`-clean by
+ * construction.
+ *
+ * @param args  Same shape as {@link MatcherReturn} minus the derived `flags` field.
+ */
+export function encodeMatcherReturn(args: {
+  abiVersion: number;
+  execPriceE6: bigint | string;
+  execSize: bigint | string;
+  reqId: bigint | string;
+  lpAccountId: bigint | string;
+  oraclePriceE6: bigint | string;
+  assetIndex: bigint | string;
+  valid: boolean;
+  partialOk: boolean;
+  rejected: boolean;
+  backingFeeCapBps: number;
+}): Uint8Array {
+  if (args.backingFeeCapBps < 0 || args.backingFeeCapBps > 10_000) {
+    throw new Error(`encodeMatcherReturn: backingFeeCapBps must be 0..=10000, got ${args.backingFeeCapBps}`);
+  }
+  const flags =
+    (args.valid ? MATCHER_RETURN_FLAG_VALID : 0) |
+    (args.partialOk ? MATCHER_RETURN_FLAG_PARTIAL_OK : 0) |
+    (args.rejected ? MATCHER_RETURN_FLAG_REJECTED : 0) |
+    ((args.backingFeeCapBps << MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT) & MATCHER_RETURN_FLAG_BACKING_FEE_CAP_MASK);
+
+  return concatBytes(
+    encU32(args.abiVersion),
+    encU32(flags),
+    encU64(args.execPriceE6),
+    encI128(args.execSize),
+    encU64(args.reqId),
+    encU64(args.lpAccountId),
+    encU64(args.oraclePriceE6),
+    encU64(args.assetIndex),
+  );
+}
+
 /** Byte length of a MatcherCall instruction (tag 0 CPI payload) */
 export const MATCHER_CALL_LEN = 67;
 /**
@@ -3114,33 +3813,41 @@ export function encodeDepositFeeCredits(_args: DepositFeeCreditsArgs): Uint8Arra
  * ConvertReleasedPnl (tag 28) — voluntary PnL conversion with open position.
  * Owner only.
  *
- * v17 wire: tag(1) + amount(u128 LE) = 17 bytes.
+ * v18 wire (integration `a9318945`): tag(1) + portfolio_id(u64) +
+ *   position_epoch(u64) + amount(u128 LE) = 33 bytes.
  *
- * BREAKING vs v12.x: userIdx(u16) removed; amount promoted u64→u128.
- * The v17 decoder at tag 28 reads `amount: read_u128(&mut rest)?` — the
- * old 2-byte userIdx is consumed as the first 2 bytes of the u128, then
- * only 8 bytes remain for the u128 tail (14 bytes short). Every call fails
- * with InvalidInstructionData. Also, `userIdx` is stale — v17 portfolios
- * are identified by account key alone.
+ * BREAKING vs v17 (17-byte payload): the v16-migration identity-binding
+ * overhaul CAS-binds this to the portfolio's identity and current position
+ * epoch (both read live, immediately before signing).
  *
  * Accounts: see ACCOUNTS_CONVERT_RELEASED_PNL.
  *
- * @param amount  Amount of released PnL to convert (u128).
+ * @param portfolioId    The portfolio's program-assigned identity.
+ * @param positionEpoch  The portfolio's current position epoch, read live.
+ * @param amount         Amount of released PnL to convert (u128).
  *
  * @example
  * ```ts
- * const data = encodeConvertReleasedPnl({ amount: 1_000_000n });
+ * const data = encodeConvertReleasedPnl({
+ *   portfolioId: portfolio.portfolioId,
+ *   positionEpoch: portfolio.legs[0].epochSnap,
+ *   amount: 1_000_000n,
+ * });
  * ```
  */
 export interface ConvertReleasedPnlArgs {
-  /** @deprecated userIdx is not needed in v17 — portfolios are identified by account key. */
+  /** @deprecated userIdx is not needed in v17+ — portfolios are identified by account key. */
   userIdx?: number;
+  portfolioId: bigint | string;
+  positionEpoch: bigint | string;
   amount: bigint | string;
 }
 
 export function encodeConvertReleasedPnl(args: ConvertReleasedPnlArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.ConvertReleasedPnl),
+    encU64(args.portfolioId),
+    encU64(args.positionEpoch),
     encU128(args.amount),
   );
 }
@@ -3153,27 +3860,36 @@ export function encodeConvertReleasedPnl(args: ConvertReleasedPnlArgs): Uint8Arr
 /**
  * UpdateAuthority (tag 32) — rotate the single market-level authority (marketauth).
  *
- * v17 wire: tag(1) + new_pubkey[32] = 33 bytes.
+ * v18 wire (integration `a9318945`): tag(1) + new_pubkey[32] + authority_epoch(u64)
+ *   = 41 bytes.
  *
- * BREAKING vs v12.18.x: the kind byte is REMOVED. Tag 32 now ONLY rotates
- * marketauth. Per-asset authority rotation uses tag 65 (UpdateAssetAuthority).
- * Burning marketauth to zero is rejected on-chain.
+ * BREAKING vs v17 (33-byte payload): the v16-migration identity-binding
+ * overhaul appends `authority_epoch` — a CAS check (strict `current ==
+ * expected`, auto-incremented by the program). Pass the LIVE current epoch,
+ * NOT current+1 — this closes the durable-nonce replay window where a
+ * signed rotation intent, if never submitted, would otherwise remain valid
+ * across later legitimate rotations.
  *
  * Accounts: [currentAuth(signer), newAuth(signer), slab(writable)]
  *
+ * @param newPubkey       New marketauth pubkey. Burning to zero is rejected on-chain.
+ * @param authorityEpoch  Live-read current authority_epoch (CAS, expected-current).
+ *
  * @example
  * ```ts
- * const data = encodeUpdateAuthority({ newPubkey: newAdminKey });
+ * const data = encodeUpdateAuthority({ newPubkey: newAdminKey, authorityEpoch: 0n });
  * ```
  */
 export interface UpdateAuthorityArgs {
   newPubkey: PublicKey | string;
+  authorityEpoch: bigint | string;
 }
 
 export function encodeUpdateAuthority(args: UpdateAuthorityArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.UpdateAuthority),
     encPubkey(args.newPubkey),
+    encU64(args.authorityEpoch),
   );
 }
 
@@ -3217,16 +3933,27 @@ Object.freeze(ASSET_AUTH_KIND);
 export type AssetAuthKind = (typeof ASSET_AUTH_KIND)[keyof typeof ASSET_AUTH_KIND];
 
 /**
- * UpdateAssetAuthority (tag 65) — rotate a per-asset authority.
+ * UpdateAssetAuthority (tag 65) — rotate a per-asset authority (v18 wire,
+ * integration `a9318945`; LOCKED WIRE per WRAPPER_SYNC_LOCKED_WIRE.md).
  *
- * Wire: tag(1) + asset_index(u16) + kind(u8) + new_pubkey[32] = 36 bytes.
+ * Wire: tag(1) + asset_index(u16)@1 + market_id(u64)@3 + kind(u8)@11 +
+ *   new_pubkey[32]@12 + authority_epoch(u64)@44 = 52 bytes.
+ *
+ * BREAKING vs v17 (36-byte payload): adds `market_id` (right after
+ * `asset_index`, TB-4's market-id-bearing cluster) and appends
+ * `authority_epoch` — a CAS check against this asset's OWN
+ * `AssetControlSequencesV16.authority_epoch` lane. Pass the LIVE current
+ * epoch, NOT current+1 (durable-nonce landmine if wrong — see the lane's own
+ * doc comment in the wrapper source).
  *
  * Gated by the asset's own asset_admin (can rotate any) or by the current
  * holder of that authority (self-rotation). Isolated to the given asset_index.
  *
  * @param assetIndex Asset index (0 = primary, 1+ = additional assets).
+ * @param marketId   The asset's market_id.
  * @param kind       ASSET_AUTH_KIND.* constant.
  * @param newPubkey  New authority pubkey. Zero = burn (only AssetAdmin on asset!=0).
+ * @param authorityEpoch  Live-read current authority_epoch for this asset (CAS, expected-current).
  *
  * @example
  * ```ts
@@ -3234,23 +3961,29 @@ export type AssetAuthKind = (typeof ASSET_AUTH_KIND)[keyof typeof ASSET_AUTH_KIN
  * // ASSET_AUTH_KIND.Insurance = 1 (routes to insurance_authority slot on-chain)
  * const data = encodeUpdateAssetAuthority({
  *   assetIndex: 0,
+ *   marketId: 1n,
  *   kind: ASSET_AUTH_KIND.Insurance,
  *   newPubkey: newInsuranceKey,
+ *   authorityEpoch: 0n,
  * });
  * ```
  */
 export interface UpdateAssetAuthorityArgs {
   assetIndex: number;
+  marketId: bigint | string;
   kind: AssetAuthKind;
   newPubkey: PublicKey | string;
+  authorityEpoch: bigint | string;
 }
 
 export function encodeUpdateAssetAuthority(args: UpdateAssetAuthorityArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.UpdateAssetAuthority),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU8(args.kind),
     encPubkey(args.newPubkey),
+    encU64(args.authorityEpoch),
   );
 }
 
@@ -3263,28 +3996,52 @@ export function encodeUpdateAssetAuthority(args: UpdateAssetAuthorityArgs): Uint
  */
 export interface BatchTradeNoCpiLeg {
   assetIndex: number;
+  marketId: bigint | string;
   sizeQ: bigint | string;
   execPrice: bigint | string;
   feeBps: bigint | string;
 }
 
 /**
- * BatchTradeNoCpi (tag 66) — multi-leg NoCpi batch trade.
+ * BatchTradeNoCpi (tag 66) — multi-leg NoCpi batch trade (v18 wire,
+ * integration `a9318945`).
  *
- * Wire: tag(1) + n_legs(u8) + [asset_index(u16) + size_q(i128) + exec_price(u64) + fee_bps(u64)]×n
+ * Wire: tag(1) + n_legs(u8) + [asset_index(u16) + market_id(u64) + size_q(i128)
+ *   + exec_price(u64) + fee_bps(u64)]×n + account_a_portfolio_id(u64) +
+ *   account_a_position_epoch(u64) + account_b_portfolio_id(u64) +
+ *   account_b_position_epoch(u64).
+ *
+ * BREAKING vs v17: each leg gains `market_id` (TB-4's market-id-bearing
+ * cluster), and the whole instruction gains the identity-binding trailer
+ * (both accounts' portfolio id + position epoch, CAS, AFTER the legs — the
+ * wrapper reads legs first, then the two account identities).
  *
  * @param legs Array of up to 255 trade legs.
+ * @param accountAPortfolioId    Account A's portfolio identity.
+ * @param accountAPositionEpoch  Account A's current position epoch (CAS, live-read).
+ * @param accountBPortfolioId    Account B's portfolio identity.
+ * @param accountBPositionEpoch  Account B's current position epoch (CAS, live-read).
  *
  * @example
  * ```ts
- * const data = encodeBatchTradeNoCpi({ legs: [
- *   { assetIndex: 0, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 30n },
- *   { assetIndex: 1, sizeQ: -500_000n,  execPrice: 40_000_000_000n, feeBps: 30n },
- * ]});
+ * const data = encodeBatchTradeNoCpi({
+ *   legs: [
+ *     { assetIndex: 0, marketId: 1n, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 30n },
+ *     { assetIndex: 1, marketId: 2n, sizeQ: -500_000n,  execPrice: 40_000_000_000n, feeBps: 30n },
+ *   ],
+ *   accountAPortfolioId: a.portfolioId,
+ *   accountAPositionEpoch: a.legs[0].epochSnap,
+ *   accountBPortfolioId: b.portfolioId,
+ *   accountBPositionEpoch: b.legs[0].epochSnap,
+ * });
  * ```
  */
 export interface BatchTradeNoCpiArgs {
   legs: BatchTradeNoCpiLeg[];
+  accountAPortfolioId: bigint | string;
+  accountAPositionEpoch: bigint | string;
+  accountBPortfolioId: bigint | string;
+  accountBPositionEpoch: bigint | string;
 }
 
 function validateBatchTradeFeeBps(value: bigint | string, caller: string): void {
@@ -3310,30 +4067,62 @@ export function encodeBatchTradeNoCpi(args: BatchTradeNoCpiArgs): Uint8Array {
   for (const leg of args.legs) {
     validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeNoCpi");
     parts.push(encU16(leg.assetIndex));
+    parts.push(encU64(leg.marketId));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.execPrice));
     parts.push(encU64(leg.feeBps));
   }
 
+  parts.push(encU64(args.accountAPortfolioId));
+  parts.push(encU64(args.accountAPositionEpoch));
+  parts.push(encU64(args.accountBPortfolioId));
+  parts.push(encU64(args.accountBPositionEpoch));
+
   return concatBytes(...parts);
 }
 /**
- * BatchTradeCpi (tag 67) — multi-leg CPI batch trade.
+ * BatchTradeCpi (tag 67) — multi-leg CPI batch trade (v18 wire, integration
+ * `a9318945`).
  *
- * Wire: tag(1) + n_legs(u8) + [asset_index(u16) + size_q(i128) + fee_bps(u64) + limit_price(u64)]×n
+ * Wire: tag(1) + n_legs(u8) + [asset_index(u16) + market_id(u64) + size_q(i128)
+ *   + fee_bps(u64) + limit_price(u64)]×n + max_slippage_atoms(u128) +
+ *   max_fee_atoms(u128) + account_a_portfolio_id(u64) +
+ *   account_a_position_epoch(u64) + account_b_portfolio_id(u64) +
+ *   account_b_position_epoch(u64) + account_b_matcher_sequence(u64).
+ *
+ * BREAKING vs v17: each leg gains `market_id`; the instruction gains
+ * `max_slippage_atoms`/`max_fee_atoms` caps and the full identity-binding
+ * trailer (both accounts' portfolio id + position epoch, plus account B's
+ * matcher sequence — the CPI-matched side), all AFTER the legs, in that
+ * order.
  *
  * @param legs Array of up to 255 CPI trade legs.
+ * @param maxSlippageAtoms  Aggregate slippage cap across the whole batch (u128).
+ * @param maxFeeAtoms       Aggregate fee cap across the whole batch (u128).
+ * @param accountAPortfolioId       Account A's portfolio identity.
+ * @param accountAPositionEpoch     Account A's current position epoch (CAS, live-read).
+ * @param accountBPortfolioId       Account B's portfolio identity.
+ * @param accountBPositionEpoch     Account B's current position epoch (CAS, live-read).
+ * @param accountBMatcherSequence   Account B's current matcher-sequence watermark (CAS, live-read).
  *
  * @example
  * ```ts
- * const data = encodeBatchTradeCpi({ legs: [
- *   { assetIndex: 0, sizeQ: 1_000_000n, feeBps: 30n, limitPrice: 51_000_000_000n },
- * ]});
+ * const data = encodeBatchTradeCpi({
+ *   legs: [{ assetIndex: 0, marketId: 1n, sizeQ: 1_000_000n, feeBps: 30n, limitPrice: 51_000_000_000n }],
+ *   maxSlippageAtoms: 0n,
+ *   maxFeeAtoms: 0n,
+ *   accountAPortfolioId: a.portfolioId,
+ *   accountAPositionEpoch: a.legs[0].epochSnap,
+ *   accountBPortfolioId: b.portfolioId,
+ *   accountBPositionEpoch: b.legs[0].epochSnap,
+ *   accountBMatcherSequence: b.matcherSequence,
+ * });
  * ```
  */
 
 export interface BatchTradeCpiLeg {
   assetIndex: number;
+  marketId: bigint | string;
   sizeQ: bigint | string;
   feeBps: bigint | string;
   limitPrice: bigint | string;
@@ -3341,6 +4130,13 @@ export interface BatchTradeCpiLeg {
 
 export interface BatchTradeCpiArgs {
   legs: BatchTradeCpiLeg[];
+  maxSlippageAtoms: bigint | string;
+  maxFeeAtoms: bigint | string;
+  accountAPortfolioId: bigint | string;
+  accountAPositionEpoch: bigint | string;
+  accountBPortfolioId: bigint | string;
+  accountBPositionEpoch: bigint | string;
+  accountBMatcherSequence: bigint | string;
 }
 
 export function encodeBatchTradeCpi(args: BatchTradeCpiArgs): Uint8Array {
@@ -3359,10 +4155,19 @@ export function encodeBatchTradeCpi(args: BatchTradeCpiArgs): Uint8Array {
   for (const leg of args.legs) {
     validateBatchTradeFeeBps(leg.feeBps, "encodeBatchTradeCpi");
     parts.push(encU16(leg.assetIndex));
+    parts.push(encU64(leg.marketId));
     parts.push(encI128(leg.sizeQ));
     parts.push(encU64(leg.feeBps));
     parts.push(encU64(leg.limitPrice));
   }
+
+  parts.push(encU128(args.maxSlippageAtoms));
+  parts.push(encU128(args.maxFeeAtoms));
+  parts.push(encU64(args.accountAPortfolioId));
+  parts.push(encU64(args.accountAPositionEpoch));
+  parts.push(encU64(args.accountBPortfolioId));
+  parts.push(encU64(args.accountBPositionEpoch));
+  parts.push(encU64(args.accountBMatcherSequence));
 
   return concatBytes(...parts);
 }
@@ -3372,26 +4177,63 @@ export function encodeBatchTradeCpi(args: BatchTradeCpiArgs): Uint8Array {
 // ============================================================================
 
 /**
- * SetMatcherConfig (tag 68) — enable or disable the matcher for this portfolio.
+ * SetMatcherConfig (tag 68) — enable or disable the external matcher for
+ * this portfolio, and (v18) set its position-epoch frontier, trade-fee cap
+ * and expiry (v18 wire, integration `a9318945`).
  *
- * Wire: tag(1) + enabled(u8) = 2 bytes.
+ * Wire: tag(1) + portfolio_id(u64) + expected_sequence(u64) +
+ *   asset_generation_frontier(u64) + enabled(u8) + trade_fee_cap_bps(u16) +
+ *   expiry_slot(u64) = 36 bytes.
  *
- * @param enabled 1 = enabled, 0 = disabled.
+ * BREAKING vs v17 (2-byte payload): this is the tag TB-1a's account-side
+ * `PortfolioMatcherConfigV16.control` bit-packing was built for —
+ * `trade_fee_cap_bps` here SETS bits 50..63 of that on-chain `control` word
+ * (see {@link decodePortfolioMatcherControl}), and `asset_generation_frontier`
+ * bumps the account's stored position-epoch frontier. `portfolio_id`/
+ * `expected_sequence` are the same identity/matcher-sequence CAS binding as
+ * every other TB-1b-bound tag — read live, immediately before signing.
+ *
+ * @param portfolioId              The portfolio's program-assigned identity.
+ * @param expectedSequence         The portfolio's current matcher-sequence watermark, read live.
+ * @param assetGenerationFrontier  Live-read current asset-set generation frontier.
+ * @param enabled          1 = enabled, 0 = disabled.
+ * @param tradeFeeCapBps   LP's maximum accepted market base fee, in bps (0..=10000).
+ * @param expirySlot       Slot at which this matcher grant stops being live (0 = disabled/never granted).
  *
  * @example
  * ```ts
- * const data = encodeSetMatcherConfig({ enabled: 1 });
+ * const data = encodeSetMatcherConfig({
+ *   portfolioId: portfolio.portfolioId,
+ *   expectedSequence: portfolio.matcherSequence,
+ *   assetGenerationFrontier: cfg.assetSetEpoch,
+ *   enabled: 1,
+ *   tradeFeeCapBps: 100,
+ *   expirySlot: currentSlot + 216_000n,
+ * });
  * ```
  */
 export interface SetMatcherConfigArgs {
+  portfolioId: bigint | string;
+  expectedSequence: bigint | string;
+  assetGenerationFrontier: bigint | string;
   enabled: number;
+  tradeFeeCapBps: number;
+  expirySlot: bigint | string;
 }
 
 export function encodeSetMatcherConfig(args: SetMatcherConfigArgs): Uint8Array {
   if (args.enabled !== 0 && args.enabled !== 1) {
     throw new Error(`encodeSetMatcherConfig: enabled must be 0 or 1, got ${args.enabled}`);
   }
-  return concatBytes(encU8(IX_TAG.SetMatcherConfig), encU8(args.enabled));
+  return concatBytes(
+    encU8(IX_TAG.SetMatcherConfig),
+    encU64(args.portfolioId),
+    encU64(args.expectedSequence),
+    encU64(args.assetGenerationFrontier),
+    encU8(args.enabled),
+    encU16(args.tradeFeeCapBps),
+    encU64(args.expirySlot),
+  );
 }
 
 // ============================================================================
@@ -3399,37 +4241,51 @@ export function encodeSetMatcherConfig(args: SetMatcherConfigArgs): Uint8Array {
 // ============================================================================
 
 /**
- * RestartAssetOracle (tag 69) — permissionless oracle restart.
+ * RestartAssetOracle (tag 69) — permissionless oracle restart (v18 wire,
+ * integration `a9318945`).
  *
- * Wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_price(u64) = 20 bytes.
+ * Wire: tag(1) + asset_index(u16) + market_id(u64) + now_slot(u64) +
+ *   initial_price(u64) + observation_sequence(u64) = 35 bytes.
+ *
+ * BREAKING vs v17 (20-byte payload): adds `market_id` (right after
+ * `asset_index`) and appends `observation_sequence` — a strictly-increasing
+ * replay nonce (this asset's `oracle_observation` control-sequences lane).
  *
  * Used to un-stick a stale or hung oracle. Anyone can call this.
  *
  * @param assetIndex    Asset/domain index.
+ * @param marketId      The asset's market_id.
  * @param nowSlot       Current slot.
  * @param initialPrice  Initial mark price in e6 units.
+ * @param observationSequence  Strictly-increasing replay nonce (this asset's `oracle_observation` lane).
  *
  * @example
  * ```ts
  * const data = encodeRestartAssetOracle({
  *   assetIndex: 0,
+ *   marketId: 1n,
  *   nowSlot: currentSlot,
  *   initialPrice: 50_000_000_000n,
+ *   observationSequence: nextObservationSequence,
  * });
  * ```
  */
 export interface RestartAssetOracleArgs {
   assetIndex: number;
+  marketId: bigint | string;
   nowSlot: bigint | string;
   initialPrice: bigint | string;
+  observationSequence: bigint | string;
 }
 
 export function encodeRestartAssetOracle(args: RestartAssetOracleArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.RestartAssetOracle),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
     encU64(args.initialPrice),
+    encU64(args.observationSequence),
   );
 }
 
@@ -3438,31 +4294,50 @@ export function encodeRestartAssetOracle(args: RestartAssetOracleArgs): Uint8Arr
 // ============================================================================
 
 /**
- * WithdrawInsuranceAsset (tag 57) — withdraw from a specific asset's insurance fund.
+ * WithdrawInsuranceAsset (tag 57) — withdraw from a specific asset's
+ * insurance fund (v18 wire, integration `a9318945`).
  *
- * Wire: tag(1) + asset_index(u16) + amount(u128) = 19 bytes.
+ * Wire: tag(1) + asset_index(u16) + market_id(u64) + amount(u128) +
+ *   authority_epoch(u64) = 35 bytes.
  *
- * Replaces the v12.x gap at tag 57. Requires insurance_authority signature.
- * asset_index is u16 (domain u8→u16 migration in v17).
+ * BREAKING vs v17 (19-byte payload): adds `market_id` (right after
+ * `asset_index`) and appends `authority_epoch` — a CAS check against this
+ * asset's OWN `AssetControlSequencesV16.authority_epoch` lane (W3A-1
+ * direct-withdrawal binding, same class as WithdrawBackingBucket/
+ * WithdrawBackingBucketEarnings). Pass the LIVE current epoch, not current+1.
+ *
+ * Requires insurance_authority signature. asset_index is u16 (domain
+ * u8→u16 migration in v17).
  *
  * @param assetIndex  Asset/domain index (u16, not u8).
+ * @param marketId    The asset's market_id.
  * @param amount      Amount to withdraw (u128).
+ * @param authorityEpoch  Live-read current authority_epoch for this asset (CAS, expected-current).
  *
  * @example
  * ```ts
- * const data = encodeWithdrawInsuranceAsset({ assetIndex: 0, amount: 1_000_000n });
+ * const data = encodeWithdrawInsuranceAsset({
+ *   assetIndex: 0,
+ *   marketId: 1n,
+ *   amount: 1_000_000n,
+ *   authorityEpoch: 0n,
+ * });
  * ```
  */
 export interface WithdrawInsuranceAssetArgs {
   assetIndex: number;
+  marketId: bigint | string;
   amount: bigint | string;
+  authorityEpoch: bigint | string;
 }
 
 export function encodeWithdrawInsuranceAsset(args: WithdrawInsuranceAssetArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.WithdrawInsuranceAsset),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU128(args.amount),
+    encU64(args.authorityEpoch),
   );
 }
 
@@ -3634,10 +4509,18 @@ export function encodeRebalanceLpVaultBacking(args: {
 }
 
 /**
- * UpdateInsuranceWithdrawPolicy (tag 92) — set the insurance-withdrawal rate limit.
+ * UpdateInsuranceWithdrawPolicy (tag 92) — set the insurance-withdrawal rate
+ * limit (v18 wire, integration `a9318945`).
  *
- * Wire: tag(1) + depositsOnly(u8) + cooldownSlots(u64) = 10 bytes.
+ * Wire: tag(1) + depositsOnly(u8) + cooldownSlots(u64) + authorityEpoch(u64)
+ *   = 18 bytes.
  * Accounts: [marketauth (signer), market (writable)].
+ *
+ * BREAKING vs v17 (10-byte payload): appends `authorityEpoch` — a CAS check
+ * (strict `current == expected`) sharing asset-0's `authority_epoch` lane
+ * (same lane as {@link encodeUpdateFeeSplit}/{@link encodeWithdrawCreatorFee}'s
+ * asset-scoped checks are NOT — this one is gated on `marketauth`, not a
+ * per-asset admin). Pass the LIVE current epoch, NOT current+1.
  *
  * `cooldownSlots` is capped at `MAX_INSURANCE_WITHDRAW_COOLDOWN_SLOTS`; the program rejects
  * anything above it, because an uncapped duration setter would let an admin freeze insurance
@@ -3647,11 +4530,13 @@ export function encodeRebalanceLpVaultBacking(args: {
 export function encodeUpdateInsuranceWithdrawPolicy(args: {
   depositsOnly: number;
   cooldownSlots: bigint | string;
+  authorityEpoch: bigint | string;
 }): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.UpdateInsuranceWithdrawPolicy),
     encU8(args.depositsOnly),
     encU64(args.cooldownSlots),
+    encU64(args.authorityEpoch),
   );
 }
 
@@ -3754,11 +4639,16 @@ export function encodeSetNftProgramId(args: SetNftProgramIdArgs): Uint8Array {
 /**
  * ConfigureHybridOracle (tag 34) — set Pyth/hybrid oracle config for a market asset.
  *
- * v17 wire: tag(1) + asset_index(u16) + now_slot(u64) + now_unix_ts(i64) +
+ * v18 wire (integration `a9318945`): tag(1) + asset_index(u16) + market_id(u64) +
+ *           now_slot(u64) + now_unix_ts(i64) +
  *           oracle_leg_count(u8) + oracle_leg_flags(u8) + max_staleness_secs(u64) +
  *           hybrid_soft_stale_slots(u64) + mark_ewma_halflife_slots(u64) +
  *           mark_min_fee(u64) + invert(u8) + unit_scale(u32) + conf_filter_bps(u16) +
- *           oracle_leg_feeds[0..3]([32] each) = 156 bytes total.
+ *           oracle_leg_feeds[0..3]([32] each) + observation_sequence(u64) = 172 bytes total.
+ *
+ * BREAKING vs v17 (156-byte payload): adds `market_id` (right after
+ * `asset_index`) and appends `observation_sequence` — a strictly-increasing
+ * replay nonce (this asset's `oracle_observation` control-sequences lane).
  *
  * Accounts: [0] oracle_authority (signer), [1] market (writable),
  *           [2..2+oracle_leg_count] oracle feed accounts (read-only).
@@ -3771,6 +4661,7 @@ export function encodeSetNftProgramId(args: SetNftProgramIdArgs): Uint8Array {
  *   - Caller must be the asset's oracle_authority
  *
  * @param assetIndex               Asset slot index (u16).
+ * @param marketId                 The asset's market_id.
  * @param nowSlot                  Current on-chain slot (u64).
  * @param nowUnixTs                Current Unix timestamp in seconds (i64).
  * @param oracleLegCount           Number of active oracle legs (1–3).
@@ -3783,11 +4674,13 @@ export function encodeSetNftProgramId(args: SetNftProgramIdArgs): Uint8Array {
  * @param unitScale                Unit scaling factor (u32).
  * @param confFilterBps            Confidence filter in basis points (u16).
  * @param oracleLegFeeds           Array of exactly 3 oracle leg feed pubkeys (unused slots = SystemProgram).
+ * @param observationSequence      Strictly-increasing replay nonce (this asset's `oracle_observation` lane).
  *
  * @example
  * ```ts
  * const data = encodeConfigureHybridOracle({
  *   assetIndex: 1,
+ *   marketId: 1n,
  *   nowSlot: 300000000n,
  *   nowUnixTs: 1700000000n,
  *   oracleLegCount: 1,
@@ -3800,12 +4693,14 @@ export function encodeSetNftProgramId(args: SetNftProgramIdArgs): Uint8Array {
  *   unitScale: 1000000,
  *   confFilterBps: 200,
  *   oracleLegFeeds: [PYTH_FEED_KEY, PublicKey.default, PublicKey.default],
+ *   observationSequence: nextObservationSequence,
  * });
- * assert(data.length === 156);
+ * assert(data.length === 172);
  * ```
  */
 export interface ConfigureHybridOracleArgs {
   assetIndex: number;
+  marketId: bigint | string;
   nowSlot: bigint | string;
   nowUnixTs: bigint | string;
   oracleLegCount: number;
@@ -3819,6 +4714,7 @@ export interface ConfigureHybridOracleArgs {
   confFilterBps: number;
   /** Exactly 3 entries — unused legs MUST be PublicKey.default (all zeros). */
   oracleLegFeeds: [PublicKey | string, PublicKey | string, PublicKey | string];
+  observationSequence: bigint | string;
 }
 
 const ORACLE_LEG_CAP = 3;
@@ -3830,6 +4726,7 @@ export function encodeConfigureHybridOracle(args: ConfigureHybridOracleArgs): Ui
   return concatBytes(
     encU8(IX_TAG.ConfigureHybridOracle),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
     encI64(args.nowUnixTs),
     encU8(args.oracleLegCount),
@@ -3844,14 +4741,20 @@ export function encodeConfigureHybridOracle(args: ConfigureHybridOracleArgs): Ui
     encPubkey(args.oracleLegFeeds[0]),
     encPubkey(args.oracleLegFeeds[1]),
     encPubkey(args.oracleLegFeeds[2]),
+    encU64(args.observationSequence),
   );
 }
 
 /**
  * ConfigureEwmaMark (tag 35) — set EWMA mark oracle config for a market asset.
  *
- * v17 wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_mark_e6(u64) +
- *           mark_ewma_halflife_slots(u64) + mark_min_fee(u64) = 35 bytes total.
+ * v18 wire (integration `a9318945`): tag(1) + asset_index(u16) + market_id(u64) +
+ *           now_slot(u64) + initial_mark_e6(u64) +
+ *           mark_ewma_halflife_slots(u64) + mark_min_fee(u64) +
+ *           observation_sequence(u64) = 51 bytes total.
+ *
+ * BREAKING vs v17 (35-byte payload): adds `market_id` (right after
+ * `asset_index`) and appends `observation_sequence`.
  *
  * Accounts: [0] oracle_authority (signer), [1] market (writable).
  *
@@ -3861,29 +4764,35 @@ export function encodeConfigureHybridOracle(args: ConfigureHybridOracleArgs): Ui
  *   - Caller must be the asset's oracle_authority
  *
  * @param assetIndex               Asset slot index (u16).
+ * @param marketId                 The asset's market_id.
  * @param nowSlot                  Current on-chain slot (u64).
  * @param initialMarkE6            Initial mark price × 1e6 (u64, must be > 0).
  * @param markEwmaHalflifeSlots    EWMA half-life for mark price smoothing (slots, must be > 0).
  * @param markMinFee               Minimum fee charged per mark-price update (u64).
+ * @param observationSequence      Strictly-increasing replay nonce (this asset's `oracle_observation` lane).
  *
  * @example
  * ```ts
  * const data = encodeConfigureEwmaMark({
  *   assetIndex: 1,
+ *   marketId: 1n,
  *   nowSlot: 300000000n,
  *   initialMarkE6: 50000000000n,
  *   markEwmaHalflifeSlots: 500n,
  *   markMinFee: 0n,
+ *   observationSequence: nextObservationSequence,
  * });
- * assert(data.length === 35);
+ * assert(data.length === 51);
  * ```
  */
 export interface ConfigureEwmaMarkArgs {
   assetIndex: number;
+  marketId: bigint | string;
   nowSlot: bigint | string;
   initialMarkE6: bigint | string;
   markEwmaHalflifeSlots: bigint | string;
   markMinFee: bigint | string;
+  observationSequence: bigint | string;
 }
 
 function requirePositiveU64(value: bigint | string, field: string): void {
@@ -3899,17 +4808,23 @@ export function encodeConfigureEwmaMark(args: ConfigureEwmaMarkArgs): Uint8Array
   return concatBytes(
     encU8(IX_TAG.ConfigureEwmaMark),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
     encU64(args.initialMarkE6),
     encU64(args.markEwmaHalflifeSlots),
     encU64(args.markMinFee),
+    encU64(args.observationSequence),
   );
 }
 
 /**
  * PushEwmaMark (tag 36) — push a new EWMA mark price observation.
  *
- * v17 wire: tag(1) + asset_index(u16) + now_slot(u64) + mark_e6(u64) = 19 bytes total.
+ * v18 wire (integration `a9318945`): tag(1) + asset_index(u16) + market_id(u64) +
+ *   now_slot(u64) + mark_e6(u64) + observation_sequence(u64) = 35 bytes total.
+ *
+ * BREAKING vs v17 (19-byte payload): adds `market_id` (right after
+ * `asset_index`) and appends `observation_sequence`.
  *
  * Accounts: [0] oracle_authority (signer), [1] market (writable).
  *
@@ -3920,19 +4835,26 @@ export function encodeConfigureEwmaMark(args: ConfigureEwmaMarkArgs): Uint8Array
  *   - now_slot ≥ last EWMA slot and current market slot
  *
  * @param assetIndex    Asset slot index (u16).
+ * @param marketId      The asset's market_id.
  * @param nowSlot       Current on-chain slot (u64).
  * @param markE6        New mark price × 1e6 (u64, must be > 0).
+ * @param observationSequence  Strictly-increasing replay nonce (this asset's `oracle_observation` lane).
  *
  * @example
  * ```ts
- * const data = encodePushEwmaMark({ assetIndex: 1, nowSlot: 300000001n, markE6: 50100000000n });
- * assert(data.length === 19);
+ * const data = encodePushEwmaMark({
+ *   assetIndex: 1, marketId: 1n, nowSlot: 300000001n, markE6: 50100000000n,
+ *   observationSequence: nextObservationSequence,
+ * });
+ * assert(data.length === 35);
  * ```
  */
 export interface PushEwmaMarkArgs {
   assetIndex: number;
+  marketId: bigint | string;
   nowSlot: bigint | string;
   markE6: bigint | string;
+  observationSequence: bigint | string;
 }
 
 export function encodePushEwmaMark(args: PushEwmaMarkArgs): Uint8Array {
@@ -3941,15 +4863,21 @@ export function encodePushEwmaMark(args: PushEwmaMarkArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.PushEwmaMark),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
     encU64(args.markE6),
+    encU64(args.observationSequence),
   );
 }
 
 /**
  * ConfigureAuthMark (tag 62) — set auth-push mark oracle for a market asset.
  *
- * v17 wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_mark_e6(u64) = 19 bytes total.
+ * v18 wire (integration `a9318945`): tag(1) + asset_index(u16) + market_id(u64) +
+ *   now_slot(u64) + initial_mark_e6(u64) + observation_sequence(u64) = 35 bytes total.
+ *
+ * BREAKING vs v17 (19-byte payload): adds `market_id` (right after
+ * `asset_index`) and appends `observation_sequence`.
  *
  * Accounts: [0] oracle_authority (signer), [1] market (writable).
  *
@@ -3958,19 +4886,26 @@ export function encodePushEwmaMark(args: PushEwmaMarkArgs): Uint8Array {
  *   - Caller must be the asset's oracle_authority
  *
  * @param assetIndex       Asset slot index (u16).
+ * @param marketId         The asset's market_id.
  * @param nowSlot          Current on-chain slot (u64).
  * @param initialMarkE6    Initial mark price × 1e6 (u64, must be > 0).
+ * @param observationSequence  Strictly-increasing replay nonce (this asset's `oracle_observation` lane).
  *
  * @example
  * ```ts
- * const data = encodeConfigureAuthMark({ assetIndex: 1, nowSlot: 300000000n, initialMarkE6: 50000000000n });
- * assert(data.length === 19);
+ * const data = encodeConfigureAuthMark({
+ *   assetIndex: 1, marketId: 1n, nowSlot: 300000000n, initialMarkE6: 50000000000n,
+ *   observationSequence: nextObservationSequence,
+ * });
+ * assert(data.length === 35);
  * ```
  */
 export interface ConfigureAuthMarkArgs {
   assetIndex: number;
+  marketId: bigint | string;
   nowSlot: bigint | string;
   initialMarkE6: bigint | string;
+  observationSequence: bigint | string;
 }
 
 export function encodeConfigureAuthMark(args: ConfigureAuthMarkArgs): Uint8Array {
@@ -3979,15 +4914,21 @@ export function encodeConfigureAuthMark(args: ConfigureAuthMarkArgs): Uint8Array
   return concatBytes(
     encU8(IX_TAG.ConfigureAuthMark),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
     encU64(args.initialMarkE6),
+    encU64(args.observationSequence),
   );
 }
 
 /**
  * PushAuthMark (tag 63) — push a new auth-mark price observation.
  *
- * v17 wire: tag(1) + asset_index(u16) + now_slot(u64) + mark_e6(u64) = 19 bytes total.
+ * v18 wire (integration `a9318945`): tag(1) + asset_index(u16) + market_id(u64) +
+ *   now_slot(u64) + mark_e6(u64) + observation_sequence(u64) = 35 bytes total.
+ *
+ * BREAKING vs v17 (19-byte payload): adds `market_id` (right after
+ * `asset_index`) and appends `observation_sequence`.
  *
  * Accounts: [0] oracle_authority (signer), [1] market (writable).
  *
@@ -3998,19 +4939,26 @@ export function encodeConfigureAuthMark(args: ConfigureAuthMarkArgs): Uint8Array
  *   - now_slot ≥ last EWMA slot and current market slot
  *
  * @param assetIndex    Asset slot index (u16).
+ * @param marketId      The asset's market_id.
  * @param nowSlot       Current on-chain slot (u64).
  * @param markE6        New mark price × 1e6 (u64, must be > 0).
+ * @param observationSequence  Strictly-increasing replay nonce (this asset's `oracle_observation` lane).
  *
  * @example
  * ```ts
- * const data = encodePushAuthMark({ assetIndex: 1, nowSlot: 300000001n, markE6: 50100000000n });
- * assert(data.length === 19);
+ * const data = encodePushAuthMark({
+ *   assetIndex: 1, marketId: 1n, nowSlot: 300000001n, markE6: 50100000000n,
+ *   observationSequence: nextObservationSequence,
+ * });
+ * assert(data.length === 35);
  * ```
  */
 export interface PushAuthMarkArgs {
   assetIndex: number;
+  marketId: bigint | string;
   nowSlot: bigint | string;
   markE6: bigint | string;
+  observationSequence: bigint | string;
 }
 
 export function encodePushAuthMark(args: PushAuthMarkArgs): Uint8Array {
@@ -4019,8 +4967,10 @@ export function encodePushAuthMark(args: PushAuthMarkArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.PushAuthMark),
     encU16(args.assetIndex),
+    encU64(args.marketId),
     encU64(args.nowSlot),
     encU64(args.markE6),
+    encU64(args.observationSequence),
   );
 }
 
@@ -4092,9 +5042,19 @@ export function encodeMatcherInitPassive(args: MatcherInitPassiveArgs): Uint8Arr
 // ============================================================================
 
 /**
- * WithdrawProtocolFee instruction data (tag 84).
+ * WithdrawProtocolFee instruction data (tag 84, v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) + amount(u128 LE) = 17 bytes.
+ * v18 wire: tag(1) + amount(u128 LE) + authority_epoch(u64) = 25 bytes.
+ *
+ * BREAKING vs v17 (17-byte payload): appends `authority_epoch` (W4-AE-84) —
+ * a CAS check against the market-wide `protocol_fee_authority_epoch` counter
+ * (`PROTOCOL_FEE_AUTHORITY_EPOCH_OFF`, carved into asset-0's wrapper-slot
+ * headroom at offset 600; distinct from any per-asset
+ * `AssetControlSequencesV16.authority_epoch` lane, since
+ * `protocol_fee_authority` is market-config-scoped, not asset-scoped).
+ * Incremented by tag 85 (SetProtocolFeeAuthority). Pass the LIVE current
+ * epoch, NOT current+1 — this closes an A->B->A replay window across an
+ * intervening authority rotation.
  *
  * Pays out from the accrued-but-unwithdrawn protocol claim
  * (`protocol_fee_accrued_atoms - protocol_fee_withdrawn_atoms` on
@@ -4106,21 +5066,24 @@ export function encodeMatcherInitPassive(args: MatcherInitPassiveArgs): Uint8Arr
  *
  * @param amount Atoms to withdraw (u128). Pass `0n` to withdraw all
  *               currently-available capacity.
+ * @param authorityEpoch  Live-read current `protocol_fee_authority_epoch` (CAS, expected-current).
  *
  * @example
  * ```ts
- * const data = encodeWithdrawProtocolFee({ amount: 0n }); // withdraw-all
+ * const data = encodeWithdrawProtocolFee({ amount: 0n, authorityEpoch: 0n }); // withdraw-all
  * // accounts: ACCOUNTS_WITHDRAW_PROTOCOL_FEE from abi/accounts.ts
  * ```
  */
 export interface WithdrawProtocolFeeArgs {
   amount: bigint | string;
+  authorityEpoch: bigint | string;
 }
 
 export function encodeWithdrawProtocolFee(args: WithdrawProtocolFeeArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.WithdrawProtocolFee),
     encU128(args.amount),
+    encU64(args.authorityEpoch),
   );
 }
 
@@ -4231,10 +5194,16 @@ export function validateFeeSplit(args: UpdateFeeSplitArgs): string | null {
 }
 
 /**
- * UpdateFeeSplit instruction data (tag 86).
+ * UpdateFeeSplit instruction data (tag 86, v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) + creator_share_bps(u16 LE) + lp_share_bps(u16 LE) +
- * insurance_share_bps(u16 LE) = 7 bytes.
+ * v18 wire: tag(1) + creator_share_bps(u16 LE) + lp_share_bps(u16 LE) +
+ * insurance_share_bps(u16 LE) + authority_epoch(u64) = 15 bytes.
+ *
+ * BREAKING vs v17 (7-byte payload): appends `authority_epoch` (W4-AE-EXTEND)
+ * — a CAS check sharing asset-0's `AssetControlSequencesV16.authority_epoch`
+ * lane (this tag is gated on `cfg.marketauth`, which asset-0's lane already
+ * tracks rotations for via tag 32). Pass the LIVE current epoch, NOT
+ * current+1.
  *
  * Sets the three stored fee shares. Gated on `cfg.marketauth` — see
  * ACCOUNTS_UPDATE_FEE_SPLIT in abi/accounts.ts. Shares are bps of T and must
@@ -4249,7 +5218,8 @@ export function validateFeeSplit(args: UpdateFeeSplitArgs): string | null {
  * @param creatorShareBps Creator's share of T in bps. Must be <= 3600.
  * @param lpShareBps LP vault's share of T in bps. Must be >= 3200.
  * @param insuranceShareBps Insurance/staker share of T in bps. Must be >= 1200.
- * @returns 7-byte instruction data buffer.
+ * @param authorityEpoch  Live-read current authority_epoch for asset 0 (CAS, expected-current).
+ * @returns 15-byte instruction data buffer.
  *
  * @example
  * ```ts
@@ -4258,6 +5228,7 @@ export function validateFeeSplit(args: UpdateFeeSplitArgs): string | null {
  *   creatorShareBps: 1600,
  *   lpShareBps: 4800,
  *   insuranceShareBps: 1600,
+ *   authorityEpoch: 0n,
  * });
  * // accounts: ACCOUNTS_UPDATE_FEE_SPLIT from abi/accounts.ts
  * ```
@@ -4266,6 +5237,7 @@ export interface UpdateFeeSplitArgs {
   creatorShareBps: number;
   lpShareBps: number;
   insuranceShareBps: number;
+  authorityEpoch: bigint | string;
 }
 
 export function encodeUpdateFeeSplit(args: UpdateFeeSplitArgs): Uint8Array {
@@ -4274,6 +5246,7 @@ export function encodeUpdateFeeSplit(args: UpdateFeeSplitArgs): Uint8Array {
     encU16(args.creatorShareBps),
     encU16(args.lpShareBps),
     encU16(args.insuranceShareBps),
+    encU64(args.authorityEpoch),
   );
 }
 
@@ -4352,9 +5325,13 @@ export function encodeUpdateMaintenanceFeePerSlot(
 }
 
 /**
- * UpdateTradeFeePolicy instruction data (tag 55).
+ * UpdateTradeFeePolicy instruction data (tag 55, v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) + trade_fee_base_bps(u64 LE) = 9 bytes.
+ * v18 wire: tag(1) + trade_fee_base_bps(u64 LE) + policy_sequence(u64 LE) = 17 bytes.
+ *
+ * BREAKING vs v17 (9-byte payload): appends `policy_sequence` — a
+ * strictly-increasing replay nonce (asset-0's `trade_fee` control-sequences
+ * lane), NOT a CAS/current-epoch value.
  *
  * Sets `T`, the base trade fee that the four-way split divides. Gated on
  * ASSET 0's `insurance_authority`, NOT on `marketauth` — so unlike tags 86/88
@@ -4369,21 +5346,24 @@ export function encodeUpdateMaintenanceFeePerSlot(
  * which left stake tag 28's CPI target unrepresentable from the SDK.
  *
  * @param tradeFeeBaseBps Base trade fee in bps (u64).
- * @returns 9-byte instruction data buffer.
+ * @param policySequence  Strictly-increasing replay nonce (asset-0's `trade_fee` lane).
+ * @returns 17-byte instruction data buffer.
  *
  * @example
  * ```ts
- * const data = encodeUpdateTradeFeePolicy({ tradeFeeBaseBps: 30n });
+ * const data = encodeUpdateTradeFeePolicy({ tradeFeeBaseBps: 30n, policySequence: nextPolicySequence });
  * ```
  */
 export interface UpdateTradeFeePolicyArgs {
   tradeFeeBaseBps: bigint | string;
+  policySequence: bigint | string;
 }
 
 export function encodeUpdateTradeFeePolicy(args: UpdateTradeFeePolicyArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.UpdateTradeFeePolicy),
     encU64(args.tradeFeeBaseBps),
+    encU64(args.policySequence),
   );
 }
 
@@ -4485,16 +5465,28 @@ export function encodeExpireBackingBucket(args: ExpireBackingBucketArgs): Uint8A
 // ============================================================================
 
 /**
- * WithdrawCreatorFee instruction data (tag 90).
+ * WithdrawCreatorFee instruction data (tag 90, v18 wire, integration `a9318945`).
  *
- * v17 wire: tag(1) + amount(u128 LE) = 17 bytes. Verified against
- * percolator-prog `src/v16_program.rs`:
+ * v18 wire: tag(1) + amount(u128 LE) + asset_index(u16 LE) + authority_epoch(u64 LE)
+ *   = 27 bytes. Verified against percolator-prog `src/v16_program.rs`:
  *
- *   decode arm:  90 => Self::WithdrawCreatorFee { amount: read_u128(&mut rest)? }
- *   read_u128:   u128::from_le_bytes(..)   -> LITTLE-endian, 16 bytes
+ *   decode arm:  90 => Self::WithdrawCreatorFee { amount: read_u128(&mut rest)?,
+ *                  asset_index: read_u16(&mut rest)?, authority_epoch: read_u64(&mut rest)? }
  *   tail guard:  if !rest.is_empty() { return Err(InvalidInstructionData) }
- *                -> total length is EXACTLY 17; any trailing byte is rejected
- *   encode arm:  out.push(90); push_u128(&mut out, amount)
+ *                -> total length is EXACTLY 27; any trailing byte is rejected
+ *   encode arm:  out.push(90); push_u128(&mut out, amount); push_u16(&mut out, asset_index);
+ *                push_u64(&mut out, authority_epoch)
+ *
+ * BREAKING vs v17 (17-byte, amount-only payload): GH#420 appends
+ * `asset_index` (WHICH asset's creator fees — creator-fee accrual moved from
+ * one global `WrapperConfigV16::creator_fee_claimable_atoms` counter to a
+ * per-asset `AssetOracleProfileV16::creator_fee_claimable_atoms` field, so
+ * the withdraw call must now say which asset it's draining) and
+ * `authority_epoch` (W4-AE-EXTEND CAS, against THIS asset's OWN
+ * `AssetControlSequencesV16.authority_epoch` lane — WithdrawCreatorFee's
+ * authority is per-asset, unlike UpdateFeeSplit/UpdateInsuranceWithdrawPolicy
+ * which gate on marketauth and share asset-0's lane). Pass the LIVE current
+ * epoch, NOT current+1.
  *
  * Pays the market creator's accrued trade-fee share out of the market vault to
  * an external token account, debiting `creatorFeeClaimableAtoms` by exactly
@@ -4519,22 +5511,32 @@ export function encodeExpireBackingBucket(args: ExpireBackingBucketArgs): Uint8A
  *
  * @param amount Atoms to claim (u128 on the wire; the on-chain counter is a
  *               u64, so anything above u64::MAX is an over-claim).
+ * @param assetIndex      WHICH asset's creator fees to claim.
+ * @param authorityEpoch  Live-read current authority_epoch for this asset (CAS, expected-current).
  *
  * @example
  * ```ts
- * const cfg = parseWrapperConfigV17(marketAccount.data);
- * // Drain the full claimable balance:
- * const data = encodeWithdrawCreatorFee({ amount: cfg.creatorFeeClaimableAtoms });
+ * const profile = parseAssetOracleProfileV17(marketAccount.data, profileOff);
+ * // Drain asset 0's full claimable balance:
+ * const data = encodeWithdrawCreatorFee({
+ *   amount: profile.creatorFeeClaimableAtoms,
+ *   assetIndex: 0,
+ *   authorityEpoch: 0n,
+ * });
  * // accounts: ACCOUNTS_WITHDRAW_CREATOR_FEE from abi/accounts.ts
  * ```
  */
 export interface WithdrawCreatorFeeArgs {
   amount: bigint | string;
+  assetIndex: number;
+  authorityEpoch: bigint | string;
 }
 
 export function encodeWithdrawCreatorFee(args: WithdrawCreatorFeeArgs): Uint8Array {
   return concatBytes(
     encU8(IX_TAG.WithdrawCreatorFee),
     encU128(args.amount),
+    encU16(args.assetIndex),
+    encU64(args.authorityEpoch),
   );
 }

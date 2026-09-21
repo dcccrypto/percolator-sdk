@@ -122,56 +122,75 @@ describe("instruction encoders", () => {
     expect(data[0]).toBe(IX_TAG.InitUser);
   });
 
-  it("encodeDepositCollateral produces 17 bytes (v17: tag + u128, userIdx removed)", () => {
-    const data = encodeDepositCollateral({ userIdx: 5, amount: "1000000" });
-    expect(data.length).toBe(17);
+  it("encodeDepositCollateral produces 33 bytes (v18: tag + portfolio_id + expected_sequence + u128)", () => {
+    const data = encodeDepositCollateral({ userIdx: 5, portfolioId: 1n, expectedSequence: 0n, amount: "1000000" });
+    expect(data.length).toBe(33);
     expect(data[0]).toBe(IX_TAG.DepositCollateral);
   });
 
-  it("encodeWithdrawCollateral produces 17 bytes (v17: tag + u128, userIdx removed)", () => {
-    const data = encodeWithdrawCollateral({ userIdx: 10, amount: "500000" });
-    expect(data.length).toBe(17);
+  it("encodeWithdrawCollateral produces 33 bytes (v18: tag + portfolio_id + expected_sequence + u128)", () => {
+    const data = encodeWithdrawCollateral({ userIdx: 10, portfolioId: 1n, expectedSequence: 0n, amount: "500000" });
+    expect(data.length).toBe(33);
     expect(data[0]).toBe(IX_TAG.WithdrawCollateral);
   });
 
-  it("encodeKeeperCrank throws — v12.17 wire format not accepted by v17 wrapper", () => {
-    // v17: use encodePermissionlessCrank() instead
+  it("encodeKeeperCrank throws — v12.17 wire format not accepted by v17+ wrapper", () => {
+    // v17+: use encodePermissionlessCrank() instead
     expect(() => encodeKeeperCrank({ callerIdx: 1 })).toThrow(/v12\.17/i);
   });
 
-  it("encodeTradeNoCpi produces 35 bytes (v17 API)", () => {
+  it("encodeTradeNoCpi produces 77 bytes (v18 API)", () => {
     const data = encodeTradeNoCpi({
+      accountAPortfolioId: 1n,
+      accountAPositionEpoch: 0n,
+      accountBPortfolioId: 2n,
+      accountBPositionEpoch: 0n,
       assetIndex: 0,
+      marketId: 1n,
       sizeQ: 1_000_000n,
       execPrice: 50_000_000_000n,
       feeBps: 10n,
+      backingFeeCapBps: 0,
     });
-    expect(data.length).toBe(35);
+    expect(data.length).toBe(77);
     expect(data[0]).toBe(IX_TAG.TradeNoCpi);
   });
 
   it("encodeTradeNoCpi with negative sizeQ (short position)", () => {
     const data = encodeTradeNoCpi({
+      accountAPortfolioId: 1n,
+      accountAPositionEpoch: 0n,
+      accountBPortfolioId: 2n,
+      accountBPositionEpoch: 0n,
       assetIndex: 0,
+      marketId: 1n,
       sizeQ: -1_000_000n,
       execPrice: 50_000_000_000n,
       feeBps: 10n,
+      backingFeeCapBps: 0,
     });
-    expect(data.length).toBe(35);
+    expect(data.length).toBe(77);
     expect(data[0]).toBe(IX_TAG.TradeNoCpi);
-    // sizeQ starts at byte 3 (tag 1 byte + assetIndex 2 bytes), LE i128
+    // sizeQ starts at byte 43 (tag 1 + 4×u64 identity 32 + assetIndex 2 + marketId 8), LE i128
     // -1_000_000 in LE i128 starts with 0xC0 0x78 0xF0 ...
-    expect(data[3]).toBe(0xc0);
+    expect(data[43]).toBe(0xc0);
   });
 
-  it("encodeTradeCpi produces 35 bytes (v17 API)", () => {
+  it("encodeTradeCpi produces 85 bytes (v18 API)", () => {
     const data = encodeTradeCpi({
+      accountAPortfolioId: 1n,
+      accountAPositionEpoch: 0n,
+      accountBPortfolioId: 2n,
+      accountBPositionEpoch: 0n,
+      accountBMatcherSequence: 0n,
       assetIndex: 2,
+      marketId: 1n,
       sizeQ: -500n,
       feeBps: 10n,
       limitPrice: 0n,
+      backingFeeCapBps: 0,
     });
-    expect(data.length).toBe(35);
+    expect(data.length).toBe(85);
     expect(data[0]).toBe(IX_TAG.TradeCpi);
   });
 
@@ -179,63 +198,72 @@ describe("instruction encoders", () => {
     expect(() => encodeLiquidateAtOracle({ targetIdx: 42 })).toThrow(/tag 7/i);
   });
 
-  it("encodeCloseAccount produces 1 byte (v17: tag only, userIdx removed)", () => {
-    const data = encodeCloseAccount({ userIdx: 100 });
-    expect(data.length).toBe(1);
+  it("encodeCloseAccount produces 25 bytes (v18: tag + portfolio_id + expected_sequence + position_epoch)", () => {
+    const data = encodeCloseAccount({ userIdx: 100, portfolioId: 1n, expectedSequence: 0n, positionEpoch: 0n });
+    expect(data.length).toBe(25);
     expect(data[0]).toBe(IX_TAG.CloseAccount);
   });
 
-  it("encodeTopUpInsurance produces 17 bytes (v17: tag + u128, was tag + u64 = 9)", () => {
-    const data = encodeTopUpInsurance({ amount: "5000000" });
-    expect(data.length).toBe(17);
+  it("encodeTopUpInsurance produces 41 bytes (v18: tag + market_id + intent_id + authority_epoch + u128)", () => {
+    const data = encodeTopUpInsurance({ marketId: 1n, intentId: 0n, authorityEpoch: 0n, amount: "5000000" });
+    expect(data.length).toBe(41);
     expect(data[0]).toBe(IX_TAG.TopUpInsurance);
   });
 
-  it("encodeTopUpBackingBucket produces 27 bytes: tag(1) + domain(u16) + amount(u128) + expiry_slot(u64)", () => {
-    const data = encodeTopUpBackingBucket({ domain: 1, amount: "10000", expirySlot: MAX_BACKING_BUCKET_EXPIRY_SLOT });
-    expect(data.length).toBe(27);
+  it("encodeTopUpBackingBucket produces 51 bytes: tag(1) + domain(u16) + market_id(u64) + intent_id(u64) + authority_epoch(u64) + amount(u128) + expiry_slot(u64)", () => {
+    const data = encodeTopUpBackingBucket({
+      domain: 1, marketId: 1n, intentId: 0n, authorityEpoch: 0n,
+      amount: "10000", expirySlot: MAX_BACKING_BUCKET_EXPIRY_SLOT,
+    });
+    expect(data.length).toBe(51);
     expect(data[0]).toBe(IX_TAG.TopUpBackingBucket);
     expect(IX_TAG.TopUpBackingBucket).toBe(24);
     const domain = new DataView(data.buffer, data.byteOffset + 1, 2).getUint16(0, true);
     expect(domain).toBe(1);
-    const expirySlot = new DataView(data.buffer, data.byteOffset + 19, 8).getBigUint64(0, true);
+    const expirySlot = new DataView(data.buffer, data.byteOffset + 43, 8).getBigUint64(0, true);
     expect(expirySlot).toBe(MAX_BACKING_BUCKET_EXPIRY_SLOT);
     expect(MAX_BACKING_BUCKET_EXPIRY_SLOT).toBe(9_223_372_036_854_775_807n);
     // u64::MAX / 2, floor division — never lapses in practice.
     expect(MAX_BACKING_BUCKET_EXPIRY_SLOT).toBe(18_446_744_073_709_551_615n / 2n);
   });
 
-  it("encodeWithdrawBackingBucket produces 19 bytes: tag(1) + domain(u16) + amount(u128)", () => {
-    const data = encodeWithdrawBackingBucket({ domain: 1, amount: "10000" });
-    expect(data.length).toBe(19);
+  it("encodeWithdrawBackingBucket produces 35 bytes: tag(1) + domain(u16) + market_id(u64) + amount(u128) + authority_epoch(u64)", () => {
+    const data = encodeWithdrawBackingBucket({ domain: 1, marketId: 1n, amount: "10000", authorityEpoch: 0n });
+    expect(data.length).toBe(35);
     expect(data[0]).toBe(IX_TAG.WithdrawBackingBucket);
     expect(IX_TAG.WithdrawBackingBucket).toBe(50);
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     expect(view.getUint16(1, true)).toBe(1); // domain
-    expect(view.getBigUint64(3, true)).toBe(10_000n); // amount lo64
-    expect(view.getBigUint64(11, true)).toBe(0n); // amount hi64
+    expect(view.getBigUint64(3, true)).toBe(1n); // market_id
+    expect(view.getBigUint64(11, true)).toBe(10_000n); // amount lo64
+    expect(view.getBigUint64(19, true)).toBe(0n); // amount hi64
+    expect(view.getBigUint64(27, true)).toBe(0n); // authority_epoch
   });
 
-  it("encodeUpdateBackingFeePolicy produces 7 bytes: tag(1) + domain(u16) + fee_bps(u16) + insurance_share_bps(u16)", () => {
-    const data = encodeUpdateBackingFeePolicy({ domain: 1, feeBps: 30, insuranceShareBps: 5000 });
-    expect(data.length).toBe(7);
+  it("encodeUpdateBackingFeePolicy produces 23 bytes: tag(1) + domain(u16) + market_id(u64) + fee_bps(u16) + insurance_share_bps(u16) + policy_sequence(u64)", () => {
+    const data = encodeUpdateBackingFeePolicy({ domain: 1, marketId: 1n, feeBps: 30, insuranceShareBps: 5000, policySequence: 0n });
+    expect(data.length).toBe(23);
     expect(data[0]).toBe(IX_TAG.UpdateBackingFeePolicy);
     expect(IX_TAG.UpdateBackingFeePolicy).toBe(51);
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     expect(view.getUint16(1, true)).toBe(1); // domain
-    expect(view.getUint16(3, true)).toBe(30); // fee_bps
-    expect(view.getUint16(5, true)).toBe(5000); // insurance_share_bps
+    expect(view.getBigUint64(3, true)).toBe(1n); // market_id
+    expect(view.getUint16(11, true)).toBe(30); // fee_bps
+    expect(view.getUint16(13, true)).toBe(5000); // insurance_share_bps
+    expect(view.getBigUint64(15, true)).toBe(0n); // policy_sequence
   });
 
-  it("encodeWithdrawBackingBucketEarnings produces 19 bytes: tag(1) + domain(u16) + amount(u128)", () => {
-    const data = encodeWithdrawBackingBucketEarnings({ domain: 0, amount: 123_456n });
-    expect(data.length).toBe(19);
+  it("encodeWithdrawBackingBucketEarnings produces 35 bytes: tag(1) + domain(u16) + market_id(u64) + amount(u128) + authority_epoch(u64)", () => {
+    const data = encodeWithdrawBackingBucketEarnings({ domain: 0, marketId: 1n, amount: 123_456n, authorityEpoch: 0n });
+    expect(data.length).toBe(35);
     expect(data[0]).toBe(IX_TAG.WithdrawBackingBucketEarnings);
     expect(IX_TAG.WithdrawBackingBucketEarnings).toBe(52);
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     expect(view.getUint16(1, true)).toBe(0); // domain
-    expect(view.getBigUint64(3, true)).toBe(123_456n); // amount lo64
-    expect(view.getBigUint64(11, true)).toBe(0n); // amount hi64
+    expect(view.getBigUint64(3, true)).toBe(1n); // market_id
+    expect(view.getBigUint64(11, true)).toBe(123_456n); // amount lo64
+    expect(view.getBigUint64(19, true)).toBe(0n); // amount hi64
+    expect(view.getBigUint64(27, true)).toBe(0n); // authority_epoch
   });
 
   it("encodeSetRiskThreshold rejects removed tag 11", () => {
@@ -380,19 +408,19 @@ describe("instruction encoders", () => {
     ).not.toThrow();
   });
 
-  it("encodeCloseSlab produces 1 byte", () => {
-    expect(encodeCloseSlab().length).toBe(1);
-    expect(encodeCloseSlab()[0]).toBe(IX_TAG.CloseSlab);
+  it("encodeCloseSlab produces 9 bytes (v18: tag + authority_epoch)", () => {
+    expect(encodeCloseSlab(0n).length).toBe(9);
+    expect(encodeCloseSlab(0n)[0]).toBe(IX_TAG.CloseSlab);
   });
 
-  it("encodeResolveMarket produces 1 byte (v17: tag only, mode byte removed)", () => {
-    // v17 BREAKING: mode byte removed. The decoder at tag 19 reads no bytes after the tag.
+  it("encodeResolveMarket produces 17 bytes (v18: tag + asset_generation_frontier + authority_epoch)", () => {
+    // v18 BREAKING: adds asset_generation_frontier(u64) + authority_epoch(u64).
     // `mode` arg still accepted for source compatibility but is silently ignored.
-    const ord = encodeResolveMarket();
-    expect(ord.length).toBe(1);
+    const ord = encodeResolveMarket({ assetGenerationFrontier: 0n, authorityEpoch: 0n });
+    expect(ord.length).toBe(17);
     expect(ord[0]).toBe(IX_TAG.ResolveMarket);
-    const deg = encodeResolveMarket({ mode: 1 });
-    expect(deg.length).toBe(1);
+    const deg = encodeResolveMarket({ mode: 1, assetGenerationFrontier: 0n, authorityEpoch: 0n });
+    expect(deg.length).toBe(17);
     expect(deg[0]).toBe(IX_TAG.ResolveMarket);
   });
 
@@ -459,15 +487,21 @@ describe("truncated instruction payloads", () => {
   // TradeNoCpi/TradeCpi use v17 API (assetIndex/sizeQ/...) — not the old lpIdx/userIdx API.
   const cases: [string, () => Uint8Array][] = [
     ["InitUser", () => encodeInitUser({ feePayment: "1000000" })],
-    ["DepositCollateral", () => encodeDepositCollateral({ userIdx: 5, amount: "1000000" })],
-    ["WithdrawCollateral", () => encodeWithdrawCollateral({ userIdx: 10, amount: "500000" })],
-    ["TradeNoCpi", () => encodeTradeNoCpi({ assetIndex: 0, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 10n })],
-    ["TradeCpi", () => encodeTradeCpi({ assetIndex: 2, sizeQ: -500n, feeBps: 10n, limitPrice: 0n })],
-    ["CloseAccount", () => encodeCloseAccount({ userIdx: 100 })],
-    ["TopUpInsurance", () => encodeTopUpInsurance({ amount: "5000000" })],
+    ["DepositCollateral", () => encodeDepositCollateral({ userIdx: 5, portfolioId: 1n, expectedSequence: 0n, amount: "1000000" })],
+    ["WithdrawCollateral", () => encodeWithdrawCollateral({ userIdx: 10, portfolioId: 1n, expectedSequence: 0n, amount: "500000" })],
+    ["TradeNoCpi", () => encodeTradeNoCpi({
+      accountAPortfolioId: 1n, accountAPositionEpoch: 0n, accountBPortfolioId: 2n, accountBPositionEpoch: 0n,
+      assetIndex: 0, marketId: 1n, sizeQ: 1_000_000n, execPrice: 50_000_000_000n, feeBps: 10n, backingFeeCapBps: 0,
+    })],
+    ["TradeCpi", () => encodeTradeCpi({
+      accountAPortfolioId: 1n, accountAPositionEpoch: 0n, accountBPortfolioId: 2n, accountBPositionEpoch: 0n,
+      accountBMatcherSequence: 0n, assetIndex: 2, marketId: 1n, sizeQ: -500n, feeBps: 10n, limitPrice: 0n, backingFeeCapBps: 0,
+    })],
+    ["CloseAccount", () => encodeCloseAccount({ userIdx: 100, portfolioId: 1n, expectedSequence: 0n, positionEpoch: 0n })],
+    ["TopUpInsurance", () => encodeTopUpInsurance({ marketId: 1n, intentId: 0n, authorityEpoch: 0n, amount: "5000000" })],
     ["InitMarket", () => encodeInitMarket(initMarketArgs)],
-    ["CloseSlab", () => encodeCloseSlab()],
-    ["ResolveMarket", () => encodeResolveMarket()],
+    ["CloseSlab", () => encodeCloseSlab(0n)],
+    ["ResolveMarket", () => encodeResolveMarket({ assetGenerationFrontier: 0n, authorityEpoch: 0n })],
     // v17: encodeWithdrawInsurance now requires amount arg (tag + u128 = 17 bytes)
     ["WithdrawInsurance", () => encodeWithdrawInsurance({ amount: "5000000" })],
   ];
