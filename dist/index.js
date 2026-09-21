@@ -1759,13 +1759,13 @@ function encodePushAuthMark(args) {
   );
 }
 function encodeMatcherInitPassive(args) {
-  const buf = new Uint8Array(66);
+  requirePositiveU64(args.lpAccountId, "lpAccountId");
+  const buf = new Uint8Array(INIT_CTX_LEN);
   buf[0] = 2;
   buf[1] = 0;
-  const u32Bytes = encU32(100);
-  buf.set(u32Bytes, 10);
-  const u128Bytes = encU128(args.maxFillAbs);
-  buf.set(u128Bytes, 34);
+  buf.set(encU32(100), 10);
+  buf.set(encU128(args.maxFillAbs), 34);
+  buf.set(encU64(args.lpAccountId), 70);
   return buf;
 }
 function encodeWithdrawProtocolFee(args) {
@@ -7993,9 +7993,9 @@ var STAKE_POOL_SIZE_V1 = 352;
 var STAKE_POOL_SIZE_V2 = 384;
 var STAKE_POOL_SIZE_V3 = 392;
 var STAKE_POOL_SIZE_V4 = 408;
-var STAKE_POOL_SIZE = STAKE_POOL_SIZE_V3;
+var STAKE_POOL_SIZE = STAKE_POOL_SIZE_V4;
 var STAKE_POOL_DISCRIMINATOR = new Uint8Array([83, 80, 79, 79, 76, 95, 86, 49]);
-var STAKE_POOL_CURRENT_VERSION = 3;
+var STAKE_POOL_CURRENT_VERSION = 4;
 function decodeStakePool(data) {
   const isV4 = data.length >= STAKE_POOL_SIZE_V4;
   const isV3 = !isV4 && data.length >= STAKE_POOL_SIZE_V3;

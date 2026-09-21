@@ -1726,41 +1726,59 @@ export const STAKE_POOL_SIZE_V3 = 392;
  * `percolator-prog` `v16_program.rs` pins `STAKE_POOL_LEN = 408` and
  * `STAKE_POOL_VERSION = 4`.
  *
- * NOT YET DEPLOYED: devnet `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3`
- * currently holds 25 pools, all 392 bytes / version 3.
+ * NOT YET DEPLOYED (as account DATA): devnet
+ * `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3` last checked with 25 pools,
+ * all 392 bytes / version 3 — a program code upgrade doesn't resize existing
+ * account data, only a fresh re-seed does. This is the layout `STAKE_POOL_SIZE`
+ * aliases to on the v18-migration branch (see that constant's doc comment).
  */
 export const STAKE_POOL_SIZE_V4 = 408;
 
 /**
- * Size of StakePool on-chain (bytes) — alias for the layout that is actually
- * DEPLOYED. Still `STAKE_POOL_SIZE_V3` (392).
+ * Size of StakePool on-chain (bytes) — alias for the layout this SDK targets.
  *
- * ⚠️ DELIBERATELY NOT re-pointed to v4 yet. `decodeStakePool` accepting v4 is a
- * strict superset — it widens what decodes and changes no existing pool's
- * meaning — but this alias is a bare number that consumers use as an EXACT
- * `getProgramAccounts({ dataSize })` filter and as a `data.length < SIZE` gate.
- * Re-pointing it to 408 today would match and admit ZERO of the 25 live pools
- * on devnet `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3`, all of which are
- * 392 bytes / version 3. That is a swap, not a superset, so it belongs with
- * the coordinated stake + wrapper v4 deploy — see CHANGELOG.
+ * v6.0.0 / v18-migration branch (sync/v16-migration-version18): re-pointed to
+ * `STAKE_POOL_SIZE_V4` (408). This branch is the SDK for AFTER the
+ * coordinated F-01 re-seed (see PortfolioAccountV16 9347->9563 above, bumped
+ * unconditionally in the same commit for the same reason) — by the time this
+ * major version is actually published and used, every pool will have been
+ * recreated fresh by the v4-only stake program (`percolator-stake` main,
+ * `CURRENT_VERSION = 4` unconditionally — there is no code path left to
+ * create a v3/392 pool), so there will be no 392-byte pool left to match. The
+ * wrapper's own KEEP_LIST already pins `STAKE_POOL_LEN = 408` /
+ * `STAKE_POOL_VERSION = 4` (v16_program.rs), so this alias now agrees with
+ * what its own CPI counterpart expects.
  *
- * Prefer the explicit `STAKE_POOL_SIZE_V{1,2,3,4}` constants in new code, so
- * that flip-day is a no-op for your call site.
+ * `main` (the currently-published, pre-re-seed SDK) INTENTIONALLY keeps this
+ * alias at `STAKE_POOL_SIZE_V3` (392) instead — see `6f00f5f`. That decision
+ * is still correct there: `main` talks to the REAL, currently-addressable
+ * pools, which — as of that commit — were all still 392 bytes on-chain
+ * (existing account DATA isn't resized by a program code upgrade; only a
+ * fresh re-seed recreates pools at their new size). Do not backport this
+ * flip to `main` without re-checking that devnet has actually re-seeded.
+ *
+ * `decodeStakePool` accepting v4 was always a strict superset (widens what
+ * decodes, changes no existing pool's meaning) — only this alias, used by
+ * consumers as an EXACT `getProgramAccounts({ dataSize })` filter and as a
+ * `data.length < SIZE` gate, needed the version-specific pin.
+ *
+ * Prefer the explicit `STAKE_POOL_SIZE_V{1,2,3,4}` constants in new code
+ * when you need a specific layout version regardless of which one this
+ * branch's alias currently points at.
  */
-export const STAKE_POOL_SIZE = STAKE_POOL_SIZE_V3;
+export const STAKE_POOL_SIZE = STAKE_POOL_SIZE_V4;
 export const STAKE_POOL_DISCRIMINATOR = new Uint8Array([0x53, 0x50, 0x4f, 0x4f, 0x4c, 0x5f, 0x56, 0x31]);
 /**
- * Version byte of the DEPLOYED StakePool layout — still 3.
+ * Version byte of the StakePool layout this SDK targets — 4 on this
+ * v18-migration branch (see `STAKE_POOL_SIZE` above for the full
+ * `main`-vs-this-branch rationale; `main` stays pinned to 3).
  *
- * Pinned to the chain, not to `percolator-stake`'s own `CURRENT_VERSION` (now
- * 4), for the same reason as `STAKE_POOL_SIZE` above: a consumer's natural
- * `pool.version === STAKE_POOL_CURRENT_VERSION` assertion must hold against
- * pools that exist. `decodeStakePool` does not read this constant — it derives
- * the expected version from the buffer length — so it is advisory only.
- *
- * Flip to 4 together with `STAKE_POOL_SIZE` when the v4 deploy lands.
+ * Matches `percolator-stake`'s own `CURRENT_VERSION` (4) and the wrapper's
+ * `STAKE_POOL_VERSION` KEEP_LIST constant. `decodeStakePool` does not read
+ * this constant — it derives the expected version from the buffer length —
+ * so it is advisory only.
  */
-export const STAKE_POOL_CURRENT_VERSION = 3;
+export const STAKE_POOL_CURRENT_VERSION = 4;
 
 /**
  * Decode a StakePool account from raw data buffer.

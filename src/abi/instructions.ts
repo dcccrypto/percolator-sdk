@@ -4979,48 +4979,78 @@ export function encodePushAuthMark(args: PushAuthMarkArgs): Uint8Array {
 // ============================================================================
 
 /**
- * MatcherInitPassive — 66-byte payload sent to the MATCHER PROGRAM (not wrapper)
- * to initialize a passive LP matcher context.
+ * MatcherInitPassive — 78-byte `InitParams` payload sent to the MATCHER
+ * PROGRAM (not wrapper) to initialize a passive LP matcher context.
  *
  * This is NOT a wrapper instruction. Program = matcher program address.
- * Accounts: [0] matcherDelegate (read-only PDA), [1] matcherCtx (writable).
+ * Accounts: [0] matcherDelegate (read-only PDA, signer), [1] matcherCtx (writable).
  *
- * Wire layout (66 bytes, from percolator-prog/tests/v16_five_program_crosscut.rs:640-648):
- *   [0]       = 2         (opcode: passive-LP init)
- *   [1]       = 0         (reserved)
- *   [2..10]   = 0         (8 bytes reserved)
- *   [10..14]  = 100u32 LE (default max_inventory_abs slot)
- *   [14..34]  = 0         (20 bytes reserved)
+ * Wire layout (78 bytes = {@link INIT_CTX_LEN}, byte-matched against
+ * `percolator-match::vamm::InitParams::{parse,encode}` at
+ * sync/v16-migration-backing-fee-cap@12bd671, and cross-checked against the
+ * checked-in `specs/matcher-parity.json` `init_field_offsets` fixture, which
+ * is generated straight from that source via `sdk_parity_fixtures`):
+ *   [0]       = 2          (tag: MATCHER_INIT_VAMM_TAG, shared by Passive/vAMM init)
+ *   [1]       = 0          (kind: 0 = Passive)
+ *   [2..6]    = 0u32 LE    (trading_fee_bps)
+ *   [6..10]   = 0u32 LE    (base_spread_bps)
+ *   [10..14]  = 100u32 LE  (max_total_bps — 100 bps default fee+spread cap)
+ *   [14..18]  = 0u32 LE    (impact_k_bps — vAMM only, unused for Passive)
+ *   [18..34]  = 0          (liquidity_notional_e6, u128 LE — vAMM only)
  *   [34..50]  = max_fill_abs (u128 LE)
- *   [50..66]  = 0         (16 bytes reserved)
- *   Total = 66 bytes
+ *   [50..66]  = 0          (max_inventory_abs, u128 LE — 0 = unlimited)
+ *   [66..68]  = 0u16 LE    (fee_to_insurance_bps)
+ *   [68..70]  = 0u16 LE    (skew_spread_mult_bps)
+ *   [70..78]  = lp_account_id (u64 LE)
+ *   Total = 78 bytes
+ *
+ * GH#10 parity fix: the matcher's `process_init` now unconditionally rejects
+ * `lp_account_id == 0` with `InvalidInstructionData` — a context created
+ * without a bound lp_account_id had no cross-market spoof-guard binding at
+ * all (`ctx.lp_account_id != 0 && call.lp_account_id != ctx.lp_account_id`
+ * never triggered for it). The pre-fix 66-byte payload this function used to
+ * emit falls short of {@link INIT_CTX_LEN}, so the matcher's `extended` check
+ * treats it as the v3-compat shape and defaults `lp_account_id` to 0 —
+ * meaning every call was rejected unconditionally against the v18 matcher.
+ * `lpAccountId` is therefore now a required, non-zero argument.
  *
  * The matcher delegate PDA is derived via `deriveMatcherDelegate()` in pda.ts using
  * seeds ["matcher", market, accountB, accountBOwner, matcherProg, matcherCtx].
+ * The caller passes the same numeric id it derived its delegate PDA from
+ * (percolator-prog derives this as the low 8 bytes of the matcher delegate
+ * pubkey) so `process_call`'s `call.lp_account_id == ctx.lp_account_id`
+ * cross-market check binds correctly.
  *
- * @param maxFillAbs  Maximum absolute fill size (u128). Pass BigInt.MaxUint128 (2^128-1) for no limit.
+ * @param maxFillAbs   Maximum absolute fill size (u128). Pass 2n**128n-1n for no limit
+ *                     (the matcher clamps this to i128::MAX at init).
+ * @param lpAccountId  Numeric LP account identifier (u64). MUST be non-zero — the
+ *                     v18 matcher's `process_init` rejects `lp_account_id == 0`
+ *                     unconditionally (GH#10).
  *
  * @example
  * ```ts
- * const data = encodeMatcherInitPassive({ maxFillAbs: 2n ** 128n - 1n });
- * assert(data.length === 66);
- * // send to matcherProgram, accounts: [delegate(ro), ctx(w)]
+ * const data = encodeMatcherInitPassive({ maxFillAbs: 2n ** 128n - 1n, lpAccountId: 12345n });
+ * assert(data.length === 78);
+ * // send to matcherProgram, accounts: [delegate(signer), ctx(w)]
  * ```
  */
 export interface MatcherInitPassiveArgs {
   maxFillAbs: bigint | string;
+  lpAccountId: bigint | string;
 }
 
 export function encodeMatcherInitPassive(args: MatcherInitPassiveArgs): Uint8Array {
-  const buf = new Uint8Array(66);
-  buf[0] = 2;
-  buf[1] = 0;
-  // [10..14] = 100u32 LE (default max_inventory_abs / slot factor)
-  const u32Bytes = encU32(100);
-  buf.set(u32Bytes, 10);
+  requirePositiveU64(args.lpAccountId, "lpAccountId");
+
+  const buf = new Uint8Array(INIT_CTX_LEN);
+  buf[0] = 2; // MATCHER_INIT_VAMM_TAG
+  buf[1] = 0; // kind = Passive
+  // [10..14] = 100u32 LE (max_total_bps default fee+spread cap)
+  buf.set(encU32(100), 10);
   // [34..50] = max_fill_abs u128 LE
-  const u128Bytes = encU128(args.maxFillAbs);
-  buf.set(u128Bytes, 34);
+  buf.set(encU128(args.maxFillAbs), 34);
+  // [70..78] = lp_account_id u64 LE (GH#10 — must be non-zero)
+  buf.set(encU64(args.lpAccountId), 70);
   return buf;
 }
 

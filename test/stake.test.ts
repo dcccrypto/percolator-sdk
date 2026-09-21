@@ -50,15 +50,16 @@ const TEST_USER = new PublicKey("GM8zjJ8LTBMv9xEsverh6H6wLyevgMHEJXcEzyY3rY24");
 /** Stamp a v2 (384-byte) StakePool identity at the v2 reserved offset (320), version = 2. */
 function stampStakePoolIdentity(buf: Uint8Array): void {
   buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
-  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 2; // version = 2 (v2 is retired; STAKE_POOL_CURRENT_VERSION is 3)
+  buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 2; // version = 2 (v2 is retired; literal, not tied to STAKE_POOL_CURRENT_VERSION)
 }
 
 /** Stamp a v3 (392-byte) StakePool identity at the v2/v3-shared reserved offset (320), version = 3. */
 function stampStakePoolV3Identity(buf: Uint8Array): void {
   buf.set(STAKE_POOL_DISCRIMINATOR, STAKE_POOL_RESERVED_OFFSET_V2);
   buf[STAKE_POOL_RESERVED_OFFSET_V2 + 8] = 3; // literal 3: this stamps a V3 pool,
-  // not "whatever the newest version is". They coincide today, but v4 exists
-  // and STAKE_POOL_CURRENT_VERSION flips to 4 at the deploy — this must not.
+  // not "whatever STAKE_POOL_CURRENT_VERSION currently is". On `main` those
+  // coincide (both 3); on this v18-migration branch STAKE_POOL_CURRENT_VERSION
+  // is already 4, and this helper must keep stamping a v3 pool regardless.
 }
 
 /** Stamp a minimal, valid v4 (408-byte) StakePool: discriminator + version = 4. */
@@ -479,21 +480,34 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(v4pool.pendingCooldownSlots).toBe(0n);
   });
 
-  it("StakePool size constants, with the SIZE/CURRENT_VERSION aliases still pinned to DEPLOYED v3", () => {
+  it("StakePool size constants, with the SIZE/CURRENT_VERSION aliases pointed at v4 on this v18-migration branch", () => {
     expect(STAKE_POOL_SIZE_V1).toBe(352);
     expect(STAKE_POOL_SIZE_V2).toBe(384);
     expect(STAKE_POOL_SIZE_V3).toBe(392);
     expect(STAKE_POOL_SIZE_V4).toBe(408);
 
-    // The aliases are a SWAP, not a superset: consumers use STAKE_POOL_SIZE as
-    // an exact getProgramAccounts({ dataSize }) filter and as a length gate, so
-    // re-pointing it to 408 matches zero of the 25 live 392-byte pools. It
-    // flips at the coordinated stake + wrapper v4 deploy, with CURRENT_VERSION.
-    expect(STAKE_POOL_SIZE).toBe(STAKE_POOL_SIZE_V3);
-    expect(STAKE_POOL_CURRENT_VERSION).toBe(3);
+    // gate-100 CYCLE 1 finding (2026-09-22): "SDK stale: STAKE_POOL_SIZE = 392
+    // but deployed stake v4 = 408" — real, not a gate-harness misunderstanding.
+    // percolator-stake main has CURRENT_VERSION=4 / size_of::<StakePool>()=408
+    // unconditionally (no code path creates a v3/392 pool any more), and the
+    // wrapper's own KEEP_LIST pins STAKE_POOL_LEN=408 / STAKE_POOL_VERSION=4
+    // (v16_program.rs). This v18-migration branch (v6.0.0, HELD pending the
+    // coordinated F-01 re-seed) is the SDK for after that re-seed, at which
+    // point every pool will have been recreated fresh at 408 bytes — so the
+    // aliases are re-pointed to v4 here, matching PortfolioAccountV16's own
+    // unconditional 9347->9563 bump in the same migration.
+    //
+    // `main` (today's published, pre-re-seed SDK) intentionally keeps these
+    // aliases on v3/392 instead (see `6f00f5f`): it talks to the REAL,
+    // currently-addressable pools, which are still 392 bytes on-chain until
+    // the re-seed actually recreates them — a program code upgrade alone
+    // doesn't resize existing account data. Do not backport this test's
+    // expectations to `main` without re-verifying devnet has re-seeded.
+    expect(STAKE_POOL_SIZE).toBe(STAKE_POOL_SIZE_V4);
+    expect(STAKE_POOL_CURRENT_VERSION).toBe(4);
 
-    // ...while the decoder ALREADY accepts v4. That asymmetry is the point of
-    // this change: widen what decodes, without moving what consumers filter on.
+    // ...and the decoder accepts v3 through v4 regardless of where the alias
+    // points — decodeStakePool derives the expected version from data.length.
     expect(decodeStakePool(makeV4Pool()).version).toBe(4);
   });
 

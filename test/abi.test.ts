@@ -1587,32 +1587,46 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
 }
 // ── TASK B: matcher passive-init payload ─────────────────────────────
 
-// Test encodeMatcherInitPassive — 66-byte wire to matcher program
-// Layout: [0]=2, [1]=0, [2..10]=0, [10..14]=100u32LE, [14..34]=0, [34..50]=max_fill_abs u128LE, [50..66]=0
+// Test encodeMatcherInitPassive — 78-byte InitParams wire to matcher program
+// (GH#10 parity fix: lp_account_id now emitted at [70..78]; byte-matched
+// against percolator-match::vamm::InitParams at sync/v16-migration-backing-fee-cap@12bd671
+// and specs/matcher-parity.json's init_field_offsets fixture.)
+// Layout: [0]=2 (tag), [1]=0 (kind=Passive), [2..10]=0 (trading_fee_bps/base_spread_bps),
+//   [10..14]=100u32LE (max_total_bps), [14..34]=0 (impact_k_bps/liquidity_notional_e6),
+//   [34..50]=max_fill_abs u128LE, [50..66]=0 (max_inventory_abs),
+//   [66..70]=0 (fee_to_insurance_bps/skew_spread_mult_bps), [70..78]=lp_account_id u64LE
 {
   const maxFillAbs = 2n ** 128n - 1n; // u128::MAX
-  const data = encodeMatcherInitPassive({ maxFillAbs });
-  assert(data.length === 66, `encodeMatcherInitPassive length: expected 66, got ${data.length}`);
-  assert(data[0] === 2, "encodeMatcherInitPassive opcode=2");
-  assert(data[1] === 0, "encodeMatcherInitPassive reserved[1]=0");
-  // [10..14] = 100u32 LE
-  assertBuf(data.subarray(10, 14), [100, 0, 0, 0], "encodeMatcherInitPassive [10..14]=100u32");
+  const lpAccountId = 12345n;
+  const data = encodeMatcherInitPassive({ maxFillAbs, lpAccountId });
+  assert(data.length === 78, `encodeMatcherInitPassive length: expected 78, got ${data.length}`);
+  assert(data[0] === 2, "encodeMatcherInitPassive tag=2 (MATCHER_INIT_VAMM_TAG)");
+  assert(data[1] === 0, "encodeMatcherInitPassive kind[1]=0 (Passive)");
+  // [10..14] = 100u32 LE (max_total_bps)
+  assertBuf(data.subarray(10, 14), [100, 0, 0, 0], "encodeMatcherInitPassive [10..14]=100u32 max_total_bps");
   // [34..50] = max_fill_abs = u128::MAX = all 0xFF bytes
   assertBuf(
     data.subarray(34, 50),
     [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
     "encodeMatcherInitPassive max_fill_abs=u128::MAX"
   );
-  // [50..66] = 0
-  assert(data.subarray(50, 66).every(v => v === 0), "encodeMatcherInitPassive [50..66]=0");
-  console.log("✓ encodeMatcherInitPassive (66-byte matcher payload)");
+  // [50..66] = 0 (max_inventory_abs = unlimited)
+  assert(data.subarray(50, 66).every(v => v === 0), "encodeMatcherInitPassive [50..66]=0 max_inventory_abs");
+  // [66..70] = 0 (fee_to_insurance_bps, skew_spread_mult_bps)
+  assert(data.subarray(66, 70).every(v => v === 0), "encodeMatcherInitPassive [66..70]=0");
+  // [70..78] = lp_account_id = 12345 u64 LE
+  const expectedLpId = new DataView(new ArrayBuffer(8));
+  expectedLpId.setBigUint64(0, lpAccountId, true);
+  assertBuf(data.subarray(70, 78), Array.from(new Uint8Array(expectedLpId.buffer)), "encodeMatcherInitPassive [70..78]=lp_account_id");
+  console.log("✓ encodeMatcherInitPassive (78-byte matcher payload, GH#10 lp_account_id)");
 }
 
 // Test encodeMatcherInitPassive with a finite max_fill_abs
 {
   const maxFillAbs = 1_000_000_000_000_000_000n; // 1e18
-  const data = encodeMatcherInitPassive({ maxFillAbs });
-  assert(data.length === 66, "encodeMatcherInitPassive finite max_fill_abs length=66");
+  const lpAccountId = 999n;
+  const data = encodeMatcherInitPassive({ maxFillAbs, lpAccountId });
+  assert(data.length === 78, "encodeMatcherInitPassive finite max_fill_abs length=78");
   // [34..42] should encode 1e18 in LE (0x0DE0B6B3A7640000)
   const lo = 1_000_000_000_000_000_000n & 0xffff_ffff_ffff_ffffn;
   const expectedLo = new DataView(new ArrayBuffer(8));
@@ -1620,6 +1634,16 @@ console.log("✓ encodePushAuthMark (19-byte wire)");
   const loBytes = new Uint8Array(expectedLo.buffer);
   assert(data.subarray(34, 42).every((v, i) => v === loBytes[i]), "encodeMatcherInitPassive finite max_fill_abs low bytes");
   console.log("✓ encodeMatcherInitPassive finite max_fill_abs");
+}
+
+// GH#10: encodeMatcherInitPassive must refuse lp_account_id == 0 client-side —
+// the v18 matcher's process_init rejects it unconditionally on-chain.
+{
+  assertThrows(
+    () => encodeMatcherInitPassive({ maxFillAbs: 1_000n, lpAccountId: 0n }),
+    "encodeMatcherInitPassive must reject lpAccountId=0 (GH#10)"
+  );
+  console.log("✓ encodeMatcherInitPassive rejects lpAccountId=0");
 }
 
 // ── MatcherReturn (v18, integration a9318945) — 64-byte CPI response wire ────
