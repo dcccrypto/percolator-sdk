@@ -2893,10 +2893,14 @@ function safeEnv(key) {
 }
 var PROGRAM_IDS = {
   devnet: {
-    // v17 deployed devnet programs — fresh triple, deployed + upgraded 2026-07-17,
-    // hash-verified on-chain. Supersedes the 2026-06-26 wrapper (69VUZ7a2...), which
-    // remains live on devnet with ~152 existing markets but is no longer the SDK default.
-    percolator: "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+    // v18 coordinated fresh-ID redeploy (2026-09-22): the devnet wrapper moves to a
+    // BRAND-NEW program address (GnwdeQr…) so no pre-existing v17 account survives under it.
+    // This is the ACTIVE devnet wrapper id that getProgramId() / getProgramId("devnet")
+    // resolves and that PDA derivation + tx targeting use. The prior devnet wrapper
+    // (DhSkE7u…, v17) is ABANDONED — retained only as a historical record in PROGRAM_IDS_V17
+    // below (and, via that, in the env-override allowlist for back-compat). The matcher is
+    // NOT part of the v18 fresh-ID cutover and keeps its existing address.
+    percolator: "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ",
     matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT"
   },
   mainnet: {
@@ -2908,8 +2912,10 @@ Object.freeze(PROGRAM_IDS.devnet);
 Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 var PROGRAM_IDS_V17 = {
-  /** v17 wrapper — deployed devnet 2026-07-17, hash-verified. */
-  percolator: "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+  /** ACTIVE v18 devnet wrapper (GnwdeQr…) — cut over 2026-09-22 from the abandoned v17
+   *  wrapper (DhSkE7u…). Kept in this "v17"-named object as a single source of truth with
+   *  PROGRAM_IDS.devnet.percolator; @deprecated alias, prefer PROGRAM_IDS.devnet. */
+  percolator: "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ",
   /** v17 matcher — deployed devnet 2026-06-26, unchanged (same address). */
   matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
   /** v17 nft — deployed devnet 2026-07-17, hash-verified. */

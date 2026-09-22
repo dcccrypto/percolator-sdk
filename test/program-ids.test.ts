@@ -120,33 +120,39 @@ describe("getMatcherProgramId", () => {
 });
 
 // ===========================================================================
-// Fresh v17 devnet triple — deployed + upgraded 2026-07-17, hash-verified.
+// Devnet wrapper id + v17 stake/nft/matcher record.
 // These assertions are pinned to literal, hardcoded expected values (not
 // self-referential comparisons against the module's own constants) so that
-// a regression to the stale 2026-06-26 triple (69VUZ7a2..., 51CeUNpb...,
-// 5TnritLt...) fails loudly instead of silently passing.
+// a regression fails loudly instead of silently passing.
+//
+// v18 coordinated fresh-ID redeploy (2026-09-22): the ACTIVE devnet wrapper
+// moved to a brand-new address (GnwdeQr…). PROGRAM_IDS_V17.percolator / PROGRAM_ID_V17
+// were CUT OVER to that same fresh id (single source of truth with PROGRAM_IDS.devnet;
+// deprecated back-compat aliases), so all wrapper-id pins below are GnwdeQr…. The
+// stake/vault (GCHhcgw…) and nft (CNGBPZR…) v17 ids are unaffected by the wrapper-only
+// cutover. The abandoned v17 wrapper (DhSkE7u…) must appear nowhere as an active id.
 // ===========================================================================
-describe("v17 fresh devnet triple (2026-07-17)", () => {
-  it("getProgramId('devnet') resolves to the fresh wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj", () => {
+describe("devnet wrapper id (v18 fresh-ID cutover) + v17 record", () => {
+  it("getProgramId('devnet') resolves to the fresh v18 wrapper GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ", () => {
     const pk = getProgramId("devnet");
-    expect(pk.toBase58()).toBe("DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj");
+    expect(pk.toBase58()).toBe("GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ");
   });
 
-  it("PROGRAM_IDS.devnet.percolator is the fresh wrapper (cutover default)", () => {
+  it("PROGRAM_IDS.devnet.percolator is the fresh v18 wrapper (active cutover default)", () => {
     expect(PROGRAM_IDS.devnet.percolator).toBe(
-      "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+      "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ",
     );
   });
 
-  it("PROGRAM_IDS_V17.percolator is the fresh wrapper", () => {
+  it("PROGRAM_IDS_V17.percolator is cut over to the fresh v18 wrapper (deprecated alias, single source of truth)", () => {
     expect(PROGRAM_IDS_V17.percolator).toBe(
-      "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+      "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ",
     );
   });
 
-  it("PROGRAM_ID_V17 PublicKey matches the fresh wrapper", () => {
+  it("PROGRAM_ID_V17 PublicKey is the fresh v18 wrapper (deprecated alias of the active id)", () => {
     expect(PROGRAM_ID_V17.toBase58()).toBe(
-      "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+      "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ",
     );
   });
 
@@ -171,6 +177,36 @@ describe("v17 fresh devnet triple (2026-07-17)", () => {
   it("does NOT resolve to the superseded 2026-06-26 wrapper address", () => {
     const pk = getProgramId("devnet");
     expect(pk.toBase58()).not.toBe("69VUZ7a2BeXBTpRRManLamF5UWTaNR9B1hy5Se3cdXy9");
+  });
+
+  // Negative control for the v18 cutover: the ACTIVE devnet resolution must have moved
+  // OFF the abandoned v17 wrapper. If this ever passes-as-DhSkE7u again the cutover regressed.
+  it("does NOT resolve to the abandoned v17 wrapper (DhSkE7u…) after the v18 cutover", () => {
+    const pk = getProgramId("devnet");
+    expect(pk.toBase58()).not.toBe("DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj");
+  });
+
+  // Negative control: the deprecated PROGRAM_ID_V17 alias must ALSO have moved off DhSkE7u,
+  // or a consumer still importing it would target the abandoned wrapper.
+  it("PROGRAM_ID_V17 no longer equals the abandoned v17 wrapper (DhSkE7u…)", () => {
+    expect(PROGRAM_ID_V17.toBase58()).not.toBe("DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj");
+  });
+
+  // The abandoned v17 wrapper must no longer be an ALLOWLISTED id: an env PROGRAM_ID override
+  // set to DhSkE7u WITHOUT the explicit opt-in must now be REJECTED (it dropped from
+  // KNOWN_PROGRAM_IDS at the cutover). Proves DhSkE7u is not silently accepted anywhere.
+  it("#308: env PROGRAM_ID=DhSkE7u (abandoned v17) is rejected without opt-in", () => {
+    const saved = process.env.PROGRAM_ID;
+    const savedOptIn = process.env.PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE;
+    process.env.PROGRAM_ID = "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj";
+    delete process.env.PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE;
+    try {
+      expect(() => getProgramId()).toThrow(/not a known program address/i);
+    } finally {
+      if (saved === undefined) delete process.env.PROGRAM_ID;
+      else process.env.PROGRAM_ID = saved;
+      if (savedOptIn !== undefined) process.env.PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE = savedOptIn;
+    }
   });
 });
 
