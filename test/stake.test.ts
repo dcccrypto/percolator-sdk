@@ -511,6 +511,20 @@ describe("stake encoders return Uint8Array (not Buffer)", () => {
     expect(decodeStakePool(makeV4Pool()).version).toBe(4);
   });
 
+  it("#290 (stake v18.2): decodes mode0FeesAttributed at offset 272 and feeAttributionArmed at _reserved[60]", () => {
+    const buf = makeV4Pool();
+    new DataView(buf.buffer).setBigUint64(272, 123_456_789n, true);
+    const unarmed = decodeStakePool(buf);
+    expect(unarmed.mode0FeesAttributed).toBe(123_456_789n);
+    expect(unarmed.lastVaultSnapshot).toBe(123_456_789n); // deprecated alias, same bytes
+    expect(unarmed.feeAttributionArmed).toBe(false);
+    buf[STAKE_POOL_RESERVED_OFFSET_V2 + 60] = 1;
+    const armed = decodeStakePool(buf);
+    expect(armed.feeAttributionArmed).toBe(true);
+    // [60] is not [59]: the flag must not bleed into assetAdminBurned.
+    expect(armed.assetAdminBurned).toBe(false);
+  });
+
   it("decodes a v3 (392-byte) StakePool: totalRecoveredFromWrapper at the tail, all v2 fields intact, no offset shifts", () => {
     // v3 StakePool: 392 bytes (was 384 in v2). total_recovered_from_wrapper (u64)
     // appended at the struct TAIL, offset 384..392 — OUTSIDE _reserved, which stays

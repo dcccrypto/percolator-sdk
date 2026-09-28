@@ -8083,6 +8083,7 @@ function decodeStakePool(data) {
   const cooldownProposedAtSlot = isV4 ? readU64LE4(bytes, reservedStart + 80) : readU64LE4(bytes, reservedStart + 18);
   const realizedJuniorLoss = readU64LE4(bytes, reservedStart + 51);
   const assetAdminBurned = bytes[reservedStart + 59] === 1;
+  const feeAttributionArmed = bytes[reservedStart + 60] === 1;
   const totalRecoveredFromWrapper = isV4 || isV3 ? readU64LE4(bytes, reservedStart + 64) : null;
   return {
     version,
@@ -8108,6 +8109,8 @@ function decodeStakePool(data) {
     totalFeesEarned,
     lastFeeAccrualSlot,
     lastVaultSnapshot,
+    mode0FeesAttributed: lastVaultSnapshot,
+    feeAttributionArmed,
     poolMode,
     hwmEnabled,
     epochHighWaterTvl,
@@ -8169,8 +8172,12 @@ function depositAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
     { pubkey: a.depositPda, isSigner: false, isWritable: true },
     { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_CLOCK_PUBKEY2, isSigner: false, isWritable: false },
-    { pubkey: SystemProgram2.programId, isSigner: false, isWritable: false }
+    { pubkey: SystemProgram2.programId, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: false }
   ];
+}
+function depositJuniorAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
+  return depositAccounts(a, tokenProgramId);
 }
 function withdrawAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
   return [
@@ -8183,7 +8190,17 @@ function withdrawAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
     { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
     { pubkey: a.depositPda, isSigner: false, isWritable: true },
     { pubkey: tokenProgramId, isSigner: false, isWritable: false },
-    { pubkey: SYSVAR_CLOCK_PUBKEY2, isSigner: false, isWritable: false }
+    { pubkey: SYSVAR_CLOCK_PUBKEY2, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: false }
+  ];
+}
+function accrueFeesAccounts(a) {
+  return [
+    { pubkey: a.caller, isSigner: true, isWritable: false },
+    { pubkey: a.pool, isSigner: false, isWritable: true },
+    { pubkey: a.vault, isSigner: false, isWritable: false },
+    { pubkey: SYSVAR_CLOCK_PUBKEY2, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: false }
   ];
 }
 function flushToInsuranceAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
@@ -10147,6 +10164,7 @@ export {
   WELL_KNOWN,
   WSOL_MINT,
   _internal,
+  accrueFeesAccounts,
   adminResolveMarketCpiAccounts,
   adminUpdateBackingFeePolicyAccounts,
   adminUpdateFeeSplitAccounts,
@@ -10192,6 +10210,7 @@ export {
   decodePortfolioMatcherControl,
   decodeStakePool,
   depositAccounts,
+  depositJuniorAccounts,
   deriveCanonicalVault,
   deriveCanonicalVaultForAuthority,
   deriveCreatorLockPda,

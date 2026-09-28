@@ -1579,7 +1579,21 @@ export interface StakePoolState {
   // PERC-272: Fee yield fields
   totalFeesEarned: bigint;
   lastFeeAccrualSlot: bigint;
+  /**
+   * @deprecated percolator-stake #290 (v18.2) repurposed these bytes (offset
+   * 272) as {@link StakePoolState.mode0FeesAttributed}. Same value; kept so
+   * existing readers compile.
+   */
   lastVaultSnapshot: bigint;
+  /**
+   * percolator-stake #290: mode-0 fee-attribution cursor (offset 272) — the
+   * cumulative wrapper tag-87 payout atoms already booked into
+   * `totalFeesEarned`. Meaningful only when `feeAttributionArmed` is true; on
+   * an un-armed (pre-#290) pool these bytes hold a stale vault snapshot.
+   */
+  mode0FeesAttributed: bigint;
+  /** percolator-stake #290: `_reserved[60] == 1` — the attribution cursor is live. */
+  feeAttributionArmed: boolean;
   poolMode: number;
 
   // _reserved layout (64 bytes) — ADOPTED lineage (state.rs@9ec1c3a):
@@ -1598,7 +1612,8 @@ export interface StakePoolState {
   // [49..51] PERC-303 junior_fee_mult_bps (u16)
   // [51..59] N-realized_junior_loss (u64) — issue #161
   // [59]     asset_admin_burned (BurnAssetAdmin tag 21 completion flag)
-  // [60..64] free
+  // [60]     #290 fee_attribution_armed (v18.2)
+  // [61..64] free
   // [64..72] v3 ONLY, OUTSIDE _reserved (absolute offset 384..392):
   //          total_recovered_from_wrapper (u64) — H-1 re-review fix, state.rs@c5a901f
 
@@ -1910,6 +1925,8 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   // N-realized_junior_loss (issue #161) at _reserved[51..59]; asset_admin_burned flag at [59].
   const realizedJuniorLoss = readU64LE(bytes, reservedStart + 51);
   const assetAdminBurned = bytes[reservedStart + 59] === 1;
+  // #290 (stake v18.2): _reserved[60] = fee_attribution_armed.
+  const feeAttributionArmed = bytes[reservedStart + 60] === 1;
 
   // H-1 re-review fix, stake v3 and v4: total_recovered_from_wrapper (u64) is a
   // REAL struct field appended at the tail, offset reservedStart + 64 (== 384
@@ -1942,6 +1959,8 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
     totalFeesEarned,
     lastFeeAccrualSlot,
     lastVaultSnapshot,
+    mode0FeesAttributed: lastVaultSnapshot,
+    feeAttributionArmed,
     poolMode,
     hwmEnabled,
     epochHighWaterTvl,
@@ -2032,6 +2051,14 @@ export interface StakeAccounts {
     userLpAta: PublicKey;
     vaultAuth: PublicKey;
     depositPda: PublicKey;
+    /**
+     * The pool's wrapper market (`pool.slab`, i.e. `decodeStakePool(...).slab`).
+     * percolator-stake #290 (v18.2): REQUIRED for a mode-0 pool (every
+     * `InitPool` pool) — the program reads the wrapper's tag-87 payout counter
+     * from it before pricing LP and fails with `NotEnoughAccountKeys` without
+     * it. Sent at account index 11. v18.1 stake ignores the extra trailing account.
+     */
+    slab: PublicKey;
   };
   /** Withdraw accounts */
   withdraw: {
@@ -2043,6 +2070,26 @@ export interface StakeAccounts {
     userCollateralAta: PublicKey;
     vaultAuth: PublicKey;
     depositPda: PublicKey;
+    /**
+     * The pool's wrapper market (`pool.slab`). percolator-stake #290 (v18.2):
+     * optional on-chain (index 10), but when absent a mode-0 withdrawal skips
+     * the pending-fee accrual and redeems at the lower, not-yet-accrued price.
+     * The SDK always sends it. v18.1 stake ignores the extra trailing account.
+     */
+    slab: PublicKey;
+  };
+  /** AccrueFees accounts (tag 12, permissionless) */
+  accrueFees: {
+    /** Any signer; the program only checks `is_signer`. */
+    caller: PublicKey;
+    pool: PublicKey;
+    /** The pool's vault token account (`pool.vault`). */
+    vault: PublicKey;
+    /**
+     * The pool's wrapper market (`pool.slab`). percolator-stake #290 (v18.2):
+     * REQUIRED for mode 0 (index 4), ignored for mode 1.
+     */
+    slab: PublicKey;
   };
   /** FlushToInsurance accounts (CPI from stake → percolator) */
   flushToInsurance: {
@@ -2084,11 +2131,24 @@ export function initPoolAccounts(
 }
 
 /**
- * Build account keys for Deposit instruction.
+ * Build account keys for the Deposit (tag 1) and DepositJunior (tag 16)
+ * instructions — both share one account shape.
+ *
+ * 12 accounts. Index 11 is the pool's wrapper market (`pool.slab`), added by
+ * percolator-stake #290 (v18.2), which rejects a mode-0 deposit without it.
+ * v18.1 stake reads only the first 11 and ignores the trailing account.
  *
  * @param a - Named accounts for the Deposit instruction.
  * @param tokenProgramId - Token program to use. Defaults to SPL Token. Pass
  *   `TOKEN_2022_PROGRAM_ID` for Token-2022 collateral mints.
+ * @returns Account metas in the order the program parses them.
+ * @example
+ * ```ts
+ * const pool = decodeStakePool(poolInfo.data);
+ * const keys = depositAccounts({ user, pool: poolPda, userCollateralAta, vault: pool.vault,
+ *   lpMint: pool.lpMint, userLpAta, vaultAuth, depositPda, slab: pool.slab });
+ * new TransactionInstruction({ programId, keys, data: encodeStakeDeposit(amount) });
+ * ```
  */
 export function depositAccounts(
   a: StakeAccounts['deposit'],
@@ -2106,15 +2166,48 @@ export function depositAccounts(
     { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: false },
   ];
+}
+
+/**
+ * Build account keys for DepositJunior (tag 16). Identical to
+ * {@link depositAccounts}: percolator-stake documents it as "same as Deposit,
+ * including the #290 wrapper market at index 11".
+ *
+ * @param a - Named accounts (same shape as Deposit).
+ * @param tokenProgramId - Token program to use. Defaults to SPL Token.
+ * @returns Account metas in the order the program parses them.
+ * @example
+ * ```ts
+ * const keys = depositJuniorAccounts({ ...depositArgs, slab: pool.slab });
+ * new TransactionInstruction({ programId, keys, data: encodeStakeDepositJunior(amount) });
+ * ```
+ */
+export function depositJuniorAccounts(
+  a: StakeAccounts['deposit'],
+  tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
+) {
+  return depositAccounts(a, tokenProgramId);
 }
 
 /**
  * Build account keys for Withdraw instruction.
  *
+ * 11 accounts. Index 10 is the pool's wrapper market (`pool.slab`,
+ * percolator-stake #290 / v18.2). It is optional on-chain, but without it a
+ * mode-0 withdrawal skips the pending-fee accrual, so the SDK always sends it.
+ * v18.1 stake ignores the trailing account.
+ *
  * @param a - Named accounts for the Withdraw instruction.
  * @param tokenProgramId - Token program to use. Defaults to SPL Token. Pass
  *   `TOKEN_2022_PROGRAM_ID` for Token-2022 collateral mints.
+ * @returns Account metas in the order the program parses them.
+ * @example
+ * ```ts
+ * const keys = withdrawAccounts({ user, pool: poolPda, userLpAta, lpMint: pool.lpMint,
+ *   vault: pool.vault, userCollateralAta, vaultAuth, depositPda, slab: pool.slab });
+ * ```
  */
 export function withdrawAccounts(
   a: StakeAccounts['withdraw'],
@@ -2131,6 +2224,36 @@ export function withdrawAccounts(
     { pubkey: a.depositPda, isSigner: false, isWritable: true },
     { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: false },
+  ];
+}
+
+/**
+ * Build account keys for AccrueFees (tag 12, permissionless).
+ *
+ * 5 accounts: [caller(signer), pool(writable), vault, clock, slab]. Index 4 is
+ * the pool's wrapper market (`pool.slab`), REQUIRED for a mode-0 pool by
+ * percolator-stake #290 (v18.2): a mode-0 pool books vault surplus only up to
+ * the wrapper's not-yet-booked tag-87 payouts, read from that account. v18.1
+ * stake reads only the first 4 and ignores it.
+ *
+ * @param a - Named accounts for the AccrueFees instruction.
+ * @returns Account metas in the order the program parses them.
+ * @example
+ * ```ts
+ * const pool = decodeStakePool(poolInfo.data);
+ * const keys = accrueFeesAccounts({ caller: payer.publicKey, pool: poolPda,
+ *   vault: pool.vault, slab: pool.slab });
+ * new TransactionInstruction({ programId, keys, data: encodeStakeAccrueFees() });
+ * ```
+ */
+export function accrueFeesAccounts(a: StakeAccounts['accrueFees']) {
+  return [
+    { pubkey: a.caller, isSigner: true, isWritable: false },
+    { pubkey: a.pool, isSigner: false, isWritable: true },
+    { pubkey: a.vault, isSigner: false, isWritable: false },
+    { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
+    { pubkey: a.slab, isSigner: false, isWritable: false },
   ];
 }
 

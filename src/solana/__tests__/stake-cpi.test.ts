@@ -189,10 +189,13 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
         userLpAta,
         vaultAuth,
         depositPda,
+        slab: slab.publicKey,
       });
 
-      // 11 accounts
-      expect(keys).toHaveLength(11);
+      // 12 accounts (#290: pool.slab appended at index 11)
+      expect(keys).toHaveLength(12);
+      expect(keys[11].pubkey.equals(slab.publicKey)).toBe(true);
+      expect(keys[11].isWritable).toBe(false);
 
       // Account 0: user — signer (signs the transfer)
       expect(keys[0].pubkey.equals(user.publicKey)).toBe(true);
@@ -243,10 +246,12 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
         userCollateralAta,
         vaultAuth,
         depositPda,
+        slab: slab.publicKey,
       });
 
-      // 10 accounts (no systemProgram needed — deposit PDA already exists)
-      expect(keys).toHaveLength(10);
+      // 11 accounts (no systemProgram — deposit PDA already exists; #290 pool.slab at 10)
+      expect(keys).toHaveLength(11);
+      expect(keys[10].pubkey.equals(slab.publicKey)).toBe(true);
 
       // Account 0: user — signer
       expect(keys[0].pubkey.equals(user.publicKey)).toBe(true);

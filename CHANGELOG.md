@@ -7,6 +7,49 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [7.0.0] — unreleased (do not `npm publish` without explicit human go)
+
+Tracks percolator-stake #298 (fixes #290, stake main `9150dea`/`de7be9a`), which
+ships on devnet as stake **v18.2**. A mode-0 pool now books only vault surplus the
+wrapper can attribute to tag-87 fee payouts, so four stake instructions take the
+pool's wrapper market (`pool.slab`) as ONE extra trailing account.
+
+On-chain compatibility: the extra account is backward-compatible with the live
+v18.1 stake (`deploy/v18.1-stake`@`7dae291`), whose Deposit/DepositJunior/
+Withdraw/AccrueFees handlers read accounts with `next_account_info` and have no
+account-count check, so it is ignored there. Clients built with 7.0.0 therefore
+work against both v18.1 and v18.2; clients built with 6.x fail on v18.2 mode-0
+Deposit/DepositJunior/AccrueFees (`NotEnoughAccountKeys`).
+
+### Breaking (TypeScript API)
+
+- **`StakeAccounts['deposit']` and `StakeAccounts['withdraw']` gain a required
+  `slab: PublicKey`** (pass `decodeStakePool(...).slab`). Major bump because
+  existing callers stop compiling — deliberately: omitting it silently breaks
+  v18.2 deposits.
+- **`depositAccounts()` returns 12 metas** (slab at index 11, read-only).
+- **`withdrawAccounts()` returns 11 metas** (slab at index 10, read-only). The
+  program treats it as optional, but without it a mode-0 withdrawal redeems at
+  the not-yet-accrued price, so the SDK always sends it.
+
+### Added
+
+- `depositJuniorAccounts()` (tag 16; same shape as Deposit, slab at 11).
+- `accrueFeesAccounts()` + `StakeAccounts['accrueFees']` (tag 12):
+  `[caller(signer), pool(w), vault, clock, slab]`.
+- `StakePoolState.mode0FeesAttributed` (offset 272; #290 attribution cursor) and
+  `StakePoolState.feeAttributionArmed` (`_reserved[60]`).
+- `test/stake-290-slab-accounts.test.ts`: every builder checked index-by-index
+  against a verbatim excerpt of stake `src/instruction.rs`@`de7be9a`; with
+  `PERCOLATOR_STAKE_SRC` set it also re-verifies the excerpt and the processor's
+  parse order against a live stake checkout.
+
+### Deprecated
+
+- `StakePoolState.lastVaultSnapshot` — same bytes as `mode0FeesAttributed`.
+
+---
+
 ## [6.0.0] — unreleased (HELD — do not `npm publish` without explicit human go)
 
 Brings the SDK from the deployed VERSION-17 wire (`percolator-prog`@`e8acd708`)
