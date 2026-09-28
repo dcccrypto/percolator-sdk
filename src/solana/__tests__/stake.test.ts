@@ -402,7 +402,7 @@ describe('Account builders', () => {
     expect(accounts[2].isWritable).toBe(true);
   });
 
-  it('depositAccounts returns 11 accounts', () => {
+  it('depositAccounts returns 12 accounts (#290: pool.slab at index 11)', () => {
     const [pool] = deriveStakePool(slab);
     const [vaultAuth] = deriveStakeVaultAuth(pool);
     const [depositPda] = deriveDepositPda(pool, user);
@@ -416,14 +416,17 @@ describe('Account builders', () => {
       userLpAta: Keypair.generate().publicKey,
       vaultAuth,
       depositPda,
+      slab,
     });
 
-    expect(accounts).toHaveLength(11);
+    expect(accounts).toHaveLength(12);
     expect(accounts[0].pubkey.equals(user)).toBe(true);
     expect(accounts[0].isSigner).toBe(true);
+    expect(accounts[11].pubkey.equals(slab)).toBe(true);
+    expect(accounts[11].isWritable).toBe(false);
   });
 
-  it('withdrawAccounts returns 10 accounts', () => {
+  it('withdrawAccounts returns 11 accounts (#290: pool.slab at index 10)', () => {
     const [pool] = deriveStakePool(slab);
     const [vaultAuth] = deriveStakeVaultAuth(pool);
     const [depositPda] = deriveDepositPda(pool, user);
@@ -437,10 +440,13 @@ describe('Account builders', () => {
       userCollateralAta: Keypair.generate().publicKey,
       vaultAuth,
       depositPda,
+      slab,
     });
 
-    expect(accounts).toHaveLength(10);
+    expect(accounts).toHaveLength(11);
     expect(accounts[0].isSigner).toBe(true);
+    expect(accounts[10].pubkey.equals(slab)).toBe(true);
+    expect(accounts[10].isWritable).toBe(false);
   });
 
   it('flushToInsuranceAccounts returns 8 accounts', () => {

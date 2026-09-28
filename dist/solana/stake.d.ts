@@ -1060,7 +1060,21 @@ export interface StakePoolState {
     pendingAdmin: PublicKey | null;
     totalFeesEarned: bigint;
     lastFeeAccrualSlot: bigint;
+    /**
+     * @deprecated percolator-stake #290 (v18.2) repurposed these bytes (offset
+     * 272) as {@link StakePoolState.mode0FeesAttributed}. Same value; kept so
+     * existing readers compile.
+     */
     lastVaultSnapshot: bigint;
+    /**
+     * percolator-stake #290: mode-0 fee-attribution cursor (offset 272) — the
+     * cumulative wrapper tag-87 payout atoms already booked into
+     * `totalFeesEarned`. Meaningful only when `feeAttributionArmed` is true; on
+     * an un-armed (pre-#290) pool these bytes hold a stale vault snapshot.
+     */
+    mode0FeesAttributed: bigint;
+    /** percolator-stake #290: `_reserved[60] == 1` — the attribution cursor is live. */
+    feeAttributionArmed: boolean;
     poolMode: number;
     hwmEnabled: boolean;
     epochHighWaterTvl: bigint;
@@ -1302,6 +1316,14 @@ export interface StakeAccounts {
         userLpAta: PublicKey;
         vaultAuth: PublicKey;
         depositPda: PublicKey;
+        /**
+         * The pool's wrapper market (`pool.slab`, i.e. `decodeStakePool(...).slab`).
+         * percolator-stake #290 (v18.2): REQUIRED for a mode-0 pool (every
+         * `InitPool` pool) — the program reads the wrapper's tag-87 payout counter
+         * from it before pricing LP and fails with `NotEnoughAccountKeys` without
+         * it. Sent at account index 11. v18.1 stake ignores the extra trailing account.
+         */
+        slab: PublicKey;
     };
     /** Withdraw accounts */
     withdraw: {
@@ -1313,6 +1335,26 @@ export interface StakeAccounts {
         userCollateralAta: PublicKey;
         vaultAuth: PublicKey;
         depositPda: PublicKey;
+        /**
+         * The pool's wrapper market (`pool.slab`). percolator-stake #290 (v18.2):
+         * optional on-chain (index 10), but when absent a mode-0 withdrawal skips
+         * the pending-fee accrual and redeems at the lower, not-yet-accrued price.
+         * The SDK always sends it. v18.1 stake ignores the extra trailing account.
+         */
+        slab: PublicKey;
+    };
+    /** AccrueFees accounts (tag 12, permissionless) */
+    accrueFees: {
+        /** Any signer; the program only checks `is_signer`. */
+        caller: PublicKey;
+        pool: PublicKey;
+        /** The pool's vault token account (`pool.vault`). */
+        vault: PublicKey;
+        /**
+         * The pool's wrapper market (`pool.slab`). percolator-stake #290 (v18.2):
+         * REQUIRED for mode 0 (index 4), ignored for mode 1.
+         */
+        slab: PublicKey;
     };
     /** FlushToInsurance accounts (CPI from stake → percolator) */
     flushToInsurance: {
@@ -1339,11 +1381,24 @@ export declare function initPoolAccounts(a: StakeAccounts['initPool'], tokenProg
     isWritable: boolean;
 }[];
 /**
- * Build account keys for Deposit instruction.
+ * Build account keys for the Deposit (tag 1) and DepositJunior (tag 16)
+ * instructions — both share one account shape.
+ *
+ * 12 accounts. Index 11 is the pool's wrapper market (`pool.slab`), added by
+ * percolator-stake #290 (v18.2), which rejects a mode-0 deposit without it.
+ * v18.1 stake reads only the first 11 and ignores the trailing account.
  *
  * @param a - Named accounts for the Deposit instruction.
  * @param tokenProgramId - Token program to use. Defaults to SPL Token. Pass
  *   `TOKEN_2022_PROGRAM_ID` for Token-2022 collateral mints.
+ * @returns Account metas in the order the program parses them.
+ * @example
+ * ```ts
+ * const pool = decodeStakePool(poolInfo.data);
+ * const keys = depositAccounts({ user, pool: poolPda, userCollateralAta, vault: pool.vault,
+ *   lpMint: pool.lpMint, userLpAta, vaultAuth, depositPda, slab: pool.slab });
+ * new TransactionInstruction({ programId, keys, data: encodeStakeDeposit(amount) });
+ * ```
  */
 export declare function depositAccounts(a: StakeAccounts['deposit'], tokenProgramId?: PublicKey): {
     pubkey: PublicKey;
@@ -1351,13 +1406,67 @@ export declare function depositAccounts(a: StakeAccounts['deposit'], tokenProgra
     isWritable: boolean;
 }[];
 /**
+ * Build account keys for DepositJunior (tag 16). Identical to
+ * {@link depositAccounts}: percolator-stake documents it as "same as Deposit,
+ * including the #290 wrapper market at index 11".
+ *
+ * @param a - Named accounts (same shape as Deposit).
+ * @param tokenProgramId - Token program to use. Defaults to SPL Token.
+ * @returns Account metas in the order the program parses them.
+ * @example
+ * ```ts
+ * const keys = depositJuniorAccounts({ ...depositArgs, slab: pool.slab });
+ * new TransactionInstruction({ programId, keys, data: encodeStakeDepositJunior(amount) });
+ * ```
+ */
+export declare function depositJuniorAccounts(a: StakeAccounts['deposit'], tokenProgramId?: PublicKey): {
+    pubkey: PublicKey;
+    isSigner: boolean;
+    isWritable: boolean;
+}[];
+/**
  * Build account keys for Withdraw instruction.
+ *
+ * 11 accounts. Index 10 is the pool's wrapper market (`pool.slab`,
+ * percolator-stake #290 / v18.2). It is optional on-chain, but without it a
+ * mode-0 withdrawal skips the pending-fee accrual, so the SDK always sends it.
+ * v18.1 stake ignores the trailing account.
  *
  * @param a - Named accounts for the Withdraw instruction.
  * @param tokenProgramId - Token program to use. Defaults to SPL Token. Pass
  *   `TOKEN_2022_PROGRAM_ID` for Token-2022 collateral mints.
+ * @returns Account metas in the order the program parses them.
+ * @example
+ * ```ts
+ * const keys = withdrawAccounts({ user, pool: poolPda, userLpAta, lpMint: pool.lpMint,
+ *   vault: pool.vault, userCollateralAta, vaultAuth, depositPda, slab: pool.slab });
+ * ```
  */
 export declare function withdrawAccounts(a: StakeAccounts['withdraw'], tokenProgramId?: PublicKey): {
+    pubkey: PublicKey;
+    isSigner: boolean;
+    isWritable: boolean;
+}[];
+/**
+ * Build account keys for AccrueFees (tag 12, permissionless).
+ *
+ * 5 accounts: [caller(signer), pool(writable), vault, clock, slab]. Index 4 is
+ * the pool's wrapper market (`pool.slab`), REQUIRED for a mode-0 pool by
+ * percolator-stake #290 (v18.2): a mode-0 pool books vault surplus only up to
+ * the wrapper's not-yet-booked tag-87 payouts, read from that account. v18.1
+ * stake reads only the first 4 and ignores it.
+ *
+ * @param a - Named accounts for the AccrueFees instruction.
+ * @returns Account metas in the order the program parses them.
+ * @example
+ * ```ts
+ * const pool = decodeStakePool(poolInfo.data);
+ * const keys = accrueFeesAccounts({ caller: payer.publicKey, pool: poolPda,
+ *   vault: pool.vault, slab: pool.slab });
+ * new TransactionInstruction({ programId, keys, data: encodeStakeAccrueFees() });
+ * ```
+ */
+export declare function accrueFeesAccounts(a: StakeAccounts['accrueFees']): {
     pubkey: PublicKey;
     isSigner: boolean;
     isWritable: boolean;
