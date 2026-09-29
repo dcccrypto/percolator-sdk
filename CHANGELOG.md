@@ -7,6 +7,42 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [8.0.0] — unreleased (do not `npm publish` without explicit human go)
+
+v18.3 fresh-ID relaunch. The devnet wrapper moves to a new program address running
+the **byte-identical v18.2 wrapper** (percolator-prog `6377376a` + engine `35ddd692`,
+sha256 `4472b3832fda…`). No instruction, account-layout or IDL/wire change.
+
+### Breaking
+
+- **Default devnet wrapper id is now `ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB`**
+  (`PROGRAM_IDS.devnet.percolator`, `PROGRAM_IDS_V17.percolator`, `PROGRAM_ID_V17`,
+  `getProgramId()` / `getProgramId("devnet")`). The previous wrapper
+  `GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ` is ABANDONED; markets, portfolios
+  and PDAs under it are not visible to this SDK. It is also no longer in the
+  `PROGRAM_ID` env-override allowlist (override to it throws unless
+  `PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1`). Major bump on purpose: consumers pinned
+  to `^7` do not pick up the new id on a fresh install, so the repoint has to be an
+  explicit `^8` bump done with the cutover. Rollback = pin `7.0.0`.
+- Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
+  unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
+
+### Carried from 7.0.0 (still required)
+
+- Stake Deposit (tag 1) / DepositJunior (16) / Withdraw (2) / AccrueFees (12) send
+  the pool's wrapper market (`pool.slab`) as a trailing account (percolator-stake
+  #290). Stake v18.2/v18.3 requires it for mode-0 Deposit/DepositJunior/AccrueFees;
+  6.x clients fail there with `NotEnoughAccountKeys`.
+
+### Added
+
+- Cherry-picked #393 (`c2dc4da`): `ACCOUNTS_CLOSE_RESOLVED(_UNSIGNED)`,
+  `ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP(_UNSIGNED)`, `withNftEscrowProof`. The
+  unsigned variants are safe on `ETDLAdi…` (its wrapper contains #497 `3262608b`,
+  `require_signer_for_escrowed_terminal_payout`).
+
+---
+
 ## [7.0.0] — unreleased (do not `npm publish` without explicit human go)
 
 Tracks percolator-stake #298 (fixes #290, stake main `9150dea`/`de7be9a`), which

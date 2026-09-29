@@ -1695,6 +1695,12 @@ export const ACCOUNTS_WITHDRAW_CREATOR_FEE: readonly AccountSpec[] = [
 // percolator-prog#498 (tracks #497): CloseResolved / ClaimResolvedPayoutTopup
 // unsigned-call NftRegistry proof at index 7
 //
+// STATUS (SDK 8.0.0): the HARD STOP below is LIFTED for the devnet wrapper this
+// SDK targets. `ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB` runs percolator-prog
+// `6377376a` (deploy/v18.2-wrapper), which contains #497 `3262608b` and its
+// `require_signer_for_escrowed_terminal_payout` gate. The block below is kept
+// as the historical record for the v18.0 GnwdeQr… wrapper (SDK <= 7.x).
+//
 // ============================================================================
 // HARD STOP — DO NOT USE `ACCOUNTS_CLOSE_RESOLVED_UNSIGNED` /
 // `ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP_UNSIGNED` (or `withNftEscrowProof`)

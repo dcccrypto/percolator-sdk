@@ -2508,6 +2508,48 @@ var ACCOUNTS_WITHDRAW_CREATOR_FEE = [
   { name: "vaultAuthority", signer: false, writable: false },
   { name: "tokenProgram", signer: false, writable: false }
 ];
+var ACCOUNTS_CLOSE_RESOLVED = [
+  { name: "owner", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+  { name: "portfolio", signer: false, writable: true },
+  { name: "destToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false }
+];
+var ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP = [
+  { name: "owner", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+  { name: "portfolio", signer: false, writable: true },
+  { name: "destToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false }
+];
+var ACCOUNTS_NFT_ESCROW_PROOF = [
+  { name: "nftRegistry", signer: false, writable: false }
+];
+function withNftEscrowProof(base) {
+  return [...base, ...ACCOUNTS_NFT_ESCROW_PROOF];
+}
+var ACCOUNTS_CLOSE_RESOLVED_UNSIGNED = withNftEscrowProof([
+  { name: "owner", signer: false, writable: false },
+  { name: "market", signer: false, writable: true },
+  { name: "portfolio", signer: false, writable: true },
+  { name: "destToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false }
+]);
+var ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP_UNSIGNED = withNftEscrowProof([
+  { name: "owner", signer: false, writable: false },
+  { name: "market", signer: false, writable: true },
+  { name: "portfolio", signer: false, writable: true },
+  { name: "destToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false }
+]);
 var WELL_KNOWN = {
   tokenProgram: TOKEN_PROGRAM_ID,
   clock: SYSVAR_CLOCK_PUBKEY,
@@ -2893,14 +2935,15 @@ function safeEnv(key) {
 }
 var PROGRAM_IDS = {
   devnet: {
-    // v18 coordinated fresh-ID redeploy (2026-09-22): the devnet wrapper moves to a
-    // BRAND-NEW program address (GnwdeQr…) so no pre-existing v17 account survives under it.
-    // This is the ACTIVE devnet wrapper id that getProgramId() / getProgramId("devnet")
-    // resolves and that PDA derivation + tx targeting use. The prior devnet wrapper
-    // (DhSkE7u…, v17) is ABANDONED — retained only as a historical record in PROGRAM_IDS_V17
-    // below (and, via that, in the env-override allowlist for back-compat). The matcher is
-    // NOT part of the v18 fresh-ID cutover and keeps its existing address.
-    percolator: "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ",
+    // v18.3 fresh-ID redeploy (SDK 8.0.0): the devnet wrapper moves to a BRAND-NEW program
+    // address (ETDLAdi…) running the byte-identical v18.2 wrapper, so no market/portfolio
+    // created under the previous v18 wrapper (GnwdeQr…, ABANDONED; 2026-09-22 → 8.0.0) or
+    // the v17 wrapper (DhSkE7u…, ABANDONED) is visible to this SDK. This is the ACTIVE
+    // devnet wrapper id that getProgramId() / getProgramId("devnet") resolves and that PDA
+    // derivation + tx targeting use. Neither abandoned id is in the env-override allowlist;
+    // pin @percolatorct/sdk@7.0.0 to talk to GnwdeQr…. The matcher, stake/vault and nft
+    // programs keep their addresses (stake/nft are upgraded in place to trust ETDLAdi…).
+    percolator: "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
     matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT"
   },
   mainnet: {
@@ -2912,10 +2955,10 @@ Object.freeze(PROGRAM_IDS.devnet);
 Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 var PROGRAM_IDS_V17 = {
-  /** ACTIVE v18 devnet wrapper (GnwdeQr…) — cut over 2026-09-22 from the abandoned v17
-   *  wrapper (DhSkE7u…). Kept in this "v17"-named object as a single source of truth with
+  /** ACTIVE devnet wrapper (ETDLAdi…) — v18.3 fresh-ID cutover (SDK 8.0.0) from the
+   *  abandoned GnwdeQr… (v18.0–v18.2) and DhSkE7u… (v17) wrappers. Kept in this "v17"-named object as a single source of truth with
    *  PROGRAM_IDS.devnet.percolator; @deprecated alias, prefer PROGRAM_IDS.devnet. */
-  percolator: "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ",
+  percolator: "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
   /** v17 matcher — deployed devnet 2026-06-26, unchanged (same address). */
   matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
   /** v17 nft — deployed devnet 2026-07-17, hash-verified. */
@@ -9936,9 +9979,13 @@ export {
   ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL,
   ACCOUNTS_CHALLENGE_SETTLEMENT,
   ACCOUNTS_CLAIM_QUEUED_WITHDRAWAL,
+  ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP,
+  ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP_UNSIGNED,
   ACCOUNTS_CLEAR_PENDING_SETTLEMENT,
   ACCOUNTS_CLOSE_ACCOUNT,
   ACCOUNTS_CLOSE_ORPHAN_SLAB,
+  ACCOUNTS_CLOSE_RESOLVED,
+  ACCOUNTS_CLOSE_RESOLVED_UNSIGNED,
   ACCOUNTS_CLOSE_SLAB,
   ACCOUNTS_CLOSE_SLAB_SECONDARY,
   ACCOUNTS_CLOSE_STALE_SLABS,
@@ -9968,6 +10015,7 @@ export {
   ACCOUNTS_MINT_POSITION_NFT,
   ACCOUNTS_NFT_BURN,
   ACCOUNTS_NFT_EMERGENCY_BURN,
+  ACCOUNTS_NFT_ESCROW_PROOF,
   ACCOUNTS_NFT_HOLDER_AUTH,
   ACCOUNTS_NFT_MINT,
   ACCOUNTS_NFT_RECONCILE,
@@ -10501,6 +10549,7 @@ export {
   validateU128,
   validateU16,
   validateU64,
+  withNftEscrowProof,
   withNftHolderAuth,
   withRetry,
   withdrawAccounts
