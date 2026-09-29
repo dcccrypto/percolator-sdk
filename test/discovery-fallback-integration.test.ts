@@ -1104,8 +1104,10 @@ describe("Error codes — v17 NFT/LP-vault boundary parsing in discovery/fallbac
     expect(decodeError(61)?.name).toBe("AssetSlotAlreadyConfigured");
     expect(decodeError(62)?.name).toBe("CreatorFeeOverClaim");
     expect(decodeError(63)?.name).toBe("LpVaultBackingBucketNotEmpty");
-    expect(decodeError(64)).toBeUndefined();
-    expect(decodeError(65)).toBeUndefined();
+    // 64-65 (deployed v18.2) and 66-71 (P1) are appended since; 72+ remain undefined.
+    expect(decodeError(64)?.name).toBe("RentExemptRequired");
+    expect(decodeError(65)?.name).toBe("AssetGenerationMismatch");
+    expect(decodeError(72)).toBeUndefined();
   });
 });
 

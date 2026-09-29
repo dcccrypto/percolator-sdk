@@ -351,7 +351,44 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   // slot 490057417, verified byte-identical.
   63: {
     name: "LpVaultBackingBucketNotEmpty",
-    hint: "CreateLpVault (tag 72) targeted a domain whose backing bucket is ALREADY funded at an expiry that is not LP_VAULT_BACKING_EXPIRY_SLOT (u64::MAX/2). The range check on `domain` passed; this is the separate REACHABILITY check, and it fires BEFORE the registry PDA takes backing_bucket_authority so a refusal leaves the existing bucket owner intact. Without it the vault would be created dead: DepositToLpVault refuses for the whole remaining term on the expiry mismatch, the provider who funded that bucket can no longer withdraw because the authority is gone, and the only exit is CloseLpVault — which permanently forfeits this market's ability to ever have an LP vault, because it leaves the LP share mint on-chain and CreateLpVault requires both PDAs to be system-owned and empty. Fix: pick a domain whose bucket is Empty, or wait for the existing backing to expire. Do NOT confuse this with Custom(9) InvalidInstruction, which this handler also returns for an out-of-range domain (domain >= configured_slots * 2) and for fee_share_bps / oi_reservation_threshold_bps > 10_000.",
+    hint: "CreateLpVault (tag 74) targeted a domain whose backing bucket is ALREADY funded at an expiry that is not LP_VAULT_BACKING_EXPIRY_SLOT (u64::MAX/2). The range check on `domain` passed; this is the separate REACHABILITY check, and it fires BEFORE the registry PDA takes backing_bucket_authority so a refusal leaves the existing bucket owner intact. Without it the vault would be created dead: DepositToLpVault refuses for the whole remaining term on the expiry mismatch, the provider who funded that bucket can no longer withdraw because the authority is gone, and the only exit is CloseLpVault — which permanently forfeits this market's ability to ever have an LP vault, because it leaves the LP share mint on-chain and CreateLpVault requires both PDAs to be system-owned and empty. Fix: pick a domain whose bucket is Empty, or wait for the existing backing to expire. Do NOT confuse this with Custom(9) InvalidInstruction, which this handler also returns for an out-of-range domain (domain >= configured_slots * 2) and for fee_share_bps / oi_reservation_threshold_bps > 10_000.",
+  },
+
+  // ── Deployed v18.2 (6377376a) — appended after 63 ─────────────────────────
+  64: {
+    name: "RentExemptRequired",
+    hint: "CloseSlab's tail must leave CLOSED_MARKET_TOMBSTONE_RENT_LAMPORTS in the market account so the closed-market tombstone (header KIND_CLOSED_MARKET = 8) stays rent-exempt forever (anti address-reuse, upstream d57411f8). Only fires if the market account holds fewer lamports than that floor at close — not reachable on a normally-funded market.",
+  },
+  65: {
+    name: "AssetGenerationMismatch",
+    hint: "A caller-supplied market_id / expected_market_id / asset_generation_frontier did not match the asset slot's current generation (AssetStateV16.market_id / header.next_market_id). The instruction was built against an older generation of this slot. Re-read the live values and rebuild.",
+  },
+
+  // ── P1 wrapper safety release (feat/p1-safety-release @ e74809b1) — NOT on the ──
+  // deployed v18.2 wrapper; returned only by a P1 build. Appended, ordinals 0-65 unmoved.
+  66: {
+    name: "ExecPriceOutsideOracleBand",
+    hint: "P1: the matcher's fill price lies outside reference ± band (reference = the oracle_price_e6 the wrapper handed the matcher). limit_price == 0 now means 'any price inside the band', not any price. Retry smaller or when the quote is inside the band; a v2 matcher with EXEC_BAND clips instead.",
+  },
+  67: {
+    name: "SameOwnerTrade",
+    hint: "P1: the taker's portfolio owner equals the matcher LP's owner, or the traded asset's asset_admin (the market creator). Trade from a different wallet (hygiene rule; not a sybil defence).",
+  },
+  68: {
+    name: "LpExposureCapExceeded",
+    hint: "P1: this fill would leave the LP's |position| × mark above k × LP initial-margin equity on the asset. Trade smaller, or wait for the LP to add capital / reduce inventory.",
+  },
+  69: {
+    name: "LpFloorHalt",
+    hint: "P1 auto-halt: the matcher LP's initial-margin equity is at or below the protocol floor, so risk-increasing fills are refused. Reducing fills and closes still work.",
+  },
+  70: {
+    name: "ProtocolSideOiCapExceeded",
+    hint: "P1: the protocol-set per-asset side open-interest cap (tag 93 SetAssetRiskLimits) would be exceeded on this side. Trade the other side, smaller, or later.",
+  },
+  71: {
+    name: "CloseSlabFeesOutstanding",
+    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first — tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee — and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you.",
   },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);

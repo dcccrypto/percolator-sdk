@@ -1022,12 +1022,12 @@ async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
   if (!Number.isInteger(shardId) || shardId < 0 || shardId > 65535) {
     throw new Error(`derivePythPriceUpdateAccount: shardId must be a u16, got ${shardId}`);
   }
-  const { PublicKey: PublicKey15 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey17 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey15.findProgramAddressSync(
+  const [pda] = PublicKey17.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey15(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey17(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -2877,7 +2877,42 @@ var PERCOLATOR_ERRORS = {
   // slot 490057417, verified byte-identical.
   63: {
     name: "LpVaultBackingBucketNotEmpty",
-    hint: "CreateLpVault (tag 72) targeted a domain whose backing bucket is ALREADY funded at an expiry that is not LP_VAULT_BACKING_EXPIRY_SLOT (u64::MAX/2). The range check on `domain` passed; this is the separate REACHABILITY check, and it fires BEFORE the registry PDA takes backing_bucket_authority so a refusal leaves the existing bucket owner intact. Without it the vault would be created dead: DepositToLpVault refuses for the whole remaining term on the expiry mismatch, the provider who funded that bucket can no longer withdraw because the authority is gone, and the only exit is CloseLpVault \u2014 which permanently forfeits this market's ability to ever have an LP vault, because it leaves the LP share mint on-chain and CreateLpVault requires both PDAs to be system-owned and empty. Fix: pick a domain whose bucket is Empty, or wait for the existing backing to expire. Do NOT confuse this with Custom(9) InvalidInstruction, which this handler also returns for an out-of-range domain (domain >= configured_slots * 2) and for fee_share_bps / oi_reservation_threshold_bps > 10_000."
+    hint: "CreateLpVault (tag 74) targeted a domain whose backing bucket is ALREADY funded at an expiry that is not LP_VAULT_BACKING_EXPIRY_SLOT (u64::MAX/2). The range check on `domain` passed; this is the separate REACHABILITY check, and it fires BEFORE the registry PDA takes backing_bucket_authority so a refusal leaves the existing bucket owner intact. Without it the vault would be created dead: DepositToLpVault refuses for the whole remaining term on the expiry mismatch, the provider who funded that bucket can no longer withdraw because the authority is gone, and the only exit is CloseLpVault \u2014 which permanently forfeits this market's ability to ever have an LP vault, because it leaves the LP share mint on-chain and CreateLpVault requires both PDAs to be system-owned and empty. Fix: pick a domain whose bucket is Empty, or wait for the existing backing to expire. Do NOT confuse this with Custom(9) InvalidInstruction, which this handler also returns for an out-of-range domain (domain >= configured_slots * 2) and for fee_share_bps / oi_reservation_threshold_bps > 10_000."
+  },
+  // ── Deployed v18.2 (6377376a) — appended after 63 ─────────────────────────
+  64: {
+    name: "RentExemptRequired",
+    hint: "CloseSlab's tail must leave CLOSED_MARKET_TOMBSTONE_RENT_LAMPORTS in the market account so the closed-market tombstone (header KIND_CLOSED_MARKET = 8) stays rent-exempt forever (anti address-reuse, upstream d57411f8). Only fires if the market account holds fewer lamports than that floor at close \u2014 not reachable on a normally-funded market."
+  },
+  65: {
+    name: "AssetGenerationMismatch",
+    hint: "A caller-supplied market_id / expected_market_id / asset_generation_frontier did not match the asset slot's current generation (AssetStateV16.market_id / header.next_market_id). The instruction was built against an older generation of this slot. Re-read the live values and rebuild."
+  },
+  // ── P1 wrapper safety release (feat/p1-safety-release @ e74809b1) — NOT on the ──
+  // deployed v18.2 wrapper; returned only by a P1 build. Appended, ordinals 0-65 unmoved.
+  66: {
+    name: "ExecPriceOutsideOracleBand",
+    hint: "P1: the matcher's fill price lies outside reference \xB1 band (reference = the oracle_price_e6 the wrapper handed the matcher). limit_price == 0 now means 'any price inside the band', not any price. Retry smaller or when the quote is inside the band; a v2 matcher with EXEC_BAND clips instead."
+  },
+  67: {
+    name: "SameOwnerTrade",
+    hint: "P1: the taker's portfolio owner equals the matcher LP's owner, or the traded asset's asset_admin (the market creator). Trade from a different wallet (hygiene rule; not a sybil defence)."
+  },
+  68: {
+    name: "LpExposureCapExceeded",
+    hint: "P1: this fill would leave the LP's |position| \xD7 mark above k \xD7 LP initial-margin equity on the asset. Trade smaller, or wait for the LP to add capital / reduce inventory."
+  },
+  69: {
+    name: "LpFloorHalt",
+    hint: "P1 auto-halt: the matcher LP's initial-margin equity is at or below the protocol floor, so risk-increasing fills are refused. Reducing fills and closes still work."
+  },
+  70: {
+    name: "ProtocolSideOiCapExceeded",
+    hint: "P1: the protocol-set per-asset side open-interest cap (tag 93 SetAssetRiskLimits) would be exceeded on this side. Trade the other side, smaller, or later."
+  },
+  71: {
+    name: "CloseSlabFeesOutstanding",
+    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first \u2014 tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee \u2014 and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -3219,8 +3254,328 @@ function parsePositionNftAccount(data) {
   };
 }
 
+// src/abi/matcher-v2.ts
+import { PublicKey as PublicKey5, TransactionInstruction } from "@solana/web3.js";
+var MATCHER_CONFIGURE_TAG = 5;
+var MATCHER_CONFIGURE_AUTH_LP_PDA = 0;
+var MATCHER_CONFIGURE_AUTH_OWNER_PROOF = 1;
+var MATCHER_CONFIGURE_HEADER_LP_PDA_LEN = 2;
+var MATCHER_CONFIGURE_HEADER_OWNER_PROOF_LEN = 99;
+var MATCHER_CONFIGURE_OP_BACKING_FEE_CAP = 0;
+var MATCHER_CONFIGURE_OP_SET_PARAMS = 1;
+var MATCHER_SET_PARAMS_LEN = 105;
+var MATCHER_BACKING_FEE_CAP_BPS_MAX = 1e4;
+var MATCHER_KIND = { Passive: 0, Vamm: 1, Adaptive: 2 };
+var MATCHER_CALL_EXT_OFFSET = 43;
+var MATCHER_CALL_EXT_LEN = 24;
+var MATCHER_CALL_EXT_VERSION_V1 = 1;
+var MATCHER_CALL_EXT_FLAG = {
+  HEADROOM: 1,
+  MARK_SLOT: 2,
+  ACCEPTS_FEE_REQUEST: 4,
+  TAKER_REDUCING: 8,
+  EXEC_BAND: 16
+};
+var EXT_FLAGS_KNOWN = 31;
+var MATCHER_RETURN_FLAG_REQUESTED_FEE_SHIFT = 22;
+var MATCHER_RETURN_FLAG_REQUESTED_FEE_MASK = 1023 << 22 >>> 0;
+var MATCHER_REQUESTED_FEE_BPS_MAX = 1023;
+var MATCHER_RETURN_KNOWN_FLAGS_V2 = (MATCHER_RETURN_KNOWN_FLAGS | MATCHER_RETURN_FLAG_REQUESTED_FEE_MASK) >>> 0;
+var MATCHER_V2_BLOCK_CTX_OFFSET = 178;
+var MATCHER_V2_BLOCK_ACCOUNT_OFFSET = 242;
+var MATCHER_V2_BLOCK_LEN = 78;
+var MATCHER_V2_BLOCK_VERSION = 1;
+var MATCHER_V2_FLAG_STALE_ALLOW_REDUCING = 1;
+var MATCHER_V2_ERRORS = Object.freeze({
+  8002: { name: "ERR_STALE_MARK", hint: "Matcher refused: the mark behind oracle_price_e6 is older than the ctx's max_mark_age_slots (call-extension mark_slot), or the observed-unchanged-price fallback tripped. Push a fresh mark, then retry. With STALE_ALLOW_REDUCING, reducing fills still pass." },
+  8003: { name: "ERR_MARK_SLOT_IN_FUTURE", hint: "Matcher refused: call-extension mark_slot is greater than Clock.slot. The caller built a bad extension." },
+  8004: { name: "ERR_ASSET_MISMATCH", hint: "Matcher refused: this kind-2 / observed-staleness context is bound to a different asset. One such context per asset." },
+  8005: { name: "ERR_OWNER_PROOF_MISMATCH", hint: "Matcher tag 5 owner proof failed: create_program_address(['matcher', market, lp_portfolio, lp_owner, matcher_program, matcher_ctx, [bump]], wrapper) does not equal ctx.lp_pda. Check wrapper id, market, LP portfolio, signer = LP owner, and bump (deriveMatcherDelegate)." },
+  8001: { name: "ERR_INCONSISTENT_LEG_ORACLE_PRICE", hint: "Matcher batch call: legs for the same asset carried different oracle prices." }
+});
+function decodeMatcherV2Error(code) {
+  return MATCHER_V2_ERRORS[code];
+}
+var ZERO_V2 = Object.freeze({
+  flags: 0,
+  feeLoBps: 0,
+  feeHiBps: 0,
+  feeColdBps: 0,
+  volAMilli: 0,
+  volBDen: 0,
+  volAlphaBps: 0,
+  volWarmup: 0,
+  volMoveCap10bps: 0,
+  volRefSlots: 0,
+  thinRebateMultBps: 0,
+  skewCapBps: 0,
+  rebateCapBps: 0,
+  maxMarkAgeSlots: 0,
+  observedStaleSlots: 0,
+  skewRefInventory: 0n
+});
+function zeroMatcherV2Config() {
+  return { ...ZERO_V2 };
+}
+var U16_MAX2 = 65535;
+var U64_MAX = (1n << 64n) - 1n;
+var U128_MAX = (1n << 128n) - 1n;
+var DEFAULTS = {
+  feeLo: 10,
+  feeHi: 80,
+  feeCold: 10,
+  volAMilli: 1e3,
+  volBDen: 100,
+  volAlpha: 1e3,
+  volWarmup: 8,
+  volMoveCap10bps: 100,
+  volRefSlots: 25,
+  skewCap: 100,
+  maxMarkAge: 150,
+  observedStale: 0,
+  flags: MATCHER_V2_FLAG_STALE_ALLOW_REDUCING,
+  maxFeeBps: 1e3,
+  maxSkewCapBps: 5e3
+};
+var MATCHER_V2_MAX_IMPACT_K_BPS = 1e5;
+function defaultMatcherV2ConfigForKind2(tradingFeeBps, baseSpreadBps, maxTotalBps, skewSpreadMultBps, maxInventoryAbs) {
+  const room = Math.min(Math.max(maxTotalBps - baseSpreadBps, 0), DEFAULTS.maxFeeBps);
+  const feeHi = Math.min(DEFAULTS.feeHi, room);
+  const loWant = Math.max(Math.min(tradingFeeBps, DEFAULTS.maxFeeBps), DEFAULTS.feeLo);
+  const feeLo = Math.min(loWant, feeHi);
+  const feeCold = Math.min(Math.max(DEFAULTS.feeCold, feeLo), feeHi);
+  const skewCap = Math.min(DEFAULTS.skewCap, DEFAULTS.maxSkewCapBps, Math.min(maxTotalBps, U16_MAX2));
+  const skewRef = maxInventoryAbs === 0n || maxInventoryAbs > U64_MAX ? U64_MAX : maxInventoryAbs;
+  return {
+    flags: DEFAULTS.flags,
+    feeLoBps: feeLo,
+    feeHiBps: feeHi,
+    feeColdBps: feeCold,
+    volAMilli: DEFAULTS.volAMilli,
+    volBDen: DEFAULTS.volBDen,
+    volAlphaBps: DEFAULTS.volAlpha,
+    volWarmup: DEFAULTS.volWarmup,
+    volMoveCap10bps: DEFAULTS.volMoveCap10bps,
+    volRefSlots: DEFAULTS.volRefSlots,
+    thinRebateMultBps: Math.floor(skewSpreadMultBps / 2),
+    skewCapBps: skewCap,
+    rebateCapBps: Math.floor(skewCap / 2),
+    maxMarkAgeSlots: DEFAULTS.maxMarkAge,
+    observedStaleSlots: DEFAULTS.observedStale,
+    skewRefInventory: skewRef
+  };
+}
+function checkRange(name, v, max) {
+  if (!Number.isInteger(v) || v < 0 || v > max) throw new Error(`${name} must be an integer in 0..=${max}, got ${v}`);
+}
+function checkBig(name, v, max) {
+  if (v < 0n || v > max) throw new Error(`${name} must be in 0..=${max}, got ${v}`);
+}
+function validateMatcherSetParams(p) {
+  if (p.kind !== 0 && p.kind !== 1 && p.kind !== 2) throw new Error(`kind must be 0|1|2, got ${String(p.kind)}`);
+  checkRange("tradingFeeBps", p.tradingFeeBps, 1e3);
+  checkRange("maxTotalBps", p.maxTotalBps, 9e3);
+  checkRange("baseSpreadBps", p.baseSpreadBps, 4294967295);
+  checkRange("impactKBps", p.impactKBps, 4294967295);
+  if (p.baseSpreadBps + p.tradingFeeBps > p.maxTotalBps) throw new Error("baseSpreadBps + tradingFeeBps must be <= maxTotalBps");
+  checkBig("liquidityNotionalE6", p.liquidityNotionalE6, U128_MAX);
+  checkBig("maxFillAbs", p.maxFillAbs, U128_MAX);
+  checkBig("maxInventoryAbs", p.maxInventoryAbs, U128_MAX);
+  checkRange("feeToInsuranceBps", p.feeToInsuranceBps, 1e4);
+  checkRange("skewSpreadMultBps", p.skewSpreadMultBps, 1e4);
+  if (p.kind === 1 && p.liquidityNotionalE6 === 0n) throw new Error("kind 1 (vAMM) requires liquidityNotionalE6 > 0");
+  const c = p.v2;
+  for (const [k, v] of [
+    ["feeLoBps", c.feeLoBps],
+    ["feeHiBps", c.feeHiBps],
+    ["feeColdBps", c.feeColdBps],
+    ["volAMilli", c.volAMilli],
+    ["volBDen", c.volBDen],
+    ["volAlphaBps", c.volAlphaBps],
+    ["volRefSlots", c.volRefSlots],
+    ["thinRebateMultBps", c.thinRebateMultBps],
+    ["skewCapBps", c.skewCapBps],
+    ["rebateCapBps", c.rebateCapBps],
+    ["maxMarkAgeSlots", c.maxMarkAgeSlots],
+    ["observedStaleSlots", c.observedStaleSlots]
+  ]) checkRange(`v2.${k}`, v, U16_MAX2);
+  checkRange("v2.flags", c.flags, 255);
+  checkRange("v2.volWarmup", c.volWarmup, 255);
+  checkRange("v2.volMoveCap10bps", c.volMoveCap10bps, 255);
+  checkBig("v2.skewRefInventory", c.skewRefInventory, U64_MAX);
+  if (!p.enableV2) {
+    if (p.kind === 2) throw new Error("kind 2 requires enableV2");
+    return;
+  }
+  if ((c.flags & ~MATCHER_V2_FLAG_STALE_ALLOW_REDUCING) !== 0) throw new Error("v2.flags: unknown bits");
+  if (p.kind !== 2) {
+    const pricingZero = c.feeLoBps === 0 && c.feeHiBps === 0 && c.feeColdBps === 0 && c.volAMilli === 0 && c.volBDen === 0 && c.volAlphaBps === 0 && c.volWarmup === 0 && c.volMoveCap10bps === 0 && c.volRefSlots === 0 && c.thinRebateMultBps === 0 && c.skewCapBps === 0 && c.rebateCapBps === 0 && c.skewRefInventory === 0n;
+    if (!pricingZero) throw new Error("kinds 0/1: every v2 pricing field must be 0 (only flags/maxMarkAgeSlots/observedStaleSlots allowed)");
+    return;
+  }
+  if (!(c.feeLoBps <= c.feeColdBps && c.feeColdBps <= c.feeHiBps)) throw new Error("v2: need feeLo <= feeCold <= feeHi");
+  if (c.feeHiBps > DEFAULTS.maxFeeBps) throw new Error("v2.feeHiBps must be <= 1000");
+  if (p.baseSpreadBps + c.feeHiBps > p.maxTotalBps) throw new Error("v2: baseSpreadBps + feeHiBps must be <= maxTotalBps");
+  if (c.volAlphaBps === 0 || c.volAlphaBps > 1e4) throw new Error("v2.volAlphaBps must be 1..=10000");
+  if (c.volRefSlots === 0 || c.volMoveCap10bps === 0) throw new Error("v2.volRefSlots and v2.volMoveCap10bps must be >= 1");
+  if (c.skewCapBps > DEFAULTS.maxSkewCapBps || c.rebateCapBps > c.skewCapBps) throw new Error("v2: need rebateCap <= skewCap <= 5000");
+  if (c.thinRebateMultBps > p.skewSpreadMultBps) throw new Error("v2.thinRebateMultBps must be <= skewSpreadMultBps (round-trip safety)");
+  if ((p.skewSpreadMultBps > 0 || c.thinRebateMultBps > 0) && c.skewRefInventory === 0n) throw new Error("v2.skewRefInventory must be > 0 when skew or rebate is on");
+  if (p.impactKBps > MATCHER_V2_MAX_IMPACT_K_BPS || p.impactKBps > 0 && p.liquidityNotionalE6 === 0n) {
+    throw new Error("impactKBps must be <= 100000, and > 0 requires liquidityNotionalE6 > 0");
+  }
+}
+function encodeMatcherSetParams(p) {
+  validateMatcherSetParams(p);
+  const c = p.enableV2 ? p.v2 : ZERO_V2;
+  const out = concatBytes(
+    encU8(p.kind),
+    encU32(p.tradingFeeBps),
+    encU32(p.baseSpreadBps),
+    encU32(p.maxTotalBps),
+    encU32(p.impactKBps),
+    encU128(p.liquidityNotionalE6),
+    encU128(p.maxFillAbs),
+    encU128(p.maxInventoryAbs),
+    encU16(p.feeToInsuranceBps),
+    encU16(p.skewSpreadMultBps),
+    encU8(p.enableV2 ? 1 : 0),
+    encU8(c.flags),
+    encU16(c.feeLoBps),
+    encU16(c.feeHiBps),
+    encU16(c.feeColdBps),
+    encU16(c.volAMilli),
+    encU16(c.volBDen),
+    encU16(c.volAlphaBps),
+    encU8(c.volWarmup),
+    encU8(c.volMoveCap10bps),
+    encU16(c.volRefSlots),
+    encU16(c.thinRebateMultBps),
+    encU16(c.skewCapBps),
+    encU16(c.rebateCapBps),
+    encU16(c.maxMarkAgeSlots),
+    encU16(c.observedStaleSlots),
+    encU64(c.skewRefInventory)
+  );
+  if (out.length !== MATCHER_SET_PARAMS_LEN) throw new Error(`encodeMatcherSetParams: internal length ${out.length} != 105`);
+  return out;
+}
+function ownerProofHeader(proof) {
+  checkRange("bump", proof.bump, 255);
+  return concatBytes(
+    encU8(MATCHER_CONFIGURE_TAG),
+    encU8(MATCHER_CONFIGURE_AUTH_OWNER_PROOF),
+    encPubkey(proof.wrapperProgramId),
+    encPubkey(proof.market),
+    encPubkey(proof.lpPortfolio),
+    encU8(proof.bump)
+  );
+}
+function encodeMatcherConfigureBackingFeeCap(proof, capBps) {
+  checkRange("capBps", capBps, MATCHER_BACKING_FEE_CAP_BPS_MAX);
+  return concatBytes(ownerProofHeader(proof), encU8(MATCHER_CONFIGURE_OP_BACKING_FEE_CAP), encU16(capBps));
+}
+function encodeMatcherConfigureSetParams(proof, params) {
+  return concatBytes(ownerProofHeader(proof), encU8(MATCHER_CONFIGURE_OP_SET_PARAMS), encodeMatcherSetParams(params));
+}
+function matcherConfigureOwnerProofAccounts(lpOwner, matcherCtx) {
+  return [
+    { pubkey: lpOwner, isSigner: true, isWritable: false },
+    { pubkey: matcherCtx, isSigner: false, isWritable: true }
+  ];
+}
+function deriveProof(a) {
+  const [, bump] = PublicKey5.findProgramAddressSync(
+    [
+      new TextEncoder().encode("matcher"),
+      a.market.toBytes(),
+      a.lpPortfolio.toBytes(),
+      a.lpOwner.toBytes(),
+      a.matcherProgramId.toBytes(),
+      a.matcherCtx.toBytes()
+    ],
+    a.wrapperProgramId
+  );
+  return { wrapperProgramId: a.wrapperProgramId, market: a.market, lpPortfolio: a.lpPortfolio, bump };
+}
+function buildMatcherConfigureBackingFeeCapIx(a, capBps) {
+  return new TransactionInstruction({
+    programId: a.matcherProgramId,
+    keys: matcherConfigureOwnerProofAccounts(a.lpOwner, a.matcherCtx),
+    data: Buffer.from(encodeMatcherConfigureBackingFeeCap(deriveProof(a), capBps))
+  });
+}
+function buildMatcherConfigureSetParamsIx(a, params) {
+  return new TransactionInstruction({
+    programId: a.matcherProgramId,
+    keys: matcherConfigureOwnerProofAccounts(a.lpOwner, a.matcherCtx),
+    data: Buffer.from(encodeMatcherConfigureSetParams(deriveProof(a), params))
+  });
+}
+function encodeMatcherCallExt(ext) {
+  let flags = 0;
+  if (ext.headroomQ !== void 0) {
+    checkBig("headroomQ", ext.headroomQ, U64_MAX);
+    flags |= MATCHER_CALL_EXT_FLAG.HEADROOM;
+  }
+  if (ext.markSlot !== void 0) {
+    checkBig("markSlot", ext.markSlot, U64_MAX);
+    flags |= MATCHER_CALL_EXT_FLAG.MARK_SLOT;
+  }
+  if (ext.acceptsFeeRequest) flags |= MATCHER_CALL_EXT_FLAG.ACCEPTS_FEE_REQUEST;
+  if (ext.takerReducing) flags |= MATCHER_CALL_EXT_FLAG.TAKER_REDUCING;
+  if (ext.execBandBps !== void 0) {
+    checkRange("execBandBps", ext.execBandBps, U16_MAX2);
+    flags |= MATCHER_CALL_EXT_FLAG.EXEC_BAND;
+  }
+  return concatBytes(
+    encU8(MATCHER_CALL_EXT_VERSION_V1),
+    encU8(flags),
+    encU16(ext.execBandBps ?? 0),
+    encU64(ext.markSlot ?? 0n),
+    encU64(ext.headroomQ ?? 0n),
+    encU32(0)
+  );
+}
+function decodeMatcherCallExt(bytes) {
+  const b = bytes.length === 67 ? bytes.subarray(MATCHER_CALL_EXT_OFFSET) : bytes;
+  if (b.length !== MATCHER_CALL_EXT_LEN) throw new Error(`call ext must be 24 bytes, got ${b.length}`);
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const version = b[0];
+  if (version === 0) {
+    if (b.some((x) => x !== 0)) throw new Error("legacy call ext (version 0) must be all zero");
+    return null;
+  }
+  if (version !== MATCHER_CALL_EXT_VERSION_V1) throw new Error(`unknown call ext version ${version}`);
+  const flags = b[1];
+  if ((flags & ~EXT_FLAGS_KNOWN) !== 0) throw new Error(`call ext flags 0x${flags.toString(16)} has reserved bits`);
+  const band = v.getUint16(2, true);
+  const markSlot = v.getBigUint64(4, true);
+  const headroom = v.getBigUint64(12, true);
+  if (v.getUint32(20, true) !== 0) throw new Error("call ext reserved bytes must be 0");
+  const has = (f) => (flags & f) !== 0;
+  if (!has(MATCHER_CALL_EXT_FLAG.EXEC_BAND) && band !== 0) throw new Error("exec_band_bps set without EXEC_BAND");
+  if (!has(MATCHER_CALL_EXT_FLAG.MARK_SLOT) && markSlot !== 0n) throw new Error("mark_slot set without MARK_SLOT");
+  if (!has(MATCHER_CALL_EXT_FLAG.HEADROOM) && headroom !== 0n) throw new Error("lp_headroom_q set without HEADROOM");
+  return {
+    headroomQ: has(MATCHER_CALL_EXT_FLAG.HEADROOM) ? headroom : void 0,
+    markSlot: has(MATCHER_CALL_EXT_FLAG.MARK_SLOT) ? markSlot : void 0,
+    acceptsFeeRequest: has(MATCHER_CALL_EXT_FLAG.ACCEPTS_FEE_REQUEST),
+    takerReducing: has(MATCHER_CALL_EXT_FLAG.TAKER_REDUCING),
+    execBandBps: has(MATCHER_CALL_EXT_FLAG.EXEC_BAND) ? band : void 0
+  };
+}
+function decodeMatcherRequestedFeeBps(flags) {
+  return (flags >>> 0 & MATCHER_RETURN_FLAG_REQUESTED_FEE_MASK) >>> MATCHER_RETURN_FLAG_REQUESTED_FEE_SHIFT;
+}
+function isMatcherCtxV2(ctxAccountData) {
+  if (ctxAccountData.length < MATCHER_V2_BLOCK_ACCOUNT_OFFSET + 1) return false;
+  const magic = new DataView(ctxAccountData.buffer, ctxAccountData.byteOffset + 64, 8).getBigUint64(0, true);
+  return magic === 0x504552434d415443n && ctxAccountData[MATCHER_V2_BLOCK_ACCOUNT_OFFSET] === MATCHER_V2_BLOCK_VERSION;
+}
+
 // src/solana/slab.ts
-import { PublicKey as PublicKey5 } from "@solana/web3.js";
+import { PublicKey as PublicKey6 } from "@solana/web3.js";
 function dv(data) {
   return new DataView(data.buffer, data.byteOffset, data.byteLength);
 }
@@ -4813,7 +5168,7 @@ function parseHeader(data) {
   const version = readU32LE(data, 8);
   const bump = readU8(data, 12);
   const flags = readU8(data, 13);
-  const admin = new PublicKey5(data.subarray(16, 48));
+  const admin = new PublicKey6(data.subarray(16, 48));
   const layout = detectSlabLayout(data.length, data);
   const roff = layout ? layout.reservedOff : V0_RESERVED_OFF;
   const nonce = readU64LE(data, roff);
@@ -4836,9 +5191,9 @@ function parseConfigV12_17(data, configOff) {
     throw new Error(`Slab data too short for V12_17 config: ${data.length} < ${configOff + MIN_V12_17_BYTES}`);
   }
   const b = configOff;
-  const collateralMint = new PublicKey5(data.subarray(b + 0, b + 32));
-  const vaultPubkey = new PublicKey5(data.subarray(b + 32, b + 64));
-  const indexFeedId = new PublicKey5(data.subarray(b + 64, b + 96));
+  const collateralMint = new PublicKey6(data.subarray(b + 0, b + 32));
+  const vaultPubkey = new PublicKey6(data.subarray(b + 32, b + 64));
+  const indexFeedId = new PublicKey6(data.subarray(b + 64, b + 96));
   const maxStalenessSlots = readU64LE(data, b + 96);
   const confFilterBps = readU16LE(data, b + 104);
   const vaultAuthorityBump = readU8(data, b + 106);
@@ -4848,13 +5203,13 @@ function parseConfigV12_17(data, configOff) {
   const fundingKBps = readU64LE(data, b + 120);
   const fundingMaxPremiumBps = readI64LE(data, b + 128);
   const fundingMaxBpsPerSlot = readI64LE(data, b + 136);
-  const oracleAuthority = new PublicKey5(data.subarray(b + 144, b + 176));
+  const oracleAuthority = new PublicKey6(data.subarray(b + 144, b + 176));
   const authorityPriceE6 = readU64LE(data, b + 176);
   const authorityTimestamp = readI64LE(data, b + 184);
   const oraclePriceCapE2bps = readU64LE(data, b + 192);
   const lastEffectivePriceE6 = readU64LE(data, b + 200);
   const dexPoolBytes = data.subarray(b + 400, b + 432);
-  const dexPool = dexPoolBytes.some((x) => x !== 0) ? new PublicKey5(dexPoolBytes) : null;
+  const dexPool = dexPoolBytes.some((x) => x !== 0) ? new PublicKey6(dexPoolBytes) : null;
   return {
     collateralMint,
     vaultPubkey,
@@ -4906,9 +5261,9 @@ function parseConfigV12_19(data, configOff) {
     throw new Error(`Slab data too short for V12_19 config: ${data.length} < ${configOff + MIN_V12_19_BYTES}`);
   }
   const b = configOff;
-  const collateralMint = new PublicKey5(data.subarray(b + 0, b + 32));
-  const vaultPubkey = new PublicKey5(data.subarray(b + 32, b + 64));
-  const indexFeedId = new PublicKey5(data.subarray(b + 64, b + 96));
+  const collateralMint = new PublicKey6(data.subarray(b + 0, b + 32));
+  const vaultPubkey = new PublicKey6(data.subarray(b + 32, b + 64));
+  const indexFeedId = new PublicKey6(data.subarray(b + 64, b + 96));
   const maxStalenessSlots = readU64LE(data, b + 96);
   const confFilterBps = readU16LE(data, b + 104);
   const vaultAuthorityBump = readU8(data, b + 106);
@@ -4918,13 +5273,13 @@ function parseConfigV12_19(data, configOff) {
   const fundingKBps = readU64LE(data, b + 120);
   const fundingMaxPremiumBps = readI64LE(data, b + 128);
   const fundingMaxBpsPerSlot = readI64LE(data, b + 136);
-  const oracleAuthority = new PublicKey5(data.subarray(b + 144, b + 176));
+  const oracleAuthority = new PublicKey6(data.subarray(b + 144, b + 176));
   const authorityPriceE6 = readU64LE(data, b + 176);
   const authorityTimestamp = readI64LE(data, b + 184);
   const lastEffectivePriceE6 = readU64LE(data, b + 192);
   const oraclePriceCapE2bps = readU64LE(data, b + 216);
   const dexPoolBytes = data.subarray(b + 368, b + 400);
-  const dexPool = dexPoolBytes.some((x) => x !== 0) ? new PublicKey5(dexPoolBytes) : null;
+  const dexPool = dexPoolBytes.some((x) => x !== 0) ? new PublicKey6(dexPoolBytes) : null;
   return {
     collateralMint,
     vaultPubkey,
@@ -4988,11 +5343,11 @@ function parseConfig(data, layoutHint) {
     throw new Error(`Slab data too short for config: ${data.length} < ${minLen}`);
   }
   let off = configOff;
-  const collateralMint = new PublicKey5(data.subarray(off, off + 32));
+  const collateralMint = new PublicKey6(data.subarray(off, off + 32));
   off += 32;
-  const vaultPubkey = new PublicKey5(data.subarray(off, off + 32));
+  const vaultPubkey = new PublicKey6(data.subarray(off, off + 32));
   off += 32;
-  const indexFeedId = new PublicKey5(data.subarray(off, off + 32));
+  const indexFeedId = new PublicKey6(data.subarray(off, off + 32));
   off += 32;
   const maxStalenessSlots = readU64LE(data, off);
   off += 8;
@@ -5030,7 +5385,7 @@ function parseConfig(data, layoutHint) {
   off += 16;
   const threshMinStep = readU128LE(data, off);
   off += 16;
-  const oracleAuthority = new PublicKey5(data.subarray(off, off + 32));
+  const oracleAuthority = new PublicKey6(data.subarray(off, off + 32));
   off += 32;
   const authorityPriceE6 = readU64LE(data, off);
   off += 8;
@@ -5083,7 +5438,7 @@ function parseConfig(data, layoutHint) {
   if (configLen >= DEX_POOL_REL_OFF + 32 && data.length >= configOff + DEX_POOL_REL_OFF + 32) {
     const dexPoolBytes = data.subarray(configOff + DEX_POOL_REL_OFF, configOff + DEX_POOL_REL_OFF + 32);
     if (dexPoolBytes.some((b) => b !== 0)) {
-      dexPool = new PublicKey5(dexPoolBytes);
+      dexPool = new PublicKey6(dexPoolBytes);
     }
   }
   return {
@@ -5449,9 +5804,9 @@ function parseAccount(data, idx) {
       // removed — compute off-chain from position_basis_q / effective_pos_q
       fundingIndex: 0n,
       // replaced by per-side f_long_num/f_short_num + per-account f_snap
-      matcherProgram: new PublicKey5(data.subarray(base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1, base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1 + 32)),
-      matcherContext: new PublicKey5(data.subarray(base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1, base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1 + 32)),
-      owner: new PublicKey5(data.subarray(base + V12_17_ACCT_OWNER_OFF - d1, base + V12_17_ACCT_OWNER_OFF - d1 + 32)),
+      matcherProgram: new PublicKey6(data.subarray(base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1, base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1 + 32)),
+      matcherContext: new PublicKey6(data.subarray(base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1, base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1 + 32)),
+      owner: new PublicKey6(data.subarray(base + V12_17_ACCT_OWNER_OFF - d1, base + V12_17_ACCT_OWNER_OFF - d1 + 32)),
       feeCredits: readI128LE(data, base + V12_17_ACCT_FEE_CREDITS_OFF - d1),
       lastFeeSlot: 0n,
       // removed
@@ -5506,9 +5861,9 @@ function parseAccount(data, idx) {
       entryPrice: readU64LE(data, base + V12_15_ACCT_ENTRY_PRICE_OFF),
       fundingIndex: 0n,
       // not present in v12.15 account struct
-      matcherProgram: new PublicKey5(data.subarray(base + V12_15_ACCT_MATCHER_PROGRAM_OFF, base + V12_15_ACCT_MATCHER_PROGRAM_OFF + 32)),
-      matcherContext: new PublicKey5(data.subarray(base + V12_15_ACCT_MATCHER_CONTEXT_OFF, base + V12_15_ACCT_MATCHER_CONTEXT_OFF + 32)),
-      owner: new PublicKey5(data.subarray(base + V12_15_ACCT_OWNER_OFF, base + V12_15_ACCT_OWNER_OFF + 32)),
+      matcherProgram: new PublicKey6(data.subarray(base + V12_15_ACCT_MATCHER_PROGRAM_OFF, base + V12_15_ACCT_MATCHER_PROGRAM_OFF + 32)),
+      matcherContext: new PublicKey6(data.subarray(base + V12_15_ACCT_MATCHER_CONTEXT_OFF, base + V12_15_ACCT_MATCHER_CONTEXT_OFF + 32)),
+      owner: new PublicKey6(data.subarray(base + V12_15_ACCT_OWNER_OFF, base + V12_15_ACCT_OWNER_OFF + 32)),
       feeCredits: readI128LE(data, base + V12_15_ACCT_FEE_CREDITS_OFF),
       lastFeeSlot: 0n,
       // removed in v12.15
@@ -5559,9 +5914,9 @@ function parseAccount(data, idx) {
     entryPrice: entryPriceOff >= 0 ? readU64LE(data, base + entryPriceOff) : 0n,
     // V12_1/V12_1_EP: funding_index not present in SBF layout
     fundingIndex: isV12_1 || isV12_1EP ? fundingIndexOff >= 0 ? BigInt(readI64LE(data, base + fundingIndexOff)) : 0n : readI128LE(data, base + fundingIndexOff),
-    matcherProgram: new PublicKey5(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
-    matcherContext: new PublicKey5(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
-    owner: new PublicKey5(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
+    matcherProgram: new PublicKey6(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
+    matcherContext: new PublicKey6(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
+    owner: new PublicKey6(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
     feeCredits: readI128LE(data, base + feeCreditsOff),
     lastFeeSlot: readU64LE(data, base + lastFeeSlotOff),
     feesEarnedTotal: 0n,
@@ -5664,9 +6019,9 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
     );
   }
   const b = configOff;
-  const marketauth = new PublicKey5(data.subarray(b + 0, b + 32));
-  const collateralMint = new PublicKey5(data.subarray(b + 32, b + 64));
-  const secondaryCollateralMint = new PublicKey5(data.subarray(b + 64, b + 96));
+  const marketauth = new PublicKey6(data.subarray(b + 0, b + 32));
+  const collateralMint = new PublicKey6(data.subarray(b + 32, b + 64));
+  const secondaryCollateralMint = new PublicKey6(data.subarray(b + 64, b + 96));
   const maintenanceFeePerSlot = readU128LE(data, b + 96);
   const permissionlessMarketInitFee = readU128LE(data, b + 112);
   const tradeFeeBps = readU64LE(data, b + 128);
@@ -5700,7 +6055,7 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const ORACLE_LEG_CAP2 = 3;
   const oracleLegFeeds = [];
   for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
-    oracleLegFeeds.push(new PublicKey5(data.subarray(b + 280 + i * 32, b + 280 + (i + 1) * 32)));
+    oracleLegFeeds.push(new PublicKey6(data.subarray(b + 280 + i * 32, b + 280 + (i + 1) * 32)));
   }
   const oracleLegPricesE6 = [];
   for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
@@ -5714,7 +6069,7 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const backingTradeFeeInsuranceShareBpsLong = readU16LE(data, b + 426);
   const backingTradeFeeInsuranceShareBpsShort = readU16LE(data, b + 428);
   const feeRedirectToMarket0Bps = readU16LE(data, b + 430);
-  const protocolFeeAuthority = new PublicKey5(data.subarray(b + 432, b + 464));
+  const protocolFeeAuthority = new PublicKey6(data.subarray(b + 432, b + 464));
   const protocolFeeAccruedAtoms = readU128LE(data, b + 464);
   const protocolFeeWithdrawnAtoms = readU128LE(data, b + 480);
   const lpFeeAccruedAtoms = readU128LE(data, b + 496);
@@ -5790,7 +6145,7 @@ function parseAssetOracleProfileV17(data, profileOff) {
   const ORACLE_LEG_CAP2 = 3;
   const oracleLegFeeds = [];
   for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
-    oracleLegFeeds.push(new PublicKey5(data.subarray(b + 224 + i * 32, b + 224 + (i + 1) * 32)));
+    oracleLegFeeds.push(new PublicKey6(data.subarray(b + 224 + i * 32, b + 224 + (i + 1) * 32)));
   }
   const oracleLegPricesE6 = [];
   for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
@@ -5811,10 +6166,10 @@ function parseAssetOracleProfileV17(data, profileOff) {
     backingTradeFeeBpsShort: readU16LE(data, b + 12),
     backingTradeFeeInsuranceShareBpsLong: readU16LE(data, b + 14),
     backingTradeFeeInsuranceShareBpsShort: readU16LE(data, b + 16),
-    insuranceAuthority: new PublicKey5(data.subarray(b + 24, b + 56)),
-    insuranceOperator: new PublicKey5(data.subarray(b + 56, b + 88)),
-    backingBucketAuthority: new PublicKey5(data.subarray(b + 88, b + 120)),
-    oracleAuthority: new PublicKey5(data.subarray(b + 120, b + 152)),
+    insuranceAuthority: new PublicKey6(data.subarray(b + 24, b + 56)),
+    insuranceOperator: new PublicKey6(data.subarray(b + 56, b + 88)),
+    backingBucketAuthority: new PublicKey6(data.subarray(b + 88, b + 120)),
+    oracleAuthority: new PublicKey6(data.subarray(b + 120, b + 152)),
     maxStalenessSecs: readU64LE(data, b + 152),
     hybridSoftStaleSlots: readU64LE(data, b + 160),
     markEwmaE6: readU64LE(data, b + 168),
@@ -5827,7 +6182,7 @@ function parseAssetOracleProfileV17(data, profileOff) {
     oracleLegFeeds,
     oracleLegPricesE6,
     oracleLegPublishTimes,
-    assetAdmin: new PublicKey5(data.subarray(b + 368, b + 400)),
+    assetAdmin: new PublicKey6(data.subarray(b + 368, b + 400)),
     creatorFeeClaimableAtoms: readU64LE(data, b + 400),
     maintenanceFeeCheckpointSlot: readU64LE(data, b + 408),
     maintenanceFeePreviousRate: readU128LE(data, b + 416),
@@ -5971,10 +6326,10 @@ function parsePortfolioV17(data) {
     throw new Error(`parsePortfolioV17: data too short (${data.length} < ${MIN_PORTFOLIO_BYTES})`);
   }
   assertV17StandaloneHeader(data, "parsePortfolioV17", V17_KIND_PORTFOLIO);
-  const marketGroupId = new PublicKey5(data.subarray(PF_PROVENANCE_MARKET_GROUP_OFF, PF_PROVENANCE_MARKET_GROUP_OFF + 32));
-  const portfolioAccountId = new PublicKey5(data.subarray(PF_PROVENANCE_ACCOUNT_ID_OFF, PF_PROVENANCE_ACCOUNT_ID_OFF + 32));
-  const provenanceOwner = new PublicKey5(data.subarray(PF_PROVENANCE_OWNER_OFF, PF_PROVENANCE_OWNER_OFF + 32));
-  const owner = new PublicKey5(data.subarray(PF_OWNER_OFF, PF_OWNER_OFF + 32));
+  const marketGroupId = new PublicKey6(data.subarray(PF_PROVENANCE_MARKET_GROUP_OFF, PF_PROVENANCE_MARKET_GROUP_OFF + 32));
+  const portfolioAccountId = new PublicKey6(data.subarray(PF_PROVENANCE_ACCOUNT_ID_OFF, PF_PROVENANCE_ACCOUNT_ID_OFF + 32));
+  const provenanceOwner = new PublicKey6(data.subarray(PF_PROVENANCE_OWNER_OFF, PF_PROVENANCE_OWNER_OFF + 32));
+  const owner = new PublicKey6(data.subarray(PF_OWNER_OFF, PF_OWNER_OFF + 32));
   const capital = readU128LE(data, PF_CAPITAL_OFF);
   const pnl = readI128LE(data, PF_PNL_OFF);
   const reservedPnl = readU128LE(data, PF_RESERVED_PNL_OFF);
@@ -6033,9 +6388,9 @@ function parsePortfolioV17(data) {
       sourceLienImpairedCapitalAtRiskFeeRevenue: readU128LE(data, b + 180)
     });
   }
-  const matcherProgram = data.length >= PF_MATCHER_PROGRAM_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_PROGRAM_OFF, PF_MATCHER_PROGRAM_OFF + 32)) : PublicKey5.default;
-  const matcherContext = data.length >= PF_MATCHER_CONTEXT_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_CONTEXT_OFF, PF_MATCHER_CONTEXT_OFF + 32)) : PublicKey5.default;
-  const matcherDelegate = data.length >= PF_MATCHER_DELEGATE_OFF + 32 ? new PublicKey5(data.subarray(PF_MATCHER_DELEGATE_OFF, PF_MATCHER_DELEGATE_OFF + 32)) : PublicKey5.default;
+  const matcherProgram = data.length >= PF_MATCHER_PROGRAM_OFF + 32 ? new PublicKey6(data.subarray(PF_MATCHER_PROGRAM_OFF, PF_MATCHER_PROGRAM_OFF + 32)) : PublicKey6.default;
+  const matcherContext = data.length >= PF_MATCHER_CONTEXT_OFF + 32 ? new PublicKey6(data.subarray(PF_MATCHER_CONTEXT_OFF, PF_MATCHER_CONTEXT_OFF + 32)) : PublicKey6.default;
+  const matcherDelegate = data.length >= PF_MATCHER_DELEGATE_OFF + 32 ? new PublicKey6(data.subarray(PF_MATCHER_DELEGATE_OFF, PF_MATCHER_DELEGATE_OFF + 32)) : PublicKey6.default;
   let matcherEnabled = false;
   let matcherPositionEpoch = 0n;
   let matcherTradeFeeCapBps = 0;
@@ -6091,8 +6446,8 @@ function parseLpVaultRegistry(data) {
   assertV17StandaloneHeader(data, "parseLpVaultRegistry", V17_KIND_LP_VAULT_REGISTRY);
   const b = V17_ACCOUNT_HEADER_LEN;
   return {
-    marketGroup: new PublicKey5(data.subarray(b + 0, b + 32)),
-    lpMint: new PublicKey5(data.subarray(b + 32, b + 64)),
+    marketGroup: new PublicKey6(data.subarray(b + 0, b + 32)),
+    lpMint: new PublicKey6(data.subarray(b + 32, b + 64)),
     totalLpSharesOutstanding: readU128LE(data, b + 64),
     insuranceFeeSnapshotAtoms: readU128LE(data, b + 80),
     feeDistributionTotalAtoms: readU128LE(data, b + 96),
@@ -6117,8 +6472,8 @@ function parseLpRedemption(data) {
   assertV17StandaloneHeader(data, "parseLpRedemption", V17_KIND_LP_REDEMPTION);
   const b = V17_ACCOUNT_HEADER_LEN;
   return {
-    registry: new PublicKey5(data.subarray(b + 0, b + 32)),
-    redeemer: new PublicKey5(data.subarray(b + 32, b + 64)),
+    registry: new PublicKey6(data.subarray(b + 0, b + 32)),
+    redeemer: new PublicKey6(data.subarray(b + 32, b + 64)),
     shares: readU128LE(data, b + 64),
     requestSlot: readU64LE(data, b + 80),
     version: data[b + 88],
@@ -6142,7 +6497,7 @@ function parseAllAccounts(data) {
 }
 
 // src/solana/pda.ts
-import { PublicKey as PublicKey6 } from "@solana/web3.js";
+import { PublicKey as PublicKey7 } from "@solana/web3.js";
 var textEncoder = new TextEncoder();
 function u16LE(value) {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 65535) {
@@ -6158,15 +6513,15 @@ function u16LE(value) {
   return buf;
 }
 function deriveVaultAuthority(programId, slab) {
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [textEncoder.encode("vault"), slab.toBytes()],
     programId
   );
 }
-var ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey6(
+var ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey7(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 );
-var PERCOLATOR_VAULT_TOKEN_PROGRAM_ID = new PublicKey6(
+var PERCOLATOR_VAULT_TOKEN_PROGRAM_ID = new PublicKey7(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 );
 function deriveCanonicalVault(programId, market, mint) {
@@ -6174,7 +6529,7 @@ function deriveCanonicalVault(programId, market, mint) {
   return deriveCanonicalVaultForAuthority(vaultAuthority, mint);
 }
 function deriveCanonicalVaultForAuthority(vaultAuthority, mint) {
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [
       vaultAuthority.toBytes(),
       PERCOLATOR_VAULT_TOKEN_PROGRAM_ID.toBytes(),
@@ -6198,7 +6553,7 @@ function deriveMarketVaultAccounts(programId, market, mint) {
   };
 }
 function deriveInsuranceLpMint(programId, slab) {
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [textEncoder.encode("lp_vault_mint"), slab.toBytes()],
     programId
   );
@@ -6212,38 +6567,38 @@ function deriveLpPda(programId, slab, lpIdx) {
   }
   const idxBuf = new Uint8Array(2);
   new DataView(idxBuf.buffer).setUint16(0, lpIdx, true);
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [textEncoder.encode("lp"), slab.toBytes(), idxBuf],
     programId
   );
 }
-var PUMPSWAP_PROGRAM_ID = new PublicKey6(
+var PUMPSWAP_PROGRAM_ID = new PublicKey7(
   "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 );
-var RAYDIUM_CLMM_PROGRAM_ID = new PublicKey6(
+var RAYDIUM_CLMM_PROGRAM_ID = new PublicKey7(
   "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
 );
-var METEORA_DLMM_PROGRAM_ID = new PublicKey6(
+var METEORA_DLMM_PROGRAM_ID = new PublicKey7(
   "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
 );
-var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey6(
+var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey7(
   "pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT"
 );
 var CREATOR_LOCK_SEED = "creator_lock";
 function deriveCreatorLockPda(programId, slab) {
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [textEncoder.encode(CREATOR_LOCK_SEED), slab.toBytes()],
     programId
   );
 }
 function deriveLpVaultRegistry(programId, marketGroup) {
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [textEncoder.encode("lp_vault"), marketGroup.toBytes()],
     programId
   );
 }
 function deriveLpRedemption(programId, registry, redeemer) {
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [
       textEncoder.encode("lp_redemption"),
       registry.toBytes(),
@@ -6253,7 +6608,7 @@ function deriveLpRedemption(programId, registry, redeemer) {
   );
 }
 function deriveLpBackingLedger(programId, marketGroup, domainIdx) {
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [
       textEncoder.encode("lp_backing_ledger"),
       marketGroup.toBytes(),
@@ -6263,19 +6618,19 @@ function deriveLpBackingLedger(programId, marketGroup, domainIdx) {
   );
 }
 function deriveLpEscrow(programId, marketGroup) {
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [textEncoder.encode("lp_escrow"), marketGroup.toBytes()],
     programId
   );
 }
 function deriveNftRegistry(programId, marketGroup) {
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [textEncoder.encode("nft_registry"), marketGroup.toBytes()],
     programId
   );
 }
 function deriveMatcherDelegate(programId, market, accountB, accountBOwner, matcherProg, matcherCtx) {
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [
       textEncoder.encode("matcher"),
       market.toBytes(),
@@ -6307,7 +6662,7 @@ function derivePythPushOraclePDA(feedIdHex) {
     feedId[i] = parseInt(normalized.substring(i * 2, i * 2 + 2), 16);
   }
   const shardBuf = new Uint8Array(2);
-  return PublicKey6.findProgramAddressSync(
+  return PublicKey7.findProgramAddressSync(
     [shardBuf, feedId],
     PYTH_PUSH_ORACLE_PROGRAM_ID
   );
@@ -6331,10 +6686,10 @@ async function fetchTokenAccount(connection, address, tokenProgramId = TOKEN_PRO
 }
 
 // src/solana/discovery.ts
-import { PublicKey as PublicKey8 } from "@solana/web3.js";
+import { PublicKey as PublicKey9 } from "@solana/web3.js";
 
 // src/solana/static-markets.ts
-import { PublicKey as PublicKey7 } from "@solana/web3.js";
+import { PublicKey as PublicKey8 } from "@solana/web3.js";
 var MAINNET_MARKETS = [
   { slabAddress: "7psyeWRts4pRX2cyAWD1NH87bR9ugXP7pe6ARgfG79Do", symbol: "SOL-PERP", name: "SOL/USDC Perpetual" }
 ];
@@ -6370,7 +6725,7 @@ function registerStaticMarkets(network, entries) {
     if (!entry.slabAddress) continue;
     if (seen.has(entry.slabAddress)) continue;
     try {
-      new PublicKey7(entry.slabAddress);
+      new PublicKey8(entry.slabAddress);
     } catch {
       console.warn(
         `[registerStaticMarkets] Skipping invalid slabAddress: ${entry.slabAddress}`
@@ -7010,7 +7365,7 @@ async function discoverMarketsViaApi(connection, programId, apiBaseUrl, options 
   for (const entry of apiMarkets) {
     if (!entry.slab_address || typeof entry.slab_address !== "string") continue;
     try {
-      addresses.push(new PublicKey8(entry.slab_address));
+      addresses.push(new PublicKey9(entry.slab_address));
     } catch {
       console.warn(
         `[discoverMarketsViaApi] Skipping invalid slab address: ${entry.slab_address}`
@@ -7032,7 +7387,7 @@ async function discoverMarketsViaStaticBundle(connection, programId, entries, op
   for (const entry of entries) {
     if (!entry.slabAddress || typeof entry.slabAddress !== "string") continue;
     try {
-      addresses.push(new PublicKey8(entry.slabAddress));
+      addresses.push(new PublicKey9(entry.slabAddress));
     } catch {
       console.warn(
         `[discoverMarketsViaStaticBundle] Skipping invalid slab address: ${entry.slabAddress}`
@@ -7050,7 +7405,7 @@ async function discoverMarketsViaStaticBundle(connection, programId, entries, op
 }
 
 // src/solana/dex-oracle.ts
-import { PublicKey as PublicKey9 } from "@solana/web3.js";
+import { PublicKey as PublicKey10 } from "@solana/web3.js";
 function detectDexType(ownerProgramId) {
   if (ownerProgramId.equals(PUMPSWAP_PROGRAM_ID)) return "pumpswap";
   if (ownerProgramId.equals(RAYDIUM_CLMM_PROGRAM_ID)) return "raydium-clmm";
@@ -7097,7 +7452,7 @@ async function fetchMintDecimals(connection, mint) {
   }
   return info.data[SPL_MINT_DECIMALS_OFFSET];
 }
-var WSOL_MINT = new PublicKey9("So11111111111111111111111111111111111111112");
+var WSOL_MINT = new PublicKey10("So11111111111111111111111111111111111111112");
 var PUMPSWAP_MIN_LEN = 203;
 function parsePumpSwapPool(poolAddress, data) {
   if (data.length < PUMPSWAP_MIN_LEN) {
@@ -7106,10 +7461,10 @@ function parsePumpSwapPool(poolAddress, data) {
   return {
     dexType: "pumpswap",
     poolAddress,
-    baseMint: new PublicKey9(data.slice(43, 75)),
-    quoteMint: new PublicKey9(data.slice(75, 107)),
-    baseVault: new PublicKey9(data.slice(139, 171)),
-    quoteVault: new PublicKey9(data.slice(171, 203))
+    baseMint: new PublicKey10(data.slice(43, 75)),
+    quoteMint: new PublicKey10(data.slice(75, 107)),
+    baseVault: new PublicKey10(data.slice(139, 171)),
+    quoteVault: new PublicKey10(data.slice(171, 203))
   };
 }
 var SPL_TOKEN_AMOUNT_MIN_LEN = 72;
@@ -7137,7 +7492,7 @@ function computePumpSwapPriceE6(poolData, vaultData, decimals, solPriceE6) {
   const baseScale = 10n ** BigInt(decimals.base);
   const quoteScale = 10n ** BigInt(decimals.quote);
   const quotePerBaseE6 = quoteAmount * baseScale * 1000000n / (quoteScale * baseAmount);
-  const quoteMint = new PublicKey9(poolData.slice(75, 107));
+  const quoteMint = new PublicKey10(poolData.slice(75, 107));
   if (quoteMint.equals(WSOL_MINT)) {
     if (solPriceE6 === void 0) {
       throw new Error(
@@ -7156,8 +7511,8 @@ function parseRaydiumClmmPool(poolAddress, data) {
   return {
     dexType: "raydium-clmm",
     poolAddress,
-    baseMint: new PublicKey9(data.slice(73, 105)),
-    quoteMint: new PublicKey9(data.slice(105, 137))
+    baseMint: new PublicKey10(data.slice(73, 105)),
+    quoteMint: new PublicKey10(data.slice(105, 137))
   };
 }
 var MAX_TOKEN_DECIMALS = 24;
@@ -7203,8 +7558,8 @@ function parseMeteoraPool(poolAddress, data) {
   return {
     dexType: "meteora-dlmm",
     poolAddress,
-    baseMint: new PublicKey9(data.slice(88, 120)),
-    quoteMint: new PublicKey9(data.slice(120, 152))
+    baseMint: new PublicKey10(data.slice(88, 120)),
+    quoteMint: new PublicKey10(data.slice(120, 152))
   };
 }
 var MAX_BIN_STEP = 1e4;
@@ -7347,9 +7702,9 @@ function isValidChainlinkOracle(data) {
 }
 
 // src/solana/token-program.ts
-import { PublicKey as PublicKey10 } from "@solana/web3.js";
+import { PublicKey as PublicKey11 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID3 } from "@solana/spl-token";
-var TOKEN_2022_PROGRAM_ID = new PublicKey10(
+var TOKEN_2022_PROGRAM_ID = new PublicKey11(
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 );
 async function detectTokenProgram(connection, mint) {
@@ -7369,7 +7724,7 @@ function isStandardToken(tokenProgramId) {
 }
 
 // src/solana/stake.ts
-import { PublicKey as PublicKey11, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
+import { PublicKey as PublicKey12, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4, TOKEN_2022_PROGRAM_ID as TOKEN_2022_PROGRAM_ID2 } from "@solana/spl-token";
 var STAKE_PROGRAM_IDS = {
   devnet: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3",
@@ -7389,7 +7744,7 @@ function getStakeProgramId(network) {
       console.warn(
         `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override}`
       );
-      return new PublicKey11(override);
+      return new PublicKey12(override);
     }
   }
   const detectedNetwork = network ?? (() => {
@@ -7406,9 +7761,9 @@ function getStakeProgramId(network) {
       `Stake program not deployed on ${detectedNetwork}. Set STAKE_PROGRAM_ID env var or wait for DevOps to deploy and update STAKE_PROGRAM_IDS.mainnet.`
     );
   }
-  return new PublicKey11(id);
+  return new PublicKey12(id);
 }
-var STAKE_PROGRAM_ID = new PublicKey11(STAKE_PROGRAM_IDS.devnet);
+var STAKE_PROGRAM_ID = new PublicKey12(STAKE_PROGRAM_IDS.devnet);
 var STAKE_IX = {
   InitPool: 0,
   Deposit: 1,
@@ -7720,24 +8075,25 @@ var STAKE_ERRORS = {
   25: "Cooldown increase requires timelock \u2014 a cooldown_slots INCREASE must go through ProposeCooldownIncrease -> wait -> CommitCooldownIncrease, not UpdateConfig (decreases are still immediate via UpdateConfig)",
   26: "Timelock not elapsed \u2014 CommitCooldownIncrease was called before the required timelock window had passed since ProposeCooldownIncrease; LP holders are still inside their exit window",
   27: "No pending cooldown proposal \u2014 CommitCooldownIncrease / CancelCooldownIncrease called with no active ProposeCooldownIncrease proposal outstanding",
-  28: "Deposit below minimum liquidity \u2014 the pool's first-ever deposit must exceed MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening); deposit a larger amount"
+  28: "Deposit below minimum liquidity \u2014 the pool's first-ever deposit must exceed MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening); deposit a larger amount",
+  29: "No real LP holders \u2014 AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (total_lp_supply <= MINIMUM_LIQUIDITY). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard)."
 };
 Object.freeze(STAKE_ERRORS);
 var TEXT2 = new TextEncoder();
 function deriveStakePool(slab, programId) {
-  return PublicKey11.findProgramAddressSync(
+  return PublicKey12.findProgramAddressSync(
     [TEXT2.encode("stake_pool"), slab.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
 function deriveStakeVaultAuth(pool, programId) {
-  return PublicKey11.findProgramAddressSync(
+  return PublicKey12.findProgramAddressSync(
     [TEXT2.encode("vault_auth"), pool.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
 function deriveDepositPda(pool, user, programId) {
-  return PublicKey11.findProgramAddressSync(
+  return PublicKey12.findProgramAddressSync(
     [TEXT2.encode("stake_deposit"), pool.toBytes(), user.toBytes()],
     programId ?? getStakeProgramId()
   );
@@ -8071,15 +8427,15 @@ function decodeStakePool(data) {
   const adminTransferred = bytes[off] === 1;
   off += 1;
   off += 4;
-  const slab = new PublicKey11(bytes.subarray(off, off + 32));
+  const slab = new PublicKey12(bytes.subarray(off, off + 32));
   off += 32;
-  const admin = new PublicKey11(bytes.subarray(off, off + 32));
+  const admin = new PublicKey12(bytes.subarray(off, off + 32));
   off += 32;
-  const collateralMint = new PublicKey11(bytes.subarray(off, off + 32));
+  const collateralMint = new PublicKey12(bytes.subarray(off, off + 32));
   off += 32;
-  const lpMint = new PublicKey11(bytes.subarray(off, off + 32));
+  const lpMint = new PublicKey12(bytes.subarray(off, off + 32));
   off += 32;
-  const vault = new PublicKey11(bytes.subarray(off, off + 32));
+  const vault = new PublicKey12(bytes.subarray(off, off + 32));
   off += 32;
   const totalDeposited = readU64LE4(bytes, off);
   off += 8;
@@ -8095,7 +8451,7 @@ function decodeStakePool(data) {
   off += 8;
   const totalWithdrawn = readU64LE4(bytes, off);
   off += 8;
-  const percolatorProgram = new PublicKey11(bytes.subarray(off, off + 32));
+  const percolatorProgram = new PublicKey12(bytes.subarray(off, off + 32));
   off += 32;
   const totalFeesEarned = readU64LE4(bytes, off);
   off += 8;
@@ -8110,7 +8466,7 @@ function decodeStakePool(data) {
   if (isV2 || isV3 || isV4) {
     const pendingAdminBytes = bytes.subarray(off, off + 32);
     off += 32;
-    pendingAdmin = pendingAdminBytes.every((b) => b === 0) ? null : new PublicKey11(pendingAdminBytes);
+    pendingAdmin = pendingAdminBytes.every((b) => b === 0) ? null : new PublicKey12(pendingAdminBytes);
   }
   const reservedStart = off;
   const marketResolved = bytes[reservedStart + 9] === 1;
@@ -8181,8 +8537,8 @@ function decodeDepositPda(data) {
   return {
     isInitialized: data[0] === 1,
     bump: data[1],
-    pool: new PublicKey11(data.subarray(8, 40)),
-    user: new PublicKey11(data.subarray(40, 72)),
+    pool: new PublicKey12(data.subarray(8, 40)),
+    user: new PublicKey12(data.subarray(40, 72)),
     lastDepositSlot: readU64LE4(data, 72),
     lpAmount: readU64LE4(data, 80)
   };
@@ -9013,9 +9369,97 @@ var _internal = {
   endpointLabel
 };
 
+// src/solana/market-lifecycle.ts
+import { TransactionInstruction as TransactionInstruction2 } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID5 } from "@solana/spl-token";
+var ACCOUNTS_REBALANCE_REDUCE = [
+  { name: "owner", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+  { name: "portfolio", signer: false, writable: true }
+];
+function buildRebalanceReduceIx(a) {
+  if (a.reduceQ <= 0n) throw new Error("buildRebalanceReduceIx: reduceQ must be > 0");
+  return new TransactionInstruction2({
+    programId: a.programId,
+    keys: buildAccountMetas(ACCOUNTS_REBALANCE_REDUCE, { owner: a.owner, market: a.market, portfolio: a.portfolio }),
+    data: Buffer.from(
+      encodeRebalanceReduce({ portfolioId: a.portfolioId, positionEpoch: a.positionEpoch, assetIndex: a.assetIndex, reduceQ: a.reduceQ })
+    )
+  });
+}
+function planReduceOnlyExit(programId, owner, market, portfolio, portfolioData, assetIndex = 0) {
+  const p = parsePortfolioV17(portfolioData);
+  const leg = p.legs.find((l) => l.active && l.assetIndex === assetIndex && l.basisPosQ !== 0n);
+  if (!leg) return null;
+  const reduceQ = leg.basisPosQ < 0n ? -leg.basisPosQ : leg.basisPosQ;
+  return {
+    ix: buildRebalanceReduceIx({ programId, owner, market, portfolio, portfolioId: p.portfolioId, positionEpoch: p.matcherPositionEpoch, assetIndex, reduceQ }),
+    reduceQ,
+    side: leg.basisPosQ > 0n ? "long" : "short"
+  };
+}
+var V17_KIND_CLOSED_MARKET = 8;
+function isClosedMarketTombstone(data) {
+  if (data === null) return true;
+  return data.length === V17_HEADER_LEN && data[V17_KIND_OFF] === V17_KIND_CLOSED_MARKET;
+}
+function planCloseSlabAttempt(a) {
+  if (a.hasLpVault) {
+    throw new Error(
+      "planCloseSlabAttempt: this market has an Earn LP vault \u2014 CloseSlab can never retire it (LP-vault dead-share floor, by design). Its slab rent is unrecoverable; do not promise reclaim."
+    );
+  }
+  const tokenProgram = a.tokenProgram ?? TOKEN_PROGRAM_ID5;
+  const [vaultAuthority] = deriveVaultAuthority(a.programId, a.market);
+  const ixs = [];
+  if (a.protocolFee && a.protocolFee.owed > 0n) {
+    ixs.push(new TransactionInstruction2({
+      programId: a.programId,
+      keys: buildAccountMetas(ACCOUNTS_WITHDRAW_PROTOCOL_FEE, {
+        authority: a.protocolFee.authority,
+        market: a.market,
+        destToken: a.protocolFee.destToken,
+        vaultToken: a.vaultToken,
+        vaultAuthority,
+        tokenProgram
+      }),
+      data: Buffer.from(encodeWithdrawProtocolFee({ amount: 0n, authorityEpoch: a.protocolFee.authorityEpoch }))
+    }));
+  }
+  if (a.insuranceRecredit && a.insuranceRecredit.amount > 0n) {
+    const keys = buildAccountMetas(ACCOUNTS_WITHDRAW_INSURANCE, {
+      authority: a.insuranceRecredit.authority,
+      market: a.market,
+      destToken: a.insuranceRecredit.destToken,
+      vaultToken: a.vaultToken,
+      vaultAuthority,
+      tokenProgram
+    });
+    if (a.insuranceRecredit.ledger) keys.push({ pubkey: a.insuranceRecredit.ledger, isSigner: false, isWritable: true });
+    ixs.push(new TransactionInstruction2({
+      programId: a.programId,
+      keys,
+      data: Buffer.from(encodeWithdrawInsurance({ amount: a.insuranceRecredit.amount }))
+    }));
+  }
+  ixs.push(new TransactionInstruction2({
+    programId: a.programId,
+    keys: buildAccountMetas(ACCOUNTS_CLOSE_SLAB, {
+      dest: a.closer,
+      slab: a.market,
+      vault: a.vaultToken,
+      vaultAuthority,
+      destAta: a.closerDestToken,
+      tokenProgram
+    }),
+    data: Buffer.from(encodeCloseSlab(a.closeAuthorityEpoch))
+  }));
+  return ixs;
+}
+
 // src/runtime/tx.ts
 import {
-  TransactionInstruction,
+  TransactionInstruction as TransactionInstruction3,
   Transaction,
   ComputeBudgetProgram
 } from "@solana/web3.js";
@@ -9045,7 +9489,7 @@ function meetsCommitment(observed, required) {
   return CONFIRMATION_RANK[observed] >= requiredConfirmationRank(required);
 }
 function buildIx(params) {
-  return new TransactionInstruction({
+  return new TransactionInstruction3({
     programId: params.programId,
     keys: params.keys,
     // TransactionInstruction types expect Buffer, but Uint8Array works at runtime.
@@ -9270,8 +9714,8 @@ function formatResult(result, jsonMode) {
 }
 
 // src/runtime/lighthouse.ts
-import { PublicKey as PublicKey13, Transaction as Transaction2 } from "@solana/web3.js";
-var LIGHTHOUSE_PROGRAM_ID = new PublicKey13(
+import { PublicKey as PublicKey15, Transaction as Transaction2 } from "@solana/web3.js";
+var LIGHTHOUSE_PROGRAM_ID = new PublicKey15(
   "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"
 );
 var LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
@@ -9538,12 +9982,12 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey14 } from "@solana/web3.js";
-var U16_MAX2 = 65535;
-var U64_MAX = BigInt("18446744073709551615");
+import { PublicKey as PublicKey16 } from "@solana/web3.js";
+var U16_MAX3 = 65535;
+var U64_MAX2 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
 var I64_MAX = BigInt("9223372036854775807");
-var U128_MAX = (1n << 128n) - 1n;
+var U128_MAX2 = (1n << 128n) - 1n;
 var I128_MIN = -(1n << 127n);
 var I128_MAX = (1n << 127n) - 1n;
 var ValidationError = class extends Error {
@@ -9579,7 +10023,7 @@ function safeBigInt(val, caller) {
 }
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey14(value);
+    return new PublicKey16(value);
   } catch {
     throw new ValidationError(
       field,
@@ -9590,10 +10034,10 @@ function validatePublicKey(value, field) {
 function validateIndex(value, field) {
   const t = requireDecimalUIntString(value, field);
   const bi = BigInt(t);
-  if (bi > BigInt(U16_MAX2)) {
+  if (bi > BigInt(U16_MAX3)) {
     throw new ValidationError(
       field,
-      `must be <= ${U16_MAX2} (u16 max), got ${t}`
+      `must be <= ${U16_MAX3} (u16 max), got ${t}`
     );
   }
   return Number(bi);
@@ -9604,10 +10048,10 @@ function validateAmount(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U64_MAX) {
+  if (num > U64_MAX2) {
     throw new ValidationError(
       field,
-      `must be <= ${U64_MAX} (u64 max), got ${num}`
+      `must be <= ${U64_MAX2} (u64 max), got ${num}`
     );
   }
   return num;
@@ -9618,10 +10062,10 @@ function validateU128(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U128_MAX) {
+  if (num > U128_MAX2) {
     throw new ValidationError(
       field,
-      `must be <= ${U128_MAX} (u128 max), got ${num}`
+      `must be <= ${U128_MAX2} (u128 max), got ${num}`
     );
   }
   return num;
@@ -9691,10 +10135,10 @@ function validateU64(value, field) {
 function validateU16(value, field) {
   const t = requireDecimalUIntString(value, field);
   const bi = BigInt(t);
-  if (bi > BigInt(U16_MAX2)) {
+  if (bi > BigInt(U16_MAX3)) {
     throw new ValidationError(
       field,
-      `must be <= ${U16_MAX2} (u16 max), got ${t}`
+      `must be <= ${U16_MAX3} (u16 max), got ${t}`
     );
   }
   return Number(bi);
@@ -10025,6 +10469,7 @@ export {
   ACCOUNTS_PUSH_EWMA_MARK,
   ACCOUNTS_QUEUE_WITHDRAWAL,
   ACCOUNTS_REBALANCE_LP_VAULT_BACKING,
+  ACCOUNTS_REBALANCE_REDUCE,
   ACCOUNTS_RECLAIM_EMPTY_ACCOUNT,
   ACCOUNTS_RECLAIM_SLAB_RENT,
   ACCOUNTS_RESCUE_ORPHAN_VAULT,
@@ -10105,16 +10550,41 @@ export {
   LIGHTHOUSE_USER_MESSAGE,
   MARK_PRICE_EMA_ALPHA_E6,
   MARK_PRICE_EMA_WINDOW_SLOTS,
+  MATCHER_BACKING_FEE_CAP_BPS_MAX,
+  MATCHER_CALL_EXT_FLAG,
+  MATCHER_CALL_EXT_LEN,
+  MATCHER_CALL_EXT_OFFSET,
+  MATCHER_CALL_EXT_VERSION_V1,
   MATCHER_CALL_LEN,
+  MATCHER_CONFIGURE_AUTH_LP_PDA,
+  MATCHER_CONFIGURE_AUTH_OWNER_PROOF,
+  MATCHER_CONFIGURE_HEADER_LP_PDA_LEN,
+  MATCHER_CONFIGURE_HEADER_OWNER_PROOF_LEN,
+  MATCHER_CONFIGURE_OP_BACKING_FEE_CAP,
+  MATCHER_CONFIGURE_OP_SET_PARAMS,
+  MATCHER_CONFIGURE_TAG,
   MATCHER_CONTEXT_LEN,
+  MATCHER_KIND,
   MATCHER_MAGIC,
+  MATCHER_REQUESTED_FEE_BPS_MAX,
   MATCHER_RETURN_FLAG_BACKING_FEE_CAP_MASK,
   MATCHER_RETURN_FLAG_BACKING_FEE_CAP_SHIFT,
   MATCHER_RETURN_FLAG_PARTIAL_OK,
   MATCHER_RETURN_FLAG_REJECTED,
+  MATCHER_RETURN_FLAG_REQUESTED_FEE_MASK,
+  MATCHER_RETURN_FLAG_REQUESTED_FEE_SHIFT,
   MATCHER_RETURN_FLAG_VALID,
   MATCHER_RETURN_KNOWN_FLAGS,
+  MATCHER_RETURN_KNOWN_FLAGS_V2,
   MATCHER_RETURN_LEN,
+  MATCHER_SET_PARAMS_LEN,
+  MATCHER_V2_BLOCK_ACCOUNT_OFFSET,
+  MATCHER_V2_BLOCK_CTX_OFFSET,
+  MATCHER_V2_BLOCK_LEN,
+  MATCHER_V2_BLOCK_VERSION,
+  MATCHER_V2_ERRORS,
+  MATCHER_V2_FLAG_STALE_ALLOW_REDUCING,
+  MATCHER_V2_MAX_IMPACT_K_BPS,
   MAX_BACKING_BUCKET_EXPIRY_SLOT,
   MAX_DECIMALS,
   MAX_INSURANCE_WITHDRAW_COOLDOWN_SLOTS,
@@ -10192,6 +10662,7 @@ export {
   V17_GROUP_CURRENT_SLOT_REL,
   V17_GROUP_MODE_REL,
   V17_HEADER_LEN,
+  V17_KIND_CLOSED_MARKET,
   V17_KIND_MARKET,
   V17_KIND_OFF,
   V17_MAGIC,
@@ -10224,7 +10695,10 @@ export {
   buildAdlInstruction,
   buildAdlTransaction,
   buildIx,
+  buildMatcherConfigureBackingFeeCapIx,
+  buildMatcherConfigureSetParamsIx,
   buildNftAccountMetas,
+  buildRebalanceReduceIx,
   burnAssetAdminAccounts,
   checkPhaseTransition,
   checkRpcHealth,
@@ -10254,9 +10728,13 @@ export {
   countLighthouseInstructions,
   decodeDepositPda,
   decodeError,
+  decodeMatcherCallExt,
+  decodeMatcherRequestedFeeBps,
   decodeMatcherReturn,
+  decodeMatcherV2Error,
   decodePortfolioMatcherControl,
   decodeStakePool,
+  defaultMatcherV2ConfigForKind2,
   depositAccounts,
   depositJuniorAccounts,
   deriveCanonicalVault,
@@ -10347,8 +10825,12 @@ export {
   encodeLpVaultCrankFees,
   encodeLpVaultDeposit,
   encodeLpVaultWithdraw,
+  encodeMatcherCallExt,
+  encodeMatcherConfigureBackingFeeCap,
+  encodeMatcherConfigureSetParams,
   encodeMatcherInitPassive,
   encodeMatcherReturn,
+  encodeMatcherSetParams,
   encodeMintPositionNft,
   encodeNftBurn,
   encodeNftEmergencyBurn,
@@ -10487,14 +10969,17 @@ export {
   isAccountUsed,
   isAdlTriggered,
   isBackingBucketExpirable,
+  isClosedMarketTombstone,
   isLighthouseError,
   isLighthouseFailureInLogs,
   isLighthouseInstruction,
+  isMatcherCtxV2,
   isStandardToken,
   isToken2022,
   isV17Account,
   isV17MarketAccount,
   isValidChainlinkOracle,
+  matcherConfigureOwnerProofAccounts,
   maxAccountIndex,
   packOiCap,
   parseAccount,
@@ -10519,6 +11004,8 @@ export {
   parseProtocolFeeAuthorityEpoch,
   parseUsedIndices,
   parseWrapperConfigV17,
+  planCloseSlabAttempt,
+  planReduceOnlyExit,
   rankAdlPositions,
   readLastThrUpdateSlot,
   readNonce,
@@ -10544,6 +11031,7 @@ export {
   validateI128,
   validateI64,
   validateIndex,
+  validateMatcherSetParams,
   validatePublicKey,
   validateSlabTierMatch,
   validateU128,
@@ -10552,6 +11040,7 @@ export {
   withNftEscrowProof,
   withNftHolderAuth,
   withRetry,
-  withdrawAccounts
+  withdrawAccounts,
+  zeroMatcherV2Config
 };
 //# sourceMappingURL=index.js.map

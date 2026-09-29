@@ -27,6 +27,45 @@ sha256 `4472b3832fda…`). No instruction, account-layout or IDL/wire change.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
 
+### Added (additive, 2026-09-30)
+
+- **Matcher v2 (P2) client ABI** — `src/abi/matcher-v2.ts`, pinned byte-for-byte to
+  percolator-match `feat/p2-matcher-v2@4a0f696` `sdk_parity_fixtures_v2`:
+  tag 5 Configure with owner proof (`encodeMatcherConfigureBackingFeeCap`,
+  `encodeMatcherConfigureSetParams`, `buildMatcherConfigureBackingFeeCapIx`,
+  `buildMatcherConfigureSetParamsIx`, `matcherConfigureOwnerProofAccounts`), op 1
+  SetParams (`encodeMatcherSetParams`, 105 B, `validateMatcherSetParams`,
+  `defaultMatcherV2ConfigForKind2`), the 24-byte call extension at tag-0 bytes 43..67
+  (`encodeMatcherCallExt` / `decodeMatcherCallExt`), MatcherReturn bits 22..31
+  (`decodeMatcherRequestedFeeBps`, `MATCHER_RETURN_KNOWN_FLAGS_V2`), the ctx v2 marker
+  (`isMatcherCtxV2`), and matcher errors 8002–8005 (`MATCHER_V2_ERRORS`). Tag 5 replaces
+  the unreachable tag 4 (it needed a wrapper-delegate signature). **The deployed matcher
+  `4seJWjv3@12bd671` is v1** — send tag 5 / the extension only after the matcher upgrade.
+  `MATCHER_RETURN_KNOWN_FLAGS` is unchanged (it mirrors the deployed wrapper).
+- **Tag 44 reduce-only exit** — `buildRebalanceReduceIx`, `planReduceOnlyExit`,
+  `ACCOUNTS_REBALANCE_REDUCE` (`[owner signer, market w, portfolio w]`, verified against
+  `6377376a` `with_one_portfolio_view`): the owner-signed exit that works in the engine's
+  ADL reduce-only state.
+- **CloseSlab retirement plan** — `planCloseSlabAttempt` orders one attempt as
+  84 WithdrawProtocolFee(0 = all, if owed) → 41 WithdrawInsurance(re-credited budget, if
+  any) → 13 CloseSlab; `isClosedMarketTombstone` detects retirement (16-byte header, kind
+  `V17_KIND_CLOSED_MARKET = 8`). A market with an Earn LP vault can never be retired
+  (dead-share floor, by design): the planner throws and its slab rent is unrecoverable.
+- **Error map**: wrapper 64 `RentExemptRequired`, 65 `AssetGenerationMismatch` (both on the
+  deployed v18.2 wrapper and previously unmapped) and P1 66–71 (`ExecPriceOutsideOracleBand`,
+  `SameOwnerTrade`, `LpExposureCapExceeded`, `LpFloorHalt`, `ProtocolSideOiCapExceeded`,
+  `CloseSlabFeesOutstanding`); stake 29 `NoRealLpHolders` (F3 dead-share guard). Fixed the
+  63 hint (CreateLpVault is tag 74, not 72).
+
+### Fixed
+
+- **CI parity gate** (red since 2026-09-28): it checked the engine out at `main`, and
+  percolator-prog's `build.rs` engine-pin guard (GH#503) refuses to build against anything
+  but `ENGINE_CI_SIBLING` from `ci/deployed-refs.env`. The workflow now pins the engine to
+  that commit. All four fixtures (prog, stake, nft, match) are unchanged and pass —
+  `specs/matcher-parity.json` was NOT stale against matcher `main` (4bc7951); `12bd671`
+  is only on the deploy branch.
+
 ### Carried from 7.0.0 (still required)
 
 - Stake Deposit (tag 1) / DepositJunior (16) / Withdraw (2) / AccrueFees (12) send

@@ -15,3 +15,4 @@ export * from "./rpc-pool.js";
 // The named export below takes precedence over both wildcards, pinning the
 // canonical v17 SDK definition from token-program.js.
 export { TOKEN_2022_PROGRAM_ID } from "./token-program.js";
+export * from "./market-lifecycle.js";

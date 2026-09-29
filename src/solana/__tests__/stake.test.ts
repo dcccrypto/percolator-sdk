@@ -582,8 +582,8 @@ describe('STAKE_ERRORS hint table', () => {
     expect(STAKE_ERRORS[27]).toMatch(/pending cooldown/i);
   });
 
-  it('covers every StakeError ordinal 0-28 with no gaps', () => {
-    for (let code = 0; code <= 28; code++) {
+  it('covers every StakeError ordinal 0-29 with no gaps (29 = F3 NoRealLpHolders)', () => {
+    for (let code = 0; code <= 29; code++) {
       expect(STAKE_ERRORS[code], `missing hint for error code ${code}`).toBeDefined();
     }
   });

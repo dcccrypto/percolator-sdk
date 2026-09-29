@@ -50,7 +50,7 @@ describe("PERCOLATOR_ERRORS table", () => {
     }
   });
 
-  it("error code 63 is LpVaultBackingBucketNotEmpty and 64+ are not defined", () => {
+  it("error code 63 is LpVaultBackingBucketNotEmpty, 64-71 are defined and 72+ are not", () => {
     // Boundary moved 62 -> 63 by the LP-vault reachability guard, DEPLOYED to devnet
     // 2026-08-29 (wrapper 02326f4f, sha c9827970bf02098b, slot 490057417). The PROPERTY
     // this test encodes is unchanged — the tail is pinned so an accidental insertion or
@@ -61,8 +61,12 @@ describe("PERCOLATOR_ERRORS table", () => {
     // mis-ordered ordinal addition.
     expect(PERCOLATOR_ERRORS[62]!.name).toBe("CreatorFeeOverClaim");
     expect(PERCOLATOR_ERRORS[63]?.name).toBe("LpVaultBackingBucketNotEmpty");
-    expect(PERCOLATOR_ERRORS[64]).toBeUndefined();
-    expect(PERCOLATOR_ERRORS[65]).toBeUndefined();
+    // Boundary moved 63 -> 71 (2026-09-30): 64 RentExemptRequired + 65 AssetGenerationMismatch
+    // are on the deployed v18.2 wrapper; 66-71 are the P1 safety release (appended).
+    expect(PERCOLATOR_ERRORS[64]?.name).toBe("RentExemptRequired");
+    expect(PERCOLATOR_ERRORS[65]?.name).toBe("AssetGenerationMismatch");
+    expect(PERCOLATOR_ERRORS[71]?.name).toBe("CloseSlabFeesOutstanding");
+    expect(PERCOLATOR_ERRORS[72]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[100]).toBeUndefined();
   });
 
@@ -238,10 +242,11 @@ describe("decodeError", () => {
     expect(decodeError(61)!.name).toBe("AssetSlotAlreadyConfigured");
   });
 
-  it("decodes 63 as LpVaultBackingBucketNotEmpty and returns undefined for 64 (beyond current table)", () => {
+  it("decodes 63 as LpVaultBackingBucketNotEmpty and returns undefined for 72 (beyond current table)", () => {
     expect(decodeError(62)!.name).toBe("CreatorFeeOverClaim");
     expect(decodeError(63)?.name).toBe("LpVaultBackingBucketNotEmpty");
-    expect(decodeError(64)).toBeUndefined();
+    expect(decodeError(64)?.name).toBe("RentExemptRequired");
+    expect(decodeError(72)).toBeUndefined();
   });
 
   it("returns undefined for unknown code 10_000", () => {
@@ -276,10 +281,12 @@ describe("getErrorName", () => {
     // The fee-collection split extended the table 51 -> 60, the 2026-07-22
     // bug-fix pass added 61 (AssetSlotAlreadyConfigured), and the creator-fee
     // claim added 62 (CreatorFeeOverClaim); the LP-vault reachability guard added 63
-    // (LpVaultBackingBucketNotEmpty, deployed 2026-08-29); 64 is the first unknown.
+    // (LpVaultBackingBucketNotEmpty, deployed 2026-08-29); 64-65 (deployed v18.2) and 66-71
+    // (P1 safety release) followed; 72 is the first unknown.
     expect(getErrorName(62)).toBe("CreatorFeeOverClaim");
     expect(getErrorName(63)).toBe("LpVaultBackingBucketNotEmpty");
-    expect(getErrorName(64)).toBe("Unknown(64)");
+    expect(getErrorName(64)).toBe("RentExemptRequired");
+    expect(getErrorName(72)).toBe("Unknown(72)");
     expect(getErrorName(999)).toBe("Unknown(999)");
     expect(getErrorName(100)).toBe("Unknown(100)");
   });

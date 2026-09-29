@@ -38,6 +38,8 @@ export default defineConfig({
       "test/parity/v12.17-encoder-bytes.parity.test.ts",
       "test/parity/v12.19-encoder-bytes.parity.test.ts",
       "test/vanilla.test.ts",
+      "test/matcher-v2.test.ts",
+      "test/market-lifecycle.test.ts",
     ],
   },
 });
