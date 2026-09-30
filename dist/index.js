@@ -9993,6 +9993,13 @@ function assetVaultLpAccountOffsetP3(assetIndex) {
   if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`assetIndex must be a non-negative integer, got ${assetIndex}`);
   return V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + assetIndex * V17_MARKET_ASSET_SLOT_LEN + ASSET_VAULT_LP_SLOT_OFF_P3;
 }
+var RECOMMENDED_CU_P3 = Object.freeze({
+  tradeCpi: 6e5,
+  closeResolved: 3e5,
+  vaultLpSettleResolved: 4e5,
+  lpVaultCrankFees: 12e4,
+  keeperCrank: 25e4
+});
 var ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3 = 17;
 var ASSET_STATE_EFFECTIVE_PRICE_OFF_P3 = 25;
 var POS_SCALE_P3 = 1000000n;
@@ -11720,6 +11727,7 @@ export {
   PYTH_SOLANA_FEEDS,
   RAMP_START_BPS,
   RAYDIUM_CLMM_PROGRAM_ID,
+  RECOMMENDED_CU_P3,
   RENOUNCE_ADMIN_CONFIRMATION,
   RESOLVE_MODE_DEGENERATE,
   RESOLVE_MODE_ORDINARY,

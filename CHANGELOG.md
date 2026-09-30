@@ -35,6 +35,21 @@ v18.2 instructions or account layouts changed.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
 
+### Added (compute guidance, 2026-09-30)
+
+- **`RECOMMENDED_CU_P3`** gives each limit with headroom over the security review's measured worst case:
+
+  | Instruction | Recommended | Worst case measured |
+  |---|---|---|
+  | TradeCpi | 600k | 405,386 |
+  | CloseResolved | 300k | 204k |
+  | 101 | 400k | 285k |
+  | 78 | 120k | 63k |
+  | keeper crank | 250k | 151k |
+
+- The runtime's 200k default fails a vault-LP TradeCpi, so always set a limit.
+- The JSDoc on the 101 builder and the resolved exit planner now says to loop the resolved close steps until final.
+
 ### Changed (P3 candidate FINAL `3245e861`, 2026-09-30)
 
 - Re-pinned to percolator-prog `3245e861`, which is `f0b990e1` plus a fix: Resolved draw/cover is booked only at terminal-flat, counting stray pot backing (junior first).

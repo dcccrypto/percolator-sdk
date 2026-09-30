@@ -32,6 +32,7 @@ import {
   ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3,
   ASSET_STATE_EFFECTIVE_PRICE_OFF_P3,
   POS_SCALE_P3,
+  RECOMMENDED_CU_P3,
 } from "../src/solana/p3-vault-lp.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveVaultAuthority } from "../src/solana/pda.js";
 import { deriveVaultLpStateP3 } from "../src/solana/p3-vault-lp.js";
@@ -234,6 +235,19 @@ describe("ede691b6 worse-of Earn pricing (vault_lp_equity_lag_bounds_ro)", () =>
     expect(boundVaultDepositQuoteP3({ ...q, seniorDrawOutstandingAtoms: 0n, lpEquityBetter: 500n })).toMatchObject({ ok: true, cEff: 1_000n });
     // raised C_eff above nav + LP value → the program refuses (VaultLpSeniorImpaired)
     expect(boundVaultDepositQuoteP3({ ...q, lpValue: 0n, seniorDrawOutstandingAtoms: 300n, lpEquityBetter: 150n })).toEqual({ ok: false, error: "VaultLpSeniorImpaired" });
+  });
+});
+
+describe("RECOMMENDED_CU_P3 covers the measured worst cases (security review 2026-09-30)", () => {
+  it("each limit is above its worst case and TradeCpi matches the app (600k)", () => {
+    expect(RECOMMENDED_CU_P3.tradeCpi).toBe(600_000);
+    expect(RECOMMENDED_CU_P3.tradeCpi).toBeGreaterThan(405_386);
+    expect(RECOMMENDED_CU_P3.closeResolved).toBeGreaterThanOrEqual(300_000);
+    expect(RECOMMENDED_CU_P3.closeResolved).toBeGreaterThan(204_000);
+    expect(RECOMMENDED_CU_P3.vaultLpSettleResolved).toBeGreaterThanOrEqual(400_000);
+    expect(RECOMMENDED_CU_P3.vaultLpSettleResolved).toBeGreaterThan(285_000);
+    expect(RECOMMENDED_CU_P3.lpVaultCrankFees).toBeGreaterThan(63_000);
+    expect(RECOMMENDED_CU_P3.keeperCrank).toBeGreaterThan(151_000);
   });
 });
 

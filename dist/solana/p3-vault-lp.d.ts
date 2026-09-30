@@ -82,6 +82,21 @@ export declare const ASSET_VAULT_LP_FIELD_OFF_P3: Readonly<{
  * ```
  */
 export declare function assetVaultLpAccountOffsetP3(assetIndex: number): number;
+/**
+ * Recommended compute-unit limits for P3 transactions (measured worst cases on the relaunch head,
+ * security review 2026-09-30, with headroom). The runtime default is 200k per instruction, which
+ * FAILS a vault-LP TradeCpi, a large CloseResolved and 101: always set an explicit limit.
+ *   tradeCpi 600k (worst 405,386; matches the app's useTrade) · closeResolved 300k (worst 204k) ·
+ *   vaultLpSettleResolved (101) 400k (worst 285k) · lpVaultCrankFees (78) 120k (worst 63k) ·
+ *   keeperCrank 250k (worst 151k). Sum the limits when bundling several instructions.
+ */
+export declare const RECOMMENDED_CU_P3: Readonly<{
+    readonly tradeCpi: 600000;
+    readonly closeResolved: 300000;
+    readonly vaultLpSettleResolved: 400000;
+    readonly lpVaultCrankFees: 120000;
+    readonly keeperCrank: 250000;
+}>;
 /** `offset_of!(AssetStateV16Account, raw_oracle_target_price)` (rustc, engine `35ddd692`). */
 export declare const ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3 = 17;
 /** `offset_of!(AssetStateV16Account, effective_price)` (rustc). */
@@ -391,6 +406,9 @@ export declare function buildSetVaultLpRiskIxP3(programId: PublicKey, market: Pu
 export declare function buildVaultLpConvertPnlIxP3(m: VaultLpMarketP3, caller: PublicKey, amount: bigint): TransactionInstruction;
 /**
  * Tag 101 VaultLpSettleResolved (permissionless, Resolved). Replaces tags 30/46 for the vault LP.
+ * Compute: set ≥ {@link RECOMMENDED_CU_P3}`.vaultLpSettleResolved` (400k; measured worst 285k). The
+ * close step can be ProgressOnly several times while a large residual is chunked: repeat it until
+ * the vault LP can be closed (tag 8).
  * P3 FINAL (`58e379f1`): moves NO SPL — the payout goes into the vault's own backing pot. The
  * `juniorDestToken` / `vaultToken` accounts are still required and validated. Exit order after
  * settlement: {@link planResolvedVaultLpExitP3} (78 → 77 per senior → 102 junior).
@@ -747,6 +765,10 @@ export interface ResolvedVaultLpExitArgsP3 {
  *      remainder over C once seniors are out.
  * PRECONDITIONS: market Resolved and terminal-flat — the vault LP settled by tag 101 (moves no SPL
  * on this head) and closed by tag 8, no materialized portfolio, c_tot == 0.
+ * Getting there: loop 101 (close step) and every trader's CloseResolved (tag 30) until each
+ * portfolio can be closed by tag 8 — both can be ProgressOnly many times (rehearsals: 1,334 steps
+ * at a 1-USDC chunk). Compute: 101 ≥ 400k, CloseResolved ≥ 300k, the [78, 77] pair ≥ 120k + the
+ * 77 cost ({@link RECOMMENDED_CU_P3}); pass the 77s built by {@link buildExecuteRedemptionIxP3}.
  *
  * @param a  Market context, the unbound 78 / 77 instructions, and the optional junior release.
  * @returns `{ perSeniorTxs, junior }`: one `[78, 77]` instruction pair per senior, then the 102 ix (or null).
