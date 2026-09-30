@@ -1,6 +1,6 @@
 {
-  "prog": "592a77e2f6c46d82011978f74392899ea9da5960",
-  "count": 90,
+  "prog": "592286b428d5616b38019ccb8dbde3b1fb32f9dc",
+  "count": 91,
   "errors": {
     "0": "InvalidMagic",
     "1": "InvalidVersion",
@@ -91,6 +91,7 @@
     "86": "VaultLpMultiAssetMarket",
     "87": "VaultLpSeniorDrawRequired",
     "88": "VaultLpRedeemNeedsRecall",
-    "89": "VaultLpPausedForSeniorDraw"
+    "89": "VaultLpPausedForSeniorDraw",
+    "90": "VaultLpBindRequiresFlatAsset"
   }
 }

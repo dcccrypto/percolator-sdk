@@ -35,6 +35,12 @@ v18.2 instructions or account layouts changed.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
 
+### Changed (relaunch wrapper `592286b4`, DEPLOYED to devnet ETDLAdi 2026-09-30, sha256 `7f34f9d8…`)
+
+- Re-pinned to percolator-prog `592286b4`: wrapper pins for the fresh stake/matcher, G-1, and tag 94 refusing a bind with open interest.
+- **Error 90 `VaultLpBindRequiresFlatAsset`** is appended. The map is regenerated from rustc at 592286b4 (91 codes); no code shifted.
+- P3 wire, layout and price offsets are identical (the parity oracle was re-run).
+
 ### Breaking (all-fresh relaunch IDs, decided 2026-09-30)
 
 - **The devnet stake/vault, nft and matcher also move to NEW addresses**, so the old GnwdeQr world stays untouched:
