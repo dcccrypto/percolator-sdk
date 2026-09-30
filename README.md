@@ -7,7 +7,7 @@ TypeScript SDK for building clients, bots, and UIs on top of the [Percolator](ht
 ## 8.0.0 relaunch targets
 
 - **Wrapper:** percolator-prog P1 + P3 head `58e379f1` (engine `35ddd692`) at the fresh devnet
-  id `ETDLAdi…`. The SDK covers P1 tag 93 and errors 66–71, and P3 tags 94–102, errors 72–85,
+  id `ETDLAdi…`. The SDK covers P1 tag 93 and errors 66–71, and P3 tags 94–102, errors 72–88,
   the vault-LP decoders and the bound-vault Earn tails.
 - **Stake:** percolator-stake F-9 head `d13b5a9` plus the fresh-ID bump. The SDK covers tags 29
   `RecoverTerminalInsurance` and 30 `AdminCloseSlab`, errors 29–32, and `planStakeWindDown`.

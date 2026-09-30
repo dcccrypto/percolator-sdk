@@ -1,5 +1,5 @@
 {
-    "p3Sha": "58e379f1aa24f99de3b6625ef7e150ce80c93687",
+    "p3Sha": "39b138c8b0773a446c36da4d3e6ca358ee06ee83",
     "vectors": {
         "initVaultLp_min": {
             "hex": "5ee803",
@@ -342,7 +342,9 @@
         "VaultLpReleaseRefused": 83,
         "VaultLpHarvestPending": 84,
         "VaultLpValuationStale": 85,
-        "VaultLpMultiAssetMarket": 86
+        "VaultLpMultiAssetMarket": 86,
+        "VaultLpSeniorDrawRequired": 87,
+        "VaultLpRedeemNeedsRecall": 88
     },
     "layout": {
         "headerLen": 16,
@@ -367,7 +369,10 @@
             "juniorFloorBps": 226,
             "seniorFeeShareBps": 228,
             "version": 230,
-            "bump": 231
+            "bump": 231,
+            "padding": 232,
+            "seniorDrawnAtoms": 240,
+            "seniorDrawOutstandingAtoms": 256
         },
         "assetVaultLpFieldOff": {
             "vaultLpPortfolio": 0,
@@ -381,6 +386,14 @@
             "reserved0": 91,
             "vaultLpMaxLevBps": 92,
             "approvedMatcherProgram": 96
+        },
+        "assetVaultLpDrawSlotOff": 832,
+        "assetVaultLpDrawLen": 64,
+        "assetVaultLpDrawFieldOff": {
+            "pendingOutEvenAtoms": 0,
+            "pendingOutOddAtoms": 16,
+            "outstandingMirrorAtoms": 32,
+            "pendingMovedAtoms": 48
         }
     },
     "assetVaultLpOffsets": {

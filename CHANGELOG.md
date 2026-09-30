@@ -12,10 +12,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 v18.3 fresh-ID relaunch. The devnet wrapper moves to a new program address.
 
 **Relaunch programs (scope set 2026-09-30):**
-- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog `58e379f1` (engine `35ddd692`). It supersedes `424fe7e4` / `ee29b5ac` / `b2b2559e` / `07a1d0eb`: `b2b2559e` removed tag-94 path B; `07a1d0eb` added the tag-94 auto-pin, the Resolved fee harvest and C-4(b); `58e379f1` adds F-10 (the batch call extension), the F-14 family (seniors first, floored NAV) and F14-Q2 (single-asset vault markets, error 86). The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
+- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog **`39b138c8`** (P3 senior draw FINAL `d119eebd` + the D-P3-30 recall cap; engine `35ddd692`). It supersedes `d119eebd` / `58e379f1` / `424fe7e4` / `ee29b5ac` / `b2b2559e` / `07a1d0eb`. `d119eebd` changes the P3 loss rule: losses go to the junior first, then Earn seniors pro rata, and winners are paid in full while senior backing remains (errors 87/88; wrapper-only, VERSION 18 and account sizes unchanged). Earlier: `b2b2559e` removed tag-94 path B; `07a1d0eb` added the tag-94 auto-pin, the Resolved fee harvest and C-4(b); `58e379f1` adds F-10 (the batch call extension), the F-14 family (seniors first, floored NAV) and F14-Q2 (single-asset vault markets, error 86). The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
 - Stake: the **F-9** head, percolator-stake `d13b5a9`, plus the fresh-ID bump.
 
-Everything below that targets P1 (tag 93, errors 66–71), P3 (tags 94–102, errors 72–85) or the
+Everything below that targets P1 (tag 93, errors 66–71), P3 (tags 94–102, errors 72–88) or the
 F-9 stake (tags 29/30, errors 30–32) targets those relaunch programs. **Only the matcher v2 (P2)
 surface targets instructions that are not on the relaunch programs yet**, unless P2
 (percolator-match#30) ships with it. The v18.2 wire (`6377376a`) is a subset: none of the
@@ -34,6 +34,28 @@ v18.2 instructions or account layouts changed.
   explicit `^8` bump done with the cutover. Rollback = pin `7.0.0`.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
+
+### Changed (P3 senior draw FINAL `d119eebd` / `39b138c8`, 2026-09-30)
+
+- **Errors 87 `VaultLpSeniorDrawRequired` and 88 `VaultLpRedeemNeedsRecall`** added to `PERCOLATOR_ERRORS` / `decodeError`.
+  - 87: an undrawn vault-LP deficit must be drawn first. Crank the vault LP, or pass it writable to 75/77.
+  - 88: a Live 75/77 needs value that sits in the vault LP's capital. Send VaultLpRecall (98) first.
+- **`withBoundVaultLpTailP3` (75/77/78):**
+  - the 75/77 vault-LP tail account is now **writable** by default, so a Live 75/77 runs the senior draw in-instruction (opt out with `{ lpReadOnly: true }`);
+  - the two pot-ledger base slots (`BOUND_VAULT_LP_LEDGER_SLOTS_P3`: 75 → [7],[10]; 77 → [8],[11]; 78 → [3],[4]) are **forced writable**, because a pending draw is booked into both pots and read-only ledgers fail closed.
+  - 97/98/101/102 already pass the vault LP and both ledgers writable (unchanged).
+- New export `BoundVaultLpTailOptsP3`. The signature change is additive (optional 4th parameter).
+- **`decodeVaultLpStateP3`**: the old `_reserved` tail now carries `seniorDrawnAtoms` (account offset 240) and `seniorDrawOutstandingAtoms` (256). Only `_padding` [232..240) must be zero.
+  - **Fix:** the pre-`d119eebd` decoder required [232..272) to be zero, so it would have THROWN on every vault-LP state after the first senior draw.
+- **New `decodeAssetVaultLpDrawP3(marketData, assetIndex)`** reads the 64-byte `AssetVaultLpDrawV18` at asset-slot offset 832 (`ASSET_VAULT_LP_DRAW_SLOT_OFF_P3` / `ASSET_VAULT_LP_DRAW_LEN_P3`): pending out per pot (even/odd), outstanding mirror, pending moved, and `hasPendingDraw`.
+- **BREAKING (unpublished 8.0.0 API): `boundVaultNavFlooredP3` follows the B24 NAV rule.**
+  - Per pot, available = `min(principal, held)`, where held = fresh_unliened + valid_liened (new `vaultPotHeldAtomsP3`).
+  - The impairment counters are no longer used.
+  - The 4th argument is now `{ own, sibling }` held atoms.
+  - `vaultOwnedBackingAtomsP3` is removed, as the program removed `vault_owned_backing_atoms`.
+- `boundVaultSeniorValueP3` is unchanged. It is only valid in Live with no undrawn deficit; the program refuses with 87 otherwise.
+- `39b138c8` (D-P3-30): VaultLpRecall (98) is additionally capped at the vault LP's certified equity and is 0 while any draw is pending (refusal: `VaultLpRecallRefused`). There is no wire or account change.
+- The parity fixture was regenerated from the real crate at `39b138c8`: tag 94–102 vectors identical, errors 86–88 added, and the new layout fields asserted by rustc `offset_of!`.
 
 ### Added (additive, 2026-09-30)
 
@@ -78,7 +100,7 @@ v18.2 instructions or account layouts changed.
   `build*IxP3` for every tag, `withBoundVaultLpTailP3` (the REQUIRED tail on bound vaults:
   75 → [11] state(w), [12] lp; 77 → [13],[14]; 78 → [6] state(w)), and the vault-LP refresh
   crank `buildVaultLpRefreshCrankIxP3` (tag 5 on the vault LP portfolio; clears error 85 and
-  re-snapshots `lp_net_q`). Errors 72–85 (`VaultLpAlreadyBound` … `VaultLpValuationStale`).
+  re-snapshots `lp_net_q`). Errors 72–88 (`VaultLpAlreadyBound` … `VaultLpRedeemNeedsRecall`).
   Parity: every encoder round-trips through the real P3 `Instruction::decode`, layouts via
   rustc `offset_of!`, error ordinals by name from the final enum (`scripts/p3-parity/`).
   The deprecated v12 `IX_TAG.InitSharedVault(94)…QueueWithdrawal(102)` / `SlashCreationDeposit(93)`

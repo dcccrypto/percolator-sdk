@@ -1,6 +1,6 @@
 /**
  * P3 vault-owned LP parity. Fixture `test/fixtures/p3-parity.json` is emitted by the REAL
- * P3 crate (percolator-prog feat/p3-vault-owned-lp @ 58e379f1) via
+ * P3 crate (percolator-prog feat/p3-vault-owned-lp @ 39b138c8) via
  * scripts/p3-parity/sdk_p3_parity.rs: `Instruction::decode` of our encoder hex, rustc
  * `offset_of!`, `PercolatorError::X as u32`, `read_asset_vault_lp`, `init_vault_lp_state`.
  */
@@ -34,6 +34,9 @@ import {
   LP_VAULT_REGISTRY_BOUND_FLAG_OFF_P3,
   assetVaultLpAccountOffsetP3,
   decodeVaultLpStateP3,
+  decodeAssetVaultLpDrawP3,
+  ASSET_VAULT_LP_DRAW_LEN_P3,
+  ASSET_VAULT_LP_DRAW_SLOT_OFF_P3,
   decodeAssetVaultLpRecordP3,
   decodeAssetVaultLpP3,
   isLpVaultRegistryBoundP3,
@@ -68,6 +71,7 @@ interface Fixture {
     headerLen: number; vaultLpStateBodyLen: number; vaultLpStateAccountLen: number; kindVaultLpState: number;
     assetVaultLpLen: number; assetVaultLpSlotOff: number; flagBound: number; registryReservedOff: number;
     vaultLpStateAccountOff: Record<string, number>; assetVaultLpFieldOff: Record<string, number>;
+    assetVaultLpDrawSlotOff: number; assetVaultLpDrawLen: number; assetVaultLpDrawFieldOff: Record<string, number>;
   };
   assetVaultLpOffsets: { marketLenCap4: number; rows: { asset: number; sdkOffset: number; programReadsSame: boolean; recordHex: string }[] };
   vaultLpStateAccountHex: string;
@@ -79,7 +83,7 @@ const pk = (): PublicKey => Keypair.generate().publicKey;
 
 describe("P3 encoders — round-trip through the real P3 decoder", () => {
   it("fixture is from the pinned P3 head", () => {
-    expect(FX.p3Sha).toBe("58e379f1aa24f99de3b6625ef7e150ce80c93687");
+    expect(FX.p3Sha).toBe("39b138c8b0773a446c36da4d3e6ca358ee06ee83");
   });
   for (const [id, input] of Object.entries(P3_VECTOR_INPUTS)) {
     it(`${id}: SDK bytes == fixture bytes, and Rust decodes them to the SDK inputs`, () => {
@@ -115,11 +119,11 @@ describe("P3 encoders — round-trip through the real P3 decoder", () => {
   });
 });
 
-describe("P3 errors 72-85 (and P1 66-71) by name from the final enum", () => {
+describe("P3 errors 72-88 (and P1 66-71) by name from the final enum", () => {
   it("every ordinal matches PercolatorError::X as u32", () => {
     for (const [name, code] of Object.entries(FX.errors)) expect(PERCOLATOR_ERRORS[code]?.name, `code ${code}`).toBe(name);
-    expect(Object.keys(FX.errors)).toHaveLength(21);
-    expect(PERCOLATOR_ERRORS[87]).toBeUndefined();
+    expect(Object.keys(FX.errors)).toHaveLength(23);
+    expect(PERCOLATOR_ERRORS[89]).toBeUndefined();
   });
 });
 
@@ -134,6 +138,9 @@ describe("P3 layout — rustc offset_of on the real structs", () => {
     expect(ASSET_VAULT_LP_FIELD_OFF_P3).toEqual(FX.layout.assetVaultLpFieldOff);
     expect(ASSET_VAULT_LP_SLOT_OFF_P3).toBe(FX.layout.assetVaultLpSlotOff);
     expect(ASSET_VAULT_LP_LEN_P3).toBe(FX.layout.assetVaultLpLen);
+    expect(ASSET_VAULT_LP_DRAW_SLOT_OFF_P3).toBe(FX.layout.assetVaultLpDrawSlotOff);
+    expect(ASSET_VAULT_LP_DRAW_LEN_P3).toBe(FX.layout.assetVaultLpDrawLen);
+    expect(FX.layout.assetVaultLpDrawFieldOff).toEqual({ pendingOutEvenAtoms: 0, pendingOutOddAtoms: 16, outstandingMirrorAtoms: 32, pendingMovedAtoms: 48 });
   });
   it("per-asset account offset (2246 + 2325·i) is where the program's read_asset_vault_lp reads", () => {
     for (const r of FX.assetVaultLpOffsets.rows) {
@@ -158,8 +165,27 @@ describe("P3 decoders", () => {
     expect([st.assetIndex, st.juniorFloorBps, st.seniorFeeShareBps, st.version, st.bump]).toEqual([3, 2_000, 10_000, 1, 254]);
     const bad = Uint8Array.from(d); bad[10] = 5;
     expect(() => decodeVaultLpStateP3(bad)).toThrow(/kind/);
-    const bad2 = Uint8Array.from(d); bad2[240] = 1;
+    expect([st.seniorDrawnAtoms, st.seniorDrawOutstandingAtoms]).toEqual([0n, 0n]);
+    // d119eebd: [240..256) senior_drawn, [256..272) senior_draw_outstanding — valid non-zero data
+    const drawn = Uint8Array.from(d); drawn[240] = 1; drawn[257] = 2;
+    const sd = decodeVaultLpStateP3(drawn);
+    expect([sd.seniorDrawnAtoms, sd.seniorDrawOutstandingAtoms]).toEqual([1n, 512n]);
+    // only _padding [232..240) must stay zero
+    const bad2 = Uint8Array.from(d); bad2[233] = 1;
     expect(() => decodeVaultLpStateP3(bad2)).toThrow(/invalid/);
+  });
+  it("decodeAssetVaultLpDrawP3 reads the 64-byte AssetVaultLpDrawV18 just before the vault-LP record", () => {
+    const off0 = assetVaultLpAccountOffsetP3(0) - ASSET_VAULT_LP_DRAW_LEN_P3;
+    expect(off0).toBe(2246 - 64);
+    const d = new Uint8Array(assetVaultLpAccountOffsetP3(1) + 128);
+    const w = (o: number, x: bigint) => { const v = new DataView(d.buffer); v.setBigUint64(o, x & 0xffffffffffffffffn, true); v.setBigUint64(o + 8, x >> 64n, true); };
+    expect(decodeAssetVaultLpDrawP3(d, 0).hasPendingDraw).toBe(false);
+    w(off0, 5n); w(off0 + 16, 7n); w(off0 + 32, 1n << 70n); w(off0 + 48, 12n);
+    expect(decodeAssetVaultLpDrawP3(d, 0)).toEqual({ pendingOutEvenAtoms: 5n, pendingOutOddAtoms: 7n, outstandingMirrorAtoms: 1n << 70n, pendingMovedAtoms: 12n, hasPendingDraw: true });
+    const onlyMirror = new Uint8Array(d.length); new DataView(onlyMirror.buffer).setBigUint64(off0 + 32, 3n, true);
+    expect(decodeAssetVaultLpDrawP3(onlyMirror, 0).hasPendingDraw).toBe(false); // outstanding alone is not a pending draw
+    expect(ASSET_VAULT_LP_DRAW_SLOT_OFF_P3 + ASSET_VAULT_LP_DRAW_LEN_P3).toBe(ASSET_VAULT_LP_SLOT_OFF_P3);
+    expect(() => decodeAssetVaultLpDrawP3(new Uint8Array(100), 0)).toThrow(/too short/);
   });
   it("decodeAssetVaultLpRecordP3 / decodeAssetVaultLpP3 read the program's record bytes", () => {
     const row = FX.assetVaultLpOffsets.rows[2];
@@ -252,7 +278,7 @@ describe("P3 account lists and builders (verified against the handler bodies)", 
     expect(buildVaultLpReleaseSurplusIxP3(m, pk(), 1n, 0).keys).toHaveLength(7);
     expect(buildVaultLpReleaseSurplusIxP3(m, pk(), 1n, 0, { juniorDestToken: pk(), vaultToken: pk() }).keys).toHaveLength(11);
   });
-  it("withBoundVaultLpTailP3: 75 → [11] state(w), [12] lp; 77 → [13],[14]; 78 → [6] state(w); others refused", () => {
+  it("withBoundVaultLpTailP3: 75 → [11] state(w), [12] lp(w); ledgers forced w; 77 → [13],[14]; 78 → [6] state(w); others refused", () => {
     const st = pk();
     const mk = (tag: number, n: number): TransactionInstruction => new TransactionInstruction({
       programId: W, keys: Array.from({ length: n }, () => ({ pubkey: pk(), isSigner: false, isWritable: false })), data: Buffer.from([tag]),
@@ -260,11 +286,18 @@ describe("P3 account lists and builders (verified against the handler bodies)", 
     const d = withBoundVaultLpTailP3(mk(75, 11), st, lp);
     expect(d.keys).toHaveLength(13);
     expect(d.keys[11]).toEqual({ pubkey: st, isSigner: false, isWritable: true });
-    expect(d.keys[12]).toEqual({ pubkey: lp, isSigner: false, isWritable: false });
-    expect(withBoundVaultLpTailP3(mk(77, 13), st, lp).keys).toHaveLength(15);
+    expect(d.keys[12]).toEqual({ pubkey: lp, isSigner: false, isWritable: true });
+    expect(d.keys[7].isWritable && d.keys[10].isWritable).toBe(true);
+    expect(d.keys.filter((k, i) => i !== 7 && i !== 10 && i < 11).every((k) => !k.isWritable)).toBe(true);
+    expect(withBoundVaultLpTailP3(mk(75, 11), st, lp, { lpReadOnly: true }).keys[12].isWritable).toBe(false);
+    const e = withBoundVaultLpTailP3(mk(77, 13), st, lp);
+    expect(e.keys).toHaveLength(15);
+    expect(e.keys[14]).toEqual({ pubkey: lp, isSigner: false, isWritable: true });
+    expect(e.keys[8].isWritable && e.keys[11].isWritable).toBe(true);
     const c = withBoundVaultLpTailP3(mk(78, 6), st, lp);
     expect(c.keys).toHaveLength(7);
     expect(c.keys[6].isWritable).toBe(true);
+    expect(c.keys[3].isWritable && c.keys[4].isWritable).toBe(true);
     expect(() => withBoundVaultLpTailP3(mk(75, 10), st, lp)).toThrow(/exactly 11/);
     expect(() => withBoundVaultLpTailP3(mk(76, 5), st, lp)).toThrow(/no vault-LP tail/);
   });

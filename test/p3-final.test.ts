@@ -20,7 +20,7 @@ import {
   boundVaultSeniorValueP3,
   boundVaultRedemptionAtomsP3,
   boundVaultDepositQuoteP3,
-  vaultOwnedBackingAtomsP3,
+  vaultPotHeldAtomsP3,
   vaultPhysicalIdleBackingAtomsP3,
   planResolvedVaultLpExitP3,
   deriveVaultLpStateP3,
@@ -37,7 +37,7 @@ describe("errors 77 / 86 (58e379f1)", () => {
     expect(PERCOLATOR_ERRORS[86]?.name).toBe("VaultLpMultiAssetMarket");
     expect(PERCOLATOR_ERRORS[86]?.hint).toMatch(/max_market_slots == 1/);
     expect(PERCOLATOR_ERRORS[77]?.hint).toMatch(/TradeNoCpi/);
-    expect(PERCOLATOR_ERRORS[87]).toBeUndefined();
+    expect(PERCOLATOR_ERRORS[87]?.name).toBe("VaultLpSeniorDrawRequired"); // d119eebd
   });
 });
 
@@ -71,17 +71,22 @@ describe("matcher batch call + per-leg extension (F-10)", () => {
 
 describe("floored bound-vault NAV + share pricing", () => {
   const pot = (p: bigint, e: bigint, ew: bigint, l: bigint, r: bigint) => ({ totalPrincipalAtoms: p, totalEarningsAtoms: e, totalEarningsWithdrawnAtoms: ew, cumulativeLossAtoms: l, cumulativeRecoveryAtoms: r });
-  it("floors impairment ONCE across both pots and caps at owned backing (F14-Q1)", () => {
-    // own pot impaired past its principal: a per-pot floor would give 0 + 1000; combined floor gives 1000 - 300 = 700
-    const r = boundVaultNavFlooredP3(pot(200n, 0n, 0n, 500n, 0n), pot(1_000n, 0n, 0n, 0n, 0n), 10_000, 5_000n);
-    expect(r.availablePrincipal).toBe(700n);
-    expect(boundVaultNavFlooredP3(pot(200n, 0n, 0n, 500n, 0n), pot(1_000n, 0n, 0n, 0n, 0n), 10_000, 650n).availablePrincipal).toBe(650n);
+  it("d119eebd B24: per pot min(principal, held); impairment counters ignored; earnings floored per pot", () => {
+    // own pot holds less than its principal (real loss), sibling holds MORE (winners' reserved backing, not the seniors')
+    const r = boundVaultNavFlooredP3(pot(200n, 0n, 0n, 500n, 0n), pot(1_000n, 0n, 0n, 0n, 0n), 10_000, { own: 100n, sibling: 5_000n });
+    expect(r.availablePrincipal).toBe(1_100n);
+    // the loss counters no longer move the result
+    expect(boundVaultNavFlooredP3(pot(200n, 0n, 0n, 0n, 0n), pot(1_000n, 0n, 0n, 999n, 0n), 10_000, { own: 100n, sibling: 5_000n }).availablePrincipal).toBe(1_100n);
+    expect(boundVaultNavFlooredP3(pot(200n, 0n, 0n, 0n, 0n), pot(0n, 0n, 0n, 0n, 0n), 10_000, { own: 900n, sibling: 7n }).availablePrincipal).toBe(200n);
     // lp earnings floored per pot: floor(999*4800/10000)=479, floor(1*4800/10000)=0
-    const e = boundVaultNavFlooredP3(pot(0n, 999n, 0n, 0n, 0n), pot(0n, 1n, 0n, 0n, 0n), 4_800, 0n);
+    const e = boundVaultNavFlooredP3(pot(0n, 999n, 0n, 0n, 0n), pot(0n, 1n, 0n, 0n, 0n), 4_800, { own: 0n, sibling: 0n });
     expect(e.lpEarnings).toBe(479n);
-    // impairment never underflows (saturating) and nav never negative
-    expect(boundVaultNavFlooredP3(pot(0n, 0n, 5n, 9n, 20n), pot(0n, 0n, 0n, 0n, 0n), 10_000, 0n).nav).toBe(0n);
-    expect(vaultOwnedBackingAtomsP3([{ freshUnlienedBackingNum: 2_500_000_000_000n, validLienedBackingNum: 500_000_000_000n }, { freshUnlienedBackingNum: 999_999_999_999n, validLienedBackingNum: 0n }])).toBe(3n);
+    expect(e.nav).toBe(479n);
+    // earnings saturate (withdrawn > earned) and nav never negative
+    expect(boundVaultNavFlooredP3(pot(0n, 0n, 5n, 9n, 20n), pot(0n, 0n, 0n, 0n, 0n), 10_000, { own: 0n, sibling: 0n }).nav).toBe(0n);
+    expect(() => boundVaultNavFlooredP3(pot(0n, 0n, 0n, 0n, 0n), pot(0n, 0n, 0n, 0n, 0n), 10_001, { own: 0n, sibling: 0n })).toThrow();
+    expect(vaultPotHeldAtomsP3({ freshUnlienedBackingNum: 2_500_000_000_000n, validLienedBackingNum: 500_000_000_000n })).toBe(3n);
+    expect(vaultPotHeldAtomsP3({ freshUnlienedBackingNum: 999_999_999_999n, validLienedBackingNum: 0n })).toBe(0n); // floored per pot
     expect(vaultPhysicalIdleBackingAtomsP3([1_999_999_999_999n, 1_000_000_000_000n])).toBe(2n); // floored per bucket
   });
   it("senior value + redemption = floor(shares * min(...) / S)", () => {
@@ -131,7 +136,7 @@ describe("planResolvedVaultLpExitP3: 78 → 77 per senior → 102 junior", () =>
   it("exported from the package root", () => {
     const r = root as Record<string, unknown>;
     for (const n of ["planResolvedVaultLpExitP3", "boundVaultNavFlooredP3", "boundVaultSeniorValueP3", "boundVaultRedemptionAtomsP3",
-      "boundVaultDepositQuoteP3", "vaultOwnedBackingAtomsP3", "vaultPhysicalIdleBackingAtomsP3", "encodeMatcherBatchCall", "encodeWrapperMatcherCallExt"]) {
+      "boundVaultDepositQuoteP3", "vaultPotHeldAtomsP3", "decodeAssetVaultLpDrawP3", "vaultPhysicalIdleBackingAtomsP3", "encodeMatcherBatchCall", "encodeWrapperMatcherCallExt"]) {
       expect(typeof r[n], n).toBe("function");
     }
   });

@@ -2,13 +2,13 @@
  * P3 vault-owned LP — account decoders, PDAs, instruction builders, the bound-vault tail for
  * Earn tags 75/77/78, and the vault-LP refresh crank. Additive to SDK 8.0.0.
  *
- * Source: percolator-prog `feat/p3-vault-owned-lp` @ `58e379f1aa24f99de3b6625ef7e150ce80c93687`
+ * Source: percolator-prog `feat/p3-vault-owned-lp` @ `39b138c8b0773a446c36da4d3e6ca358ee06ee83` (P3 senior draw FINAL `d119eebd` + D-P3-30 recall cap)
  * (`state::{VaultLpStateV18, AssetVaultLpV18, read_asset_vault_lp}`, `load_bound_vault_lp_tail`,
  * `vault_lp_refresh_snapshot`). Offsets are pinned by `test/p3.test.ts` against rustc
  * `offset_of!` on the REAL P3 structs, and the per-asset record offset against a market
  * account built by the P3 crate itself.
  *
- * Relaunch wrapper = P1 + P3 (`58e379f1`). On an older v18.2 market every AssetVaultLpV18
+ * Relaunch wrapper = P1 + P3 (`39b138c8`). On an older v18.2 market every AssetVaultLpV18
  * record is zero ("no vault LP bound").
  *
  * @module p3-vault-lp
@@ -77,7 +77,16 @@ export const VAULT_LP_STATE_OFF_P3 = Object.freeze({
   seniorClaimAtoms: 144, juniorDepositedAtoms: 160, juniorWithdrawnAtoms: 176,
   seniorFeeCreditedAtoms: 192, recalledAtoms: 208, assetIndex: 224, juniorFloorBps: 226,
   seniorFeeShareBps: 228, version: 230, bump: 231,
+  /** `_padding` [232..240) must be zero (program `validate_vault_lp_state`). */
+  padding: 232,
+  /** P3 senior draw FINAL `d119eebd` (was `_reserved`). */
+  seniorDrawnAtoms: 240, seniorDrawOutstandingAtoms: 256,
 } as const);
+
+/** `ASSET_VAULT_LP_DRAW_OFF` inside each asset's wrapper slot (P3 senior draw FINAL `d119eebd`). */
+export const ASSET_VAULT_LP_DRAW_SLOT_OFF_P3 = 832;
+/** `ASSET_VAULT_LP_DRAW_LEN` (`size_of::<AssetVaultLpDrawV18>()`); ends at {@link ASSET_VAULT_LP_SLOT_OFF_P3}. */
+export const ASSET_VAULT_LP_DRAW_LEN_P3 = 64;
 
 /** Offsets of `AssetVaultLpV18` fields inside the 128-byte record. */
 export const ASSET_VAULT_LP_FIELD_OFF_P3 = Object.freeze({
@@ -122,6 +131,13 @@ export interface VaultLpStateP3 {
   seniorFeeShareBps: number;
   version: number;
   bump: number;
+  /** Cumulative senior backing moved into the vault LP's capital by booked draws (junior cover excluded). */
+  seniorDrawnAtoms: bigint;
+  /**
+   * Senior loss still OUTSTANDING (C was cut by it; a later recovery restores C first). While
+   * > 0 the vault LP's risk-increasing fills, 97 and 102 are halted.
+   */
+  seniorDrawOutstandingAtoms: bigint;
 }
 
 function view(d: Uint8Array): DataView {
@@ -162,12 +178,55 @@ export function decodeVaultLpStateP3(data: Uint8Array): VaultLpStateP3 {
     seniorFeeCreditedAtoms: u128(v, O.seniorFeeCreditedAtoms), recalledAtoms: u128(v, O.recalledAtoms),
     assetIndex: v.getUint16(O.assetIndex, true), juniorFloorBps: v.getUint16(O.juniorFloorBps, true),
     seniorFeeShareBps: v.getUint16(O.seniorFeeShareBps, true), version: data[O.version], bump: data[O.bump],
+    seniorDrawnAtoms: u128(v, O.seniorDrawnAtoms), seniorDrawOutstandingAtoms: u128(v, O.seniorDrawOutstandingAtoms),
   };
-  const tailZero = data.subarray(232, VAULT_LP_STATE_ACCOUNT_LEN_P3).every((b) => b === 0);
-  if (st.version !== 1 || st.juniorFloorBps < 1_000 || st.juniorFloorBps > 10_000 || st.seniorFeeShareBps !== 10_000 || !tailZero) {
+  // Only `_padding` must be zero: from `d119eebd` bytes [240..272) hold the senior-draw counters.
+  const padZero = data.subarray(O.padding, O.padding + 8).every((b) => b === 0);
+  if (st.version !== 1 || st.juniorFloorBps < 1_000 || st.juniorFloorBps > 10_000 || st.seniorFeeShareBps !== 10_000 || !padZero) {
     throw new Error("VaultLpStateV18: invalid (version/floor/fee share/padding) — the program would reject it too");
   }
   return st;
+}
+
+/** Decoded `AssetVaultLpDrawV18` (per asset, P3 senior draw FINAL `d119eebd`). */
+export interface AssetVaultLpDrawP3 {
+  /** Pending (unbooked) draw out of the EVEN-domain pot (domain `2·asset`). */
+  pendingOutEvenAtoms: bigint;
+  /** Pending (unbooked) draw out of the ODD-domain pot (domain `2·asset + 1`). */
+  pendingOutOddAtoms: bigint;
+  /** Mirror of `VaultLpStateV18.senior_draw_outstanding_atoms` (fill-time halt). */
+  outstandingMirrorAtoms: bigint;
+  /** Pending moved atoms (junior cover + senior draw) not yet booked. */
+  pendingMovedAtoms: bigint;
+  /**
+   * A draw is pending: the next 75/77/78/97/98/102 books it and needs the drawn pots' ledgers
+   * WRITABLE (the SDK builders and {@link withBoundVaultLpTailP3} always pass them writable).
+   */
+  hasPendingDraw: boolean;
+}
+
+/**
+ * Decode asset `assetIndex`'s `AssetVaultLpDrawV18` from a market account
+ * (at {@link assetVaultLpAccountOffsetP3} − {@link ASSET_VAULT_LP_DRAW_LEN_P3}).
+ * @param marketData  Market (slab) account data.
+ * @param assetIndex  Asset slot index.
+ * @returns The draw record.
+ * @throws If the account is too short.
+ * @example
+ * ```ts
+ * const draw = decodeAssetVaultLpDrawP3(slab.data, 0);
+ * if (draw.hasPendingDraw) console.log("next Earn ix books the draw");
+ * ```
+ */
+export function decodeAssetVaultLpDrawP3(marketData: Uint8Array, assetIndex: number): AssetVaultLpDrawP3 {
+  const off = assetVaultLpAccountOffsetP3(assetIndex) - ASSET_VAULT_LP_DRAW_LEN_P3;
+  if (marketData.length < off + ASSET_VAULT_LP_DRAW_LEN_P3) throw new Error(`AssetVaultLpDrawV18: market data too short for asset ${assetIndex}`);
+  const v = view(marketData);
+  const r = {
+    pendingOutEvenAtoms: u128(v, off), pendingOutOddAtoms: u128(v, off + 16),
+    outstandingMirrorAtoms: u128(v, off + 32), pendingMovedAtoms: u128(v, off + 48),
+  };
+  return { ...r, hasPendingDraw: r.pendingMovedAtoms !== 0n || r.pendingOutEvenAtoms !== 0n || r.pendingOutOddAtoms !== 0n };
 }
 
 /** Decoded `AssetVaultLpV18`. */
@@ -451,7 +510,10 @@ export function buildWithdrawJuniorTrancheIxP3(m: VaultLpMarketP3, juniorOwner: 
 
 /**
  * Tag 98 VaultLpRecall (permissionless). Needed before a bound redemption when the value sits
- * in the LP (redemption otherwise fails EngineLockActive).
+ * in the LP: a Live 75/77 otherwise fails 88 VaultLpRedeemNeedsRecall (`d119eebd`).
+ * `39b138c8` (D-P3-30): `amount` is capped at `min(recall_limit, max(vault LP certified equity, 0))`
+ * and is 0 while any senior draw is pending (see {@link decodeAssetVaultLpDrawP3}); above the cap
+ * the program refuses with VaultLpRecallRefused. The vault LP must be flat.
  * @param m             Market context.
  * @param cranker       Signer (pays rent if the target ledger is created).
  * @param amount        Atoms.
@@ -569,10 +631,34 @@ export function buildVaultLpReleaseSurplusIxP3(
 export const BOUND_VAULT_LP_TAIL_INDEX_P3 = Object.freeze({ 75: 11, 77: 13, 78: 6 } as const);
 
 /**
+ * Base-account slots of the two pot ledgers (own, sibling) per Earn tag. From percolator-prog
+ * `d119eebd`, a pending senior draw is booked into BOTH pot ledgers before any instruction that
+ * prices off C, so {@link withBoundVaultLpTailP3} forces these slots writable.
+ */
+export const BOUND_VAULT_LP_LEDGER_SLOTS_P3 = Object.freeze({ 75: [7, 10], 77: [8, 11], 78: [3, 4] } as const);
+
+/** Options for {@link withBoundVaultLpTailP3}. */
+export interface BoundVaultLpTailOptsP3 {
+  /**
+   * Pass the 75/77 vault-LP tail account READ-ONLY. Default `false` (writable): on a Live market
+   * a writable vault LP lets the program run the senior draw in the same instruction; a
+   * read-only one with an undrawn deficit is refused with 87 VaultLpSeniorDrawRequired.
+   * Ignored for tag 78 (no LP in its tail).
+   */
+  lpReadOnly?: boolean;
+}
+
+/**
  * Append the REQUIRED bound-vault tail to an Earn instruction (fail closed on a bound vault):
- * 75 DepositToLpVault → [11] vault_lp_state (w), [12] vault LP portfolio;
- * 77 ExecuteRedemption → [13] vault_lp_state (w), [14] vault LP portfolio;
+ * 75 DepositToLpVault → [11] vault_lp_state (w), [12] vault LP portfolio (w);
+ * 77 ExecuteRedemption → [13] vault_lp_state (w), [14] vault LP portfolio (w);
  * 78 LpVaultCrankFees → [6] vault_lp_state (w).
+ * The pot-ledger slots ({@link BOUND_VAULT_LP_LEDGER_SLOTS_P3}) are forced writable.
+ *
+ * P3 senior draw FINAL (`d119eebd`): the vault LP is WRITABLE by default so a Live 75/77 can run
+ * the draw itself (otherwise 87 VaultLpSeniorDrawRequired); a pending draw is booked into both
+ * pot ledgers (read-only ones fail closed). A 77 that needs value held in the vault LP's capital
+ * returns 88 VaultLpRedeemNeedsRecall: send VaultLpRecall (98) first.
  * Tag 76 (RequestRedeemLpShares) takes no tail on P3.
  *
  * P3 FINAL (`58e379f1`), no wire change: in Resolved mode the tag-77 [14] vault LP is only
@@ -583,6 +669,7 @@ export const BOUND_VAULT_LP_TAIL_INDEX_P3 = Object.freeze({ 75: 11, 77: 13, 78: 
  * @param base         The unbound-form instruction (tag + exact base account count checked).
  * @param vaultLpState `["vault_lp", market]`.
  * @param lpPortfolio  The vault-owned LP portfolio (ignored for tag 78).
+ * @param opts         {@link BoundVaultLpTailOptsP3} (default: vault LP writable).
  * @returns A new instruction with the tail appended.
  * @throws If the tag is not 75/77/78 or the base account count is wrong.
  * @example
@@ -590,14 +677,20 @@ export const BOUND_VAULT_LP_TAIL_INDEX_P3 = Object.freeze({ 75: 11, 77: 13, 78: 
  * const ix = withBoundVaultLpTailP3(depositIx, vaultLpState, lpPortfolio);
  * ```
  */
-export function withBoundVaultLpTailP3(base: TransactionInstruction, vaultLpState: PublicKey, lpPortfolio: PublicKey): TransactionInstruction {
+export function withBoundVaultLpTailP3(
+  base: TransactionInstruction, vaultLpState: PublicKey, lpPortfolio: PublicKey, opts: BoundVaultLpTailOptsP3 = {},
+): TransactionInstruction {
   const tag = base.data[0];
   if (tag !== 75 && tag !== 77 && tag !== 78) throw new Error(`withBoundVaultLpTailP3: tag ${tag} takes no vault-LP tail (only 75/77/78)`);
   const want = BOUND_VAULT_LP_TAIL_INDEX_P3[tag];
   if (base.keys.length !== want) throw new Error(`withBoundVaultLpTailP3: tag ${tag} must have exactly ${want} base accounts, got ${base.keys.length}`);
-  const tail: AccountMeta[] = [{ pubkey: vaultLpState, isSigner: false, isWritable: true }];
-  if (tag !== 78) tail.push({ pubkey: lpPortfolio, isSigner: false, isWritable: false });
-  return new TransactionInstruction({ programId: base.programId, keys: [...base.keys, ...tail], data: base.data });
+  // d119eebd senior draw: both pot ledgers must be writable whenever a draw is pending
+  // (fail-closed otherwise), so force them writable regardless of how the base was built.
+  const ledgerSlots: readonly number[] = BOUND_VAULT_LP_LEDGER_SLOTS_P3[tag];
+  const keys: AccountMeta[] = base.keys.map((k, i) => (ledgerSlots.includes(i) ? { ...k, isWritable: true } : k));
+  keys.push({ pubkey: vaultLpState, isSigner: false, isWritable: true });
+  if (tag !== 78) keys.push({ pubkey: lpPortfolio, isSigner: false, isWritable: opts.lpReadOnly !== true });
+  return new TransactionInstruction({ programId: base.programId, keys, data: base.data });
 }
 
 // ============================================================================
@@ -670,17 +763,17 @@ const sat = (a: bigint, b: bigint): bigint => (a > b ? a - b : 0n);
 const minB = (a: bigint, b: bigint): bigint => (a < b ? a : b);
 
 /**
- * `vault_owned_backing_atoms`: backing the vault still OWNS across both pots =
- * Σ floor((fresh_unliened_backing_num + valid_liened_backing_num) / BOUND_SCALE) per bucket.
- * @param buckets  The two backing buckets (own + sibling domain) `_num` fields.
- * @returns Owned backing atoms.
+ * `vault_pot_held_atoms` (P3 senior draw FINAL `d119eebd`): backing HELD by one pot =
+ * floor((fresh_unliened_backing_num + valid_liened_backing_num) / BOUND_SCALE).
+ * @param bucket  The pot's backing-bucket `_num` fields.
+ * @returns Held atoms.
  * @example
  * ```ts
- * vaultOwnedBackingAtomsP3([{ freshUnlienedBackingNum: a, validLienedBackingNum: b }, sibling]);
+ * const held = vaultPotHeldAtomsP3({ freshUnlienedBackingNum: a, validLienedBackingNum: b });
  * ```
  */
-export function vaultOwnedBackingAtomsP3(buckets: { freshUnlienedBackingNum: bigint; validLienedBackingNum: bigint }[]): bigint {
-  return buckets.reduce((t, b) => t + (b.freshUnlienedBackingNum + b.validLienedBackingNum) / BOUND_SCALE_P3, 0n);
+export function vaultPotHeldAtomsP3(bucket: { freshUnlienedBackingNum: bigint; validLienedBackingNum: bigint }): bigint {
+  return (bucket.freshUnlienedBackingNum + bucket.validLienedBackingNum) / BOUND_SCALE_P3;
 }
 
 /**
@@ -698,29 +791,33 @@ export function vaultPhysicalIdleBackingAtomsP3(freshUnlienedBackingNums: bigint
 }
 
 /**
- * Floored bound-vault NAV, bit-exact with `lp_vault_combined_nav_parts_p3` (F-14 / F14-Q1):
- * impairment is floored ONCE across both pots and the available principal is capped at the
- * backing the vault still owns; LP earnings are floored per pot
- * (`floor((earnings − withdrawn)·fee_share_bps / 10000)`, saturating).
+ * Bound-vault NAV, bit-exact with `lp_vault_combined_nav_parts_p3` / `vault_lp_v18::bound_vault_nav`
+ * at percolator-prog `d119eebd` (P3 senior draw / B24): per pot the vault owns
+ * `min(principal, held)`, where `held` = {@link vaultPotHeldAtomsP3}. Backing above a pot's
+ * principal is the vault LP's settled loss reserved for winners, and backing below it is a real
+ * loss. The ledgers' impairment counters are NOT used any more. LP earnings are floored per pot:
+ * `floor((earnings − withdrawn)·fee_share_bps / 10000)`, saturating.
+ *
+ * BREAKING vs the pre-`d119eebd` port: the 4th argument is now the per-pot held backing
+ * (`{ own, sibling }`), not one combined owned-backing total.
  *
  * @param own           Own-domain (registry.domain) ledger terms.
  * @param sibling       Sibling-domain (domain ^ 1) ledger terms.
  * @param feeShareBps   `registry.fee_share_bps` (<= 10000).
- * @param ownedBacking  {@link vaultOwnedBackingAtomsP3} of the two buckets.
+ * @param held          Held backing per pot ({@link vaultPotHeldAtomsP3} of each bucket).
  * @returns `{ availablePrincipal, lpEarnings, nav }`.
  * @example
  * ```ts
- * const { nav } = boundVaultNavFlooredP3(ownLedger, siblingLedger, registry.feeShareBps, owned);
+ * const { nav } = boundVaultNavFlooredP3(ownLedger, siblingLedger, registry.feeShareBps,
+ *   { own: vaultPotHeldAtomsP3(ownBucket), sibling: vaultPotHeldAtomsP3(siblingBucket) });
  * ```
  */
 export function boundVaultNavFlooredP3(
-  own: BackingPotTermsP3, sibling: BackingPotTermsP3, feeShareBps: number, ownedBacking: bigint,
+  own: BackingPotTermsP3, sibling: BackingPotTermsP3, feeShareBps: number, held: { own: bigint; sibling: bigint },
 ): { availablePrincipal: bigint; lpEarnings: bigint; nav: bigint } {
   if (!Number.isInteger(feeShareBps) || feeShareBps < 0 || feeShareBps > 10_000) throw new Error("feeShareBps must be 0..=10000");
   const earn = (p: BackingPotTermsP3): bigint => (sat(p.totalEarningsAtoms, p.totalEarningsWithdrawnAtoms) * BigInt(feeShareBps)) / 10_000n;
-  const principal = own.totalPrincipalAtoms + sibling.totalPrincipalAtoms;
-  const impairment = sat(own.cumulativeLossAtoms, own.cumulativeRecoveryAtoms) + sat(sibling.cumulativeLossAtoms, sibling.cumulativeRecoveryAtoms);
-  const availablePrincipal = minB(sat(principal, impairment), ownedBacking);
+  const availablePrincipal = minB(own.totalPrincipalAtoms, held.own) + minB(sibling.totalPrincipalAtoms, held.sibling);
   const lpEarnings = earn(own) + earn(sibling);
   return { availablePrincipal, lpEarnings, nav: availablePrincipal + lpEarnings };
 }
@@ -728,6 +825,8 @@ export function boundVaultNavFlooredP3(
 /**
  * Senior value used by tag 77 on a bound vault (floored everywhere):
  * Resolved → `min(physicalIdleBacking, C)`; Live → `C` if `nav >= C`, else `min(nav + lpValue, C)`.
+ * Live precondition (`d119eebd`): the vault LP has NO undrawn deficit; otherwise the program
+ * refuses 75/77 with 87 VaultLpSeniorDrawRequired (pass the vault LP writable, or crank it).
  * @param a  `nav` (floored, {@link boundVaultNavFlooredP3}), `seniorClaim` (C), `lpValue`,
  *           `resolved`, `physicalIdleBacking` (Σ fresh_unliened_backing_num / 1e12, Resolved only).
  * @returns Senior tranche value (atoms).

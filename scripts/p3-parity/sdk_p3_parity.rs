@@ -57,7 +57,7 @@ fn main() {
     out.push(format!("\"vectors\":{{{}}}", vecs.join(",")));
 
     // ── errors, by NAME from the final (P1 + P3) enum ────────────────────────
-    let errs: [(&str, u32); 20] = [
+    let errs: [(&str, u32); 23] = [
         ("ExecPriceOutsideOracleBand", E::ExecPriceOutsideOracleBand as u32), ("SameOwnerTrade", E::SameOwnerTrade as u32),
         ("LpExposureCapExceeded", E::LpExposureCapExceeded as u32), ("LpFloorHalt", E::LpFloorHalt as u32),
         ("ProtocolSideOiCapExceeded", E::ProtocolSideOiCapExceeded as u32), ("CloseSlabFeesOutstanding", E::CloseSlabFeesOutstanding as u32),
@@ -68,6 +68,8 @@ fn main() {
         ("VaultLpExposureCapExceeded", E::VaultLpExposureCapExceeded as u32), ("VaultLpMatcherNotApproved", E::VaultLpMatcherNotApproved as u32),
         ("VaultLpUseSettleResolved", E::VaultLpUseSettleResolved as u32), ("VaultLpReleaseRefused", E::VaultLpReleaseRefused as u32),
         ("VaultLpHarvestPending", E::VaultLpHarvestPending as u32), ("VaultLpValuationStale", E::VaultLpValuationStale as u32),
+        ("VaultLpMultiAssetMarket", E::VaultLpMultiAssetMarket as u32),
+        ("VaultLpSeniorDrawRequired", E::VaultLpSeniorDrawRequired as u32), ("VaultLpRedeemNeedsRecall", E::VaultLpRedeemNeedsRecall as u32),
     ];
     out.push(format!("\"errors\":{{{}}}", errs.iter().map(|(n, v)| format!("\"{n}\":{v}")).collect::<Vec<_>>().join(",")));
 
@@ -81,6 +83,15 @@ fn main() {
         ("recalledAtoms", offset_of!(VaultLpStateV18, recalled_atoms)), ("assetIndex", offset_of!(VaultLpStateV18, asset_index)),
         ("juniorFloorBps", offset_of!(VaultLpStateV18, junior_floor_bps)), ("seniorFeeShareBps", offset_of!(VaultLpStateV18, senior_fee_share_bps)),
         ("version", offset_of!(VaultLpStateV18, version)), ("bump", offset_of!(VaultLpStateV18, bump)),
+        ("padding", offset_of!(VaultLpStateV18, _padding)),
+        ("seniorDrawnAtoms", offset_of!(VaultLpStateV18, senior_drawn_atoms)),
+        ("seniorDrawOutstandingAtoms", offset_of!(VaultLpStateV18, senior_draw_outstanding_atoms)),
+    ];
+    let dr = [
+        ("pendingOutEvenAtoms", offset_of!(state::AssetVaultLpDrawV18, pending_out_even_atoms)),
+        ("pendingOutOddAtoms", offset_of!(state::AssetVaultLpDrawV18, pending_out_odd_atoms)),
+        ("outstandingMirrorAtoms", offset_of!(state::AssetVaultLpDrawV18, outstanding_mirror_atoms)),
+        ("pendingMovedAtoms", offset_of!(state::AssetVaultLpDrawV18, pending_moved_atoms)),
     ];
     let av = [
         ("vaultLpPortfolio", offset_of!(AssetVaultLpV18, vault_lp_portfolio)), ("lpNetQ", offset_of!(AssetVaultLpV18, lp_net_q)),
@@ -92,9 +103,10 @@ fn main() {
     ];
     let j = |xs: &[(&str, usize)], add: usize| xs.iter().map(|(n, o)| format!("\"{n}\":{}", o + add)).collect::<Vec<_>>().join(",");
     out.push(format!(
-        "\"layout\":{{\"headerLen\":{h},\"vaultLpStateBodyLen\":{},\"vaultLpStateAccountLen\":{},\"kindVaultLpState\":{},\"assetVaultLpLen\":{},\"assetVaultLpSlotOff\":{},\"flagBound\":{},\"registryReservedOff\":{},\"vaultLpStateAccountOff\":{{{}}},\"assetVaultLpFieldOff\":{{{}}}}}",
+        "\"layout\":{{\"headerLen\":{h},\"vaultLpStateBodyLen\":{},\"vaultLpStateAccountLen\":{},\"kindVaultLpState\":{},\"assetVaultLpLen\":{},\"assetVaultLpSlotOff\":{},\"flagBound\":{},\"registryReservedOff\":{},\"vaultLpStateAccountOff\":{{{}}},\"assetVaultLpFieldOff\":{{{}}},\"assetVaultLpDrawSlotOff\":{},\"assetVaultLpDrawLen\":{},\"assetVaultLpDrawFieldOff\":{{{}}}}}",
         size_of::<VaultLpStateV18>(), state::vault_lp_state_account_len(), c::KIND_VAULT_LP_STATE, c::ASSET_VAULT_LP_LEN,
-        c::ASSET_VAULT_LP_OFF, state::ASSET_VAULT_LP_FLAG_BOUND, h + offset_of!(state::LpVaultRegistryV16, _reserved), j(&vs, h), j(&av, 0)));
+        c::ASSET_VAULT_LP_OFF, state::ASSET_VAULT_LP_FLAG_BOUND, h + offset_of!(state::LpVaultRegistryV16, _reserved), j(&vs, h), j(&av, 0),
+        c::ASSET_VAULT_LP_DRAW_OFF, size_of::<state::AssetVaultLpDrawV18>(), j(&dr, 0)));
 
     // ── per-asset account offset: plant a record where the SDK formula says, read it back with
     //    the program's own read_asset_vault_lp on a correctly-sized market buffer ──

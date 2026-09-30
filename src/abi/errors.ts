@@ -454,6 +454,14 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "VaultLpMultiAssetMarket",
     hint: "P3 F14-Q2: a vault LP needs a single-ASSET market. Tag 94 InitVaultLp requires exactly one configured asset slot (max_market_slots == 1 — create the market with maxPortfolioAssets: 1), and on a bound market no other asset may be activated (UpdateAssetLifecycle), traded risk-increasing or backed. The terminal residual is market-wide and is credited to the one vault.",
   },
+  87: {
+    name: "VaultLpSeniorDrawRequired",
+    hint: "P3 senior draw: an engine step would open a bankrupt close on the vault LP (winners haircut) while the vault's own pots can still fund its undrawn deficit. Crank the vault LP first (PermissionlessCrank tag 5 draws senior backing into it; pass both pot ledgers writable), then retry.",
+  },
+  88: {
+    name: "VaultLpRedeemNeedsRecall",
+    hint: "P3 B24: a senior redemption (75/77) on a LIVE bound vault needs more than the chosen pot holds, because part of the senior value sits in the vault LP's capital. Run VaultLpRecall (tag 98, permissionless, vault LP flat) first, or redeem fewer shares.",
+  },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
 Object.freeze(PERCOLATOR_ERRORS);

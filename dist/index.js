@@ -2976,6 +2976,14 @@ var PERCOLATOR_ERRORS = {
   86: {
     name: "VaultLpMultiAssetMarket",
     hint: "P3 F14-Q2: a vault LP needs a single-ASSET market. Tag 94 InitVaultLp requires exactly one configured asset slot (max_market_slots == 1 \u2014 create the market with maxPortfolioAssets: 1), and on a bound market no other asset may be activated (UpdateAssetLifecycle), traded risk-increasing or backed. The terminal residual is market-wide and is credited to the one vault."
+  },
+  87: {
+    name: "VaultLpSeniorDrawRequired",
+    hint: "P3 senior draw: an engine step would open a bankrupt close on the vault LP (winners haircut) while the vault's own pots can still fund its undrawn deficit. Crank the vault LP first (PermissionlessCrank tag 5 draws senior backing into it; pass both pot ledgers writable), then retry."
+  },
+  88: {
+    name: "VaultLpRedeemNeedsRecall",
+    hint: "P3 B24: a senior redemption (75/77) on a LIVE bound vault needs more than the chosen pot holds, because part of the senior value sits in the vault LP's capital. Run VaultLpRecall (tag 98, permissionless, vault LP flat) first, or redeem fewer shares."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -9955,8 +9963,15 @@ var VAULT_LP_STATE_OFF_P3 = Object.freeze({
   juniorFloorBps: 226,
   seniorFeeShareBps: 228,
   version: 230,
-  bump: 231
+  bump: 231,
+  /** `_padding` [232..240) must be zero (program `validate_vault_lp_state`). */
+  padding: 232,
+  /** P3 senior draw FINAL `d119eebd` (was `_reserved`). */
+  seniorDrawnAtoms: 240,
+  seniorDrawOutstandingAtoms: 256
 });
+var ASSET_VAULT_LP_DRAW_SLOT_OFF_P3 = 832;
+var ASSET_VAULT_LP_DRAW_LEN_P3 = 64;
 var ASSET_VAULT_LP_FIELD_OFF_P3 = Object.freeze({
   vaultLpPortfolio: 0,
   lpNetQ: 32,
@@ -10006,13 +10021,27 @@ function decodeVaultLpStateP3(data) {
     juniorFloorBps: v.getUint16(O.juniorFloorBps, true),
     seniorFeeShareBps: v.getUint16(O.seniorFeeShareBps, true),
     version: data[O.version],
-    bump: data[O.bump]
+    bump: data[O.bump],
+    seniorDrawnAtoms: u128(v, O.seniorDrawnAtoms),
+    seniorDrawOutstandingAtoms: u128(v, O.seniorDrawOutstandingAtoms)
   };
-  const tailZero = data.subarray(232, VAULT_LP_STATE_ACCOUNT_LEN_P3).every((b) => b === 0);
-  if (st.version !== 1 || st.juniorFloorBps < 1e3 || st.juniorFloorBps > 1e4 || st.seniorFeeShareBps !== 1e4 || !tailZero) {
+  const padZero = data.subarray(O.padding, O.padding + 8).every((b) => b === 0);
+  if (st.version !== 1 || st.juniorFloorBps < 1e3 || st.juniorFloorBps > 1e4 || st.seniorFeeShareBps !== 1e4 || !padZero) {
     throw new Error("VaultLpStateV18: invalid (version/floor/fee share/padding) \u2014 the program would reject it too");
   }
   return st;
+}
+function decodeAssetVaultLpDrawP3(marketData, assetIndex) {
+  const off = assetVaultLpAccountOffsetP3(assetIndex) - ASSET_VAULT_LP_DRAW_LEN_P3;
+  if (marketData.length < off + ASSET_VAULT_LP_DRAW_LEN_P3) throw new Error(`AssetVaultLpDrawV18: market data too short for asset ${assetIndex}`);
+  const v = view(marketData);
+  const r = {
+    pendingOutEvenAtoms: u128(v, off),
+    pendingOutOddAtoms: u128(v, off + 16),
+    outstandingMirrorAtoms: u128(v, off + 32),
+    pendingMovedAtoms: u128(v, off + 48)
+  };
+  return { ...r, hasPendingDraw: r.pendingMovedAtoms !== 0n || r.pendingOutEvenAtoms !== 0n || r.pendingOutOddAtoms !== 0n };
 }
 function decodeAssetVaultLpRecordP3(rec) {
   if (rec.length !== ASSET_VAULT_LP_LEN_P3) throw new Error(`AssetVaultLpV18 record must be 128 bytes, got ${rec.length}`);
@@ -10183,14 +10212,17 @@ function buildVaultLpReleaseSurplusIxP3(m, juniorOwner, amount, sourceDomain, re
   }, encodeVaultLpReleaseSurplusP3(amount, sourceDomain), extra);
 }
 var BOUND_VAULT_LP_TAIL_INDEX_P3 = Object.freeze({ 75: 11, 77: 13, 78: 6 });
-function withBoundVaultLpTailP3(base, vaultLpState, lpPortfolio) {
+var BOUND_VAULT_LP_LEDGER_SLOTS_P3 = Object.freeze({ 75: [7, 10], 77: [8, 11], 78: [3, 4] });
+function withBoundVaultLpTailP3(base, vaultLpState, lpPortfolio, opts = {}) {
   const tag = base.data[0];
   if (tag !== 75 && tag !== 77 && tag !== 78) throw new Error(`withBoundVaultLpTailP3: tag ${tag} takes no vault-LP tail (only 75/77/78)`);
   const want = BOUND_VAULT_LP_TAIL_INDEX_P3[tag];
   if (base.keys.length !== want) throw new Error(`withBoundVaultLpTailP3: tag ${tag} must have exactly ${want} base accounts, got ${base.keys.length}`);
-  const tail = [{ pubkey: vaultLpState, isSigner: false, isWritable: true }];
-  if (tag !== 78) tail.push({ pubkey: lpPortfolio, isSigner: false, isWritable: false });
-  return new TransactionInstruction4({ programId: base.programId, keys: [...base.keys, ...tail], data: base.data });
+  const ledgerSlots = BOUND_VAULT_LP_LEDGER_SLOTS_P3[tag];
+  const keys = base.keys.map((k, i) => ledgerSlots.includes(i) ? { ...k, isWritable: true } : k);
+  keys.push({ pubkey: vaultLpState, isSigner: false, isWritable: true });
+  if (tag !== 78) keys.push({ pubkey: lpPortfolio, isSigner: false, isWritable: opts.lpReadOnly !== true });
+  return new TransactionInstruction4({ programId: base.programId, keys, data: base.data });
 }
 function buildVaultLpRefreshCrankIxP3(a) {
   const want = a.observations.reduce((s, o) => s + o.oracleAccounts, 0);
@@ -10210,18 +10242,16 @@ var BOUND_SCALE_P3 = 1000000000000n;
 var LP_VAULT_MINIMUM_LIQUIDITY_P3 = 1000n;
 var sat = (a, b) => a > b ? a - b : 0n;
 var minB = (a, b) => a < b ? a : b;
-function vaultOwnedBackingAtomsP3(buckets) {
-  return buckets.reduce((t, b) => t + (b.freshUnlienedBackingNum + b.validLienedBackingNum) / BOUND_SCALE_P3, 0n);
+function vaultPotHeldAtomsP3(bucket) {
+  return (bucket.freshUnlienedBackingNum + bucket.validLienedBackingNum) / BOUND_SCALE_P3;
 }
 function vaultPhysicalIdleBackingAtomsP3(freshUnlienedBackingNums) {
   return freshUnlienedBackingNums.reduce((t, n) => t + n / BOUND_SCALE_P3, 0n);
 }
-function boundVaultNavFlooredP3(own, sibling, feeShareBps, ownedBacking) {
+function boundVaultNavFlooredP3(own, sibling, feeShareBps, held) {
   if (!Number.isInteger(feeShareBps) || feeShareBps < 0 || feeShareBps > 1e4) throw new Error("feeShareBps must be 0..=10000");
   const earn = (p) => sat(p.totalEarningsAtoms, p.totalEarningsWithdrawnAtoms) * BigInt(feeShareBps) / 10000n;
-  const principal = own.totalPrincipalAtoms + sibling.totalPrincipalAtoms;
-  const impairment = sat(own.cumulativeLossAtoms, own.cumulativeRecoveryAtoms) + sat(sibling.cumulativeLossAtoms, sibling.cumulativeRecoveryAtoms);
-  const availablePrincipal = minB(sat(principal, impairment), ownedBacking);
+  const availablePrincipal = minB(own.totalPrincipalAtoms, held.own) + minB(sibling.totalPrincipalAtoms, held.sibling);
   const lpEarnings = earn(own) + earn(sibling);
   return { availablePrincipal, lpEarnings, nav: availablePrincipal + lpEarnings };
 }
@@ -11497,12 +11527,15 @@ export {
   ASSET_RISK_LIMITS_FIELD_OFF_P1,
   ASSET_RISK_LIMITS_LEN_P1,
   ASSET_RISK_LIMITS_SLOT_OFF_P1,
+  ASSET_VAULT_LP_DRAW_LEN_P3,
+  ASSET_VAULT_LP_DRAW_SLOT_OFF_P3,
   ASSET_VAULT_LP_FIELD_OFF_P3,
   ASSET_VAULT_LP_FLAG_BOUND_P3,
   ASSET_VAULT_LP_LEN_P3,
   ASSET_VAULT_LP_SLOT_OFF_P3,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   AccountKind,
+  BOUND_VAULT_LP_LEDGER_SLOTS_P3,
   BOUND_VAULT_LP_TAIL_INDEX_P3,
   BPF_LOADER_UPGRADEABLE_ID_P3,
   BackingBucketStatus,
@@ -11758,6 +11791,7 @@ export {
   countLighthouseInstructions,
   decodeAssetRiskLimitsP1,
   decodeAssetRiskLimitsRecordP1,
+  decodeAssetVaultLpDrawP3,
   decodeAssetVaultLpP3,
   decodeAssetVaultLpRecordP3,
   decodeDepositPda,
@@ -12095,8 +12129,8 @@ export {
   validateU128,
   validateU16,
   validateU64,
-  vaultOwnedBackingAtomsP3,
   vaultPhysicalIdleBackingAtomsP3,
+  vaultPotHeldAtomsP3,
   withBoundVaultLpTailP3,
   withNftEscrowProof,
   withNftHolderAuth,
