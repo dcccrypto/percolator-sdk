@@ -2,21 +2,22 @@
  * P3 vault-owned LP — account decoders, PDAs, instruction builders, the bound-vault tail for
  * Earn tags 75/77/78, and the vault-LP refresh crank. Additive to SDK 8.0.0.
  *
- * Source: percolator-prog `feat/p3-vault-owned-lp` @ `592286b428d5616b38019ccb8dbde3b1fb32f9dc` (P3 candidate FINAL: senior draw, recall cap, pause 89, cross-pot 77, resolved-lock fixes A–D, worse-of 75/77 pricing)
+ * Source: percolator-prog `feat/p3-vault-owned-lp` @ `5544302ad689dd94cff300f50a2964c4a1c07ede` (P3 candidate FINAL: senior draw, recall cap, pause 89, cross-pot 77, resolved-lock fixes A–D, worse-of 75/77 pricing)
  * (`state::{VaultLpStateV18, AssetVaultLpV18, read_asset_vault_lp}`, `load_bound_vault_lp_tail`,
  * `vault_lp_refresh_snapshot`). Offsets are pinned by `test/p3.test.ts` against rustc
  * `offset_of!` on the REAL P3 structs, and the per-asset record offset against a market
  * account built by the P3 crate itself.
  *
- * Relaunch wrapper = P1 + P3 (`592286b4`). On an older v18.2 market every AssetVaultLpV18
+ * Relaunch wrapper = P1 + P3 (`5544302a`). On an older v18.2 market every AssetVaultLpV18
  * record is zero ("no vault LP bound").
  *
  * @module p3-vault-lp
  */
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
+import type { Connection } from "@solana/web3.js";
 import type { AccountMeta } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { buildAccountMetas } from "../abi/accounts.js";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { buildAccountMetas, ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP } from "../abi/accounts.js";
 import type { AccountSpec } from "../abi/accounts.js";
 import { encodeExecuteRedemption, encodePermissionlessCrank } from "../abi/instructions.js";
 import type { CrankObservationHint } from "../abi/instructions.js";
@@ -43,13 +44,14 @@ import {
   CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3,
 } from "../abi/p3.js";
 import type { SetVaultLpRiskArgsP3, VaultLpSetMatcherArgsP3 } from "../abi/p3.js";
-import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveMatcherDelegate, deriveVaultAuthority } from "./pda.js";
+import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveMatcherDelegate, deriveNftRegistry, deriveVaultAuthority } from "./pda.js";
 import {
   V17_HEADER_LEN,
   V17_KIND_OFF,
   V17_MARKET_ASSET_SLOT_LEN,
   V17_MARKET_GROUP_LEN,
   V17_MARKET_GROUP_OFF,
+  V17_PORTFOLIO_ACCOUNT_LEN,
 } from "./slab.js";
 
 // ============================================================================
@@ -1145,3 +1147,143 @@ export function planResolvedVaultLpExitP3(a: ResolvedVaultLpExitArgsP3): {
     : null;
   return { perSeniorTxs, junior };
 }
+
+// ============================================================================
+// Resolved payout receipts + tag-46 top-up sweep (percolator-prog 5544302a, option B)
+// ============================================================================
+
+/** Account offset of `PortfolioAccountV16Account.resolved_payout_receipt` (HEADER_LEN + rustc offset_of; pinned by the parity fixture). */
+export const RESOLVED_RECEIPT_ACCOUNT_OFF_P3 = 9369;
+/** `size_of::<ResolvedPayoutReceiptV16Account>()`. */
+export const RESOLVED_RECEIPT_LEN_P3 = 66;
+
+/** Decoded `ResolvedPayoutReceiptV16Account`. */
+export interface ResolvedPayoutReceiptP3 {
+  priorBoundContributionNum: bigint;
+  liveReleasedFaceAtReceipt: bigint;
+  terminalPositiveClaimFace: bigint;
+  paidEffective: bigint;
+  present: boolean;
+  finalized: boolean;
+  /** `present && !finalized`: a PARTIAL receipt that a tag-46 top-up finalises. */
+  open: boolean;
+}
+
+/**
+ * Decode a portfolio account's resolved payout receipt.
+ * @param portfolioData  Portfolio account data (V17_PORTFOLIO_ACCOUNT_LEN bytes).
+ * @returns The receipt.
+ * @throws If the account is too short.
+ * @example
+ * ```ts
+ * const r = decodeResolvedPayoutReceiptP3(info.data);
+ * if (r.open) console.log("needs a tag-46 top-up");
+ * ```
+ */
+export function decodeResolvedPayoutReceiptP3(portfolioData: Uint8Array): ResolvedPayoutReceiptP3 {
+  const o = RESOLVED_RECEIPT_ACCOUNT_OFF_P3;
+  if (portfolioData.length < o + RESOLVED_RECEIPT_LEN_P3) throw new Error(`portfolio data too short for the resolved receipt (${portfolioData.length} B)`);
+  const v = new DataView(portfolioData.buffer, portfolioData.byteOffset, portfolioData.byteLength);
+  const present = portfolioData[o + 64] !== 0;
+  const finalized = portfolioData[o + 65] !== 0;
+  return {
+    priorBoundContributionNum: u128(v, o), liveReleasedFaceAtReceipt: u128(v, o + 16),
+    terminalPositiveClaimFace: u128(v, o + 32), paidEffective: u128(v, o + 48),
+    present, finalized, open: present && !finalized,
+  };
+}
+
+/**
+ * Tag 46 ClaimResolvedPayoutTopup. Default = the PERMISSIONLESS form (owner NOT signing, the
+ * market's `nft_registry` PDA at [7] as the #497 escrow proof; the payout still goes to the owner's
+ * token account). `signed: true` builds the owner-signed 7-account form instead. Data = `[46]`.
+ * An NFT-escrowed portfolio (owner = the NFT program's PDA) refuses the unsigned form (ExpectedSigner):
+ * its holder must use the signed/holder-auth path.
+ * @param a  programId, market, portfolio, owner, destToken (owner's collateral ATA), vaultToken, optional `signed`.
+ * @returns Instruction.
+ * @example
+ * ```ts
+ * const ix = buildClaimResolvedPayoutTopupIxP3({ programId: W, market, portfolio, owner, destToken, vaultToken });
+ * ```
+ */
+export function buildClaimResolvedPayoutTopupIxP3(a: {
+  programId: PublicKey; market: PublicKey; portfolio: PublicKey; owner: PublicKey; destToken: PublicKey; vaultToken: PublicKey; signed?: boolean;
+}): TransactionInstruction {
+  const keys = buildAccountMetas(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP, {
+    owner: a.owner, market: a.market, portfolio: a.portfolio, destToken: a.destToken, vaultToken: a.vaultToken,
+    vaultAuthority: deriveVaultAuthority(a.programId, a.market)[0], tokenProgram: TOKEN_PROGRAM_ID,
+  });
+  if (!a.signed) {
+    keys[0] = { pubkey: a.owner, isSigner: false, isWritable: false };
+    keys.push({ pubkey: deriveNftRegistry(a.programId, a.market)[0], isSigner: false, isWritable: false });
+  }
+  return new TransactionInstruction({ programId: a.programId, keys, data: Buffer.from([46]) });
+}
+
+/** A portfolio with a present, non-finalised resolved receipt. */
+export interface OpenResolvedReceiptP3 {
+  portfolio: PublicKey;
+  owner: PublicKey;
+  receipt: ResolvedPayoutReceiptP3;
+  /** The vault LP (owner = LP-vault registry PDA): settles via 101, never 46. */
+  isVaultLp: boolean;
+  /** Owner is off-curve (e.g. an NFT-escrow PDA): the permissionless 46 is refused; the holder must sign. */
+  needsHolder: boolean;
+}
+
+/**
+ * List every portfolio of `market` with an OPEN (present, non-finalised) resolved receipt, via
+ * getProgramAccounts (dataSize + market at offset 16).
+ * @param conn       Connection.
+ * @param programId  Wrapper program id.
+ * @param market     Market (slab) account.
+ * @returns Open receipts (vault LP flagged, escrowed owners flagged).
+ * @example
+ * ```ts
+ * const open = await listOpenResolvedReceiptsP3(conn, W, market);
+ * ```
+ */
+export async function listOpenResolvedReceiptsP3(conn: Pick<Connection, "getProgramAccounts">, programId: PublicKey, market: PublicKey): Promise<OpenResolvedReceiptP3[]> {
+  const accs = await conn.getProgramAccounts(programId, {
+    commitment: "confirmed",
+    filters: [{ dataSize: V17_PORTFOLIO_ACCOUNT_LEN }, { memcmp: { offset: 16, bytes: market.toBase58() } }],
+  });
+  const [registry] = deriveLpVaultRegistry(programId, market);
+  const out: OpenResolvedReceiptP3[] = [];
+  for (const { pubkey, account } of accs) {
+    const data = new Uint8Array(account.data);
+    const receipt = decodeResolvedPayoutReceiptP3(data);
+    if (!receipt.open) continue;
+    const owner = new PublicKey(data.subarray(80, 112)); // provenance owner (16 + 64)
+    out.push({ portfolio: pubkey, owner, receipt, isVaultLp: owner.equals(registry), needsHolder: !PublicKey.isOnCurve(owner.toBytes()) && !owner.equals(registry) });
+  }
+  return out;
+}
+
+/**
+ * Plan the permissionless tag-46 top-up sweep that must run right after the vault LP's final 101
+ * on a bound Resolved market (option B): one 46 per open receipt, excluding the vault LP (101 path)
+ * and escrowed owners (returned in `needsHolder`). Send each (or batch a few) BEFORE any senior 77:
+ * a partial receipt left open blocks terminal-flat, and the seniors' 77 then fails with 21.
+ * @param a  programId, market, vaultToken, collateralMint, the open receipts ({@link listOpenResolvedReceiptsP3}).
+ * @returns `{ ixs, needsHolder }`.
+ * @example
+ * ```ts
+ * const plan = planTopup46SweepP3({ programId: W, market, vaultToken, collateralMint, open: await listOpenResolvedReceiptsP3(conn, W, market) });
+ * for (const ix of plan.ixs) await send([ix]);
+ * ```
+ */
+export function planTopup46SweepP3(a: {
+  programId: PublicKey; market: PublicKey; vaultToken: PublicKey; collateralMint: PublicKey; open: OpenResolvedReceiptP3[];
+}): { ixs: TransactionInstruction[]; needsHolder: OpenResolvedReceiptP3[] } {
+  const ixs: TransactionInstruction[] = [];
+  const needsHolder: OpenResolvedReceiptP3[] = [];
+  for (const r of a.open) {
+    if (r.isVaultLp) continue;
+    if (r.needsHolder) { needsHolder.push(r); continue; }
+    const destToken = getAssociatedTokenAddressSync(a.collateralMint, r.owner, false, TOKEN_PROGRAM_ID);
+    ixs.push(buildClaimResolvedPayoutTopupIxP3({ programId: a.programId, market: a.market, portfolio: r.portfolio, owner: r.owner, destToken, vaultToken: a.vaultToken }));
+  }
+  return { ixs, needsHolder };
+}
+

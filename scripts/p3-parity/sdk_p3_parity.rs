@@ -108,6 +108,19 @@ fn main() {
         c::ASSET_VAULT_LP_OFF, state::ASSET_VAULT_LP_FLAG_BOUND, h + offset_of!(state::LpVaultRegistryV16, _reserved), j(&vs, h), j(&av, 0),
         c::ASSET_VAULT_LP_DRAW_OFF, size_of::<state::AssetVaultLpDrawV18>(), j(&dr, 0)));
 
+    // ── resolved payout receipt (5544302a partial-receipt sweep): account offsets, by rustc ──
+    out.push(format!(
+        "\"portfolioReceipt\":{{\"closeProgressAccountOff\":{},\"receiptAccountOff\":{},\"receiptLen\":{},\"priorBoundContributionNum\":{},\"liveReleasedFaceAtReceipt\":{},\"terminalPositiveClaimFace\":{},\"paidEffective\":{},\"present\":{},\"finalized\":{}}}",
+        c::HEADER_LEN + offset_of!(percolator::PortfolioAccountV16Account, close_progress),
+        c::HEADER_LEN + offset_of!(percolator::PortfolioAccountV16Account, resolved_payout_receipt),
+        size_of::<percolator::ResolvedPayoutReceiptV16Account>(),
+        offset_of!(percolator::ResolvedPayoutReceiptV16Account, prior_bound_contribution_num),
+        offset_of!(percolator::ResolvedPayoutReceiptV16Account, live_released_face_at_receipt),
+        offset_of!(percolator::ResolvedPayoutReceiptV16Account, terminal_positive_claim_face),
+        offset_of!(percolator::ResolvedPayoutReceiptV16Account, paid_effective),
+        offset_of!(percolator::ResolvedPayoutReceiptV16Account, present),
+        offset_of!(percolator::ResolvedPayoutReceiptV16Account, finalized)));
+
     // ── worse-of pricing inputs (ede691b6): engine AssetStateV16Account price fields, by rustc ──
     out.push(format!(
         "\"assetPriceOffsets\":{{\"rawOracleTargetPriceInAssetState\":{},\"effectivePriceInAssetState\":{},\"assetStateInEngineSlot\":{},\"posScale\":\"{}\"}}",

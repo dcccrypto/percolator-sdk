@@ -35,6 +35,16 @@ v18.2 instructions or account layouts changed.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
 
+### Added (relaunch wrapper `5544302a`, DEPLOYED to devnet ETDLAdi 2026-10-01, sha256 `0186c63a…`)
+
+- Re-pinned to `5544302a` (class-(b) resolved haircut fix). Error map (91 codes), P3 wire, layout and pricing are unchanged (the rustc oracles were re-run).
+- **Resolved payout receipts and the tag-46 sweep (option B):**
+  - `decodeResolvedPayoutReceiptP3`: `RESOLVED_RECEIPT_ACCOUNT_OFF_P3` = 9369, 66 B, rustc-pinned by the parity fixture.
+  - `buildClaimResolvedPayoutTopupIxP3`: permissionless by default (owner unsigned, `nft_registry` at [7]; data `[46]`), or `signed`.
+  - `listOpenResolvedReceiptsP3`: getProgramAccounts over the market's portfolios.
+  - `planTopup46SweepP3`: one 46 per open receipt. It skips the vault LP (settled via 101) and returns off-curve (NFT-escrowed) owners in `needsHolder`.
+  - **Usage:** run the sweep right after the vault LP's final 101 on a bound Resolved market, before any senior 77. A partial receipt left open blocks terminal-flat, and 77 then fails with 21.
+
 ### Changed (relaunch wrapper `592286b4`, DEPLOYED to devnet ETDLAdi 2026-09-30, sha256 `7f34f9d8…`)
 
 - Re-pinned to percolator-prog `592286b4`: wrapper pins for the fresh stake/matcher, G-1, and tag 94 refusing a bind with open interest.

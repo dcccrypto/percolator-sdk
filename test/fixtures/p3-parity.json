@@ -1,5 +1,5 @@
 {
-    "p3Sha": "592286b428d5616b38019ccb8dbde3b1fb32f9dc",
+    "p3Sha": "5544302ad689dd94cff300f50a2964c4a1c07ede",
     "vectors": {
         "initVaultLp_min": {
             "hex": "5ee803",
@@ -396,6 +396,17 @@
             "outstandingMirrorAtoms": 32,
             "pendingMovedAtoms": 48
         }
+    },
+    "portfolioReceipt": {
+        "closeProgressAccountOff": 9185,
+        "receiptAccountOff": 9369,
+        "receiptLen": 66,
+        "priorBoundContributionNum": 0,
+        "liveReleasedFaceAtReceipt": 16,
+        "terminalPositiveClaimFace": 32,
+        "paidEffective": 48,
+        "present": 64,
+        "finalized": 65
     },
     "assetPriceOffsets": {
         "rawOracleTargetPriceInAssetState": 17,
