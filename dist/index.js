@@ -9993,6 +9993,20 @@ function assetVaultLpAccountOffsetP3(assetIndex) {
   if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`assetIndex must be a non-negative integer, got ${assetIndex}`);
   return V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + assetIndex * V17_MARKET_ASSET_SLOT_LEN + ASSET_VAULT_LP_SLOT_OFF_P3;
 }
+var ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3 = 17;
+var ASSET_STATE_EFFECTIVE_PRICE_OFF_P3 = 25;
+var POS_SCALE_P3 = 1000000n;
+var ASSET_SLOT_WRAPPER_LEN_P3 = 1024;
+function readAssetPricesP3(marketData, assetIndex) {
+  if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`assetIndex must be a non-negative integer, got ${assetIndex}`);
+  const base = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + assetIndex * V17_MARKET_ASSET_SLOT_LEN + ASSET_SLOT_WRAPPER_LEN_P3;
+  if (marketData.length < base + ASSET_STATE_EFFECTIVE_PRICE_OFF_P3 + 8) throw new Error(`market data too short for asset ${assetIndex}`);
+  const v = new DataView(marketData.buffer, marketData.byteOffset, marketData.byteLength);
+  return {
+    rawOracleTargetPriceE6: v.getBigUint64(base + ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3, true),
+    effectivePriceE6: v.getBigUint64(base + ASSET_STATE_EFFECTIVE_PRICE_OFF_P3, true)
+  };
+}
 function view(d) {
   return new DataView(d.buffer, d.byteOffset, d.byteLength);
 }
@@ -10285,10 +10299,35 @@ function boundVaultNavFlooredP3(own, sibling, feeShareBps, held) {
   const lpEarnings = earn(own) + earn(sibling);
   return { availablePrincipal, lpEarnings, nav: availablePrincipal + lpEarnings };
 }
+var ceilDiv = (n, d) => (n + d - 1n) / d;
+function vaultLpEquityLagBoundsP3(a) {
+  if (a.legs.length === 0) {
+    const e = a.capital + (a.pnl < 0n ? a.pnl : 0n) + (a.feeCredits < 0n ? a.feeCredits : 0n);
+    const eq = e <= 0n ? 0n : e;
+    return { worse: eq, better: eq };
+  }
+  let adverse = 0n;
+  let favorable = 0n;
+  for (const l of a.legs) {
+    const q = l.basisPosQ < 0n ? -l.basisPosQ : l.basisPosQ;
+    const up = l.rawOracleTargetPriceE6 > l.effectivePriceE6 ? l.rawOracleTargetPriceE6 - l.effectivePriceE6 : 0n;
+    const down = l.effectivePriceE6 > l.rawOracleTargetPriceE6 ? l.effectivePriceE6 - l.rawOracleTargetPriceE6 : 0n;
+    const [adv, fav] = l.basisPosQ >= 0n ? [down, up] : [up, down];
+    adverse += ceilDiv(q * adv, POS_SCALE_P3);
+    favorable += ceilDiv(q * fav, POS_SCALE_P3);
+  }
+  return { worse: a.certifiedEquity - adverse, better: a.certifiedEquity + favorable };
+}
+function vaultLpSeniorPricingClaimP3(c, undrawn, juniorSurplus) {
+  const loss = undrawn > juniorSurplus ? undrawn - juniorSurplus : 0n;
+  return c > loss ? c - loss : 0n;
+}
 function boundVaultSeniorValueP3(a) {
   if (a.resolved) return minB(a.physicalIdleBacking, a.seniorClaim);
-  if (a.nav >= a.seniorClaim) return a.seniorClaim;
-  return minB(a.nav + a.lpValue, a.seniorClaim);
+  const claim = a.lpEquityWorse < 0n ? vaultLpSeniorPricingClaimP3(a.seniorClaim, -a.lpEquityWorse, a.nav > a.seniorClaim ? a.nav - a.seniorClaim : 0n) : a.seniorClaim;
+  if (a.nav >= claim) return claim;
+  const lpWorse = a.lpEquityWorse > 0n ? a.lpEquityWorse : 0n;
+  return minB(a.nav + minB(a.lpValue, lpWorse), claim);
 }
 function boundVaultRedemptionAtomsP3(shares, totalShares, seniorValue) {
   if (totalShares === 0n || shares > totalShares) return null;
@@ -10296,8 +10335,13 @@ function boundVaultRedemptionAtomsP3(shares, totalShares, seniorValue) {
 }
 function boundVaultDepositQuoteP3(a) {
   if (a.totalShares === 0n && a.harvestable !== 0n) return { ok: false, error: "VaultLpHarvestPending" };
-  const cEff = a.seniorClaim + a.harvestable * BigInt(a.seniorFeeShareBps) / 10000n;
+  let cEff = a.seniorClaim + a.harvestable * BigInt(a.seniorFeeShareBps) / 10000n;
   const navH = a.nav + a.harvestable;
+  if (a.seniorDrawOutstandingAtoms !== 0n) {
+    const vBetter = navH + (a.lpEquityBetter > 0n ? a.lpEquityBetter : 0n);
+    const above = vBetter > cEff ? vBetter - cEff : 0n;
+    cEff += minB(above, a.seniorDrawOutstandingAtoms);
+  }
   if (navH < cEff && navH + a.lpValue < cEff) return { ok: false, error: "VaultLpSeniorImpaired" };
   let shares;
   if (a.totalShares === 0n) shares = a.amount;
@@ -10352,7 +10396,7 @@ function u64(d, o) {
 }
 var min = (a, b) => a < b ? a : b;
 var subSat = (a, b) => a > b ? a - b : 0n;
-var ceilDiv = (a, b) => (a + b - 1n) / b;
+var ceilDiv2 = (a, b) => (a + b - 1n) / b;
 function decodeTerminalInsuranceCapacity(marketData, assetIndex = 0) {
   if (marketData[V17_KIND_OFF] !== 1) throw new Error(`not a market account (kind ${marketData[V17_KIND_OFF]})`);
   const H = V17_MARKET_GROUP_OFF;
@@ -10371,7 +10415,7 @@ function decodeTerminalInsuranceCapacity(marketData, assetIndex = 0) {
     const L = side === "long";
     const budget = u1282(marketData, slotBase + (L ? E.insuranceDomainBudgetLong : E.insuranceDomainBudgetShort));
     const spent = u1282(marketData, slotBase + (L ? E.insuranceDomainSpentLong : E.insuranceDomainSpentShort));
-    const reservedAtoms = ceilDiv(u1282(marketData, slotBase + (L ? E.insuranceReservationLong : E.insuranceReservationShort)), ENGINE_BOUND_SCALE);
+    const reservedAtoms = ceilDiv2(u1282(marketData, slotBase + (L ? E.insuranceReservationLong : E.insuranceReservationShort)), ENGINE_BOUND_SCALE);
     const budgetRemaining = subSat(subSat(budget, spent), reservedAtoms);
     return {
       domain: assetIndex * 2 + (L ? 0 : 1),
@@ -11557,6 +11601,8 @@ export {
   ASSET_RISK_LIMITS_FIELD_OFF_P1,
   ASSET_RISK_LIMITS_LEN_P1,
   ASSET_RISK_LIMITS_SLOT_OFF_P1,
+  ASSET_STATE_EFFECTIVE_PRICE_OFF_P3,
+  ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3,
   ASSET_VAULT_LP_DRAW_LEN_P3,
   ASSET_VAULT_LP_DRAW_SLOT_OFF_P3,
   ASSET_VAULT_LP_FIELD_OFF_P3,
@@ -11663,6 +11709,7 @@ export {
   PHASE2_MATURITY_SLOTS,
   PHASE2_VOLUME_THRESHOLD,
   POSITION_NFT_STATE_LEN,
+  POS_SCALE_P3,
   PROGRAM_IDS,
   PROGRAM_IDS_V17,
   PROGRAM_ID_V17,
@@ -12128,6 +12175,7 @@ export {
   planResolvedVaultLpExitP3,
   planStakeWindDown,
   rankAdlPositions,
+  readAssetPricesP3,
   readLastThrUpdateSlot,
   readNonce,
   recoverFlushedInsuranceAccounts,
@@ -12160,6 +12208,8 @@ export {
   validateU128,
   validateU16,
   validateU64,
+  vaultLpEquityLagBoundsP3,
+  vaultLpSeniorPricingClaimP3,
   vaultPhysicalIdleBackingAtomsP3,
   vaultPotHeldAtomsP3,
   withBoundVaultLpTailP3,

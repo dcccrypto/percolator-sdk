@@ -1,5 +1,5 @@
 {
-    "p3Sha": "4b1a5d30c5282dfbaae0ac91e6e6e3a696e064ea",
+    "p3Sha": "ede691b67b0c9207af4599a86ca5a338cc6797e7",
     "vectors": {
         "initVaultLp_min": {
             "hex": "5ee803",
@@ -396,6 +396,12 @@
             "outstandingMirrorAtoms": 32,
             "pendingMovedAtoms": 48
         }
+    },
+    "assetPriceOffsets": {
+        "rawOracleTargetPriceInAssetState": 17,
+        "effectivePriceInAssetState": 25,
+        "assetStateInEngineSlot": 0,
+        "posScale": "1000000"
     },
     "assetVaultLpOffsets": {
         "marketLenCap4": 10650,

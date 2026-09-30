@@ -2,13 +2,13 @@
  * P3 vault-owned LP — account decoders, PDAs, instruction builders, the bound-vault tail for
  * Earn tags 75/77/78, and the vault-LP refresh crank. Additive to SDK 8.0.0.
  *
- * Source: percolator-prog `feat/p3-vault-owned-lp` @ `4b1a5d30c5282dfbaae0ac91e6e6e3a696e064ea` (P3 batched FINAL: senior draw `d119eebd` + recall cap + named pause code 89)
+ * Source: percolator-prog `feat/p3-vault-owned-lp` @ `ede691b67b0c9207af4599a86ca5a338cc6797e7` (P3 candidate FINAL: senior draw, recall cap, pause 89, cross-pot 77, resolved-lock fixes A–D, worse-of 75/77 pricing)
  * (`state::{VaultLpStateV18, AssetVaultLpV18, read_asset_vault_lp}`, `load_bound_vault_lp_tail`,
  * `vault_lp_refresh_snapshot`). Offsets are pinned by `test/p3.test.ts` against rustc
  * `offset_of!` on the REAL P3 structs, and the per-asset record offset against a market
  * account built by the P3 crate itself.
  *
- * Relaunch wrapper = P1 + P3 (`4b1a5d30`). On an older v18.2 market every AssetVaultLpV18
+ * Relaunch wrapper = P1 + P3 (`ede691b6`). On an older v18.2 market every AssetVaultLpV18
  * record is zero ("no vault LP bound").
  *
  * @module p3-vault-lp
@@ -108,6 +108,38 @@ export const ASSET_VAULT_LP_FIELD_OFF_P3 = Object.freeze({
 export function assetVaultLpAccountOffsetP3(assetIndex: number): number {
   if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`assetIndex must be a non-negative integer, got ${assetIndex}`);
   return V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + assetIndex * V17_MARKET_ASSET_SLOT_LEN + ASSET_VAULT_LP_SLOT_OFF_P3;
+}
+
+/** `offset_of!(AssetStateV16Account, raw_oracle_target_price)` (rustc, engine `35ddd692`). */
+export const ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3 = 17;
+/** `offset_of!(AssetStateV16Account, effective_price)` (rustc). */
+export const ASSET_STATE_EFFECTIVE_PRICE_OFF_P3 = 25;
+/** Engine `POS_SCALE` (position quantity scale). */
+export const POS_SCALE_P3 = 1_000_000n;
+/** Wrapper prefix of each asset slot (`ASSET_ORACLE_WRAPPER_LEN`); the engine `AssetStateV16Account` starts right after it. */
+const ASSET_SLOT_WRAPPER_LEN_P3 = 1024;
+
+/**
+ * Read asset `assetIndex`'s engine prices: the lagging `effective_price` and the pending oracle
+ * `raw_oracle_target_price` (the inputs of the `ede691b6` worse-of Earn pricing).
+ * @param marketData  Market (slab) account data.
+ * @param assetIndex  Asset slot index.
+ * @returns `{ effectivePriceE6, rawOracleTargetPriceE6 }`.
+ * @throws If the account is too short.
+ * @example
+ * ```ts
+ * const { effectivePriceE6, rawOracleTargetPriceE6 } = readAssetPricesP3(slab.data, 0);
+ * ```
+ */
+export function readAssetPricesP3(marketData: Uint8Array, assetIndex: number): { effectivePriceE6: bigint; rawOracleTargetPriceE6: bigint } {
+  if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`assetIndex must be a non-negative integer, got ${assetIndex}`);
+  const base = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + assetIndex * V17_MARKET_ASSET_SLOT_LEN + ASSET_SLOT_WRAPPER_LEN_P3;
+  if (marketData.length < base + ASSET_STATE_EFFECTIVE_PRICE_OFF_P3 + 8) throw new Error(`market data too short for asset ${assetIndex}`);
+  const v = new DataView(marketData.buffer, marketData.byteOffset, marketData.byteLength);
+  return {
+    rawOracleTargetPriceE6: v.getBigUint64(base + ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3, true),
+    effectivePriceE6: v.getBigUint64(base + ASSET_STATE_EFFECTIVE_PRICE_OFF_P3, true),
+  };
 }
 
 // ============================================================================
@@ -871,23 +903,102 @@ export function boundVaultNavFlooredP3(
   return { availablePrincipal, lpEarnings, nav: availablePrincipal + lpEarnings };
 }
 
+/** One active vault-LP leg for {@link vaultLpEquityLagBoundsP3}. */
+export interface VaultLpLegPricesP3 {
+  /** Signed `basis_pos_q` (positive = long); `|q|` is used (conservative upper bound). */
+  basisPosQ: bigint;
+  /** The leg's asset `effective_price` ({@link readAssetPricesP3}). */
+  effectivePriceE6: bigint;
+  /** The leg's asset `raw_oracle_target_price` ({@link readAssetPricesP3}). */
+  rawOracleTargetPriceE6: bigint;
+}
+
+const ceilDiv = (n: bigint, d: bigint): bigint => (n + d - 1n) / d;
+
+/**
+ * `vault_lp_equity_lag_bounds_ro` (percolator-prog `ede691b6`, Earn front-run fix): the vault LP's
+ * equity re-valued at the price WORSE for the vault (`worse`, prices a senior EXIT, tag 77) and at
+ * the price BETTER for it (`better`, prices a senior ENTRY, tag 75, only while a draw is
+ * outstanding), comparing each leg's lagging `effective_price` with the pending
+ * `raw_oracle_target_price`. Per active leg, q = |basis_pos_q|, ceil per side:
+ *   long:  adverse = ceil(q · max(0, eff − target) / POS_SCALE), favorable = ceil(q · max(0, target − eff) / POS_SCALE)
+ *   short: adverse = ceil(q · max(0, target − eff) / POS_SCALE), favorable = ceil(q · max(0, eff − target) / POS_SCALE)
+ *   worse = certifiedEquity − Σ adverse; better = certifiedEquity + Σ favorable.
+ * A FLAT vault LP (no legs) has no lag: both = `capital + min(pnl,0) + min(fee_credits,0)`, floored at 0.
+ * The program requires a CURRENT health certificate for a non-flat LP (else 85); this preview takes
+ * the certificate's `certifiedEquity` as given.
+ *
+ * @param a  `legs` (active legs; empty = flat), `certifiedEquity` (non-flat), and `capital`/`pnl`/`feeCredits` (flat).
+ * @returns `{ worse, better }` (signed atoms).
+ * @example
+ * ```ts
+ * const { worse } = vaultLpEquityLagBoundsP3({ legs: [{ basisPosQ: -q, ...readAssetPricesP3(slab, 0) }], certifiedEquity: eq, capital: 0n, pnl: 0n, feeCredits: 0n });
+ * ```
+ */
+export function vaultLpEquityLagBoundsP3(a: {
+  legs: VaultLpLegPricesP3[]; certifiedEquity: bigint; capital: bigint; pnl: bigint; feeCredits: bigint;
+}): { worse: bigint; better: bigint } {
+  if (a.legs.length === 0) {
+    const e = a.capital + (a.pnl < 0n ? a.pnl : 0n) + (a.feeCredits < 0n ? a.feeCredits : 0n);
+    const eq = e <= 0n ? 0n : e;
+    return { worse: eq, better: eq };
+  }
+  let adverse = 0n;
+  let favorable = 0n;
+  for (const l of a.legs) {
+    const q = l.basisPosQ < 0n ? -l.basisPosQ : l.basisPosQ;
+    const up = l.rawOracleTargetPriceE6 > l.effectivePriceE6 ? l.rawOracleTargetPriceE6 - l.effectivePriceE6 : 0n; // target above eff
+    const down = l.effectivePriceE6 > l.rawOracleTargetPriceE6 ? l.effectivePriceE6 - l.rawOracleTargetPriceE6 : 0n; // target below eff
+    const [adv, fav] = l.basisPosQ >= 0n ? [down, up] : [up, down];
+    adverse += ceilDiv(q * adv, POS_SCALE_P3);
+    favorable += ceilDiv(q * fav, POS_SCALE_P3);
+  }
+  return { worse: a.certifiedEquity - adverse, better: a.certifiedEquity + favorable };
+}
+
+/**
+ * `vault_lp_senior_pricing_claim(c, undrawn, junior_surplus)` = `c − max(0, undrawn − junior_surplus)` (saturating).
+ * @param c              Senior claim C.
+ * @param undrawn        Deficit not covered yet.
+ * @param juniorSurplus  Pot backing above C that absorbs first.
+ * @returns Pricing claim.
+ * @example
+ * ```ts
+ * vaultLpSeniorPricingClaimP3(1_000n, 300n, 100n); // 800n
+ * ```
+ */
+export function vaultLpSeniorPricingClaimP3(c: bigint, undrawn: bigint, juniorSurplus: bigint): bigint {
+  const loss = undrawn > juniorSurplus ? undrawn - juniorSurplus : 0n;
+  return c > loss ? c - loss : 0n;
+}
+
 /**
  * Senior value used by tag 77 on a bound vault (floored everywhere):
- * Resolved → `min(physicalIdleBacking, C)`; Live → `C` if `nav >= C`, else `min(nav + lpValue, C)`.
+ * Resolved → `min(physicalIdleBacking, C)`. Live (`ede691b6` worse-of): claim = C, or when
+ * `lpEquityWorse < 0` claim = `vaultLpSeniorPricingClaimP3(C, −lpEquityWorse, max(0, nav − C))`; then
+ * `claim` if `nav >= claim`, else `min(nav + min(lpValue, max(lpEquityWorse, 0)), claim)`.
+ * `lpEquityWorse` = {@link vaultLpEquityLagBoundsP3}`.worse` (ignored when resolved).
  * Live precondition (`d119eebd`): the vault LP has NO undrawn deficit; otherwise the program
  * refuses 75/77 with 87 VaultLpSeniorDrawRequired (pass the vault LP writable, or crank it).
  * @param a  `nav` (floored, {@link boundVaultNavFlooredP3}), `seniorClaim` (C), `lpValue`,
- *           `resolved`, `physicalIdleBacking` (Σ fresh_unliened_backing_num / 1e12, Resolved only).
+ *           `resolved`, `physicalIdleBacking` (Σ fresh_unliened_backing_num / 1e12, Resolved only),
+ *           `lpEquityWorse` (worse-of vault-LP equity; pass 0n when resolved).
  * @returns Senior tranche value (atoms).
  * @example
  * ```ts
- * const senior = boundVaultSeniorValueP3({ nav, seniorClaim: st.seniorClaimAtoms, lpValue, resolved: false, physicalIdleBacking: 0n });
+ * const senior = boundVaultSeniorValueP3({ nav, seniorClaim: st.seniorClaimAtoms, lpValue, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: worse });
  * ```
  */
-export function boundVaultSeniorValueP3(a: { nav: bigint; seniorClaim: bigint; lpValue: bigint; resolved: boolean; physicalIdleBacking: bigint }): bigint {
+export function boundVaultSeniorValueP3(a: { nav: bigint; seniorClaim: bigint; lpValue: bigint; resolved: boolean; physicalIdleBacking: bigint; lpEquityWorse: bigint }): bigint {
   if (a.resolved) return minB(a.physicalIdleBacking, a.seniorClaim);
-  if (a.nav >= a.seniorClaim) return a.seniorClaim;
-  return minB(a.nav + a.lpValue, a.seniorClaim);
+  // ede691b6: an exit is priced as if the pending oracle target were already effective when that is
+  // worse for the vault LP — the deficit it would realise (beyond the junior's pot surplus) comes off C.
+  const claim = a.lpEquityWorse < 0n
+    ? vaultLpSeniorPricingClaimP3(a.seniorClaim, -a.lpEquityWorse, a.nav > a.seniorClaim ? a.nav - a.seniorClaim : 0n)
+    : a.seniorClaim;
+  if (a.nav >= claim) return claim;
+  const lpWorse = a.lpEquityWorse > 0n ? a.lpEquityWorse : 0n;
+  return minB(a.nav + minB(a.lpValue, lpWorse), claim);
 }
 
 /**
@@ -921,10 +1032,21 @@ export function boundVaultRedemptionAtomsP3(shares: bigint, totalShares: bigint,
  */
 export function boundVaultDepositQuoteP3(a: {
   amount: bigint; totalShares: bigint; seniorClaim: bigint; harvestable: bigint; seniorFeeShareBps: number; nav: bigint; lpValue: bigint;
+  /** `VaultLpStateP3.seniorDrawOutstandingAtoms`; when non-zero the entry is priced better-of (ede691b6). */
+  seniorDrawOutstandingAtoms: bigint;
+  /** {@link vaultLpEquityLagBoundsP3}`.better` (used only while a draw is outstanding). */
+  lpEquityBetter: bigint;
 }): { ok: true; shares: bigint; minted: bigint; cEff: bigint } | { ok: false; error: "VaultLpHarvestPending" | "VaultLpSeniorImpaired" | "LpVaultDepositBelowMinimumLiquidity" | "LpVaultZeroSharesMinted" | "EngineInvalidConfig" } {
   if (a.totalShares === 0n && a.harvestable !== 0n) return { ok: false, error: "VaultLpHarvestPending" };
-  const cEff = a.seniorClaim + (a.harvestable * BigInt(a.seniorFeeShareBps)) / 10_000n;
+  let cEff = a.seniorClaim + (a.harvestable * BigInt(a.seniorFeeShareBps)) / 10_000n;
   const navH = a.nav + a.harvestable;
+  if (a.seniorDrawOutstandingAtoms !== 0n) {
+    // ede691b6: priced as if the pending target were effective when better for the vault LP — the
+    // recovery restores C seniors-first (vault_lp_recover: min(value above C, outstanding)).
+    const vBetter = navH + (a.lpEquityBetter > 0n ? a.lpEquityBetter : 0n);
+    const above = vBetter > cEff ? vBetter - cEff : 0n;
+    cEff += minB(above, a.seniorDrawOutstandingAtoms);
+  }
   if (navH < cEff && navH + a.lpValue < cEff) return { ok: false, error: "VaultLpSeniorImpaired" };
   let shares: bigint;
   if (a.totalShares === 0n) shares = a.amount;

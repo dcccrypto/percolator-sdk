@@ -108,6 +108,14 @@ fn main() {
         c::ASSET_VAULT_LP_OFF, state::ASSET_VAULT_LP_FLAG_BOUND, h + offset_of!(state::LpVaultRegistryV16, _reserved), j(&vs, h), j(&av, 0),
         c::ASSET_VAULT_LP_DRAW_OFF, size_of::<state::AssetVaultLpDrawV18>(), j(&dr, 0)));
 
+    // ── worse-of pricing inputs (ede691b6): engine AssetStateV16Account price fields, by rustc ──
+    out.push(format!(
+        "\"assetPriceOffsets\":{{\"rawOracleTargetPriceInAssetState\":{},\"effectivePriceInAssetState\":{},\"assetStateInEngineSlot\":{},\"posScale\":\"{}\"}}",
+        offset_of!(percolator::AssetStateV16Account, raw_oracle_target_price),
+        offset_of!(percolator::AssetStateV16Account, effective_price),
+        offset_of!(percolator::EngineAssetSlotV16Account, asset),
+        percolator::POS_SCALE));
+
     // ── per-asset account offset: plant a record where the SDK formula says, read it back with
     //    the program's own read_asset_vault_lp on a correctly-sized market buffer ──
     let cap = 4usize;

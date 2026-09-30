@@ -12,7 +12,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 v18.3 fresh-ID relaunch. The devnet wrapper moves to a new program address.
 
 **Relaunch programs (scope set 2026-09-30):**
-- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog **`4b1a5d30`** (P3 batched FINAL: senior draw `d119eebd` + D-P3-30 recall cap `39b138c8` + recall on post-fee equity `6cdd4d08` + named pause code 89; engine `35ddd692`). It supersedes `39b138c8` / `d119eebd` / `58e379f1` / `424fe7e4` / `ee29b5ac` / `b2b2559e` / `07a1d0eb`. `d119eebd` changes the P3 loss rule: losses go to the junior first, then Earn seniors pro rata, and winners are paid in full while senior backing remains (errors 87/88; wrapper-only, VERSION 18 and account sizes unchanged). Earlier: `b2b2559e` removed tag-94 path B; `07a1d0eb` added the tag-94 auto-pin, the Resolved fee harvest and C-4(b); `58e379f1` adds F-10 (the batch call extension), the F-14 family (seniors first, floored NAV) and F14-Q2 (single-asset vault markets, error 86). The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
+- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog **`ede691b6`** (P3 candidate FINAL: the `4b1a5d30` batch, plus the cross-pot 77 `221cf006`, resolved-lock fixes A–D `dfa4559b`/`8f2b4ccf`, and worse-of 75/77 pricing `ede691b6`; engine `35ddd692`). It supersedes `4b1a5d30` / `39b138c8` / `d119eebd` / `58e379f1` / `424fe7e4` / `ee29b5ac` / `b2b2559e` / `07a1d0eb`. `d119eebd` changes the P3 loss rule: losses go to the junior first, then Earn seniors pro rata, and winners are paid in full while senior backing remains (errors 87/88; wrapper-only, VERSION 18 and account sizes unchanged). Earlier: `b2b2559e` removed tag-94 path B; `07a1d0eb` added the tag-94 auto-pin, the Resolved fee harvest and C-4(b); `58e379f1` adds F-10 (the batch call extension), the F-14 family (seniors first, floored NAV) and F14-Q2 (single-asset vault markets, error 86). The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
 - Stake: the **F-9** head, percolator-stake `d13b5a9`, plus the fresh-ID bump.
 
 Everything below that targets P1 (tag 93, errors 66–71), P3 (tags 94–102, errors 72–88) or the
@@ -34,6 +34,18 @@ v18.2 instructions or account layouts changed.
   explicit `^8` bump done with the cutover. Rollback = pin `7.0.0`.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
+
+### Changed (P3 candidate FINAL `ede691b6`: worse-of Earn pricing, 2026-09-30)
+
+- **New `vaultLpEquityLagBoundsP3`**, a port of `vault_lp_equity_lag_bounds_ro`.
+  - It returns `{ worse, better }`: the vault LP's certified equity re-valued at the lagging `effective_price` vs the pending `raw_oracle_target_price`, per leg, with q = |basis_pos_q| and a ceil per side.
+  - A flat LP gives conservative equity for both.
+- **New `readAssetPricesP3`**, with `ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3` = **17** and `ASSET_STATE_EFFECTIVE_PRICE_OFF_P3` = 25 within `AssetStateV16Account`. Both are rustc `offset_of!`, pinned in the parity fixture; `asset` is at 0 in the engine slot.
+- **BREAKING (unpublished 8.0.0 API), `boundVaultSeniorValueP3`:** takes `lpEquityWorse`. A 77 exit uses claim = `vaultLpSeniorPricingClaimP3(C, −worse, max(0, nav − C))` when worse < 0, and the LP value is capped at max(worse, 0).
+- **BREAKING (unpublished 8.0.0 API), `boundVaultDepositQuoteP3`:** takes `seniorDrawOutstandingAtoms` + `lpEquityBetter`. While a draw is outstanding, a 75 entry adds `min(value above C at the better bound, outstanding)` to C_eff.
+- **New `vaultLpSeniorPricingClaimP3`.**
+- **Wire, accounts and error codes are unchanged** (the error map re-generated at `ede691b6` is identical, 90 codes).
+- **Relaunch markets need a FRESH seed:** pre-existing pots count 0 in the new vault-owned counter.
 
 ### Added (P3 senior-lock fix `221cf006`, 2026-09-30)
 
