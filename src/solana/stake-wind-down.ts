@@ -1,5 +1,7 @@
 /**
- * Stake-bound market wind-down (F-9, percolator-stake #301 `f9b9190`), additive to SDK 8.0.0.
+ * Stake-bound market wind-down (F-9, percolator-stake #301 `d13b5a9`, the relaunch stake), additive to SDK 8.0.0.
+ * The relaunch wrapper (P1+P3 `424fe7e4`) keeps the v18.2 header/slot layout these offsets read
+ * (VERSION 18, config 576, header 758, slot 2325) — the same layout d13b5a9's stake pins.
  *
  * - {@link decodeTerminalInsuranceCapacity}: the wrapper tag-41 terminal capacity for an asset's
  *   insurance authority (on a stake-bound market asset 0's authority is the pool's `vault_auth`),

@@ -1,8 +1,11 @@
 # stake-parity.json: hand-derived entries
 
 Tags **29 `RecoverTerminalInsurance`** and **30 `AdminCloseSlab`** were added by hand on
-2026-09-30. They come from percolator-stake `fix/stake-f9-terminal-insurance@f9b9190`
-(draft #301), not from a `cargo run --bin sdk_parity_fixtures`. That build was not run, to
+2026-09-30. They come from percolator-stake `fix/stake-f9-terminal-insurance`, derived at
+f9b9190 and **re-checked at d13b5a9** (the relaunch stake head), not from a
+`cargo run --bin sdk_parity_fixtures`. d13b5a9 does not change `src/instruction.rs` or any
+`StakePool` field. It only adds error 32 and layout-guard branches. So the spec is unchanged:
+errors are not part of it. That build was not run, to
 avoid a heavy cargo job during the fork rehearsals.
 
 How they were derived:

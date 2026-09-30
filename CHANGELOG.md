@@ -9,9 +9,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [8.0.0] — unreleased (do not `npm publish` without explicit human go)
 
-v18.3 fresh-ID relaunch. The devnet wrapper moves to a new program address running
-the **byte-identical v18.2 wrapper** (percolator-prog `6377376a` + engine `35ddd692`,
-sha256 `4472b3832fda…`). No instruction, account-layout or IDL/wire change.
+v18.3 fresh-ID relaunch. The devnet wrapper moves to a new program address.
+
+**Relaunch programs (scope set 2026-09-30):**
+- Wrapper: the combined **P1 + P3** head, percolator-prog `424fe7e4` (engine `35ddd692`), build sha256 `1d800faa…`.
+- Stake: the **F-9** head, percolator-stake `d13b5a9`, plus the fresh-ID bump.
+
+Everything below that targets P1 (tag 93, errors 66–71), P3 (tags 94–102, errors 72–85) or the
+F-9 stake (tags 29/30, errors 30–32) targets those relaunch programs. **Only the matcher v2 (P2)
+surface targets instructions that are not on the relaunch programs yet**, unless P2
+(percolator-match#30) ships with it. The v18.2 wire (`6377376a`) is a subset: none of the
+v18.2 instructions or account layouts changed.
 
 ### Breaking
 
@@ -39,8 +47,12 @@ sha256 `4472b3832fda…`). No instruction, account-layout or IDL/wire change.
   (`encodeMatcherCallExt` / `decodeMatcherCallExt`), MatcherReturn bits 22..31
   (`decodeMatcherRequestedFeeBps`, `MATCHER_RETURN_KNOWN_FLAGS_V2`), the ctx v2 marker
   (`isMatcherCtxV2`), and matcher errors 8002–8005 (`MATCHER_V2_ERRORS`). Tag 5 replaces
-  the unreachable tag 4 (it needed a wrapper-delegate signature). **The deployed matcher
-  `4seJWjv3@12bd671` is v1** — send tag 5 / the extension only after the matcher upgrade.
+  the unreachable tag 4 (it needed a wrapper-delegate signature). **This targets instructions
+  not on the relaunch programs yet:** the matcher `4seJWjv3@12bd671` is v1 unless P2 ships in the
+  relaunch, so send tag 5 / the extension only to a v2 matcher. **On a P3 vault-owned LP, tag 5
+  cannot be used at all**: owner-proof needs the LP owner to sign, and the vault LP's owner is
+  the LP-vault registry PDA, which nothing can sign for. Its matcher params go through wrapper
+  tag 95 only.
   `MATCHER_RETURN_KNOWN_FLAGS` is unchanged (it mirrors the deployed wrapper).
 - **Tag 44 reduce-only exit** — `buildRebalanceReduceIx`, `planReduceOnlyExit`,
   `ACCOUNTS_REBALANCE_REDUCE` (`[owner signer, market w, portfolio w]`, verified against
@@ -58,7 +70,7 @@ sha256 `4472b3832fda…`). No instruction, account-layout or IDL/wire change.
   63 hint (CreateLpVault is tag 74, not 72).
 
 - **P3 vault-owned LP** (percolator-prog `feat/p3-vault-owned-lp@424fe7e4`, stacked on P1;
-  NOT on any deployed wrapper). `src/abi/p3.ts`: `IX_TAG_P3` and encoders + account lists for
+  part of the relaunch wrapper). `src/abi/p3.ts`: `IX_TAG_P3` and encoders + account lists for
   tags 94–102 (`encodeInitVaultLpP3` … `encodeVaultLpReleaseSurplusP3`, `ACCOUNTS_*_P3`).
   `src/solana/p3-vault-lp.ts`: `decodeVaultLpStateP3`, `decodeAssetVaultLpP3` /
   `decodeAssetVaultLpRecordP3` (record at account offset `2246 + 2325·i`),
@@ -72,8 +84,8 @@ sha256 `4472b3832fda…`). No instruction, account-layout or IDL/wire change.
   The deprecated v12 `IX_TAG.InitSharedVault(94)…QueueWithdrawal(102)` / `SlashCreationDeposit(93)`
   names share these numbers (they throw); now annotated as colliding.
 
-- **Stake F-9 wind-down** (percolator-stake #301 `fix/stake-f9-terminal-insurance@f9b9190`;
-  not on the deployed stake program yet). `STAKE_IX.RecoverTerminalInsurance` (29,
+- **Stake F-9 wind-down** (percolator-stake #301 `fix/stake-f9-terminal-insurance`, the relaunch
+  stake; account lists re-checked at `d13b5a9`, unchanged from `f9b9190`). `STAKE_IX.RecoverTerminalInsurance` (29,
   `[29][amount u64]`) with `encodeStakeRecoverTerminalInsurance`,
   `recoverTerminalInsuranceAccounts` (9 accounts plus an optional stray; the caller does not
   sign) and `buildRecoverTerminalInsuranceIx`. `STAKE_IX.AdminCloseSlab` (30, `[30]`) with
@@ -90,6 +102,20 @@ sha256 `4472b3832fda…`). No instruction, account-layout or IDL/wire change.
   → tag 29 (0; 31 = done) → tag 30 until a tombstone, with a tag-84 claim in between.
   `specs/stake-parity.json` has tags 29/30 added **by hand** (see
   `specs/stake-parity.HAND-DERIVED.md`), and the stake parity test now also checks SDK → spec.
+
+- **Stake error 32 `UnsupportedWrapperLayout`** (d13b5a9). It is non-retryable: the bound
+  wrapper market is not the VERSION-18 layout the stake program pins. Tags 29 and 30 and
+  Deposit/DepositJunior (mode-0 path) can return it, and their docs say so. The relaunch
+  wrapper `424fe7e4` satisfies the pin (magic, VERSION 18, config 576, header 758, mode at
+  592 + 626).
+- **P1 tag 93 `SetAssetRiskLimits`** (relaunch wrapper `424fe7e4`): `IX_TAG_P1`,
+  `encodeSetAssetRiskLimitsP1`, which mirrors the wrapper's own encoder (41 B; the optional
+  tail `matcher_ext_mode` u8 is sent if either tail field is non-zero, then
+  `max_requested_fee_bps` u16 if it is non-zero), `ACCOUNTS_SET_ASSET_RISK_LIMITS_P1`
+  (`[upgrade authority (s), ProgramData, market (w)]`) and `buildSetAssetRiskLimitsIxP1`.
+  Also `decodeAssetRiskLimitsP1` / `decodeAssetRiskLimitsRecordP1` for `AssetRiskLimitsV17`
+  at account offset `1958 + 2325·i` (`assetRiskLimitsAccountOffsetP1`;
+  `max_requested_fee_bps` at +40). Keep `max_requested_fee_bps = 0` at relaunch.
 
 ### Fixed
 

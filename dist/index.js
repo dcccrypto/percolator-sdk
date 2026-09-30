@@ -1022,12 +1022,12 @@ async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
   if (!Number.isInteger(shardId) || shardId < 0 || shardId > 65535) {
     throw new Error(`derivePythPriceUpdateAccount: shardId must be a u16, got ${shardId}`);
   }
-  const { PublicKey: PublicKey19 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey20 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey19.findProgramAddressSync(
+  const [pda] = PublicKey20.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey19(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey20(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -2888,8 +2888,8 @@ var PERCOLATOR_ERRORS = {
     name: "AssetGenerationMismatch",
     hint: "A caller-supplied market_id / expected_market_id / asset_generation_frontier did not match the asset slot's current generation (AssetStateV16.market_id / header.next_market_id). The instruction was built against an older generation of this slot. Re-read the live values and rebuild."
   },
-  // ── P1 wrapper safety release (feat/p1-safety-release @ e74809b1) — NOT on the ──
-  // deployed v18.2 wrapper; returned only by a P1 build. Appended, ordinals 0-65 unmoved.
+  // ── P1 wrapper safety release — part of the relaunch wrapper (P1+P3 @ 424fe7e4). ──
+  // Appended, ordinals 0-65 unmoved.
   66: {
     name: "ExecPriceOutsideOracleBand",
     hint: "P1: the matcher's fill price lies outside reference \xB1 band (reference = the oracle_price_e6 the wrapper handed the matcher). limit_price == 0 now means 'any price inside the band', not any price. Retry smaller or when the quote is inside the band; a v2 matcher with EXEC_BAND clips instead."
@@ -2914,8 +2914,8 @@ var PERCOLATOR_ERRORS = {
     name: "CloseSlabFeesOutstanding",
     hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first \u2014 tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee \u2014 and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you."
   },
-  // ── P3 vault-owned LP (feat/p3-vault-owned-lp @ 424fe7e4) — NOT on the deployed v18.2 ──
-  // wrapper. Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
+  // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 424fe7e4). ──
+  // Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
   // against the P3 enum (`PercolatorError::X as u32`) in test/p3.test.ts.
   72: {
     name: "VaultLpAlreadyBound",
@@ -3837,8 +3837,92 @@ var ACCOUNTS_VAULT_LP_RELEASE_SURPLUS_RESOLVED_TAIL_P3 = [
   { name: "tokenProgram", signer: false, writable: false }
 ];
 
+// src/abi/risk-limits-p1.ts
+import { PublicKey as PublicKey6, TransactionInstruction as TransactionInstruction2 } from "@solana/web3.js";
+var IX_TAG_P1 = Object.freeze({ SetAssetRiskLimits: 93 });
+var MAX_EXEC_BAND_BPS_P1 = 1e4;
+var MAX_LP_EXPOSURE_K_BPS_P1 = 1e7;
+var MAX_OI_SIDE_Q_P1 = 100000000000000n;
+var MATCHER_EXT_MODE_V1_P1 = 1;
+var MAX_REQUESTED_FEE_BPS_P1 = 1023;
+function int2(name, v, max) {
+  if (!Number.isInteger(v) || v < 0 || v > max) throw new Error(`${name} must be an integer in 0..=${max}, got ${v}`);
+}
+function encodeSetAssetRiskLimitsP1(a) {
+  const ext = a.matcherExtMode ?? 0;
+  const fee = a.maxRequestedFeeBps ?? 0;
+  int2("assetIndex", a.assetIndex, 65535);
+  int2("execBandBps", a.execBandBps, MAX_EXEC_BAND_BPS_P1);
+  int2("lpExposureKBps", a.lpExposureKBps, MAX_LP_EXPOSURE_K_BPS_P1);
+  int2("matcherExtMode", ext, MATCHER_EXT_MODE_V1_P1);
+  int2("maxRequestedFeeBps", fee, MAX_REQUESTED_FEE_BPS_P1);
+  if (a.lpFloorAtoms < 0n || a.lpFloorAtoms > (1n << 128n) - 1n) throw new Error("lpFloorAtoms out of u128 range");
+  if (a.sideOiCapQ < 0n || a.sideOiCapQ > MAX_OI_SIDE_Q_P1) throw new Error(`sideOiCapQ must be in 0..=${MAX_OI_SIDE_Q_P1}`);
+  const parts = [
+    encU8(IX_TAG_P1.SetAssetRiskLimits),
+    encU16(a.assetIndex),
+    encU16(a.execBandBps),
+    encU32(a.lpExposureKBps),
+    encU128(a.lpFloorAtoms),
+    encU128(a.sideOiCapQ)
+  ];
+  if (ext !== 0 || fee !== 0) parts.push(encU8(ext));
+  if (fee !== 0) parts.push(encU16(fee));
+  return concatBytes(...parts);
+}
+var ACCOUNTS_SET_ASSET_RISK_LIMITS_P1 = [
+  { name: "upgradeAuthority", signer: true, writable: false },
+  { name: "programData", signer: false, writable: false },
+  { name: "market", signer: false, writable: true }
+];
+var BPF_LOADER_UPGRADEABLE = new PublicKey6("BPFLoaderUpgradeab1e11111111111111111111111");
+function buildSetAssetRiskLimitsIxP1(programId, market, upgradeAuthority, args) {
+  const [programData] = PublicKey6.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE);
+  return new TransactionInstruction2({
+    programId,
+    keys: buildAccountMetas(ACCOUNTS_SET_ASSET_RISK_LIMITS_P1, { upgradeAuthority, programData, market }),
+    data: Buffer.from(encodeSetAssetRiskLimitsP1(args))
+  });
+}
+var ASSET_RISK_LIMITS_FIELD_OFF_P1 = Object.freeze({
+  sideOiCapQ: 0,
+  lpFloorAtoms: 16,
+  lpExposureKBps: 32,
+  execBandBps: 36,
+  matcherExtMode: 38,
+  reserved0: 39,
+  maxRequestedFeeBps: 40,
+  reserved: 42
+});
+var ASSET_RISK_LIMITS_LEN_P1 = 64;
+var ASSET_RISK_LIMITS_SLOT_OFF_P1 = 608;
+function assetRiskLimitsAccountOffsetP1(assetIndex) {
+  if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`bad assetIndex ${assetIndex}`);
+  return 592 + 758 + 2325 * assetIndex + ASSET_RISK_LIMITS_SLOT_OFF_P1;
+}
+function decodeAssetRiskLimitsRecordP1(rec) {
+  if (rec.length !== ASSET_RISK_LIMITS_LEN_P1) throw new Error(`AssetRiskLimitsV17 record must be 64 bytes, got ${rec.length}`);
+  const v = new DataView(rec.buffer, rec.byteOffset, rec.byteLength);
+  const u1283 = (o) => v.getBigUint64(o + 8, true) << 64n | v.getBigUint64(o, true);
+  const F = ASSET_RISK_LIMITS_FIELD_OFF_P1;
+  return {
+    sideOiCapQ: u1283(F.sideOiCapQ),
+    lpFloorAtoms: u1283(F.lpFloorAtoms),
+    lpExposureKBps: v.getUint32(F.lpExposureKBps, true),
+    execBandBps: v.getUint16(F.execBandBps, true),
+    matcherExtMode: rec[F.matcherExtMode],
+    maxRequestedFeeBps: v.getUint16(F.maxRequestedFeeBps, true)
+  };
+}
+function decodeAssetRiskLimitsP1(marketData, assetIndex) {
+  if (marketData[10] !== 1) throw new Error(`not a market account (kind ${marketData[10]})`);
+  const off = assetRiskLimitsAccountOffsetP1(assetIndex);
+  if (marketData.length < off + ASSET_RISK_LIMITS_LEN_P1) throw new Error(`market account too short for asset ${assetIndex}`);
+  return decodeAssetRiskLimitsRecordP1(marketData.subarray(off, off + ASSET_RISK_LIMITS_LEN_P1));
+}
+
 // src/solana/slab.ts
-import { PublicKey as PublicKey6 } from "@solana/web3.js";
+import { PublicKey as PublicKey7 } from "@solana/web3.js";
 function dv(data) {
   return new DataView(data.buffer, data.byteOffset, data.byteLength);
 }
@@ -5431,7 +5515,7 @@ function parseHeader(data) {
   const version = readU32LE(data, 8);
   const bump = readU8(data, 12);
   const flags = readU8(data, 13);
-  const admin = new PublicKey6(data.subarray(16, 48));
+  const admin = new PublicKey7(data.subarray(16, 48));
   const layout = detectSlabLayout(data.length, data);
   const roff = layout ? layout.reservedOff : V0_RESERVED_OFF;
   const nonce = readU64LE(data, roff);
@@ -5454,9 +5538,9 @@ function parseConfigV12_17(data, configOff) {
     throw new Error(`Slab data too short for V12_17 config: ${data.length} < ${configOff + MIN_V12_17_BYTES}`);
   }
   const b = configOff;
-  const collateralMint = new PublicKey6(data.subarray(b + 0, b + 32));
-  const vaultPubkey = new PublicKey6(data.subarray(b + 32, b + 64));
-  const indexFeedId = new PublicKey6(data.subarray(b + 64, b + 96));
+  const collateralMint = new PublicKey7(data.subarray(b + 0, b + 32));
+  const vaultPubkey = new PublicKey7(data.subarray(b + 32, b + 64));
+  const indexFeedId = new PublicKey7(data.subarray(b + 64, b + 96));
   const maxStalenessSlots = readU64LE(data, b + 96);
   const confFilterBps = readU16LE(data, b + 104);
   const vaultAuthorityBump = readU8(data, b + 106);
@@ -5466,13 +5550,13 @@ function parseConfigV12_17(data, configOff) {
   const fundingKBps = readU64LE(data, b + 120);
   const fundingMaxPremiumBps = readI64LE(data, b + 128);
   const fundingMaxBpsPerSlot = readI64LE(data, b + 136);
-  const oracleAuthority = new PublicKey6(data.subarray(b + 144, b + 176));
+  const oracleAuthority = new PublicKey7(data.subarray(b + 144, b + 176));
   const authorityPriceE6 = readU64LE(data, b + 176);
   const authorityTimestamp = readI64LE(data, b + 184);
   const oraclePriceCapE2bps = readU64LE(data, b + 192);
   const lastEffectivePriceE6 = readU64LE(data, b + 200);
   const dexPoolBytes = data.subarray(b + 400, b + 432);
-  const dexPool = dexPoolBytes.some((x) => x !== 0) ? new PublicKey6(dexPoolBytes) : null;
+  const dexPool = dexPoolBytes.some((x) => x !== 0) ? new PublicKey7(dexPoolBytes) : null;
   return {
     collateralMint,
     vaultPubkey,
@@ -5524,9 +5608,9 @@ function parseConfigV12_19(data, configOff) {
     throw new Error(`Slab data too short for V12_19 config: ${data.length} < ${configOff + MIN_V12_19_BYTES}`);
   }
   const b = configOff;
-  const collateralMint = new PublicKey6(data.subarray(b + 0, b + 32));
-  const vaultPubkey = new PublicKey6(data.subarray(b + 32, b + 64));
-  const indexFeedId = new PublicKey6(data.subarray(b + 64, b + 96));
+  const collateralMint = new PublicKey7(data.subarray(b + 0, b + 32));
+  const vaultPubkey = new PublicKey7(data.subarray(b + 32, b + 64));
+  const indexFeedId = new PublicKey7(data.subarray(b + 64, b + 96));
   const maxStalenessSlots = readU64LE(data, b + 96);
   const confFilterBps = readU16LE(data, b + 104);
   const vaultAuthorityBump = readU8(data, b + 106);
@@ -5536,13 +5620,13 @@ function parseConfigV12_19(data, configOff) {
   const fundingKBps = readU64LE(data, b + 120);
   const fundingMaxPremiumBps = readI64LE(data, b + 128);
   const fundingMaxBpsPerSlot = readI64LE(data, b + 136);
-  const oracleAuthority = new PublicKey6(data.subarray(b + 144, b + 176));
+  const oracleAuthority = new PublicKey7(data.subarray(b + 144, b + 176));
   const authorityPriceE6 = readU64LE(data, b + 176);
   const authorityTimestamp = readI64LE(data, b + 184);
   const lastEffectivePriceE6 = readU64LE(data, b + 192);
   const oraclePriceCapE2bps = readU64LE(data, b + 216);
   const dexPoolBytes = data.subarray(b + 368, b + 400);
-  const dexPool = dexPoolBytes.some((x) => x !== 0) ? new PublicKey6(dexPoolBytes) : null;
+  const dexPool = dexPoolBytes.some((x) => x !== 0) ? new PublicKey7(dexPoolBytes) : null;
   return {
     collateralMint,
     vaultPubkey,
@@ -5606,11 +5690,11 @@ function parseConfig(data, layoutHint) {
     throw new Error(`Slab data too short for config: ${data.length} < ${minLen}`);
   }
   let off = configOff;
-  const collateralMint = new PublicKey6(data.subarray(off, off + 32));
+  const collateralMint = new PublicKey7(data.subarray(off, off + 32));
   off += 32;
-  const vaultPubkey = new PublicKey6(data.subarray(off, off + 32));
+  const vaultPubkey = new PublicKey7(data.subarray(off, off + 32));
   off += 32;
-  const indexFeedId = new PublicKey6(data.subarray(off, off + 32));
+  const indexFeedId = new PublicKey7(data.subarray(off, off + 32));
   off += 32;
   const maxStalenessSlots = readU64LE(data, off);
   off += 8;
@@ -5648,7 +5732,7 @@ function parseConfig(data, layoutHint) {
   off += 16;
   const threshMinStep = readU128LE(data, off);
   off += 16;
-  const oracleAuthority = new PublicKey6(data.subarray(off, off + 32));
+  const oracleAuthority = new PublicKey7(data.subarray(off, off + 32));
   off += 32;
   const authorityPriceE6 = readU64LE(data, off);
   off += 8;
@@ -5701,7 +5785,7 @@ function parseConfig(data, layoutHint) {
   if (configLen >= DEX_POOL_REL_OFF + 32 && data.length >= configOff + DEX_POOL_REL_OFF + 32) {
     const dexPoolBytes = data.subarray(configOff + DEX_POOL_REL_OFF, configOff + DEX_POOL_REL_OFF + 32);
     if (dexPoolBytes.some((b) => b !== 0)) {
-      dexPool = new PublicKey6(dexPoolBytes);
+      dexPool = new PublicKey7(dexPoolBytes);
     }
   }
   return {
@@ -6067,9 +6151,9 @@ function parseAccount(data, idx) {
       // removed — compute off-chain from position_basis_q / effective_pos_q
       fundingIndex: 0n,
       // replaced by per-side f_long_num/f_short_num + per-account f_snap
-      matcherProgram: new PublicKey6(data.subarray(base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1, base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1 + 32)),
-      matcherContext: new PublicKey6(data.subarray(base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1, base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1 + 32)),
-      owner: new PublicKey6(data.subarray(base + V12_17_ACCT_OWNER_OFF - d1, base + V12_17_ACCT_OWNER_OFF - d1 + 32)),
+      matcherProgram: new PublicKey7(data.subarray(base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1, base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1 + 32)),
+      matcherContext: new PublicKey7(data.subarray(base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1, base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1 + 32)),
+      owner: new PublicKey7(data.subarray(base + V12_17_ACCT_OWNER_OFF - d1, base + V12_17_ACCT_OWNER_OFF - d1 + 32)),
       feeCredits: readI128LE(data, base + V12_17_ACCT_FEE_CREDITS_OFF - d1),
       lastFeeSlot: 0n,
       // removed
@@ -6124,9 +6208,9 @@ function parseAccount(data, idx) {
       entryPrice: readU64LE(data, base + V12_15_ACCT_ENTRY_PRICE_OFF),
       fundingIndex: 0n,
       // not present in v12.15 account struct
-      matcherProgram: new PublicKey6(data.subarray(base + V12_15_ACCT_MATCHER_PROGRAM_OFF, base + V12_15_ACCT_MATCHER_PROGRAM_OFF + 32)),
-      matcherContext: new PublicKey6(data.subarray(base + V12_15_ACCT_MATCHER_CONTEXT_OFF, base + V12_15_ACCT_MATCHER_CONTEXT_OFF + 32)),
-      owner: new PublicKey6(data.subarray(base + V12_15_ACCT_OWNER_OFF, base + V12_15_ACCT_OWNER_OFF + 32)),
+      matcherProgram: new PublicKey7(data.subarray(base + V12_15_ACCT_MATCHER_PROGRAM_OFF, base + V12_15_ACCT_MATCHER_PROGRAM_OFF + 32)),
+      matcherContext: new PublicKey7(data.subarray(base + V12_15_ACCT_MATCHER_CONTEXT_OFF, base + V12_15_ACCT_MATCHER_CONTEXT_OFF + 32)),
+      owner: new PublicKey7(data.subarray(base + V12_15_ACCT_OWNER_OFF, base + V12_15_ACCT_OWNER_OFF + 32)),
       feeCredits: readI128LE(data, base + V12_15_ACCT_FEE_CREDITS_OFF),
       lastFeeSlot: 0n,
       // removed in v12.15
@@ -6177,9 +6261,9 @@ function parseAccount(data, idx) {
     entryPrice: entryPriceOff >= 0 ? readU64LE(data, base + entryPriceOff) : 0n,
     // V12_1/V12_1_EP: funding_index not present in SBF layout
     fundingIndex: isV12_1 || isV12_1EP ? fundingIndexOff >= 0 ? BigInt(readI64LE(data, base + fundingIndexOff)) : 0n : readI128LE(data, base + fundingIndexOff),
-    matcherProgram: new PublicKey6(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
-    matcherContext: new PublicKey6(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
-    owner: new PublicKey6(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
+    matcherProgram: new PublicKey7(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
+    matcherContext: new PublicKey7(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
+    owner: new PublicKey7(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
     feeCredits: readI128LE(data, base + feeCreditsOff),
     lastFeeSlot: readU64LE(data, base + lastFeeSlotOff),
     feesEarnedTotal: 0n,
@@ -6282,9 +6366,9 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
     );
   }
   const b = configOff;
-  const marketauth = new PublicKey6(data.subarray(b + 0, b + 32));
-  const collateralMint = new PublicKey6(data.subarray(b + 32, b + 64));
-  const secondaryCollateralMint = new PublicKey6(data.subarray(b + 64, b + 96));
+  const marketauth = new PublicKey7(data.subarray(b + 0, b + 32));
+  const collateralMint = new PublicKey7(data.subarray(b + 32, b + 64));
+  const secondaryCollateralMint = new PublicKey7(data.subarray(b + 64, b + 96));
   const maintenanceFeePerSlot = readU128LE(data, b + 96);
   const permissionlessMarketInitFee = readU128LE(data, b + 112);
   const tradeFeeBps = readU64LE(data, b + 128);
@@ -6318,7 +6402,7 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const ORACLE_LEG_CAP2 = 3;
   const oracleLegFeeds = [];
   for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
-    oracleLegFeeds.push(new PublicKey6(data.subarray(b + 280 + i * 32, b + 280 + (i + 1) * 32)));
+    oracleLegFeeds.push(new PublicKey7(data.subarray(b + 280 + i * 32, b + 280 + (i + 1) * 32)));
   }
   const oracleLegPricesE6 = [];
   for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
@@ -6332,7 +6416,7 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const backingTradeFeeInsuranceShareBpsLong = readU16LE(data, b + 426);
   const backingTradeFeeInsuranceShareBpsShort = readU16LE(data, b + 428);
   const feeRedirectToMarket0Bps = readU16LE(data, b + 430);
-  const protocolFeeAuthority = new PublicKey6(data.subarray(b + 432, b + 464));
+  const protocolFeeAuthority = new PublicKey7(data.subarray(b + 432, b + 464));
   const protocolFeeAccruedAtoms = readU128LE(data, b + 464);
   const protocolFeeWithdrawnAtoms = readU128LE(data, b + 480);
   const lpFeeAccruedAtoms = readU128LE(data, b + 496);
@@ -6408,7 +6492,7 @@ function parseAssetOracleProfileV17(data, profileOff) {
   const ORACLE_LEG_CAP2 = 3;
   const oracleLegFeeds = [];
   for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
-    oracleLegFeeds.push(new PublicKey6(data.subarray(b + 224 + i * 32, b + 224 + (i + 1) * 32)));
+    oracleLegFeeds.push(new PublicKey7(data.subarray(b + 224 + i * 32, b + 224 + (i + 1) * 32)));
   }
   const oracleLegPricesE6 = [];
   for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
@@ -6429,10 +6513,10 @@ function parseAssetOracleProfileV17(data, profileOff) {
     backingTradeFeeBpsShort: readU16LE(data, b + 12),
     backingTradeFeeInsuranceShareBpsLong: readU16LE(data, b + 14),
     backingTradeFeeInsuranceShareBpsShort: readU16LE(data, b + 16),
-    insuranceAuthority: new PublicKey6(data.subarray(b + 24, b + 56)),
-    insuranceOperator: new PublicKey6(data.subarray(b + 56, b + 88)),
-    backingBucketAuthority: new PublicKey6(data.subarray(b + 88, b + 120)),
-    oracleAuthority: new PublicKey6(data.subarray(b + 120, b + 152)),
+    insuranceAuthority: new PublicKey7(data.subarray(b + 24, b + 56)),
+    insuranceOperator: new PublicKey7(data.subarray(b + 56, b + 88)),
+    backingBucketAuthority: new PublicKey7(data.subarray(b + 88, b + 120)),
+    oracleAuthority: new PublicKey7(data.subarray(b + 120, b + 152)),
     maxStalenessSecs: readU64LE(data, b + 152),
     hybridSoftStaleSlots: readU64LE(data, b + 160),
     markEwmaE6: readU64LE(data, b + 168),
@@ -6445,7 +6529,7 @@ function parseAssetOracleProfileV17(data, profileOff) {
     oracleLegFeeds,
     oracleLegPricesE6,
     oracleLegPublishTimes,
-    assetAdmin: new PublicKey6(data.subarray(b + 368, b + 400)),
+    assetAdmin: new PublicKey7(data.subarray(b + 368, b + 400)),
     creatorFeeClaimableAtoms: readU64LE(data, b + 400),
     maintenanceFeeCheckpointSlot: readU64LE(data, b + 408),
     maintenanceFeePreviousRate: readU128LE(data, b + 416),
@@ -6589,10 +6673,10 @@ function parsePortfolioV17(data) {
     throw new Error(`parsePortfolioV17: data too short (${data.length} < ${MIN_PORTFOLIO_BYTES})`);
   }
   assertV17StandaloneHeader(data, "parsePortfolioV17", V17_KIND_PORTFOLIO);
-  const marketGroupId = new PublicKey6(data.subarray(PF_PROVENANCE_MARKET_GROUP_OFF, PF_PROVENANCE_MARKET_GROUP_OFF + 32));
-  const portfolioAccountId = new PublicKey6(data.subarray(PF_PROVENANCE_ACCOUNT_ID_OFF, PF_PROVENANCE_ACCOUNT_ID_OFF + 32));
-  const provenanceOwner = new PublicKey6(data.subarray(PF_PROVENANCE_OWNER_OFF, PF_PROVENANCE_OWNER_OFF + 32));
-  const owner = new PublicKey6(data.subarray(PF_OWNER_OFF, PF_OWNER_OFF + 32));
+  const marketGroupId = new PublicKey7(data.subarray(PF_PROVENANCE_MARKET_GROUP_OFF, PF_PROVENANCE_MARKET_GROUP_OFF + 32));
+  const portfolioAccountId = new PublicKey7(data.subarray(PF_PROVENANCE_ACCOUNT_ID_OFF, PF_PROVENANCE_ACCOUNT_ID_OFF + 32));
+  const provenanceOwner = new PublicKey7(data.subarray(PF_PROVENANCE_OWNER_OFF, PF_PROVENANCE_OWNER_OFF + 32));
+  const owner = new PublicKey7(data.subarray(PF_OWNER_OFF, PF_OWNER_OFF + 32));
   const capital = readU128LE(data, PF_CAPITAL_OFF);
   const pnl = readI128LE(data, PF_PNL_OFF);
   const reservedPnl = readU128LE(data, PF_RESERVED_PNL_OFF);
@@ -6651,9 +6735,9 @@ function parsePortfolioV17(data) {
       sourceLienImpairedCapitalAtRiskFeeRevenue: readU128LE(data, b + 180)
     });
   }
-  const matcherProgram = data.length >= PF_MATCHER_PROGRAM_OFF + 32 ? new PublicKey6(data.subarray(PF_MATCHER_PROGRAM_OFF, PF_MATCHER_PROGRAM_OFF + 32)) : PublicKey6.default;
-  const matcherContext = data.length >= PF_MATCHER_CONTEXT_OFF + 32 ? new PublicKey6(data.subarray(PF_MATCHER_CONTEXT_OFF, PF_MATCHER_CONTEXT_OFF + 32)) : PublicKey6.default;
-  const matcherDelegate = data.length >= PF_MATCHER_DELEGATE_OFF + 32 ? new PublicKey6(data.subarray(PF_MATCHER_DELEGATE_OFF, PF_MATCHER_DELEGATE_OFF + 32)) : PublicKey6.default;
+  const matcherProgram = data.length >= PF_MATCHER_PROGRAM_OFF + 32 ? new PublicKey7(data.subarray(PF_MATCHER_PROGRAM_OFF, PF_MATCHER_PROGRAM_OFF + 32)) : PublicKey7.default;
+  const matcherContext = data.length >= PF_MATCHER_CONTEXT_OFF + 32 ? new PublicKey7(data.subarray(PF_MATCHER_CONTEXT_OFF, PF_MATCHER_CONTEXT_OFF + 32)) : PublicKey7.default;
+  const matcherDelegate = data.length >= PF_MATCHER_DELEGATE_OFF + 32 ? new PublicKey7(data.subarray(PF_MATCHER_DELEGATE_OFF, PF_MATCHER_DELEGATE_OFF + 32)) : PublicKey7.default;
   let matcherEnabled = false;
   let matcherPositionEpoch = 0n;
   let matcherTradeFeeCapBps = 0;
@@ -6709,8 +6793,8 @@ function parseLpVaultRegistry(data) {
   assertV17StandaloneHeader(data, "parseLpVaultRegistry", V17_KIND_LP_VAULT_REGISTRY);
   const b = V17_ACCOUNT_HEADER_LEN;
   return {
-    marketGroup: new PublicKey6(data.subarray(b + 0, b + 32)),
-    lpMint: new PublicKey6(data.subarray(b + 32, b + 64)),
+    marketGroup: new PublicKey7(data.subarray(b + 0, b + 32)),
+    lpMint: new PublicKey7(data.subarray(b + 32, b + 64)),
     totalLpSharesOutstanding: readU128LE(data, b + 64),
     insuranceFeeSnapshotAtoms: readU128LE(data, b + 80),
     feeDistributionTotalAtoms: readU128LE(data, b + 96),
@@ -6735,8 +6819,8 @@ function parseLpRedemption(data) {
   assertV17StandaloneHeader(data, "parseLpRedemption", V17_KIND_LP_REDEMPTION);
   const b = V17_ACCOUNT_HEADER_LEN;
   return {
-    registry: new PublicKey6(data.subarray(b + 0, b + 32)),
-    redeemer: new PublicKey6(data.subarray(b + 32, b + 64)),
+    registry: new PublicKey7(data.subarray(b + 0, b + 32)),
+    redeemer: new PublicKey7(data.subarray(b + 32, b + 64)),
     shares: readU128LE(data, b + 64),
     requestSlot: readU64LE(data, b + 80),
     version: data[b + 88],
@@ -6760,7 +6844,7 @@ function parseAllAccounts(data) {
 }
 
 // src/solana/pda.ts
-import { PublicKey as PublicKey7 } from "@solana/web3.js";
+import { PublicKey as PublicKey8 } from "@solana/web3.js";
 var textEncoder = new TextEncoder();
 function u16LE(value) {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 65535) {
@@ -6776,15 +6860,15 @@ function u16LE(value) {
   return buf;
 }
 function deriveVaultAuthority(programId, slab) {
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [textEncoder.encode("vault"), slab.toBytes()],
     programId
   );
 }
-var ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey7(
+var ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey8(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 );
-var PERCOLATOR_VAULT_TOKEN_PROGRAM_ID = new PublicKey7(
+var PERCOLATOR_VAULT_TOKEN_PROGRAM_ID = new PublicKey8(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 );
 function deriveCanonicalVault(programId, market, mint) {
@@ -6792,7 +6876,7 @@ function deriveCanonicalVault(programId, market, mint) {
   return deriveCanonicalVaultForAuthority(vaultAuthority, mint);
 }
 function deriveCanonicalVaultForAuthority(vaultAuthority, mint) {
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [
       vaultAuthority.toBytes(),
       PERCOLATOR_VAULT_TOKEN_PROGRAM_ID.toBytes(),
@@ -6816,7 +6900,7 @@ function deriveMarketVaultAccounts(programId, market, mint) {
   };
 }
 function deriveInsuranceLpMint(programId, slab) {
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [textEncoder.encode("lp_vault_mint"), slab.toBytes()],
     programId
   );
@@ -6830,38 +6914,38 @@ function deriveLpPda(programId, slab, lpIdx) {
   }
   const idxBuf = new Uint8Array(2);
   new DataView(idxBuf.buffer).setUint16(0, lpIdx, true);
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [textEncoder.encode("lp"), slab.toBytes(), idxBuf],
     programId
   );
 }
-var PUMPSWAP_PROGRAM_ID = new PublicKey7(
+var PUMPSWAP_PROGRAM_ID = new PublicKey8(
   "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 );
-var RAYDIUM_CLMM_PROGRAM_ID = new PublicKey7(
+var RAYDIUM_CLMM_PROGRAM_ID = new PublicKey8(
   "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
 );
-var METEORA_DLMM_PROGRAM_ID = new PublicKey7(
+var METEORA_DLMM_PROGRAM_ID = new PublicKey8(
   "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
 );
-var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey7(
+var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey8(
   "pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT"
 );
 var CREATOR_LOCK_SEED = "creator_lock";
 function deriveCreatorLockPda(programId, slab) {
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [textEncoder.encode(CREATOR_LOCK_SEED), slab.toBytes()],
     programId
   );
 }
 function deriveLpVaultRegistry(programId, marketGroup) {
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [textEncoder.encode("lp_vault"), marketGroup.toBytes()],
     programId
   );
 }
 function deriveLpRedemption(programId, registry, redeemer) {
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [
       textEncoder.encode("lp_redemption"),
       registry.toBytes(),
@@ -6871,7 +6955,7 @@ function deriveLpRedemption(programId, registry, redeemer) {
   );
 }
 function deriveLpBackingLedger(programId, marketGroup, domainIdx) {
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [
       textEncoder.encode("lp_backing_ledger"),
       marketGroup.toBytes(),
@@ -6881,19 +6965,19 @@ function deriveLpBackingLedger(programId, marketGroup, domainIdx) {
   );
 }
 function deriveLpEscrow(programId, marketGroup) {
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [textEncoder.encode("lp_escrow"), marketGroup.toBytes()],
     programId
   );
 }
 function deriveNftRegistry(programId, marketGroup) {
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [textEncoder.encode("nft_registry"), marketGroup.toBytes()],
     programId
   );
 }
 function deriveMatcherDelegate(programId, market, accountB, accountBOwner, matcherProg, matcherCtx) {
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [
       textEncoder.encode("matcher"),
       market.toBytes(),
@@ -6925,7 +7009,7 @@ function derivePythPushOraclePDA(feedIdHex) {
     feedId[i] = parseInt(normalized.substring(i * 2, i * 2 + 2), 16);
   }
   const shardBuf = new Uint8Array(2);
-  return PublicKey7.findProgramAddressSync(
+  return PublicKey8.findProgramAddressSync(
     [shardBuf, feedId],
     PYTH_PUSH_ORACLE_PROGRAM_ID
   );
@@ -6949,10 +7033,10 @@ async function fetchTokenAccount(connection, address, tokenProgramId = TOKEN_PRO
 }
 
 // src/solana/discovery.ts
-import { PublicKey as PublicKey9 } from "@solana/web3.js";
+import { PublicKey as PublicKey10 } from "@solana/web3.js";
 
 // src/solana/static-markets.ts
-import { PublicKey as PublicKey8 } from "@solana/web3.js";
+import { PublicKey as PublicKey9 } from "@solana/web3.js";
 var MAINNET_MARKETS = [
   { slabAddress: "7psyeWRts4pRX2cyAWD1NH87bR9ugXP7pe6ARgfG79Do", symbol: "SOL-PERP", name: "SOL/USDC Perpetual" }
 ];
@@ -6988,7 +7072,7 @@ function registerStaticMarkets(network, entries) {
     if (!entry.slabAddress) continue;
     if (seen.has(entry.slabAddress)) continue;
     try {
-      new PublicKey8(entry.slabAddress);
+      new PublicKey9(entry.slabAddress);
     } catch {
       console.warn(
         `[registerStaticMarkets] Skipping invalid slabAddress: ${entry.slabAddress}`
@@ -7628,7 +7712,7 @@ async function discoverMarketsViaApi(connection, programId, apiBaseUrl, options 
   for (const entry of apiMarkets) {
     if (!entry.slab_address || typeof entry.slab_address !== "string") continue;
     try {
-      addresses.push(new PublicKey9(entry.slab_address));
+      addresses.push(new PublicKey10(entry.slab_address));
     } catch {
       console.warn(
         `[discoverMarketsViaApi] Skipping invalid slab address: ${entry.slab_address}`
@@ -7650,7 +7734,7 @@ async function discoverMarketsViaStaticBundle(connection, programId, entries, op
   for (const entry of entries) {
     if (!entry.slabAddress || typeof entry.slabAddress !== "string") continue;
     try {
-      addresses.push(new PublicKey9(entry.slabAddress));
+      addresses.push(new PublicKey10(entry.slabAddress));
     } catch {
       console.warn(
         `[discoverMarketsViaStaticBundle] Skipping invalid slab address: ${entry.slabAddress}`
@@ -7668,7 +7752,7 @@ async function discoverMarketsViaStaticBundle(connection, programId, entries, op
 }
 
 // src/solana/dex-oracle.ts
-import { PublicKey as PublicKey10 } from "@solana/web3.js";
+import { PublicKey as PublicKey11 } from "@solana/web3.js";
 function detectDexType(ownerProgramId) {
   if (ownerProgramId.equals(PUMPSWAP_PROGRAM_ID)) return "pumpswap";
   if (ownerProgramId.equals(RAYDIUM_CLMM_PROGRAM_ID)) return "raydium-clmm";
@@ -7715,7 +7799,7 @@ async function fetchMintDecimals(connection, mint) {
   }
   return info.data[SPL_MINT_DECIMALS_OFFSET];
 }
-var WSOL_MINT = new PublicKey10("So11111111111111111111111111111111111111112");
+var WSOL_MINT = new PublicKey11("So11111111111111111111111111111111111111112");
 var PUMPSWAP_MIN_LEN = 203;
 function parsePumpSwapPool(poolAddress, data) {
   if (data.length < PUMPSWAP_MIN_LEN) {
@@ -7724,10 +7808,10 @@ function parsePumpSwapPool(poolAddress, data) {
   return {
     dexType: "pumpswap",
     poolAddress,
-    baseMint: new PublicKey10(data.slice(43, 75)),
-    quoteMint: new PublicKey10(data.slice(75, 107)),
-    baseVault: new PublicKey10(data.slice(139, 171)),
-    quoteVault: new PublicKey10(data.slice(171, 203))
+    baseMint: new PublicKey11(data.slice(43, 75)),
+    quoteMint: new PublicKey11(data.slice(75, 107)),
+    baseVault: new PublicKey11(data.slice(139, 171)),
+    quoteVault: new PublicKey11(data.slice(171, 203))
   };
 }
 var SPL_TOKEN_AMOUNT_MIN_LEN = 72;
@@ -7755,7 +7839,7 @@ function computePumpSwapPriceE6(poolData, vaultData, decimals, solPriceE6) {
   const baseScale = 10n ** BigInt(decimals.base);
   const quoteScale = 10n ** BigInt(decimals.quote);
   const quotePerBaseE6 = quoteAmount * baseScale * 1000000n / (quoteScale * baseAmount);
-  const quoteMint = new PublicKey10(poolData.slice(75, 107));
+  const quoteMint = new PublicKey11(poolData.slice(75, 107));
   if (quoteMint.equals(WSOL_MINT)) {
     if (solPriceE6 === void 0) {
       throw new Error(
@@ -7774,8 +7858,8 @@ function parseRaydiumClmmPool(poolAddress, data) {
   return {
     dexType: "raydium-clmm",
     poolAddress,
-    baseMint: new PublicKey10(data.slice(73, 105)),
-    quoteMint: new PublicKey10(data.slice(105, 137))
+    baseMint: new PublicKey11(data.slice(73, 105)),
+    quoteMint: new PublicKey11(data.slice(105, 137))
   };
 }
 var MAX_TOKEN_DECIMALS = 24;
@@ -7821,8 +7905,8 @@ function parseMeteoraPool(poolAddress, data) {
   return {
     dexType: "meteora-dlmm",
     poolAddress,
-    baseMint: new PublicKey10(data.slice(88, 120)),
-    quoteMint: new PublicKey10(data.slice(120, 152))
+    baseMint: new PublicKey11(data.slice(88, 120)),
+    quoteMint: new PublicKey11(data.slice(120, 152))
   };
 }
 var MAX_BIN_STEP = 1e4;
@@ -7965,9 +8049,9 @@ function isValidChainlinkOracle(data) {
 }
 
 // src/solana/token-program.ts
-import { PublicKey as PublicKey11 } from "@solana/web3.js";
+import { PublicKey as PublicKey12 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID3 } from "@solana/spl-token";
-var TOKEN_2022_PROGRAM_ID = new PublicKey11(
+var TOKEN_2022_PROGRAM_ID = new PublicKey12(
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 );
 async function detectTokenProgram(connection, mint) {
@@ -7987,7 +8071,7 @@ function isStandardToken(tokenProgramId) {
 }
 
 // src/solana/stake.ts
-import { PublicKey as PublicKey12, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
+import { PublicKey as PublicKey13, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4, TOKEN_2022_PROGRAM_ID as TOKEN_2022_PROGRAM_ID2 } from "@solana/spl-token";
 var STAKE_PROGRAM_IDS = {
   devnet: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3",
@@ -8007,7 +8091,7 @@ function getStakeProgramId(network) {
       console.warn(
         `[percolator-sdk] STAKE_PROGRAM_ID env override active: ${override}`
       );
-      return new PublicKey12(override);
+      return new PublicKey13(override);
     }
   }
   const detectedNetwork = network ?? (() => {
@@ -8024,9 +8108,9 @@ function getStakeProgramId(network) {
       `Stake program not deployed on ${detectedNetwork}. Set STAKE_PROGRAM_ID env var or wait for DevOps to deploy and update STAKE_PROGRAM_IDS.mainnet.`
     );
   }
-  return new PublicKey12(id);
+  return new PublicKey13(id);
 }
-var STAKE_PROGRAM_ID = new PublicKey12(STAKE_PROGRAM_IDS.devnet);
+var STAKE_PROGRAM_ID = new PublicKey13(STAKE_PROGRAM_IDS.devnet);
 var STAKE_IX = {
   InitPool: 0,
   Deposit: 1,
@@ -8308,7 +8392,7 @@ var STAKE_IX = {
    */
   AdminUpdateTradeFeePolicy: 28,
   /**
-   * RecoverTerminalInsurance (F-9, percolator-stake #301 `f9b9190`). PERMISSIONLESS:
+   * RecoverTerminalInsurance (F-9, percolator-stake #301 `d13b5a9`). PERMISSIONLESS:
    * returns a stake-bound market's insurance budget to stakers once the wrapper
    * market is Resolved (or a CloseSlab tombstone). CPIs wrapper tag 41 with
    * `vault_auth` as authority and `pool.vault` as the only destination, sweeps an
@@ -8317,8 +8401,8 @@ var STAKE_IX = {
    * Wire: tag(1) + amount(u64) = 9 bytes. `amount` = 0 books/sweeps only (also
    * valid after CloseSlab). Accounts: {@link recoverTerminalInsuranceAccounts}.
    * Errors: 30 MarketNotTerminal, 31 NothingToRecover (treat as done), wrapper 21
-   * (over capacity / cooldown / portfolios remain — retry later), 15 CpiFailed.
-   * NOT on the deployed stake program until #301 ships.
+   * (over capacity / cooldown / portfolios remain — retry later), 15 CpiFailed,
+   * 32 UnsupportedWrapperLayout (non-retryable). Relaunch stake: F-9 head `d13b5a9`.
    */
   RecoverTerminalInsurance: 29,
   /**
@@ -8329,8 +8413,8 @@ var STAKE_IX = {
    * a Resolved market (30 MarketNotTerminal). On a P1 wrapper it may return Ok
    * WITHOUT closing — repeat until the market is a tombstone.
    *
-   * Wire: tag(1) = 1 byte. Accounts: {@link adminCloseSlabAccounts}.
-   * NOT on the deployed stake program until #301 ships.
+   * Wire: tag(1) = 1 byte. Accounts: {@link adminCloseSlabAccounts}. Also returns
+   * 32 UnsupportedWrapperLayout (non-retryable). Relaunch stake: F-9 head `d13b5a9`.
    */
   AdminCloseSlab: 30
 };
@@ -8367,24 +8451,25 @@ var STAKE_ERRORS = {
   28: "Deposit below minimum liquidity \u2014 the pool's first-ever deposit must exceed MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening); deposit a larger amount",
   29: "No real LP holders \u2014 AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (total_lp_supply <= MINIMUM_LIQUIDITY). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard).",
   30: "Market not terminal (F-9) \u2014 RecoverTerminalInsurance (tag 29) needs the wrapper market Resolved or a CloseSlab tombstone, and a non-zero amount needs Resolved (not Closed); AdminCloseSlab (tag 30) needs Resolved. While Live, use RecoverFlushedInsurance (tag 23)",
+  32: "Unsupported wrapper layout (F-9, NOT retryable) \u2014 the bound wrapper market account is not the layout this stake program pins (magic, VERSION 18, kind, minimum length, a known mode byte), so its engine mode cannot be trusted. RecoverTerminalInsurance (29), AdminCloseSlab (30) and the mode-0 Deposit/DepositJunior path refuse. A wrapper layout bump needs a coordinated stake upgrade; retrying will not help",
   31: "Nothing to recover (F-9) \u2014 RecoverTerminalInsurance moved no tokens and booked nothing (amount 0, no stray account, no unbooked vault surplus). Keepers should treat this as done"
 };
 Object.freeze(STAKE_ERRORS);
 var TEXT2 = new TextEncoder();
 function deriveStakePool(slab, programId) {
-  return PublicKey12.findProgramAddressSync(
+  return PublicKey13.findProgramAddressSync(
     [TEXT2.encode("stake_pool"), slab.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
 function deriveStakeVaultAuth(pool, programId) {
-  return PublicKey12.findProgramAddressSync(
+  return PublicKey13.findProgramAddressSync(
     [TEXT2.encode("vault_auth"), pool.toBytes()],
     programId ?? getStakeProgramId()
   );
 }
 function deriveDepositPda(pool, user, programId) {
-  return PublicKey12.findProgramAddressSync(
+  return PublicKey13.findProgramAddressSync(
     [TEXT2.encode("stake_deposit"), pool.toBytes(), user.toBytes()],
     programId ?? getStakeProgramId()
   );
@@ -8718,15 +8803,15 @@ function decodeStakePool(data) {
   const adminTransferred = bytes[off] === 1;
   off += 1;
   off += 4;
-  const slab = new PublicKey12(bytes.subarray(off, off + 32));
+  const slab = new PublicKey13(bytes.subarray(off, off + 32));
   off += 32;
-  const admin = new PublicKey12(bytes.subarray(off, off + 32));
+  const admin = new PublicKey13(bytes.subarray(off, off + 32));
   off += 32;
-  const collateralMint = new PublicKey12(bytes.subarray(off, off + 32));
+  const collateralMint = new PublicKey13(bytes.subarray(off, off + 32));
   off += 32;
-  const lpMint = new PublicKey12(bytes.subarray(off, off + 32));
+  const lpMint = new PublicKey13(bytes.subarray(off, off + 32));
   off += 32;
-  const vault = new PublicKey12(bytes.subarray(off, off + 32));
+  const vault = new PublicKey13(bytes.subarray(off, off + 32));
   off += 32;
   const totalDeposited = readU64LE4(bytes, off);
   off += 8;
@@ -8742,7 +8827,7 @@ function decodeStakePool(data) {
   off += 8;
   const totalWithdrawn = readU64LE4(bytes, off);
   off += 8;
-  const percolatorProgram = new PublicKey12(bytes.subarray(off, off + 32));
+  const percolatorProgram = new PublicKey13(bytes.subarray(off, off + 32));
   off += 32;
   const totalFeesEarned = readU64LE4(bytes, off);
   off += 8;
@@ -8757,7 +8842,7 @@ function decodeStakePool(data) {
   if (isV2 || isV3 || isV4) {
     const pendingAdminBytes = bytes.subarray(off, off + 32);
     off += 32;
-    pendingAdmin = pendingAdminBytes.every((b) => b === 0) ? null : new PublicKey12(pendingAdminBytes);
+    pendingAdmin = pendingAdminBytes.every((b) => b === 0) ? null : new PublicKey13(pendingAdminBytes);
   }
   const reservedStart = off;
   const marketResolved = bytes[reservedStart + 9] === 1;
@@ -8828,8 +8913,8 @@ function decodeDepositPda(data) {
   return {
     isInitialized: data[0] === 1,
     bump: data[1],
-    pool: new PublicKey12(data.subarray(8, 40)),
-    user: new PublicKey12(data.subarray(40, 72)),
+    pool: new PublicKey13(data.subarray(8, 40)),
+    user: new PublicKey13(data.subarray(40, 72)),
     lastDepositSlot: readU64LE4(data, 72),
     lpAmount: readU64LE4(data, 80)
   };
@@ -9695,7 +9780,7 @@ var _internal = {
 };
 
 // src/solana/market-lifecycle.ts
-import { TransactionInstruction as TransactionInstruction2 } from "@solana/web3.js";
+import { TransactionInstruction as TransactionInstruction3 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID5 } from "@solana/spl-token";
 var ACCOUNTS_REBALANCE_REDUCE = [
   { name: "owner", signer: true, writable: false },
@@ -9704,7 +9789,7 @@ var ACCOUNTS_REBALANCE_REDUCE = [
 ];
 function buildRebalanceReduceIx(a) {
   if (a.reduceQ <= 0n) throw new Error("buildRebalanceReduceIx: reduceQ must be > 0");
-  return new TransactionInstruction2({
+  return new TransactionInstruction3({
     programId: a.programId,
     keys: buildAccountMetas(ACCOUNTS_REBALANCE_REDUCE, { owner: a.owner, market: a.market, portfolio: a.portfolio }),
     data: Buffer.from(
@@ -9738,7 +9823,7 @@ function planCloseSlabAttempt(a) {
   const [vaultAuthority] = deriveVaultAuthority(a.programId, a.market);
   const ixs = [];
   if (a.protocolFee && a.protocolFee.owed > 0n) {
-    ixs.push(new TransactionInstruction2({
+    ixs.push(new TransactionInstruction3({
       programId: a.programId,
       keys: buildAccountMetas(ACCOUNTS_WITHDRAW_PROTOCOL_FEE, {
         authority: a.protocolFee.authority,
@@ -9761,13 +9846,13 @@ function planCloseSlabAttempt(a) {
       tokenProgram
     });
     if (a.insuranceRecredit.ledger) keys.push({ pubkey: a.insuranceRecredit.ledger, isSigner: false, isWritable: true });
-    ixs.push(new TransactionInstruction2({
+    ixs.push(new TransactionInstruction3({
       programId: a.programId,
       keys,
       data: Buffer.from(encodeWithdrawInsurance({ amount: a.insuranceRecredit.amount }))
     }));
   }
-  ixs.push(new TransactionInstruction2({
+  ixs.push(new TransactionInstruction3({
     programId: a.programId,
     keys: buildAccountMetas(ACCOUNTS_CLOSE_SLAB, {
       dest: a.closer,
@@ -9783,7 +9868,7 @@ function planCloseSlabAttempt(a) {
 }
 
 // src/solana/p3-vault-lp.ts
-import { PublicKey as PublicKey14, SystemProgram as SystemProgram3, TransactionInstruction as TransactionInstruction3 } from "@solana/web3.js";
+import { PublicKey as PublicKey15, SystemProgram as SystemProgram3, TransactionInstruction as TransactionInstruction4 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID6 } from "@solana/spl-token";
 var V18_KIND_VAULT_LP_STATE_P3 = 9;
 var VAULT_LP_STATE_BODY_LEN_P3 = 256;
@@ -9836,7 +9921,7 @@ function i128(v, o) {
   return x >= 1n << 127n ? x - (1n << 128n) : x;
 }
 function key(d, o) {
-  return new PublicKey14(d.subarray(o, o + 32));
+  return new PublicKey15(d.subarray(o, o + 32));
 }
 function decodeVaultLpStateP3(data) {
   if (data.length < VAULT_LP_STATE_ACCOUNT_LEN_P3) throw new Error(`VaultLpStateV18: need ${VAULT_LP_STATE_ACCOUNT_LEN_P3} bytes, got ${data.length}`);
@@ -9902,11 +9987,11 @@ function isLpVaultRegistryBoundP3(registryData) {
   return b === 1;
 }
 function deriveVaultLpStateP3(programId, market) {
-  return PublicKey14.findProgramAddressSync([new TextEncoder().encode("vault_lp"), market.toBytes()], programId);
+  return PublicKey15.findProgramAddressSync([new TextEncoder().encode("vault_lp"), market.toBytes()], programId);
 }
-var BPF_LOADER_UPGRADEABLE_ID_P3 = new PublicKey14("BPFLoaderUpgradeab1e11111111111111111111111");
+var BPF_LOADER_UPGRADEABLE_ID_P3 = new PublicKey15("BPFLoaderUpgradeab1e11111111111111111111111");
 function deriveProgramDataAddressP3(programId) {
-  return PublicKey14.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3);
+  return PublicKey15.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3);
 }
 function ledgers(programId, market, registryDomain) {
   return {
@@ -9915,7 +10000,7 @@ function ledgers(programId, market, registryDomain) {
   };
 }
 function ix(programId, spec, keys, data, extra = []) {
-  return new TransactionInstruction3({ programId, keys: [...buildAccountMetas(spec, keys), ...extra], data: Buffer.from(data) });
+  return new TransactionInstruction4({ programId, keys: [...buildAccountMetas(spec, keys), ...extra], data: Buffer.from(data) });
 }
 function buildInitVaultLpIxP3(m, authority, juniorFloorBps, juniorOwner) {
   const extra = juniorOwner ? buildAccountMetas(ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3, { programData: deriveProgramDataAddressP3(m.programId)[0], juniorOwner }) : [];
@@ -10033,12 +10118,12 @@ function withBoundVaultLpTailP3(base, vaultLpState, lpPortfolio) {
   if (base.keys.length !== want) throw new Error(`withBoundVaultLpTailP3: tag ${tag} must have exactly ${want} base accounts, got ${base.keys.length}`);
   const tail = [{ pubkey: vaultLpState, isSigner: false, isWritable: true }];
   if (tag !== 78) tail.push({ pubkey: lpPortfolio, isSigner: false, isWritable: false });
-  return new TransactionInstruction3({ programId: base.programId, keys: [...base.keys, ...tail], data: base.data });
+  return new TransactionInstruction4({ programId: base.programId, keys: [...base.keys, ...tail], data: base.data });
 }
 function buildVaultLpRefreshCrankIxP3(a) {
   const want = a.observations.reduce((s, o) => s + o.oracleAccounts, 0);
   if (want !== a.oracleAccounts.length) throw new Error(`observations name ${want} oracle accounts, got ${a.oracleAccounts.length}`);
-  return new TransactionInstruction3({
+  return new TransactionInstruction4({
     programId: a.programId,
     keys: [
       { pubkey: a.cranker, isSigner: true, isWritable: true },
@@ -10051,7 +10136,7 @@ function buildVaultLpRefreshCrankIxP3(a) {
 }
 
 // src/solana/stake-wind-down.ts
-import { TransactionInstruction as TransactionInstruction4 } from "@solana/web3.js";
+import { TransactionInstruction as TransactionInstruction5 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID7 } from "@solana/spl-token";
 var MARKET_GROUP_HEADER_OFF_V18 = Object.freeze({
   vault: 285,
@@ -10133,14 +10218,14 @@ function decodeTerminalInsuranceCapacity(marketData, assetIndex = 0) {
   };
 }
 function buildRecoverTerminalInsuranceIx(a, amount) {
-  return new TransactionInstruction4({
+  return new TransactionInstruction5({
     programId: a.stakeProgram,
     keys: recoverTerminalInsuranceAccounts(a),
     data: Buffer.from(encodeStakeRecoverTerminalInsurance(amount))
   });
 }
 function buildAdminCloseSlabIx(a) {
-  return new TransactionInstruction4({
+  return new TransactionInstruction5({
     programId: a.stakeProgram,
     keys: adminCloseSlabAccounts(a),
     data: Buffer.from(encodeStakeAdminCloseSlab())
@@ -10177,7 +10262,7 @@ function planStakeWindDown(a) {
     ix: buildRecoverTerminalInsuranceIx({ ...base, stray: a.stray }, 0n),
     onCustomError: Object.freeze({ 31: "done" })
   });
-  const claim = a.protocolFee ? new TransactionInstruction4({
+  const claim = a.protocolFee ? new TransactionInstruction5({
     programId: a.wrapperProgram,
     keys: buildAccountMetas(ACCOUNTS_WITHDRAW_PROTOCOL_FEE, {
       authority: a.protocolFee.authority,
@@ -10212,7 +10297,7 @@ function planStakeWindDown(a) {
 
 // src/runtime/tx.ts
 import {
-  TransactionInstruction as TransactionInstruction5,
+  TransactionInstruction as TransactionInstruction6,
   Transaction,
   ComputeBudgetProgram
 } from "@solana/web3.js";
@@ -10242,7 +10327,7 @@ function meetsCommitment(observed, required) {
   return CONFIRMATION_RANK[observed] >= requiredConfirmationRank(required);
 }
 function buildIx(params) {
-  return new TransactionInstruction5({
+  return new TransactionInstruction6({
     programId: params.programId,
     keys: params.keys,
     // TransactionInstruction types expect Buffer, but Uint8Array works at runtime.
@@ -10467,8 +10552,8 @@ function formatResult(result, jsonMode) {
 }
 
 // src/runtime/lighthouse.ts
-import { PublicKey as PublicKey17, Transaction as Transaction2 } from "@solana/web3.js";
-var LIGHTHOUSE_PROGRAM_ID = new PublicKey17(
+import { PublicKey as PublicKey18, Transaction as Transaction2 } from "@solana/web3.js";
+var LIGHTHOUSE_PROGRAM_ID = new PublicKey18(
   "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"
 );
 var LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
@@ -10735,7 +10820,7 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey18 } from "@solana/web3.js";
+import { PublicKey as PublicKey19 } from "@solana/web3.js";
 var U16_MAX3 = 65535;
 var U64_MAX2 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
@@ -10776,7 +10861,7 @@ function safeBigInt(val, caller) {
 }
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey18(value);
+    return new PublicKey19(value);
   } catch {
     throw new ValidationError(
       field,
@@ -11234,6 +11319,7 @@ export {
   ACCOUNTS_RESOLVE_PERMISSIONLESS,
   ACCOUNTS_RESTART_ASSET_ORACLE,
   ACCOUNTS_SETTLE_ACCOUNT,
+  ACCOUNTS_SET_ASSET_RISK_LIMITS_P1,
   ACCOUNTS_SET_DEX_POOL,
   ACCOUNTS_SET_DISPUTE_PARAMS,
   ACCOUNTS_SET_INSURANCE_ISOLATION,
@@ -11285,6 +11371,9 @@ export {
   ACCOUNTS_WITHDRAW_LP_COLLATERAL,
   ACCOUNTS_WITHDRAW_PROTOCOL_FEE,
   ASSET_AUTH_KIND,
+  ASSET_RISK_LIMITS_FIELD_OFF_P1,
+  ASSET_RISK_LIMITS_LEN_P1,
+  ASSET_RISK_LIMITS_SLOT_OFF_P1,
   ASSET_VAULT_LP_FIELD_OFF_P3,
   ASSET_VAULT_LP_FLAG_BOUND_P3,
   ASSET_VAULT_LP_LEN_P3,
@@ -11315,6 +11404,7 @@ export {
   INIT_CTX_LEN,
   INIT_MATCHER_CTX_V17_LEN,
   IX_TAG,
+  IX_TAG_P1,
   IX_TAG_P3,
   LIGHTHOUSE_CONSTRAINT_ADDRESS,
   LIGHTHOUSE_ERROR_CODES,
@@ -11340,6 +11430,7 @@ export {
   MATCHER_CONFIGURE_OP_SET_PARAMS,
   MATCHER_CONFIGURE_TAG,
   MATCHER_CONTEXT_LEN,
+  MATCHER_EXT_MODE_V1_P1,
   MATCHER_KIND,
   MATCHER_MAGIC,
   MATCHER_REQUESTED_FEE_BPS_MAX,
@@ -11363,7 +11454,11 @@ export {
   MATCHER_V2_MAX_IMPACT_K_BPS,
   MAX_BACKING_BUCKET_EXPIRY_SLOT,
   MAX_DECIMALS,
+  MAX_EXEC_BAND_BPS_P1,
   MAX_INSURANCE_WITHDRAW_COOLDOWN_SLOTS,
+  MAX_LP_EXPOSURE_K_BPS_P1,
+  MAX_OI_SIDE_Q_P1,
+  MAX_REQUESTED_FEE_BPS_P1,
   METEORA_DLMM_PROGRAM_ID,
   NFT_IX_TAG,
   NFT_PROGRAM_ID,
@@ -11473,6 +11568,7 @@ export {
   adminUpdateFeeSplitAccounts,
   adminUpdateMaintenanceFeePerSlotAccounts,
   adminUpdateTradeFeePolicyAccounts,
+  assetRiskLimitsAccountOffsetP1,
   assetVaultLpAccountOffsetP3,
   backingBucketStatusName,
   bindInsuranceAuthorityAccounts,
@@ -11488,6 +11584,7 @@ export {
   buildNftAccountMetas,
   buildRebalanceReduceIx,
   buildRecoverTerminalInsuranceIx,
+  buildSetAssetRiskLimitsIxP1,
   buildSetVaultLpRiskIxP3,
   buildVaultLpConvertPnlIxP3,
   buildVaultLpRecallIxP3,
@@ -11523,6 +11620,8 @@ export {
   computeWarmupUnlockedCapital,
   concatBytes,
   countLighthouseInstructions,
+  decodeAssetRiskLimitsP1,
+  decodeAssetRiskLimitsRecordP1,
   decodeAssetVaultLpP3,
   decodeAssetVaultLpRecordP3,
   decodeDepositPda,
@@ -11659,6 +11758,7 @@ export {
   encodeResolveMarket,
   encodeResolvePermissionless,
   encodeRestartAssetOracle,
+  encodeSetAssetRiskLimitsP1,
   encodeSetDexPool,
   encodeSetDisputeParams,
   encodeSetInsuranceIsolation,

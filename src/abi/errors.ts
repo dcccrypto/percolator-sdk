@@ -364,8 +364,8 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     hint: "A caller-supplied market_id / expected_market_id / asset_generation_frontier did not match the asset slot's current generation (AssetStateV16.market_id / header.next_market_id). The instruction was built against an older generation of this slot. Re-read the live values and rebuild.",
   },
 
-  // ── P1 wrapper safety release (feat/p1-safety-release @ e74809b1) — NOT on the ──
-  // deployed v18.2 wrapper; returned only by a P1 build. Appended, ordinals 0-65 unmoved.
+  // ── P1 wrapper safety release — part of the relaunch wrapper (P1+P3 @ 424fe7e4). ──
+  // Appended, ordinals 0-65 unmoved.
   66: {
     name: "ExecPriceOutsideOracleBand",
     hint: "P1: the matcher's fill price lies outside reference ± band (reference = the oracle_price_e6 the wrapper handed the matcher). limit_price == 0 now means 'any price inside the band', not any price. Retry smaller or when the quote is inside the band; a v2 matcher with EXEC_BAND clips instead.",
@@ -391,8 +391,8 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first — tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee — and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you.",
   },
 
-  // ── P3 vault-owned LP (feat/p3-vault-owned-lp @ 424fe7e4) — NOT on the deployed v18.2 ──
-  // wrapper. Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
+  // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 424fe7e4). ──
+  // Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
   // against the P3 enum (`PercolatorError::X as u32`) in test/p3.test.ts.
   72: {
     name: "VaultLpAlreadyBound",

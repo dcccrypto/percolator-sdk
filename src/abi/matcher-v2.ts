@@ -9,10 +9,17 @@
  * `test/matcher-v2.test.ts` against the hex emitted by that branch's
  * `cargo run --bin sdk_parity_fixtures_v2`.
  *
- * DEPLOYMENT STATUS: the deployed matcher `4seJWjv3…` @ `12bd671` is v1. It
- * rejects tag 5 (InvalidInstructionData) and any non-zero byte in 43..67 of a
- * tag-0 call. Only send tag 5 / the call extension to a matcher program that
- * has been upgraded to v2 (see {@link isMatcherCtxV2}).
+ * STATUS: targets instructions NOT on the relaunch programs yet. The relaunch set is the
+ * P1+P3 wrapper (`424fe7e4`) + F-9 stake (`d13b5a9`); the matcher stays v1 (`4seJWjv3…` @
+ * `12bd671`) unless P2 (percolator-match#30) ships with it. A v1 matcher rejects tag 5
+ * (InvalidInstructionData) and any non-zero byte in 43..67 of a tag-0 call — only send
+ * tag 5 / the call extension to a v2 matcher (see {@link isMatcherCtxV2}), and keep
+ * `AssetRiskLimitsV17.matcher_ext_mode` / `max_requested_fee_bps` at 0 until then.
+ *
+ * P3 VAULT-OWNED LP: tag 5 can NEVER configure the vault LP's matcher context. Owner-proof
+ * (auth 1) needs the LP OWNER to sign, and the vault LP's owner is the LP-vault registry PDA,
+ * which nothing can sign for; auth 0 needs the wrapper's delegate PDA. The vault LP's matcher
+ * params are set only through wrapper tag 95 (VaultLpSetMatcher, upgrade authority).
  *
  * @module matcher-v2
  */

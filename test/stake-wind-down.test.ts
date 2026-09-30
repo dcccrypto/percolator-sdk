@@ -44,6 +44,8 @@ describe("stake tags 29 / 30 and errors (f9b9190)", () => {
     expect(STAKE_ERRORS[29]).toMatch(/No real LP holders/);
     expect(STAKE_ERRORS[30]).toMatch(/Market not terminal/);
     expect(STAKE_ERRORS[31]).toMatch(/Nothing to recover/);
+    expect(STAKE_ERRORS[32]).toMatch(/Unsupported wrapper layout.*NOT retryable/);
+    expect(STAKE_ERRORS[33]).toBeUndefined();
   });
   const t29 = { caller: pk(), pool: pk(), poolVault: pk(), vaultAuth: pk(), market: pk(), wrapperVault: pk(), wrapperVaultAuthority: pk(), wrapperProgram: W };
   it("tag 29 accounts: 9, caller NOT a signer; 10 with the stray (writable)", () => {

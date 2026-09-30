@@ -42,6 +42,7 @@ export default defineConfig({
       "test/market-lifecycle.test.ts",
       "test/p3.test.ts",
       "test/stake-wind-down.test.ts",
+      "test/risk-limits-p1.test.ts",
     ],
   },
 });

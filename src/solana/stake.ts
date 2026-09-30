@@ -453,7 +453,7 @@ export const STAKE_IX = {
    */
   AdminUpdateTradeFeePolicy: 28,
   /**
-   * RecoverTerminalInsurance (F-9, percolator-stake #301 `f9b9190`). PERMISSIONLESS:
+   * RecoverTerminalInsurance (F-9, percolator-stake #301 `d13b5a9`). PERMISSIONLESS:
    * returns a stake-bound market's insurance budget to stakers once the wrapper
    * market is Resolved (or a CloseSlab tombstone). CPIs wrapper tag 41 with
    * `vault_auth` as authority and `pool.vault` as the only destination, sweeps an
@@ -462,8 +462,8 @@ export const STAKE_IX = {
    * Wire: tag(1) + amount(u64) = 9 bytes. `amount` = 0 books/sweeps only (also
    * valid after CloseSlab). Accounts: {@link recoverTerminalInsuranceAccounts}.
    * Errors: 30 MarketNotTerminal, 31 NothingToRecover (treat as done), wrapper 21
-   * (over capacity / cooldown / portfolios remain — retry later), 15 CpiFailed.
-   * NOT on the deployed stake program until #301 ships.
+   * (over capacity / cooldown / portfolios remain — retry later), 15 CpiFailed,
+   * 32 UnsupportedWrapperLayout (non-retryable). Relaunch stake: F-9 head `d13b5a9`.
    */
   RecoverTerminalInsurance: 29,
   /**
@@ -474,8 +474,8 @@ export const STAKE_IX = {
    * a Resolved market (30 MarketNotTerminal). On a P1 wrapper it may return Ok
    * WITHOUT closing — repeat until the market is a tombstone.
    *
-   * Wire: tag(1) = 1 byte. Accounts: {@link adminCloseSlabAccounts}.
-   * NOT on the deployed stake program until #301 ships.
+   * Wire: tag(1) = 1 byte. Accounts: {@link adminCloseSlabAccounts}. Also returns
+   * 32 UnsupportedWrapperLayout (non-retryable). Relaunch stake: F-9 head `d13b5a9`.
    */
   AdminCloseSlab: 30,
 } as const;
@@ -530,6 +530,7 @@ export const STAKE_ERRORS: Record<number, string> = {
   28: "Deposit below minimum liquidity — the pool's first-ever deposit must exceed MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening); deposit a larger amount",
   29: "No real LP holders — AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (total_lp_supply <= MINIMUM_LIQUIDITY). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard).",
   30: "Market not terminal (F-9) — RecoverTerminalInsurance (tag 29) needs the wrapper market Resolved or a CloseSlab tombstone, and a non-zero amount needs Resolved (not Closed); AdminCloseSlab (tag 30) needs Resolved. While Live, use RecoverFlushedInsurance (tag 23)",
+  32: "Unsupported wrapper layout (F-9, NOT retryable) — the bound wrapper market account is not the layout this stake program pins (magic, VERSION 18, kind, minimum length, a known mode byte), so its engine mode cannot be trusted. RecoverTerminalInsurance (29), AdminCloseSlab (30) and the mode-0 Deposit/DepositJunior path refuse. A wrapper layout bump needs a coordinated stake upgrade; retrying will not help",
   31: "Nothing to recover (F-9) — RecoverTerminalInsurance moved no tokens and booked nothing (amount 0, no stray account, no unbooked vault surplus). Keepers should treat this as done",
 };
 Object.freeze(STAKE_ERRORS);
@@ -635,7 +636,8 @@ export function encodeStakeInitPool(cooldownSlots: bigint | number, depositCap: 
  *
  * F-9 (percolator-stake #301): refused with `MarketResolved` (8) once the
  * wrapper market is Resolved, so nobody can buy in ahead of a terminal
- * insurance recovery (tag 29).
+ * insurance recovery (tag 29), and with `UnsupportedWrapperLayout` (32,
+ * non-retryable) when the bound wrapper market is not the pinned VERSION-18 layout.
  */
 export function encodeStakeDeposit(amount: bigint | number): Uint8Array {
   return concatBytes(new Uint8Array([STAKE_IX.Deposit]), u64Le(amount));
@@ -865,7 +867,8 @@ export function encodeStakeAdminSetTrancheConfig(juniorFeeMultBps: number): Uint
  * Wire: tag(1) + amount(u64) = 9 bytes.
  */
 // F-9 (percolator-stake #301): DepositJunior is also refused with
-// `MarketResolved` (8) once the wrapper market is Resolved.
+// `MarketResolved` (8) once the wrapper market is Resolved, and with
+// `UnsupportedWrapperLayout` (32, non-retryable) on an unpinned wrapper layout.
 export function encodeStakeDepositJunior(amount: bigint | number): Uint8Array {
   return concatBytes(new Uint8Array([STAKE_IX.DepositJunior]), u64Le(amount));
 }
@@ -2324,7 +2327,7 @@ export function flushToInsuranceAccounts(
 
 // ═══════════════════════════════════════════════════════════════
 // F-9: terminal insurance recovery (tag 29) + CloseSlab proxy (tag 30)
-// percolator-stake #301, fix/stake-f9-terminal-insurance @ f9b9190
+// percolator-stake #301, fix/stake-f9-terminal-insurance @ d13b5a9 (account lists unchanged since f9b9190)
 // ═══════════════════════════════════════════════════════════════
 
 /**
@@ -2380,7 +2383,7 @@ export interface RecoverTerminalInsuranceAccounts {
 }
 
 /**
- * Account keys for RecoverTerminalInsurance (tag 29) — f9b9190
+ * Account keys for RecoverTerminalInsurance (tag 29) — d13b5a9 (unchanged since f9b9190)
  * `process_recover_terminal_insurance`: 9 accounts, 10 with the optional stray.
  *   [0] caller (no signer) · [1] pool (w) · [2] pool vault (w) · [3] vault_auth ·
  *   [4] wrapper market (w) · [5] wrapper vault (w) · [6] wrapper vault authority ·
@@ -2436,7 +2439,7 @@ export interface AdminCloseSlabAccounts {
 }
 
 /**
- * Account keys for AdminCloseSlab (tag 30) — f9b9190 `process_admin_close_slab`, 10 accounts:
+ * Account keys for AdminCloseSlab (tag 30) — d13b5a9 (unchanged since f9b9190) `process_admin_close_slab`, 10 accounts:
  *   [0] admin (s, w) · [1] pool (w) · [2] market (w) · [3] wrapper vault (w) ·
  *   [4] wrapper vault authority · [5] pool-PDA-owned token account (w) · [6] token program ·
  *   [7] collateral mint (w) · [8] pool vault (w) · [9] wrapper program.

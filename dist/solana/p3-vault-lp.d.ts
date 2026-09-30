@@ -8,8 +8,8 @@
  * `offset_of!` on the REAL P3 structs, and the per-asset record offset against a market
  * account built by the P3 crate itself.
  *
- * NOT ON ANY DEPLOYED WRAPPER (v18.2 has no vault LP). On a v18.2 market every
- * AssetVaultLpV18 record is zero ("no vault LP bound").
+ * Relaunch wrapper = P1 + P3 (`424fe7e4`). On an older v18.2 market every AssetVaultLpV18
+ * record is zero ("no vault LP bound").
  *
  * @module p3-vault-lp
  */
