@@ -2715,7 +2715,7 @@ var PERCOLATOR_ERRORS = {
   },
   38: {
     name: "LpVaultNoFeesToCrank",
-    hint: "No new fees to distribute to the LP vault. Wait for more trading activity."
+    hint: "No new fees to distribute to the LP vault. Wait for more trading activity. On a LIVE bound vault, bundle tag 78 before 75/77 ONLY when fees are harvestable (otherwise the bundle fails with 38; without it a harvestable backlog fails with 84). On a Resolved terminal-flat bound market 78 is a no-op success."
   },
   39: {
     name: "LpVaultSupplyMismatch",
