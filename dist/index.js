@@ -46,9 +46,9 @@ function encU64(val) {
 }
 function encI64(val) {
   const n = parseDecimalBigInt(val, "encI64");
-  const min = -(1n << 63n);
+  const min2 = -(1n << 63n);
   const max = (1n << 63n) - 1n;
-  if (n < min || n > max) throw new Error("encI64: value out of range");
+  if (n < min2 || n > max) throw new Error("encI64: value out of range");
   const buf = new Uint8Array(8);
   new DataView(buf.buffer).setBigInt64(0, n, true);
   return buf;
@@ -68,9 +68,9 @@ function encU128(val) {
 }
 function encI128(val) {
   const n = parseDecimalBigInt(val, "encI128");
-  const min = -(1n << 127n);
+  const min2 = -(1n << 127n);
   const max = (1n << 127n) - 1n;
-  if (n < min || n > max) throw new Error("encI128: value out of range");
+  if (n < min2 || n > max) throw new Error("encI128: value out of range");
   let unsigned = n;
   if (n < 0n) {
     unsigned = (1n << 128n) + n;
@@ -1022,12 +1022,12 @@ async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
   if (!Number.isInteger(shardId) || shardId < 0 || shardId > 65535) {
     throw new Error(`derivePythPriceUpdateAccount: shardId must be a u16, got ${shardId}`);
   }
-  const { PublicKey: PublicKey18 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey19 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey18.findProgramAddressSync(
+  const [pda] = PublicKey19.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey18(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey19(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -3652,11 +3652,11 @@ var U16 = 65535;
 var U32 = 4294967295;
 var U64 = (1n << 64n) - 1n;
 var U128 = (1n << 128n) - 1n;
-function int(name, v, min, max) {
-  if (!Number.isInteger(v) || v < min || v > max) throw new Error(`${name} must be an integer in ${min}..=${max}, got ${v}`);
+function int(name, v, min2, max) {
+  if (!Number.isInteger(v) || v < min2 || v > max) throw new Error(`${name} must be an integer in ${min2}..=${max}, got ${v}`);
 }
-function big(name, v, max, min = 0n) {
-  if (v < min || v > max) throw new Error(`${name} must be in ${min}..=${max}, got ${v}`);
+function big(name, v, max, min2 = 0n) {
+  if (v < min2 || v > max) throw new Error(`${name} must be in ${min2}..=${max}, got ${v}`);
 }
 function encodeInitVaultLpP3(juniorFloorBps) {
   int("juniorFloorBps", juniorFloorBps, VAULT_LP_JUNIOR_FLOOR_BPS_RANGE_P3.min, VAULT_LP_JUNIOR_FLOOR_BPS_RANGE_P3.max);
@@ -8306,7 +8306,33 @@ var STAKE_IX = {
    * ⚠ Note the type asymmetry with tag 26: wrapper tag 55 decodes with
    * `read_u64`, wrapper tag 88 with `read_u128`.
    */
-  AdminUpdateTradeFeePolicy: 28
+  AdminUpdateTradeFeePolicy: 28,
+  /**
+   * RecoverTerminalInsurance (F-9, percolator-stake #301 `f9b9190`). PERMISSIONLESS:
+   * returns a stake-bound market's insurance budget to stakers once the wrapper
+   * market is Resolved (or a CloseSlab tombstone). CPIs wrapper tag 41 with
+   * `vault_auth` as authority and `pool.vault` as the only destination, sweeps an
+   * optional stray `vault_auth`-owned token account, and books the vault surplus.
+   *
+   * Wire: tag(1) + amount(u64) = 9 bytes. `amount` = 0 books/sweeps only (also
+   * valid after CloseSlab). Accounts: {@link recoverTerminalInsuranceAccounts}.
+   * Errors: 30 MarketNotTerminal, 31 NothingToRecover (treat as done), wrapper 21
+   * (over capacity / cooldown / portfolios remain — retry later), 15 CpiFailed.
+   * NOT on the deployed stake program until #301 ships.
+   */
+  RecoverTerminalInsurance: 29,
+  /**
+   * AdminCloseSlab (F-9). `pool.admin`-signed CPI proxy for the wrapper's
+   * CloseSlab (tag 13); the pool PDA is the marketauth and signs. The sweep
+   * lands in a pool-PDA-owned token account (index 5, the caller creates it)
+   * and is booked into `pool.vault`; the rent refund goes to the admin. Requires
+   * a Resolved market (30 MarketNotTerminal). On a P1 wrapper it may return Ok
+   * WITHOUT closing — repeat until the market is a tombstone.
+   *
+   * Wire: tag(1) = 1 byte. Accounts: {@link adminCloseSlabAccounts}.
+   * NOT on the deployed stake program until #301 ships.
+   */
+  AdminCloseSlab: 30
 };
 Object.freeze(STAKE_IX);
 var STAKE_ERRORS = {
@@ -8339,7 +8365,9 @@ var STAKE_ERRORS = {
   26: "Timelock not elapsed \u2014 CommitCooldownIncrease was called before the required timelock window had passed since ProposeCooldownIncrease; LP holders are still inside their exit window",
   27: "No pending cooldown proposal \u2014 CommitCooldownIncrease / CancelCooldownIncrease called with no active ProposeCooldownIncrease proposal outstanding",
   28: "Deposit below minimum liquidity \u2014 the pool's first-ever deposit must exceed MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening); deposit a larger amount",
-  29: "No real LP holders \u2014 AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (total_lp_supply <= MINIMUM_LIQUIDITY). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard)."
+  29: "No real LP holders \u2014 AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (total_lp_supply <= MINIMUM_LIQUIDITY). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard).",
+  30: "Market not terminal (F-9) \u2014 RecoverTerminalInsurance (tag 29) needs the wrapper market Resolved or a CloseSlab tombstone, and a non-zero amount needs Resolved (not Closed); AdminCloseSlab (tag 30) needs Resolved. While Live, use RecoverFlushedInsurance (tag 23)",
+  31: "Nothing to recover (F-9) \u2014 RecoverTerminalInsurance moved no tokens and booked nothing (amount 0, no stray account, no unbooked vault surplus). Keepers should treat this as done"
 };
 Object.freeze(STAKE_ERRORS);
 var TEXT2 = new TextEncoder();
@@ -8853,7 +8881,7 @@ function withdrawAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
     { pubkey: a.depositPda, isSigner: false, isWritable: true },
     { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_CLOCK_PUBKEY2, isSigner: false, isWritable: false },
-    { pubkey: a.slab, isSigner: false, isWritable: false }
+    ...a.slab ? [{ pubkey: a.slab, isSigner: false, isWritable: false }] : []
   ];
 }
 function accrueFeesAccounts(a) {
@@ -8875,6 +8903,40 @@ function flushToInsuranceAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID4) {
     { pubkey: a.wrapperVault, isSigner: false, isWritable: true },
     { pubkey: a.percolatorProgram, isSigner: false, isWritable: false },
     { pubkey: tokenProgramId, isSigner: false, isWritable: false }
+  ];
+}
+function encodeStakeRecoverTerminalInsurance(amount) {
+  return concatBytes(new Uint8Array([STAKE_IX.RecoverTerminalInsurance]), u64Le(amount));
+}
+function encodeStakeAdminCloseSlab() {
+  return new Uint8Array([STAKE_IX.AdminCloseSlab]);
+}
+function recoverTerminalInsuranceAccounts(a) {
+  return [
+    { pubkey: a.caller, isSigner: false, isWritable: false },
+    { pubkey: a.pool, isSigner: false, isWritable: true },
+    { pubkey: a.poolVault, isSigner: false, isWritable: true },
+    { pubkey: a.vaultAuth, isSigner: false, isWritable: false },
+    { pubkey: a.market, isSigner: false, isWritable: true },
+    { pubkey: a.wrapperVault, isSigner: false, isWritable: true },
+    { pubkey: a.wrapperVaultAuthority, isSigner: false, isWritable: false },
+    { pubkey: a.tokenProgram ?? TOKEN_PROGRAM_ID4, isSigner: false, isWritable: false },
+    { pubkey: a.wrapperProgram, isSigner: false, isWritable: false },
+    ...a.stray ? [{ pubkey: a.stray, isSigner: false, isWritable: true }] : []
+  ];
+}
+function adminCloseSlabAccounts(a) {
+  return [
+    { pubkey: a.admin, isSigner: true, isWritable: true },
+    { pubkey: a.pool, isSigner: false, isWritable: true },
+    { pubkey: a.market, isSigner: false, isWritable: true },
+    { pubkey: a.wrapperVault, isSigner: false, isWritable: true },
+    { pubkey: a.wrapperVaultAuthority, isSigner: false, isWritable: false },
+    { pubkey: a.poolDestToken, isSigner: false, isWritable: true },
+    { pubkey: a.tokenProgram ?? TOKEN_PROGRAM_ID4, isSigner: false, isWritable: false },
+    { pubkey: a.collateralMint, isSigner: false, isWritable: true },
+    { pubkey: a.poolVault, isSigner: false, isWritable: true },
+    { pubkey: a.wrapperProgram, isSigner: false, isWritable: false }
   ];
 }
 
@@ -9988,9 +10050,169 @@ function buildVaultLpRefreshCrankIxP3(a) {
   });
 }
 
+// src/solana/stake-wind-down.ts
+import { TransactionInstruction as TransactionInstruction4 } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID7 } from "@solana/spl-token";
+var MARKET_GROUP_HEADER_OFF_V18 = Object.freeze({
+  vault: 285,
+  insurance: 301,
+  cTot: 317,
+  sourceInsuranceCreditReservedTotalAtoms: 445,
+  insuranceDomainBudgetRemainingTotal: 461,
+  materializedPortfolioCount: 517,
+  mode: 626
+});
+var ENGINE_ASSET_SLOT_OFF_V18 = Object.freeze({
+  insuranceDomainBudgetLong: 515,
+  insuranceDomainBudgetShort: 531,
+  insuranceDomainSpentLong: 547,
+  insuranceDomainSpentShort: 563,
+  /** InsuranceCreditReservationV16Account; `insurance_credit_reserved_num` is its first u128. */
+  insuranceReservationLong: 1157,
+  insuranceReservationShort: 1229
+});
+var ASSET_WRAPPER_LEN = 1024;
+var ENGINE_BOUND_SCALE = 1000000000000n;
+var MARKET_MODE_V18 = Object.freeze({ Live: 0, Resolved: 1, Recovery: 2 });
+function u1282(d, o) {
+  const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  return v.getBigUint64(o + 8, true) << 64n | v.getBigUint64(o, true);
+}
+function u64(d, o) {
+  return new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(o, true);
+}
+var min = (a, b) => a < b ? a : b;
+var subSat = (a, b) => a > b ? a - b : 0n;
+var ceilDiv = (a, b) => (a + b - 1n) / b;
+function decodeTerminalInsuranceCapacity(marketData, assetIndex = 0) {
+  if (marketData[V17_KIND_OFF] !== 1) throw new Error(`not a market account (kind ${marketData[V17_KIND_OFF]})`);
+  const H = V17_MARKET_GROUP_OFF;
+  const hdr = MARKET_GROUP_HEADER_OFF_V18;
+  const slotBase = H + V17_MARKET_GROUP_LEN + assetIndex * V17_MARKET_ASSET_SLOT_LEN + ASSET_WRAPPER_LEN;
+  const E = ENGINE_ASSET_SLOT_OFF_V18;
+  if (!Number.isInteger(assetIndex) || assetIndex < 0 || marketData.length < slotBase + E.insuranceReservationShort + 16) {
+    throw new Error(`market account too short for asset ${assetIndex}`);
+  }
+  const vault = u1282(marketData, H + hdr.vault);
+  const insurance = u1282(marketData, H + hdr.insurance);
+  const sourceReserved = u1282(marketData, H + hdr.sourceInsuranceCreditReservedTotalAtoms);
+  const globalAvailable = subSat(insurance, sourceReserved);
+  const mode = marketData[H + hdr.mode];
+  const dom = (side) => {
+    const L = side === "long";
+    const budget = u1282(marketData, slotBase + (L ? E.insuranceDomainBudgetLong : E.insuranceDomainBudgetShort));
+    const spent = u1282(marketData, slotBase + (L ? E.insuranceDomainSpentLong : E.insuranceDomainSpentShort));
+    const reservedAtoms = ceilDiv(u1282(marketData, slotBase + (L ? E.insuranceReservationLong : E.insuranceReservationShort)), ENGINE_BOUND_SCALE);
+    const budgetRemaining = subSat(subSat(budget, spent), reservedAtoms);
+    return {
+      domain: assetIndex * 2 + (L ? 0 : 1),
+      side,
+      budget,
+      spent,
+      reservedAtoms,
+      budgetRemaining,
+      withdrawCapacity: min(min(globalAvailable, budgetRemaining), vault)
+    };
+  };
+  const domains = [dom("long"), dom("short")];
+  const sum = domains[0].withdrawCapacity + domains[1].withdrawCapacity;
+  return {
+    assetIndex,
+    mode,
+    resolved: mode === MARKET_MODE_V18.Resolved,
+    vault,
+    insurance,
+    cTot: u1282(marketData, H + hdr.cTot),
+    materializedPortfolioCount: u64(marketData, H + hdr.materializedPortfolioCount),
+    sourceInsuranceCreditReservedTotalAtoms: sourceReserved,
+    globalAvailable,
+    headerBudgetRemainingTotal: u1282(marketData, H + hdr.insuranceDomainBudgetRemainingTotal),
+    assetBudgetRemaining: subSat(domains[0].budget, domains[0].spent) + subSat(domains[1].budget, domains[1].spent),
+    domains,
+    terminalCapacity: min(min(sum, globalAvailable), vault)
+  };
+}
+function buildRecoverTerminalInsuranceIx(a, amount) {
+  return new TransactionInstruction4({
+    programId: a.stakeProgram,
+    keys: recoverTerminalInsuranceAccounts(a),
+    data: Buffer.from(encodeStakeRecoverTerminalInsurance(amount))
+  });
+}
+function buildAdminCloseSlabIx(a) {
+  return new TransactionInstruction4({
+    programId: a.stakeProgram,
+    keys: adminCloseSlabAccounts(a),
+    data: Buffer.from(encodeStakeAdminCloseSlab())
+  });
+}
+function planStakeWindDown(a) {
+  const cap = decodeTerminalInsuranceCapacity(a.marketData, 0);
+  if (!cap.resolved) throw new Error(`planStakeWindDown: market mode ${cap.mode} is not Resolved (1)`);
+  const tokenProgram = a.tokenProgram ?? TOKEN_PROGRAM_ID7;
+  const [wrapperVaultAuthority] = deriveVaultAuthority(a.wrapperProgram, a.market);
+  const base = {
+    stakeProgram: a.stakeProgram,
+    caller: a.caller,
+    pool: a.pool,
+    poolVault: a.poolVault,
+    vaultAuth: a.vaultAuth,
+    market: a.market,
+    wrapperVault: a.wrapperVault,
+    wrapperVaultAuthority,
+    wrapperProgram: a.wrapperProgram,
+    tokenProgram
+  };
+  const steps = [{ step: "closePortfolios", ixs: a.closePortfolioIxs }];
+  if (cap.terminalCapacity > 0n) {
+    steps.push({
+      step: "recoverTerminal",
+      amount: cap.terminalCapacity,
+      ix: buildRecoverTerminalInsuranceIx(base, cap.terminalCapacity),
+      onCustomError: Object.freeze({ 21: "retryLater", 31: "done" })
+    });
+  }
+  steps.push({
+    step: "recoverTerminalBookOnly",
+    ix: buildRecoverTerminalInsuranceIx({ ...base, stray: a.stray }, 0n),
+    onCustomError: Object.freeze({ 31: "done" })
+  });
+  const claim = a.protocolFee ? new TransactionInstruction4({
+    programId: a.wrapperProgram,
+    keys: buildAccountMetas(ACCOUNTS_WITHDRAW_PROTOCOL_FEE, {
+      authority: a.protocolFee.authority,
+      market: a.market,
+      destToken: a.protocolFee.destToken,
+      vaultToken: a.wrapperVault,
+      vaultAuthority: wrapperVaultAuthority,
+      tokenProgram
+    }),
+    data: Buffer.from(encodeWithdrawProtocolFee({ amount: 0n, authorityEpoch: a.protocolFee.authorityEpoch }))
+  }) : null;
+  steps.push({
+    step: "adminCloseSlab",
+    repeatUntil: "tombstone",
+    claimBetween: claim,
+    ix: buildAdminCloseSlabIx({
+      stakeProgram: a.stakeProgram,
+      admin: a.admin,
+      pool: a.pool,
+      market: a.market,
+      wrapperVault: a.wrapperVault,
+      wrapperVaultAuthority,
+      poolDestToken: a.poolDestToken,
+      collateralMint: a.collateralMint,
+      poolVault: a.poolVault,
+      wrapperProgram: a.wrapperProgram,
+      tokenProgram
+    })
+  });
+  return steps;
+}
+
 // src/runtime/tx.ts
 import {
-  TransactionInstruction as TransactionInstruction4,
+  TransactionInstruction as TransactionInstruction5,
   Transaction,
   ComputeBudgetProgram
 } from "@solana/web3.js";
@@ -10020,7 +10242,7 @@ function meetsCommitment(observed, required) {
   return CONFIRMATION_RANK[observed] >= requiredConfirmationRank(required);
 }
 function buildIx(params) {
-  return new TransactionInstruction4({
+  return new TransactionInstruction5({
     programId: params.programId,
     keys: params.keys,
     // TransactionInstruction types expect Buffer, but Uint8Array works at runtime.
@@ -10245,8 +10467,8 @@ function formatResult(result, jsonMode) {
 }
 
 // src/runtime/lighthouse.ts
-import { PublicKey as PublicKey16, Transaction as Transaction2 } from "@solana/web3.js";
-var LIGHTHOUSE_PROGRAM_ID = new PublicKey16(
+import { PublicKey as PublicKey17, Transaction as Transaction2 } from "@solana/web3.js";
+var LIGHTHOUSE_PROGRAM_ID = new PublicKey17(
   "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"
 );
 var LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
@@ -10513,7 +10735,7 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey17 } from "@solana/web3.js";
+import { PublicKey as PublicKey18 } from "@solana/web3.js";
 var U16_MAX3 = 65535;
 var U64_MAX2 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
@@ -10554,7 +10776,7 @@ function safeBigInt(val, caller) {
 }
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey17(value);
+    return new PublicKey18(value);
   } catch {
     throw new ValidationError(
       field,
@@ -11083,6 +11305,8 @@ export {
   CTX_VAMM_OFFSET,
   CrankAction,
   DEFAULT_OI_RAMP_SLOTS,
+  ENGINE_ASSET_SLOT_OFF_V18,
+  ENGINE_BOUND_SCALE,
   ENGINE_MARK_PRICE_OFF,
   ENGINE_OFF,
   EXPECTED_SLAB_VERSION,
@@ -11098,6 +11322,8 @@ export {
   LIGHTHOUSE_PROGRAM_ID_STR,
   LIGHTHOUSE_USER_MESSAGE,
   LP_VAULT_REGISTRY_BOUND_FLAG_OFF_P3,
+  MARKET_GROUP_HEADER_OFF_V18,
+  MARKET_MODE_V18,
   MARK_PRICE_EMA_ALPHA_E6,
   MARK_PRICE_EMA_WINDOW_SLOTS,
   MATCHER_BACKING_FEE_CAP_BPS_MAX,
@@ -11241,6 +11467,7 @@ export {
   WSOL_MINT,
   _internal,
   accrueFeesAccounts,
+  adminCloseSlabAccounts,
   adminResolveMarketCpiAccounts,
   adminUpdateBackingFeePolicyAccounts,
   adminUpdateFeeSplitAccounts,
@@ -11252,6 +11479,7 @@ export {
   buildAccountMetas,
   buildAdlInstruction,
   buildAdlTransaction,
+  buildAdminCloseSlabIx,
   buildDepositJuniorTrancheIxP3,
   buildInitVaultLpIxP3,
   buildIx,
@@ -11259,6 +11487,7 @@ export {
   buildMatcherConfigureSetParamsIx,
   buildNftAccountMetas,
   buildRebalanceReduceIx,
+  buildRecoverTerminalInsuranceIx,
   buildSetVaultLpRiskIxP3,
   buildVaultLpConvertPnlIxP3,
   buildVaultLpRecallIxP3,
@@ -11304,6 +11533,7 @@ export {
   decodeMatcherV2Error,
   decodePortfolioMatcherControl,
   decodeStakePool,
+  decodeTerminalInsuranceCapacity,
   decodeVaultLpStateP3,
   defaultMatcherV2ConfigForKind2,
   depositAccounts,
@@ -11453,6 +11683,7 @@ export {
   encodeSlashCreationDeposit,
   encodeStakeAcceptAdmin,
   encodeStakeAccrueFees,
+  encodeStakeAdminCloseSlab,
   encodeStakeAdminResolveMarket,
   encodeStakeAdminResolveMarketCpi,
   encodeStakeAdminSetHwmConfig,
@@ -11478,6 +11709,7 @@ export {
   encodeStakeProposeAdmin,
   encodeStakeProposeCooldownIncrease,
   encodeStakeRecoverFlushedInsurance,
+  encodeStakeRecoverTerminalInsurance,
   encodeStakeReturnInsurance,
   encodeStakeRotateInsuranceAuthority,
   encodeStakeRotateInsuranceOperator,
@@ -11589,10 +11821,12 @@ export {
   parseWrapperConfigV17,
   planCloseSlabAttempt,
   planReduceOnlyExit,
+  planStakeWindDown,
   rankAdlPositions,
   readLastThrUpdateSlot,
   readNonce,
   recoverFlushedInsuranceAccounts,
+  recoverTerminalInsuranceAccounts,
   registerStaticMarkets,
   requireDecimalUIntString,
   resolvePrice,

@@ -122,6 +122,14 @@
     {
       "name": "AdminUpdateTradeFeePolicy",
       "tag": 28
+    },
+    {
+      "name": "RecoverTerminalInsurance",
+      "tag": 29
+    },
+    {
+      "name": "AdminCloseSlab",
+      "tag": 30
     }
   ],
   "program": "percolator-stake",

@@ -72,6 +72,25 @@ sha256 `4472b3832fda…`). No instruction, account-layout or IDL/wire change.
   The deprecated v12 `IX_TAG.InitSharedVault(94)…QueueWithdrawal(102)` / `SlashCreationDeposit(93)`
   names share these numbers (they throw); now annotated as colliding.
 
+- **Stake F-9 wind-down** (percolator-stake #301 `fix/stake-f9-terminal-insurance@f9b9190`;
+  not on the deployed stake program yet). `STAKE_IX.RecoverTerminalInsurance` (29,
+  `[29][amount u64]`) with `encodeStakeRecoverTerminalInsurance`,
+  `recoverTerminalInsuranceAccounts` (9 accounts plus an optional stray; the caller does not
+  sign) and `buildRecoverTerminalInsuranceIx`. `STAKE_IX.AdminCloseSlab` (30, `[30]`) with
+  `encodeStakeAdminCloseSlab`, `adminCloseSlabAccounts` (10 accounts) and
+  `buildAdminCloseSlabIx`. `STAKE_ERRORS` 30 `MarketNotTerminal` and 31 `NothingToRecover`;
+  29 `NoRealLpHolders` was already present. The Deposit/DepositJunior docs now note they
+  return 8 once the wrapper is Resolved. `withdrawAccounts`: `slab` is now optional, so leave
+  it out after CloseSlab (10 accounts), because a tombstone there fails `InvalidAccount`.
+  `decodeTerminalInsuranceCapacity(marketData, asset)` gives the wrapper tag-41 terminal
+  capacity per the v18.2 formula (per-domain budget − spent − reserved, then the global and
+  vault caps), with `MARKET_GROUP_HEADER_OFF_V18` / `ENGINE_ASSET_SLOT_OFF_V18`. Those offsets
+  are hand-derived from the packed engine structs and checked on 15 live devnet v18 markets.
+  `planStakeWindDown` orders the steps: close portfolios → tag 29 (capacity; 21 = retry)
+  → tag 29 (0; 31 = done) → tag 30 until a tombstone, with a tag-84 claim in between.
+  `specs/stake-parity.json` has tags 29/30 added **by hand** (see
+  `specs/stake-parity.HAND-DERIVED.md`), and the stake parity test now also checks SDK → spec.
+
 ### Fixed
 
 - **CI parity gate** (red since 2026-09-28): it checked the engine out at `main`, and

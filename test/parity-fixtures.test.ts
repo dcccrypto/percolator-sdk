@@ -182,6 +182,10 @@ describe("Rust parity fixtures", () => {
       AdminUpdateMaintenanceFeePerSlot: STAKE_IX.AdminUpdateMaintenanceFeePerSlot,
       AdminUpdateBackingFeePolicy: STAKE_IX.AdminUpdateBackingFeePolicy,
       AdminUpdateTradeFeePolicy: STAKE_IX.AdminUpdateTradeFeePolicy,
+      // F-9 (percolator-stake #301 @ f9b9190). HAND-DERIVED into the spec — see
+      // specs/stake-parity.HAND-DERIVED.md.
+      RecoverTerminalInsurance: STAKE_IX.RecoverTerminalInsurance,
+      AdminCloseSlab: STAKE_IX.AdminCloseSlab,
     };
 
     // The fixture mirrors percolator-stake SOURCE (scripts/update-parity-fixtures.mjs
@@ -210,6 +214,12 @@ describe("Rust parity fixtures", () => {
 
     for (const entry of fixture.live_tags) {
       expect(sdkTags[entry.name]).toBe(entry.tag);
+    }
+    // Reverse direction: every SDK-mapped tag must be in the spec. Without this, dropping a tag
+    // from the spec (or the program) went unnoticed — the loop above only walks the spec.
+    const specByName = new Map(fixture.live_tags.map((t) => [t.name, t.tag]));
+    for (const [name, tag] of Object.entries(sdkTags)) {
+      expect(specByName.get(name), `SDK tag ${name}=${tag} missing from stake-parity.json`).toBe(tag);
     }
 
     // GH#375: was [5, 6, 7, 8, 9, 11, 17]. Tags 5-9 are ProposeAdmin,
