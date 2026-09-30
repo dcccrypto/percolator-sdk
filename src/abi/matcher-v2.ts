@@ -10,7 +10,7 @@
  * `cargo run --bin sdk_parity_fixtures_v2`.
  *
  * STATUS: targets instructions NOT on the relaunch programs yet. The relaunch set is the
- * P1+P3 wrapper (`b2b2559e`) + F-9 stake (`d13b5a9`); the matcher stays v1 (`4seJWjv3…` @
+ * P1+P3 wrapper (`07a1d0eb`) + F-9 stake (`d13b5a9`); the matcher stays v1 (`4seJWjv3…` @
  * `12bd671`) unless P2 (percolator-match#30) ships with it. A v1 matcher rejects tag 5
  * (InvalidInstructionData) and any non-zero byte in 43..67 of a tag-0 call — only send
  * tag 5 / the call extension to a v2 matcher (see {@link isMatcherCtxV2}), and keep

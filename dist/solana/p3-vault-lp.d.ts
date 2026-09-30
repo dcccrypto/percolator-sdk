@@ -2,13 +2,13 @@
  * P3 vault-owned LP — account decoders, PDAs, instruction builders, the bound-vault tail for
  * Earn tags 75/77/78, and the vault-LP refresh crank. Additive to SDK 8.0.0.
  *
- * Source: percolator-prog `feat/p3-vault-owned-lp` @ `b2b2559e62e08a96b978a2d81a67991c93bc6061`
+ * Source: percolator-prog `feat/p3-vault-owned-lp` @ `07a1d0ebec92d3a363b5d7f535cee1321c96d10d`
  * (`state::{VaultLpStateV18, AssetVaultLpV18, read_asset_vault_lp}`, `load_bound_vault_lp_tail`,
  * `vault_lp_refresh_snapshot`). Offsets are pinned by `test/p3.test.ts` against rustc
  * `offset_of!` on the REAL P3 structs, and the per-asset record offset against a market
  * account built by the P3 crate itself.
  *
- * Relaunch wrapper = P1 + P3 (`b2b2559e`). On an older v18.2 market every AssetVaultLpV18
+ * Relaunch wrapper = P1 + P3 (`07a1d0eb`). On an older v18.2 market every AssetVaultLpV18
  * record is zero ("no vault LP bound").
  *
  * @module p3-vault-lp
@@ -193,21 +193,45 @@ export interface VaultLpMarketP3 {
     /** The vault-owned LP portfolio. */
     lpPortfolio: PublicKey;
 }
+/** Matcher context size a tag-94 auto-pin needs (`MATCHER_CONTEXT_LEN`). */
+export declare const VAULT_LP_MATCHER_CTX_LEN_P3 = 320;
 /**
- * Tag 94 InitVaultLp, path A only: the marketauth signs and becomes the junior owner. (The
- * upgrade-authority path B is removed from the relaunch P3.) On a stake-bound market the
- * marketauth is the keyless stake-pool PDA, so bind the vault LP before InitPool rotates it.
+ * Pre-create the matcher context tag 94 auto-pins: `SystemProgram.createAccount` of 320 zeroed
+ * bytes owned by the matcher program. `matcherCtx` must be a fresh keypair and SIGN this
+ * transaction. Send before (or in the same transaction as) {@link buildInitVaultLpIxP3}.
+ *
+ * @param payer           Funds the rent.
+ * @param matcherCtx      New account address (fresh keypair's public key).
+ * @param lamports        Rent-exempt minimum for 320 bytes (`getMinimumBalanceForRentExemption(320)`).
+ * @param matcherProgram  Owner (default: the devnet canonical matcher 4seJWjv3…).
+ * @returns SystemProgram createAccount instruction.
+ * @example
+ * ```ts
+ * const ctx = Keypair.generate();
+ * const lamports = await connection.getMinimumBalanceForRentExemption(VAULT_LP_MATCHER_CTX_LEN_P3);
+ * const ixs = [buildCreateVaultLpMatcherCtxIxP3(payer, ctx.publicKey, lamports), buildInitVaultLpIxP3(m, marketauth, 2_000, ctx.publicKey)];
+ * ```
+ */
+export declare function buildCreateVaultLpMatcherCtxIxP3(payer: PublicKey, matcherCtx: PublicKey, lamports: number, matcherProgram?: PublicKey): TransactionInstruction;
+/**
+ * Tag 94 InitVaultLp (P3 FINAL `07a1d0eb`), marketauth only: the marketauth signs and becomes the
+ * junior owner. Auto-pins the vault LP to the canonical matcher: pass the pre-created `matcherCtx`
+ * ({@link buildCreateVaultLpMatcherCtxIxP3}); the delegate PDA is derived with the REGISTRY as
+ * the LP owner. On a stake-bound market the marketauth is the keyless stake-pool PDA, so bind
+ * the vault LP before InitPool rotates it.
  *
  * @param m               Market context.
  * @param marketauth      The market's marketauth (signer; becomes the junior owner).
  * @param juniorFloorBps  1000..=10000.
- * @returns Instruction (8 accounts).
+ * @param matcherCtx      Pre-created 320-byte ctx owned by the matcher program (writable).
+ * @param matcherProgram  Must be the canonical matcher (default: devnet 4seJWjv3…).
+ * @returns Instruction (11 accounts).
  * @example
  * ```ts
  * const ix = buildInitVaultLpIxP3({ programId, market, registryDomain: 0, lpPortfolio }, marketauth, 2_000);
  * ```
  */
-export declare function buildInitVaultLpIxP3(m: VaultLpMarketP3, marketauth: PublicKey, juniorFloorBps: number): TransactionInstruction;
+export declare function buildInitVaultLpIxP3(m: VaultLpMarketP3, marketauth: PublicKey, juniorFloorBps: number, matcherCtx: PublicKey, matcherProgram?: PublicKey): TransactionInstruction;
 /**
  * Tag 95 VaultLpSetMatcher (upgrade authority). The delegate is derived with the REGISTRY
  * as the LP owner, exactly as the handler does.
@@ -334,6 +358,11 @@ export declare const BOUND_VAULT_LP_TAIL_INDEX_P3: Readonly<{
  * 77 ExecuteRedemption → [13] vault_lp_state (w), [14] vault LP portfolio;
  * 78 LpVaultCrankFees → [6] vault_lp_state (w).
  * Tag 76 (RequestRedeemLpShares) takes no tail on P3.
+ *
+ * P3 FINAL (`07a1d0eb`), no wire change: in Resolved mode the tag-77 [14] vault LP is only
+ * KEY-pinned (it may already be settled, closed and garbage-collected, so it is not required to
+ * be wrapper-owned); tag 78 is additionally allowed in Resolved mode once the market is
+ * terminal-flat (no materialized portfolio, c_tot == 0) — the [6] tail is still required.
  *
  * @param base         The unbound-form instruction (tag + exact base account count checked).
  * @param vaultLpState `["vault_lp", market]`.

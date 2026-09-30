@@ -1,12 +1,12 @@
 /**
  * P3 vault-owned LP parity. Fixture `test/fixtures/p3-parity.json` is emitted by the REAL
- * P3 crate (percolator-prog feat/p3-vault-owned-lp @ b2b2559e) via
+ * P3 crate (percolator-prog feat/p3-vault-owned-lp @ 07a1d0eb) via
  * scripts/p3-parity/sdk_p3_parity.rs: `Instruction::decode` of our encoder hex, rustc
  * `offset_of!`, `PercolatorError::X as u32`, `read_asset_vault_lp`, `init_vault_lp_state`.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { Keypair, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { P3_VECTOR_INPUTS, encodeP3Vector } from "./p3-vector-inputs.js";
 import * as root from "../src/index.js";
 import {
@@ -45,7 +45,17 @@ import {
   buildVaultLpReleaseSurplusIxP3,
   deriveVaultLpStateP3,
   deriveProgramDataAddressP3,
+  buildCreateVaultLpMatcherCtxIxP3,
+  VAULT_LP_MATCHER_CTX_LEN_P3,
 } from "../src/solana/p3-vault-lp.js";
+import {
+  CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3,
+  VAULT_LP_PIN_P3,
+  VAULT_LP_DEFAULT_MAX_LEV_BPS_P3,
+  ENGINE_MAX_POSITION_ABS_Q_P3,
+  pinnedMatcherCapsP3,
+  usdToQCappedP3,
+} from "../src/abi/p3.js";
 import { PERCOLATOR_ERRORS } from "../src/abi/errors.js";
 import { IX_TAG } from "../src/abi/instructions.js";
 import { deriveLpBackingLedger, deriveLpVaultRegistry, deriveMatcherDelegate } from "../src/solana/pda.js";
@@ -69,7 +79,7 @@ const pk = (): PublicKey => Keypair.generate().publicKey;
 
 describe("P3 encoders — round-trip through the real P3 decoder", () => {
   it("fixture is from the pinned P3 head", () => {
-    expect(FX.p3Sha).toBe("b2b2559e62e08a96b978a2d81a67991c93bc6061");
+    expect(FX.p3Sha).toBe("07a1d0ebec92d3a363b5d7f535cee1321c96d10d");
   });
   for (const [id, input] of Object.entries(P3_VECTOR_INPUTS)) {
     it(`${id}: SDK bytes == fixture bytes, and Rust decodes them to the SDK inputs`, () => {
@@ -182,24 +192,51 @@ describe("P3 account lists and builders (verified against the handler bodies)", 
     expect([ACCOUNTS_INIT_VAULT_LP_P3, ACCOUNTS_VAULT_LP_SET_MATCHER_P3, ACCOUNTS_DEPOSIT_JUNIOR_TRANCHE_P3,
       ACCOUNTS_WITHDRAW_JUNIOR_TRANCHE_P3, ACCOUNTS_VAULT_LP_RECALL_P3, ACCOUNTS_SET_VAULT_LP_RISK_P3,
       ACCOUNTS_VAULT_LP_CONVERT_PNL_P3, ACCOUNTS_VAULT_LP_SETTLE_RESOLVED_P3, ACCOUNTS_VAULT_LP_RELEASE_SURPLUS_P3,
-    ].map((a) => a.length)).toEqual([8, 8, 7, 11, 8, 3, 4, 12, 7]);
+    ].map((a) => a.length)).toEqual([11, 8, 7, 11, 8, 3, 4, 12, 7]);
   });
   const market = pk(), lp = pk();
   const m = { programId: W, market, registryDomain: 1, lpPortfolio: lp };
-  it("tag 94 is path A only: exactly 8 accounts, marketauth signs; no path-B tail exists", () => {
-    const auth = pk();
-    const a = buildInitVaultLpIxP3(m, auth, 2_000);
-    expect(a.keys).toHaveLength(8);
+  it("tag 94 (07a1d0eb): 11 accounts, marketauth only; [8] canonical matcher, [9] ctx (w), [10] delegate derived with the REGISTRY", () => {
+    const auth = pk(), ctx = pk();
+    const a = buildInitVaultLpIxP3(m, auth, 2_000, ctx);
+    expect(a.keys).toHaveLength(11);
     expect(a.keys[0]).toEqual({ pubkey: auth, isSigner: true, isWritable: true });
     expect(a.keys[2].pubkey.equals(deriveLpVaultRegistry(W, market)[0])).toBe(true);
     expect(a.keys[3].pubkey.equals(deriveVaultLpStateP3(W, market)[0])).toBe(true);
     expect(a.keys[6].pubkey.equals(deriveLpBackingLedger(W, market, 1)[0])).toBe(true); // own = registry domain
     expect(a.keys[7].pubkey.equals(deriveLpBackingLedger(W, market, 0)[0])).toBe(true); // sibling = domain ^ 1
-    // a stray 4th argument (the removed juniorOwner) must not resurrect the [8]/[9] tail
+    const matcher = new PublicKey(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3);
+    expect(a.keys[8]).toEqual({ pubkey: matcher, isSigner: false, isWritable: false });
+    expect(a.keys[9]).toEqual({ pubkey: ctx, isSigner: false, isWritable: true });
+    const [reg] = deriveLpVaultRegistry(W, market);
+    expect(a.keys[10]).toEqual({ pubkey: deriveMatcherDelegate(W, market, lp, reg, matcher, ctx)[0], isSigner: false, isWritable: false });
+    // path B stays gone: a stray extra argument adds nothing, the tail constant is not exported
     const loose = buildInitVaultLpIxP3 as unknown as (...args: unknown[]) => TransactionInstruction;
-    expect(loose(m, auth, 2_000, pk()).keys).toHaveLength(8);
+    expect(loose(m, auth, 2_000, ctx, matcher, pk()).keys).toHaveLength(11);
     expect((root as Record<string, unknown>).ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3).toBeUndefined();
     expect(a.keys.some((k) => k.pubkey.equals(deriveProgramDataAddressP3(W)[0]))).toBe(false);
+  });
+  it("matcher ctx pre-create = SystemProgram.createAccount(320 B, owner = canonical matcher)", () => {
+    const payer = pk(), ctx = pk();
+    const ix = buildCreateVaultLpMatcherCtxIxP3(payer, ctx, 3_118_080);
+    expect(ix.programId.equals(SystemProgram.programId)).toBe(true);
+    expect(ix.keys[0]).toEqual({ pubkey: payer, isSigner: true, isWritable: true });
+    expect(ix.keys[1]).toEqual({ pubkey: ctx, isSigner: true, isWritable: true });
+    const d = new DataView(ix.data.buffer, ix.data.byteOffset);
+    expect(d.getUint32(0, true)).toBe(0); // CreateAccount
+    expect(d.getBigUint64(4, true)).toBe(3_118_080n);
+    expect(d.getBigUint64(12, true)).toBe(320n);
+    expect(new PublicKey(ix.data.subarray(20, 52)).toBase58()).toBe(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3);
+    expect(VAULT_LP_MATCHER_CTX_LEN_P3).toBe(320);
+  });
+  it("auto-pin constants and caps match vault_lp_v18 (incl. its pinned_caps unit test)", () => {
+    expect(VAULT_LP_PIN_P3).toEqual({ MATCHER_KIND: 1, TRADING_FEE_BPS: 10, BASE_SPREAD_BPS: 10, MAX_TOTAL_BPS: 100, IMPACT_K_BPS: 50,
+      FEE_TO_INSURANCE_BPS: 0, SKEW_SPREAD_MULT_BPS: 1, TRADE_FEE_CAP_BPS: 10_000, LIQUIDITY_USD: 250_000n, MAX_FILL_USD: 5_000n, MAX_INVENTORY_USD: 25_000n });
+    expect(VAULT_LP_DEFAULT_MAX_LEV_BPS_P3).toBe(10_000);
+    expect(pinnedMatcherCapsP3(1_000_000n)).toEqual({ liquidityNotionalE6: 250_000_000_000n, maxFillAbs: 5_000_000_000n, maxInventoryAbs: 25_000_000_000n });
+    expect(pinnedMatcherCapsP3(0n)).toBeNull();
+    expect(pinnedMatcherCapsP3(1n)!.maxInventoryAbs).toBe(ENGINE_MAX_POSITION_ABS_Q_P3);
+    expect(usdToQCappedP3(5_000n, (1n << 64n) - 1n)).toBeNull();
   });
   it("tag 95 delegate is derived with the REGISTRY as LP owner", () => {
     const prog = pk(), ctx = pk();

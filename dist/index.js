@@ -2888,7 +2888,7 @@ var PERCOLATOR_ERRORS = {
     name: "AssetGenerationMismatch",
     hint: "A caller-supplied market_id / expected_market_id / asset_generation_frontier did not match the asset slot's current generation (AssetStateV16.market_id / header.next_market_id). The instruction was built against an older generation of this slot. Re-read the live values and rebuild."
   },
-  // ── P1 wrapper safety release — part of the relaunch wrapper (P1+P3 @ b2b2559e). ──
+  // ── P1 wrapper safety release — part of the relaunch wrapper (P1+P3 @ 07a1d0eb). ──
   // Appended, ordinals 0-65 unmoved.
   66: {
     name: "ExecPriceOutsideOracleBand",
@@ -2914,7 +2914,7 @@ var PERCOLATOR_ERRORS = {
     name: "CloseSlabFeesOutstanding",
     hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first \u2014 tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee \u2014 and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you."
   },
-  // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ b2b2559e). ──
+  // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 07a1d0eb). ──
   // Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
   // against the P3 enum (`PercolatorError::X as u32`) in test/p3.test.ts.
   72: {
@@ -3648,6 +3648,34 @@ var IX_TAG_P3 = Object.freeze({
 var VAULT_LP_JUNIOR_FLOOR_BPS_RANGE_P3 = Object.freeze({ min: 1e3, max: 1e4 });
 var VAULT_LP_MAX_LEV_BPS_P3 = 5e4;
 var VAULT_LP_DEFAULT_MAX_LEV_BPS_P3 = 1e4;
+var CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3 = "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT";
+var VAULT_LP_PIN_P3 = Object.freeze({
+  MATCHER_KIND: 1,
+  // vAMM
+  TRADING_FEE_BPS: 10,
+  BASE_SPREAD_BPS: 10,
+  MAX_TOTAL_BPS: 100,
+  IMPACT_K_BPS: 50,
+  FEE_TO_INSURANCE_BPS: 0,
+  SKEW_SPREAD_MULT_BPS: 1,
+  TRADE_FEE_CAP_BPS: 1e4,
+  LIQUIDITY_USD: 250000n,
+  MAX_FILL_USD: 5000n,
+  MAX_INVENTORY_USD: 25000n
+});
+var ENGINE_MAX_POSITION_ABS_Q_P3 = 100000000000000n;
+function usdToQCappedP3(usd, priceE6) {
+  if (priceE6 === 0n) return null;
+  let q = usd * 1000000000000n / priceE6;
+  if (q > ENGINE_MAX_POSITION_ABS_Q_P3) q = ENGINE_MAX_POSITION_ABS_Q_P3;
+  return q === 0n ? null : q;
+}
+function pinnedMatcherCapsP3(priceE6) {
+  const maxFillAbs = usdToQCappedP3(VAULT_LP_PIN_P3.MAX_FILL_USD, priceE6);
+  const maxInventoryAbs = usdToQCappedP3(VAULT_LP_PIN_P3.MAX_INVENTORY_USD, priceE6);
+  if (maxFillAbs === null || maxInventoryAbs === null) return null;
+  return { liquidityNotionalE6: VAULT_LP_PIN_P3.LIQUIDITY_USD * 1000000n, maxFillAbs, maxInventoryAbs };
+}
 var U16 = 65535;
 var U32 = 4294967295;
 var U64 = (1n << 64n) - 1n;
@@ -3748,7 +3776,10 @@ var ACCOUNTS_INIT_VAULT_LP_P3 = [
   { name: "lpPortfolio", signer: false, writable: true },
   { name: "systemProgram", signer: false, writable: false },
   { name: "ledger", signer: false, writable: true },
-  { name: "siblingLedger", signer: false, writable: true }
+  { name: "siblingLedger", signer: false, writable: true },
+  { name: "matcherProgram", signer: false, writable: false },
+  { name: "matcherCtx", signer: false, writable: true },
+  { name: "matcherDelegate", signer: false, writable: false }
 ];
 var ACCOUNTS_VAULT_LP_SET_MATCHER_P3 = [
   { name: "upgradeAuthority", signer: true, writable: false },
@@ -9998,15 +10029,24 @@ function ledgers(programId, market, registryDomain) {
 function ix(programId, spec, keys, data, extra = []) {
   return new TransactionInstruction4({ programId, keys: [...buildAccountMetas(spec, keys), ...extra], data: Buffer.from(data) });
 }
-function buildInitVaultLpIxP3(m, marketauth, juniorFloorBps) {
+var VAULT_LP_MATCHER_CTX_LEN_P3 = 320;
+function buildCreateVaultLpMatcherCtxIxP3(payer, matcherCtx, lamports, matcherProgram = new PublicKey15(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3)) {
+  return SystemProgram3.createAccount({ fromPubkey: payer, newAccountPubkey: matcherCtx, lamports, space: VAULT_LP_MATCHER_CTX_LEN_P3, programId: matcherProgram });
+}
+function buildInitVaultLpIxP3(m, marketauth, juniorFloorBps, matcherCtx, matcherProgram = new PublicKey15(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3)) {
+  const [registry] = deriveLpVaultRegistry(m.programId, m.market);
+  const [matcherDelegate] = deriveMatcherDelegate(m.programId, m.market, m.lpPortfolio, registry, matcherProgram, matcherCtx);
   return ix(m.programId, ACCOUNTS_INIT_VAULT_LP_P3, {
     authority: marketauth,
     market: m.market,
-    registry: deriveLpVaultRegistry(m.programId, m.market)[0],
+    registry,
     vaultLpState: deriveVaultLpStateP3(m.programId, m.market)[0],
     lpPortfolio: m.lpPortfolio,
     systemProgram: SystemProgram3.programId,
-    ...ledgers(m.programId, m.market, m.registryDomain)
+    ...ledgers(m.programId, m.market, m.registryDomain),
+    matcherProgram,
+    matcherCtx,
+    matcherDelegate
   }, encodeInitVaultLpP3(juniorFloorBps));
 }
 function buildVaultLpSetMatcherIxP3(m, upgradeAuthority, matcherProgram, matcherCtx, args) {
@@ -11377,6 +11417,7 @@ export {
   BOUND_VAULT_LP_TAIL_INDEX_P3,
   BPF_LOADER_UPGRADEABLE_ID_P3,
   BackingBucketStatus,
+  CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3,
   CHAINLINK_ANSWER_OFFSET,
   CHAINLINK_DECIMALS_OFFSET,
   CHAINLINK_MIN_SIZE,
@@ -11391,6 +11432,7 @@ export {
   ENGINE_ASSET_SLOT_OFF_V18,
   ENGINE_BOUND_SCALE,
   ENGINE_MARK_PRICE_OFF,
+  ENGINE_MAX_POSITION_ABS_Q_P3,
   ENGINE_OFF,
   EXPECTED_SLAB_VERSION,
   FEE_SPLIT,
@@ -11547,7 +11589,9 @@ export {
   VAMM_MAGIC,
   VAULT_LP_DEFAULT_MAX_LEV_BPS_P3,
   VAULT_LP_JUNIOR_FLOOR_BPS_RANGE_P3,
+  VAULT_LP_MATCHER_CTX_LEN_P3,
   VAULT_LP_MAX_LEV_BPS_P3,
+  VAULT_LP_PIN_P3,
   VAULT_LP_STATE_ACCOUNT_LEN_P3,
   VAULT_LP_STATE_BODY_LEN_P3,
   VAULT_LP_STATE_OFF_P3,
@@ -11570,6 +11614,7 @@ export {
   buildAdlInstruction,
   buildAdlTransaction,
   buildAdminCloseSlabIx,
+  buildCreateVaultLpMatcherCtxIxP3,
   buildDepositJuniorTrancheIxP3,
   buildInitVaultLpIxP3,
   buildIx,
@@ -11913,6 +11958,7 @@ export {
   parseProtocolFeeAuthorityEpoch,
   parseUsedIndices,
   parseWrapperConfigV17,
+  pinnedMatcherCapsP3,
   planCloseSlabAttempt,
   planReduceOnlyExit,
   planStakeWindDown,
@@ -11935,6 +11981,7 @@ export {
   stakeGroupBProxyAccounts,
   stripLighthouseFromTransaction,
   stripLighthouseInstructions,
+  usdToQCappedP3,
   v17MarketAccountLen,
   validateAmount,
   validateBps,

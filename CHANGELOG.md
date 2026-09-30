@@ -12,7 +12,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 v18.3 fresh-ID relaunch. The devnet wrapper moves to a new program address.
 
 **Relaunch programs (scope set 2026-09-30):**
-- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog `b2b2559e` (engine `35ddd692`). It supersedes `424fe7e4` / `ee29b5ac`; the only program-code change is the tag-94 path-B removal. The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
+- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog `07a1d0eb` (engine `35ddd692`). It supersedes `424fe7e4` / `ee29b5ac` / `b2b2559e`: `b2b2559e` removed tag-94 path B, and `07a1d0eb` adds the tag-94 auto-pin, the Resolved fee harvest and C-4(b). The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
 - Stake: the **F-9** head, percolator-stake `d13b5a9`, plus the fresh-ID bump.
 
 Everything below that targets P1 (tag 93, errors 66–71), P3 (tags 94–102, errors 72–85) or the
@@ -69,7 +69,7 @@ v18.2 instructions or account layouts changed.
   `CloseSlabFeesOutstanding`); stake 29 `NoRealLpHolders` (F3 dead-share guard). Fixed the
   63 hint (CreateLpVault is tag 74, not 72).
 
-- **P3 vault-owned LP** (percolator-prog `feat/p3-vault-owned-lp@b2b2559e`, stacked on P1;
+- **P3 vault-owned LP** (percolator-prog `feat/p3-vault-owned-lp@07a1d0eb`, stacked on P1;
   part of the relaunch wrapper). `src/abi/p3.ts`: `IX_TAG_P3` and encoders + account lists for
   tags 94–102 (`encodeInitVaultLpP3` … `encodeVaultLpReleaseSurplusP3`, `ACCOUNTS_*_P3`).
   `src/solana/p3-vault-lp.ts`: `decodeVaultLpStateP3`, `decodeAssetVaultLpP3` /
@@ -106,9 +106,9 @@ v18.2 instructions or account layouts changed.
 - **Stake error 32 `UnsupportedWrapperLayout`** (d13b5a9). It is non-retryable: the bound
   wrapper market is not the VERSION-18 layout the stake program pins. Tags 29 and 30 and
   Deposit/DepositJunior (mode-0 path) can return it, and their docs say so. The relaunch
-  wrapper `b2b2559e` satisfies the pin (magic, VERSION 18, config 576, header 758, mode at
+  wrapper `07a1d0eb` satisfies the pin (magic, VERSION 18, config 576, header 758, mode at
   592 + 626).
-- **P1 tag 93 `SetAssetRiskLimits`** (relaunch wrapper `b2b2559e`): `IX_TAG_P1`,
+- **P1 tag 93 `SetAssetRiskLimits`** (relaunch wrapper `07a1d0eb`): `IX_TAG_P1`,
   `encodeSetAssetRiskLimitsP1`, which mirrors the wrapper's own encoder (41 B; the optional
   tail `matcher_ext_mode` u8 is sent if either tail field is non-zero, then
   `max_requested_fee_bps` u16 if it is non-zero), `ACCOUNTS_SET_ASSET_RISK_LIMITS_P1`
@@ -121,6 +121,22 @@ v18.2 instructions or account layouts changed.
   upgrade-authority path B. `ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3` is removed, and
   `buildInitVaultLpIxP3(m, marketauth, juniorFloorBps)` no longer takes `juniorOwner`. It always
   builds the 8-account marketauth form. (8.0.0 is unpublished, so nothing released breaks.)
+
+- **P3 FINAL `07a1d0eb`: tag 94 auto-pin.** InitVaultLp now takes **11 accounts**: [0..7] as
+  before, then [8] the canonical matcher (`CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3` =
+  `4seJWjv3…`; any other program gives 81 VaultLpMatcherNotApproved, and non-devnet builds
+  fail closed), [9] a pre-created matcher ctx (writable, 320 B, owner = matcher, zeroed), and
+  [10] the delegate PDA `["matcher", market, lp_portfolio, registry, matcher, ctx]`, which is
+  not a transaction signer. `buildInitVaultLpIxP3(m, marketauth, juniorFloorBps, matcherCtx,
+  matcherProgram?)` derives the delegate, and the new `buildCreateVaultLpMatcherCtxIxP3`
+  pre-creates the ctx. The program pins the matcher with protocol parameters, exported as
+  `VAULT_LP_PIN_P3`, `pinnedMatcherCapsP3` / `usdToQCappedP3` (ports of
+  `vault_lp_v18::pinned_matcher_caps`), `ENGINE_MAX_POSITION_ABS_Q_P3` and
+  `VAULT_LP_DEFAULT_MAX_LEV_BPS_P3` (1x). No wire change on 77/78, only rule changes: tag 78
+  is also allowed in Resolved mode once the market is terminal-flat (the [6] tail is still
+  required), and the tag-77 [14] vault LP is only key-pinned in Resolved mode (it may be
+  garbage-collected). The P3 parity oracle was re-run against the real crate at `07a1d0eb`:
+  tags 94–102, errors 66–85, layout and offsets are identical.
 
 ### Fixed
 

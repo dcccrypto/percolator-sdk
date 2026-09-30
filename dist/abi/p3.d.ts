@@ -19,8 +19,59 @@ export declare const VAULT_LP_JUNIOR_FLOOR_BPS_RANGE_P3: Readonly<{
 }>;
 /** `VAULT_LP_MAX_LEV_BPS` (5x). 0 means the 1x default `VAULT_LP_DEFAULT_MAX_LEV_BPS`. */
 export declare const VAULT_LP_MAX_LEV_BPS_P3 = 50000;
-/** `VAULT_LP_DEFAULT_MAX_LEV_BPS` (1x). */
+/** `VAULT_LP_DEFAULT_MAX_LEV_BPS` (1x). Tag 94 auto-pins the vault LP at this default (stored 0). */
 export declare const VAULT_LP_DEFAULT_MAX_LEV_BPS_P3 = 10000;
+/**
+ * `CANONICAL_VAULT_LP_MATCHER_PROGRAM` (devnet build only; tag 94 fails closed off-devnet with
+ * VaultLpMatcherNotApproved). The ONE matcher program a vault LP is auto-pinned to at tag 94.
+ */
+export declare const CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3 = "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT";
+/**
+ * `vault_lp_v18::PIN_*` — the matcher context tag 94 gives every vault LP (protocol constants;
+ * the creator passes none of them). The upgrade authority may adjust later via tags 99/95.
+ */
+export declare const VAULT_LP_PIN_P3: Readonly<{
+    readonly MATCHER_KIND: 1;
+    readonly TRADING_FEE_BPS: 10;
+    readonly BASE_SPREAD_BPS: 10;
+    readonly MAX_TOTAL_BPS: 100;
+    readonly IMPACT_K_BPS: 50;
+    readonly FEE_TO_INSURANCE_BPS: 0;
+    readonly SKEW_SPREAD_MULT_BPS: 1;
+    readonly TRADE_FEE_CAP_BPS: 10000;
+    readonly LIQUIDITY_USD: 250000n;
+    readonly MAX_FILL_USD: 5000n;
+    readonly MAX_INVENTORY_USD: 25000n;
+}>;
+/** `vault_lp_v18::ENGINE_MAX_POSITION_ABS_Q` (= engine MAX_POSITION_ABS_Q). */
+export declare const ENGINE_MAX_POSITION_ABS_Q_P3 = 100000000000000n;
+/**
+ * Port of `vault_lp_v18::usd_to_q_capped`: `floor(usd·1e12 / price_e6)`, clamped to the engine
+ * position bound; null when the price is 0 or the result is 0 (0 = UNLIMITED to the matcher).
+ * @param usd      Notional in USD.
+ * @param priceE6  Asset effective price (e6).
+ * @returns Q or null.
+ * @example
+ * ```ts
+ * usdToQCappedP3(5_000n, 1_000_000n); // 5_000_000_000n
+ * ```
+ */
+export declare function usdToQCappedP3(usd: bigint, priceE6: bigint): bigint | null;
+/**
+ * Port of `vault_lp_v18::pinned_matcher_caps`: the FINITE matcher caps tag 94 pins from the
+ * asset's effective price at bind time. null = tag 94 fails (InvalidInstruction).
+ * @param priceE6  Asset effective price (e6) at bind time.
+ * @returns `{ liquidityNotionalE6, maxFillAbs, maxInventoryAbs }` or null.
+ * @example
+ * ```ts
+ * pinnedMatcherCapsP3(1_000_000n); // { liquidityNotionalE6: 250_000_000_000n, maxFillAbs: 5_000_000_000n, maxInventoryAbs: 25_000_000_000n }
+ * ```
+ */
+export declare function pinnedMatcherCapsP3(priceE6: bigint): {
+    liquidityNotionalE6: bigint;
+    maxFillAbs: bigint;
+    maxInventoryAbs: bigint;
+} | null;
 /**
  * InitVaultLp (tag 94): `u16 junior_floor_bps` (1000..=10000). 3 bytes.
  *
@@ -161,10 +212,14 @@ export declare function encodeVaultLpSettleResolvedP3(topup: 0 | 1): Uint8Array;
  */
 export declare function encodeVaultLpReleaseSurplusP3(amount: bigint, sourceDomain: number): Uint8Array;
 /**
- * Tag 94 InitVaultLp: 8 accounts, path A ONLY. `authority` = the market's marketauth, which
- * becomes the junior owner. The upgrade-authority "path B" (ProgramData + a signing junior at
- * [8]/[9]) is removed from the relaunch P3 by decision and is not supported by this SDK.
- * `lpPortfolio` must be pre-created (program-owned, portfolio length).
+ * Tag 94 InitVaultLp (P3 FINAL `07a1d0eb`): 11 accounts, marketauth only. `authority` = the
+ * market's marketauth, which becomes the junior owner. [0..7] as before, then AUTO-PIN:
+ * [8] matcher program (must be CANONICAL_VAULT_LP_MATCHER_PROGRAM, else 81
+ * VaultLpMatcherNotApproved), [9] matcher ctx (writable; pre-created, 320 B, owner = matcher,
+ * zeroed), [10] matcher delegate PDA `["matcher", market, lp_portfolio, registry, matcher, ctx]`
+ * (signs the matcher CPI via invoke_signed — NOT a transaction signer). The program approves the
+ * canonical matcher, keeps the 1x exposure default and initialises the ctx with `VAULT_LP_PIN_P3`
+ * + {@link pinnedMatcherCapsP3}. `lpPortfolio` must be pre-created (program-owned, portfolio length).
  */
 export declare const ACCOUNTS_INIT_VAULT_LP_P3: readonly AccountSpec[];
 /** Tag 95: 8 accounts. `matcherDelegate` = deriveMatcherDelegate(wrapper, market, lp, registry, matcherProgram, matcherCtx). */
