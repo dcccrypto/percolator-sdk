@@ -175,7 +175,7 @@ export declare function deriveVaultLpStateP3(programId: PublicKey, market: Publi
 export declare const BPF_LOADER_UPGRADEABLE_ID_P3: PublicKey;
 /**
  * The wrapper's ProgramData account (`[program_id]` under the upgradeable loader) — required by
- * the upgrade-authority tags 94 (path B), 95 and 99.
+ * the upgrade-authority tags 95 and 99.
  * @param programId  Wrapper program id.
  * @returns [programData, bump].
  * @example
@@ -194,20 +194,20 @@ export interface VaultLpMarketP3 {
     lpPortfolio: PublicKey;
 }
 /**
- * Tag 94 InitVaultLp. Path A: `authority` = marketauth (becomes the junior owner). Path B: pass
- * `juniorOwner` (signer) and `authority` = the wrapper upgrade authority.
+ * Tag 94 InitVaultLp, path A only: the marketauth signs and becomes the junior owner. (The
+ * upgrade-authority path B is removed from the relaunch P3.) On a stake-bound market the
+ * marketauth is the keyless stake-pool PDA, so bind the vault LP before InitPool rotates it.
  *
  * @param m               Market context.
- * @param authority       Signer (marketauth or upgrade authority).
+ * @param marketauth      The market's marketauth (signer; becomes the junior owner).
  * @param juniorFloorBps  1000..=10000.
- * @param juniorOwner     Path B only: the signing junior owner.
- * @returns Instruction.
+ * @returns Instruction (8 accounts).
  * @example
  * ```ts
  * const ix = buildInitVaultLpIxP3({ programId, market, registryDomain: 0, lpPortfolio }, marketauth, 2_000);
  * ```
  */
-export declare function buildInitVaultLpIxP3(m: VaultLpMarketP3, authority: PublicKey, juniorFloorBps: number, juniorOwner?: PublicKey): TransactionInstruction;
+export declare function buildInitVaultLpIxP3(m: VaultLpMarketP3, marketauth: PublicKey, juniorFloorBps: number): TransactionInstruction;
 /**
  * Tag 95 VaultLpSetMatcher (upgrade authority). The delegate is derived with the REGISTRY
  * as the LP owner, exactly as the handler does.

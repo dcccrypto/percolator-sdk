@@ -186,18 +186,20 @@ describe("P3 account lists and builders (verified against the handler bodies)", 
   });
   const market = pk(), lp = pk();
   const m = { programId: W, market, registryDomain: 1, lpPortfolio: lp };
-  it("tag 94 path A = 8 accounts; path B appends ProgramData + signing junior", () => {
-    const a = buildInitVaultLpIxP3(m, pk(), 2_000);
+  it("tag 94 is path A only: exactly 8 accounts, marketauth signs; no path-B tail exists", () => {
+    const auth = pk();
+    const a = buildInitVaultLpIxP3(m, auth, 2_000);
     expect(a.keys).toHaveLength(8);
+    expect(a.keys[0]).toEqual({ pubkey: auth, isSigner: true, isWritable: true });
     expect(a.keys[2].pubkey.equals(deriveLpVaultRegistry(W, market)[0])).toBe(true);
     expect(a.keys[3].pubkey.equals(deriveVaultLpStateP3(W, market)[0])).toBe(true);
     expect(a.keys[6].pubkey.equals(deriveLpBackingLedger(W, market, 1)[0])).toBe(true); // own = registry domain
     expect(a.keys[7].pubkey.equals(deriveLpBackingLedger(W, market, 0)[0])).toBe(true); // sibling = domain ^ 1
-    const junior = pk();
-    const b = buildInitVaultLpIxP3(m, pk(), 2_000, junior);
-    expect(b.keys).toHaveLength(10);
-    expect(b.keys[8].pubkey.equals(deriveProgramDataAddressP3(W)[0])).toBe(true);
-    expect(b.keys[9]).toEqual({ pubkey: junior, isSigner: true, isWritable: false });
+    // a stray 4th argument (the removed juniorOwner) must not resurrect the [8]/[9] tail
+    const loose = buildInitVaultLpIxP3 as unknown as (...args: unknown[]) => TransactionInstruction;
+    expect(loose(m, auth, 2_000, pk()).keys).toHaveLength(8);
+    expect((root as Record<string, unknown>).ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3).toBeUndefined();
+    expect(a.keys.some((k) => k.pubkey.equals(deriveProgramDataAddressP3(W)[0]))).toBe(false);
   });
   it("tag 95 delegate is derived with the REGISTRY as LP owner", () => {
     const prog = pk(), ctx = pk();

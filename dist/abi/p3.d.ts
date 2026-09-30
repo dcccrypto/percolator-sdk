@@ -161,13 +161,12 @@ export declare function encodeVaultLpSettleResolvedP3(topup: 0 | 1): Uint8Array;
  */
 export declare function encodeVaultLpReleaseSurplusP3(amount: bigint, sourceDomain: number): Uint8Array;
 /**
- * Tag 94, path A (marketauth = junior owner): 8 accounts. Path B (protocol names a signing
- * junior): append {@link ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3} ([8] ProgramData, [9] junior owner signer)
- * and make [0] the upgrade authority. `lpPortfolio` must be pre-created (program-owned, portfolio length).
+ * Tag 94 InitVaultLp: 8 accounts, path A ONLY. `authority` = the market's marketauth, which
+ * becomes the junior owner. The upgrade-authority "path B" (ProgramData + a signing junior at
+ * [8]/[9]) is removed from the relaunch P3 by decision and is not supported by this SDK.
+ * `lpPortfolio` must be pre-created (program-owned, portfolio length).
  */
 export declare const ACCOUNTS_INIT_VAULT_LP_P3: readonly AccountSpec[];
-/** Tag 94 path B tail. */
-export declare const ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3: readonly AccountSpec[];
 /** Tag 95: 8 accounts. `matcherDelegate` = deriveMatcherDelegate(wrapper, market, lp, registry, matcherProgram, matcherCtx). */
 export declare const ACCOUNTS_VAULT_LP_SET_MATCHER_P3: readonly AccountSpec[];
 /** Tag 96: 7 accounts. */

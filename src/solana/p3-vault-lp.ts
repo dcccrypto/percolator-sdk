@@ -23,7 +23,6 @@ import type { CrankObservationHint } from "../abi/instructions.js";
 import {
   ACCOUNTS_DEPOSIT_JUNIOR_TRANCHE_P3,
   ACCOUNTS_INIT_VAULT_LP_P3,
-  ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3,
   ACCOUNTS_SET_VAULT_LP_RISK_P3,
   ACCOUNTS_VAULT_LP_CONVERT_PNL_P3,
   ACCOUNTS_VAULT_LP_RECALL_P3,
@@ -282,7 +281,7 @@ export const BPF_LOADER_UPGRADEABLE_ID_P3 = new PublicKey("BPFLoaderUpgradeab1e1
 
 /**
  * The wrapper's ProgramData account (`[program_id]` under the upgradeable loader) — required by
- * the upgrade-authority tags 94 (path B), 95 and 99.
+ * the upgrade-authority tags 95 and 99.
  * @param programId  Wrapper program id.
  * @returns [programData, bump].
  * @example
@@ -321,28 +320,25 @@ export interface VaultLpMarketP3 {
 }
 
 /**
- * Tag 94 InitVaultLp. Path A: `authority` = marketauth (becomes the junior owner). Path B: pass
- * `juniorOwner` (signer) and `authority` = the wrapper upgrade authority.
+ * Tag 94 InitVaultLp, path A only: the marketauth signs and becomes the junior owner. (The
+ * upgrade-authority path B is removed from the relaunch P3.) On a stake-bound market the
+ * marketauth is the keyless stake-pool PDA, so bind the vault LP before InitPool rotates it.
  *
  * @param m               Market context.
- * @param authority       Signer (marketauth or upgrade authority).
+ * @param marketauth      The market's marketauth (signer; becomes the junior owner).
  * @param juniorFloorBps  1000..=10000.
- * @param juniorOwner     Path B only: the signing junior owner.
- * @returns Instruction.
+ * @returns Instruction (8 accounts).
  * @example
  * ```ts
  * const ix = buildInitVaultLpIxP3({ programId, market, registryDomain: 0, lpPortfolio }, marketauth, 2_000);
  * ```
  */
-export function buildInitVaultLpIxP3(m: VaultLpMarketP3, authority: PublicKey, juniorFloorBps: number, juniorOwner?: PublicKey): TransactionInstruction {
-  const extra = juniorOwner
-    ? buildAccountMetas(ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3, { programData: deriveProgramDataAddressP3(m.programId)[0], juniorOwner })
-    : [];
+export function buildInitVaultLpIxP3(m: VaultLpMarketP3, marketauth: PublicKey, juniorFloorBps: number): TransactionInstruction {
   return ix(m.programId, ACCOUNTS_INIT_VAULT_LP_P3, {
-    authority, market: m.market, registry: deriveLpVaultRegistry(m.programId, m.market)[0],
+    authority: marketauth, market: m.market, registry: deriveLpVaultRegistry(m.programId, m.market)[0],
     vaultLpState: deriveVaultLpStateP3(m.programId, m.market)[0], lpPortfolio: m.lpPortfolio,
     systemProgram: SystemProgram.programId, ...ledgers(m.programId, m.market, m.registryDomain),
-  }, encodeInitVaultLpP3(juniorFloorBps), extra);
+  }, encodeInitVaultLpP3(juniorFloorBps));
 }
 
 /**

@@ -117,6 +117,11 @@ v18.2 instructions or account layouts changed.
   at account offset `1958 + 2325·i` (`assetRiskLimitsAccountOffsetP1`;
   `max_requested_fee_bps` at +40). Keep `max_requested_fee_bps = 0` at relaunch.
 
+- **P3 tag 94 InitVaultLp is path A only.** By user decision, the relaunch P3 removes the
+  upgrade-authority path B. `ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3` is removed, and
+  `buildInitVaultLpIxP3(m, marketauth, juniorFloorBps)` no longer takes `juniorOwner`. It always
+  builds the 8-account marketauth form. (8.0.0 is unpublished, so nothing released breaks.)
+
 ### Fixed
 
 - **CI parity gate** (red since 2026-09-28): it checked the engine out at `main`, and

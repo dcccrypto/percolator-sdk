@@ -3750,10 +3750,6 @@ var ACCOUNTS_INIT_VAULT_LP_P3 = [
   { name: "ledger", signer: false, writable: true },
   { name: "siblingLedger", signer: false, writable: true }
 ];
-var ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3 = [
-  { name: "programData", signer: false, writable: false },
-  { name: "juniorOwner", signer: true, writable: false }
-];
 var ACCOUNTS_VAULT_LP_SET_MATCHER_P3 = [
   { name: "upgradeAuthority", signer: true, writable: false },
   { name: "programData", signer: false, writable: false },
@@ -10002,17 +9998,16 @@ function ledgers(programId, market, registryDomain) {
 function ix(programId, spec, keys, data, extra = []) {
   return new TransactionInstruction4({ programId, keys: [...buildAccountMetas(spec, keys), ...extra], data: Buffer.from(data) });
 }
-function buildInitVaultLpIxP3(m, authority, juniorFloorBps, juniorOwner) {
-  const extra = juniorOwner ? buildAccountMetas(ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3, { programData: deriveProgramDataAddressP3(m.programId)[0], juniorOwner }) : [];
+function buildInitVaultLpIxP3(m, marketauth, juniorFloorBps) {
   return ix(m.programId, ACCOUNTS_INIT_VAULT_LP_P3, {
-    authority,
+    authority: marketauth,
     market: m.market,
     registry: deriveLpVaultRegistry(m.programId, m.market)[0],
     vaultLpState: deriveVaultLpStateP3(m.programId, m.market)[0],
     lpPortfolio: m.lpPortfolio,
     systemProgram: SystemProgram3.programId,
     ...ledgers(m.programId, m.market, m.registryDomain)
-  }, encodeInitVaultLpP3(juniorFloorBps), extra);
+  }, encodeInitVaultLpP3(juniorFloorBps));
 }
 function buildVaultLpSetMatcherIxP3(m, upgradeAuthority, matcherProgram, matcherCtx, args) {
   const [registry] = deriveLpVaultRegistry(m.programId, m.market);
@@ -11291,7 +11286,6 @@ export {
   ACCOUNTS_INIT_MATCHER_CTX,
   ACCOUNTS_INIT_USER,
   ACCOUNTS_INIT_VAULT_LP_P3,
-  ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3,
   ACCOUNTS_KEEPER_CRANK,
   ACCOUNTS_LIQUIDATE_AT_ORACLE,
   ACCOUNTS_LP_VAULT_CRANK_FEES,
