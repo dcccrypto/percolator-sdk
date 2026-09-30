@@ -10331,10 +10331,13 @@ function vaultLpSeniorPricingClaimP3(c, undrawn, juniorSurplus) {
 }
 function boundVaultSeniorValueP3(a) {
   if (a.resolved) return minB(a.physicalIdleBacking, a.seniorClaim);
-  const claim = a.lpEquityWorse < 0n ? vaultLpSeniorPricingClaimP3(a.seniorClaim, -a.lpEquityWorse, a.nav > a.seniorClaim ? a.nav - a.seniorClaim : 0n) : a.seniorClaim;
-  if (a.nav >= claim) return claim;
-  const lpWorse = a.lpEquityWorse > 0n ? a.lpEquityWorse : 0n;
-  return minB(a.nav + minB(a.lpValue, lpWorse), claim);
+  return liveExitSeniorValueP3(a.seniorClaim, a.nav, a.lpEquityWorse >= 0n ? a.lpValue : 0n, a.lpEquityWorse);
+}
+function liveExitSeniorValueP3(c, nav, lpValueAtEff, lpEquityWorse) {
+  if (lpEquityWorse >= 0n) return minB(nav + minB(lpValueAtEff, lpEquityWorse), c);
+  const d = -lpEquityWorse;
+  const cP = vaultLpSeniorPricingClaimP3(c, d, nav > c ? nav - c : 0n);
+  return minB(nav > d ? nav - d : 0n, cP);
 }
 function boundVaultRedemptionAtomsP3(shares, totalShares, seniorValue) {
   if (totalShares === 0n || shares > totalShares) return null;
@@ -12152,6 +12155,7 @@ export {
   isV17Account,
   isV17MarketAccount,
   isValidChainlinkOracle,
+  liveExitSeniorValueP3,
   matcherConfigureOwnerProofAccounts,
   maxAccountIndex,
   packOiCap,

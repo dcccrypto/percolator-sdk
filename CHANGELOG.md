@@ -35,6 +35,16 @@ v18.2 instructions or account layouts changed.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
 
+### Changed (P3 candidate FINAL `592a77e2`: security fixes E-1/G-1/F-1, 2026-09-30)
+
+- **E-1 (77 exit value), ported as `liveExitSeniorValueP3`** (= `vault_lp_v18::live_exit_senior_value`), and `boundVaultSeniorValueP3` routes Live through it.
+  - The value is now ALWAYS taken at the worse-for-the-vault price, with no `nav ≥ C` shortcut.
+  - A negative worse bound d cuts both the claim (C') and the value: `min(max(0, nav − d), C')`.
+  - The pre-fix port overpaid, e.g. 800k instead of 700k. The program's own E-1 unit-test vectors are asserted in the SDK tests.
+- G-1 and F-1 (cover scope, owned add-back) are program-internal, with no SDK surface.
+- A new 1-byte wrapper flag sits at asset-slot offset 672 (`ASSET_VAULT_PREBIND_OI_OFF`). The SDK does not read or validate that region.
+- Error map (90), P3 wire, layout and price offsets are identical (the rustc oracles were re-run).
+
 ### Added (compute guidance, 2026-09-30)
 
 - **`RECOMMENDED_CU_P3`** gives each limit with headroom over the security review's measured worst case:

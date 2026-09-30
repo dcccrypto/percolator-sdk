@@ -2,13 +2,13 @@
  * P3 vault-owned LP — account decoders, PDAs, instruction builders, the bound-vault tail for
  * Earn tags 75/77/78, and the vault-LP refresh crank. Additive to SDK 8.0.0.
  *
- * Source: percolator-prog `feat/p3-vault-owned-lp` @ `3245e861e5b547b70c0871d7afb0501a2502e10a` (P3 candidate FINAL: senior draw, recall cap, pause 89, cross-pot 77, resolved-lock fixes A–D, worse-of 75/77 pricing)
+ * Source: percolator-prog `feat/p3-vault-owned-lp` @ `592a77e2f6c46d82011978f74392899ea9da5960` (P3 candidate FINAL: senior draw, recall cap, pause 89, cross-pot 77, resolved-lock fixes A–D, worse-of 75/77 pricing)
  * (`state::{VaultLpStateV18, AssetVaultLpV18, read_asset_vault_lp}`, `load_bound_vault_lp_tail`,
  * `vault_lp_refresh_snapshot`). Offsets are pinned by `test/p3.test.ts` against rustc
  * `offset_of!` on the REAL P3 structs, and the per-asset record offset against a market
  * account built by the P3 crate itself.
  *
- * Relaunch wrapper = P1 + P3 (`3245e861`). On an older v18.2 market every AssetVaultLpV18
+ * Relaunch wrapper = P1 + P3 (`592a77e2`). On an older v18.2 market every AssetVaultLpV18
  * record is zero ("no vault LP bound").
  *
  * @module p3-vault-lp
@@ -669,9 +669,8 @@ export declare function vaultLpEquityLagBoundsP3(a: {
 export declare function vaultLpSeniorPricingClaimP3(c: bigint, undrawn: bigint, juniorSurplus: bigint): bigint;
 /**
  * Senior value used by tag 77 on a bound vault (floored everywhere):
- * Resolved → `min(physicalIdleBacking, C)`. Live (`ede691b6` worse-of): claim = C, or when
- * `lpEquityWorse < 0` claim = `vaultLpSeniorPricingClaimP3(C, −lpEquityWorse, max(0, nav − C))`; then
- * `claim` if `nav >= claim`, else `min(nav + min(lpValue, max(lpEquityWorse, 0)), claim)`.
+ * Resolved → `min(physicalIdleBacking, C)`. Live (`592a77e2`, E-1) → {@link liveExitSeniorValueP3}
+ * (always at the worse-for-the-vault price; a negative bound cuts both the claim and the value).
  * `lpEquityWorse` = {@link vaultLpEquityLagBoundsP3}`.worse` (ignored when resolved).
  * Live precondition (`d119eebd`): the vault LP has NO undrawn deficit; otherwise the program
  * refuses 75/77 with 87 VaultLpSeniorDrawRequired (pass the vault LP writable, or crank it).
@@ -692,6 +691,22 @@ export declare function boundVaultSeniorValueP3(a: {
     physicalIdleBacking: bigint;
     lpEquityWorse: bigint;
 }): bigint;
+/**
+ * `vault_lp_v18::live_exit_senior_value` (percolator-prog `592a77e2`, security fix E-1): the Live 77
+ * senior value, ALWAYS at the price worse for the vault (no `nav >= C` shortcut).
+ *   worse >= 0: min(nav + min(lpValueAtEff, worse), C)
+ *   worse <  0: d = −worse; C' = vaultLpSeniorPricingClaimP3(C, d, max(0, nav − C)); min(max(0, nav − d), C')
+ * @param c              Senior claim C (after the 87 undrawn check).
+ * @param nav            Floored bound-vault NAV.
+ * @param lpValueAtEff   Vault-LP value at effective prices (0 when worse < 0).
+ * @param lpEquityWorse  {@link vaultLpEquityLagBoundsP3}`.worse`.
+ * @returns Senior value.
+ * @example
+ * ```ts
+ * liveExitSeniorValueP3(1_000_000n, 800_000n, 200_000n, -100_000n); // 700_000n
+ * ```
+ */
+export declare function liveExitSeniorValueP3(c: bigint, nav: bigint, lpValueAtEff: bigint, lpEquityWorse: bigint): bigint;
 /**
  * Tag-77 payout for `shares` on a bound vault: `floor(shares · senior / S)` (null when S == 0 or
  * shares > S — the program fails closed). Requires harvestable == 0 (bundle tag 78 first).

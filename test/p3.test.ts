@@ -1,6 +1,6 @@
 /**
  * P3 vault-owned LP parity. Fixture `test/fixtures/p3-parity.json` is emitted by the REAL
- * P3 crate (percolator-prog feat/p3-vault-owned-lp @ 3245e861) via
+ * P3 crate (percolator-prog feat/p3-vault-owned-lp @ 592a77e2) via
  * scripts/p3-parity/sdk_p3_parity.rs: `Instruction::decode` of our encoder hex, rustc
  * `offset_of!`, `PercolatorError::X as u32`, `read_asset_vault_lp`, `init_vault_lp_state`.
  */
@@ -83,7 +83,7 @@ const pk = (): PublicKey => Keypair.generate().publicKey;
 
 describe("P3 encoders — round-trip through the real P3 decoder", () => {
   it("fixture is from the pinned P3 head", () => {
-    expect(FX.p3Sha).toBe("3245e861e5b547b70c0871d7afb0501a2502e10a");
+    expect(FX.p3Sha).toBe("592a77e2f6c46d82011978f74392899ea9da5960");
   });
   for (const [id, input] of Object.entries(P3_VECTOR_INPUTS)) {
     it(`${id}: SDK bytes == fixture bytes, and Rust decodes them to the SDK inputs`, () => {

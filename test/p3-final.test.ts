@@ -33,6 +33,7 @@ import {
   ASSET_STATE_EFFECTIVE_PRICE_OFF_P3,
   POS_SCALE_P3,
   RECOMMENDED_CU_P3,
+  liveExitSeniorValueP3,
 } from "../src/solana/p3-vault-lp.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveVaultAuthority } from "../src/solana/pda.js";
 import { deriveVaultLpStateP3 } from "../src/solana/p3-vault-lp.js";
@@ -223,7 +224,8 @@ describe("ede691b6 worse-of Earn pricing (vault_lp_equity_lag_bounds_ro)", () =>
     expect(vaultLpSeniorPricingClaimP3(1_000n, 300n, 0n)).toBe(700n);
     expect(vaultLpSeniorPricingClaimP3(1_000n, 300n, 200n)).toBe(900n);
     expect(vaultLpSeniorPricingClaimP3(100n, 300n, 0n)).toBe(0n);
-    expect(boundVaultSeniorValueP3({ nav: 500n, seniorClaim: 1_000n, lpValue: 900n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -300n })).toBe(500n);
+    // 592a77e2 E-1: a negative bound also cuts the VALUE (nav − d), not only the claim (was min(nav, C') = 500)
+    expect(boundVaultSeniorValueP3({ nav: 500n, seniorClaim: 1_000n, lpValue: 900n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -300n })).toBe(200n);
     expect(boundVaultSeniorValueP3({ nav: 1_200n, seniorClaim: 1_000n, lpValue: 0n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -300n })).toBe(900n);
     expect(boundVaultSeniorValueP3({ nav: 500n, seniorClaim: 1_000n, lpValue: 900n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: 200n })).toBe(700n);
     expect(boundVaultSeniorValueP3({ nav: 500n, seniorClaim: 1_000n, lpValue: 900n, resolved: true, physicalIdleBacking: 600n, lpEquityWorse: -300n })).toBe(600n);
@@ -248,6 +250,22 @@ describe("RECOMMENDED_CU_P3 covers the measured worst cases (security review 202
     expect(RECOMMENDED_CU_P3.vaultLpSettleResolved).toBeGreaterThan(285_000);
     expect(RECOMMENDED_CU_P3.lpVaultCrankFees).toBeGreaterThan(63_000);
     expect(RECOMMENDED_CU_P3.keeperCrank).toBeGreaterThan(151_000);
+  });
+});
+
+describe("592a77e2 E-1 live_exit_senior_value (the program's own unit-test vectors)", () => {
+  it("matches vault_lp_v18::e1_live_exit_senior_value_nav_below_c_deficit_beyond_equity", () => {
+    const [c, nav, e] = [1_000_000n, 800_000n, 200_000n];
+    expect(liveExitSeniorValueP3(c, nav, e, 200_000n - 300_000n)).toBe(700_000n);
+    expect(liveExitSeniorValueP3(c, nav, e, 200_000n - 600_000n)).toBe(400_000n);
+    expect(liveExitSeniorValueP3(c, nav, e, 200_000n - 150_000n)).toBe(850_000n);
+    expect(liveExitSeniorValueP3(c, nav, e, 200_000n)).toBe(1_000_000n);
+    expect(liveExitSeniorValueP3(c, 1_200_000n, 0n, -100_000n)).toBe(1_000_000n);
+    expect(liveExitSeniorValueP3(c, 1_200_000n, 0n, -300_000n)).toBe(900_000n);
+  });
+  it("boundVaultSeniorValueP3 routes Live through it (lpValue used only when worse >= 0)", () => {
+    expect(boundVaultSeniorValueP3({ nav: 800_000n, seniorClaim: 1_000_000n, lpValue: 200_000n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -100_000n })).toBe(700_000n);
+    expect(boundVaultSeniorValueP3({ nav: 800_000n, seniorClaim: 1_000_000n, lpValue: 200_000n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: 50_000n })).toBe(850_000n);
   });
 });
 
