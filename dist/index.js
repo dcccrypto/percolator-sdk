@@ -10228,6 +10228,32 @@ function withBoundVaultLpTailP3(base, vaultLpState, lpPortfolio, opts = {}) {
   if (tag !== 78) keys.push({ pubkey: lpPortfolio, isSigner: false, isWritable: opts.lpReadOnly !== true });
   return new TransactionInstruction4({ programId: base.programId, keys, data: base.data });
 }
+function buildExecuteRedemptionIxP3(m, cranker, redeemer, redeemerDest, vaultToken, sourceDomain) {
+  const [registry] = deriveLpVaultRegistry(m.programId, m.market);
+  const { ledger, siblingLedger } = ledgers(m.programId, m.market, m.registryDomain);
+  const w = (pubkey, isSigner = false) => ({ pubkey, isSigner, isWritable: true });
+  const r = (pubkey) => ({ pubkey, isSigner: false, isWritable: false });
+  const base = new TransactionInstruction4({
+    programId: m.programId,
+    data: Buffer.from(encodeExecuteRedemption({ domain: sourceDomain })),
+    keys: [
+      w(cranker, true),
+      w(m.market),
+      w(registry),
+      w(deriveLpRedemption(m.programId, registry, redeemer)[0]),
+      w(deriveInsuranceLpMint(m.programId, m.market)[0]),
+      w(deriveLpEscrow(m.programId, m.market)[0]),
+      w(vaultToken),
+      r(deriveVaultAuthority(m.programId, m.market)[0]),
+      w(ledger),
+      w(redeemerDest),
+      r(TOKEN_PROGRAM_ID6),
+      w(siblingLedger),
+      w(redeemer)
+    ]
+  });
+  return withBoundVaultLpTailP3(base, deriveVaultLpStateP3(m.programId, m.market)[0], m.lpPortfolio);
+}
 function buildVaultLpRefreshCrankIxP3(a) {
   const want = a.observations.reduce((s, o) => s + o.oracleAccounts, 0);
   if (want !== a.oracleAccounts.length) throw new Error(`observations name ${want} oracle accounts, got ${a.oracleAccounts.length}`);
@@ -11750,6 +11776,7 @@ export {
   buildAdminCloseSlabIx,
   buildCreateVaultLpMatcherCtxIxP3,
   buildDepositJuniorTrancheIxP3,
+  buildExecuteRedemptionIxP3,
   buildInitVaultLpIxP3,
   buildIx,
   buildMatcherConfigureBackingFeeCapIx,

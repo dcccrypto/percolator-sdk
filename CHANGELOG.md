@@ -35,6 +35,13 @@ v18.2 instructions or account layouts changed.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
 
+### Added (P3 senior-lock fix `221cf006`, 2026-09-30)
+
+- **`buildExecuteRedemptionIxP3`**: a fully assembled tag 77 for bound (P3) vaults, with the 13 base accounts plus the bound tail.
+  - **Security condition:** both pot ledgers ([8] own, [11] sibling) are ALWAYS writable. `221cf006` tops the chosen pot up from its sibling only when both are writable, and a read-only one makes a senior larger than one pot fail with 88/21.
+  - The vault LP [14] is writable.
+  - Tested for both registry domains × both source pots, with the exact account order. Negative control: a read-only sibling fails.
+
 ### Changed (P3 batched FINAL `4b1a5d30`, 2026-09-30)
 
 - **Error 89 `VaultLpPausedForSeniorDraw`** (appended; no code shifts; the full map is re-generated from rustc at `4b1a5d30`, 90 variants). It replaces the per-instruction halt codes:

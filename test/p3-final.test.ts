@@ -24,7 +24,10 @@ import {
   vaultPhysicalIdleBackingAtomsP3,
   planResolvedVaultLpExitP3,
   deriveVaultLpStateP3,
+  buildExecuteRedemptionIxP3,
 } from "../src/solana/p3-vault-lp.js";
+import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveVaultAuthority } from "../src/solana/pda.js";
+import { deriveVaultLpStateP3 } from "../src/solana/p3-vault-lp.js";
 import * as root from "../src/index.js";
 
 const hex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
@@ -136,8 +139,41 @@ describe("planResolvedVaultLpExitP3: 78 → 77 per senior → 102 junior", () =>
   it("exported from the package root", () => {
     const r = root as Record<string, unknown>;
     for (const n of ["planResolvedVaultLpExitP3", "boundVaultNavFlooredP3", "boundVaultSeniorValueP3", "boundVaultRedemptionAtomsP3",
-      "boundVaultDepositQuoteP3", "vaultPotHeldAtomsP3", "decodeAssetVaultLpDrawP3", "vaultPhysicalIdleBackingAtomsP3", "encodeMatcherBatchCall", "encodeWrapperMatcherCallExt"]) {
+      "boundVaultDepositQuoteP3", "buildExecuteRedemptionIxP3", "vaultPotHeldAtomsP3", "decodeAssetVaultLpDrawP3", "vaultPhysicalIdleBackingAtomsP3", "encodeMatcherBatchCall", "encodeWrapperMatcherCallExt"]) {
       expect(typeof r[n], n).toBe("function");
     }
   });
 });
+
+describe("tag 77 on a bound vault (221cf006 security condition)", () => {
+  const W = new PublicKey("ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB");
+  const market = Keypair.generate().publicKey;
+  const lp = Keypair.generate().publicKey;
+  const [cranker, redeemer, dest, vault] = [0, 1, 2, 3].map(() => Keypair.generate().publicKey);
+  it("ALWAYS passes both pot ledgers writable ([8] own, [11] sibling), for either registry domain and source pot", () => {
+    for (const registryDomain of [0, 1]) for (const source of [0, 1]) {
+      const m = { programId: W, market, registryDomain, lpPortfolio: lp };
+      const ix = buildExecuteRedemptionIxP3(m, cranker, redeemer, dest, vault, source);
+      expect(ix.data[0]).toBe(77);
+      expect(ix.data.readUInt16LE(1)).toBe(source);
+      expect(ix.keys).toHaveLength(15);
+      expect(ix.keys[8]).toEqual({ pubkey: deriveLpBackingLedger(W, market, registryDomain)[0], isSigner: false, isWritable: true });
+      expect(ix.keys[11]).toEqual({ pubkey: deriveLpBackingLedger(W, market, registryDomain ^ 1)[0], isSigner: false, isWritable: true });
+    }
+  });
+  it("account order matches handle_execute_redemption + the bound tail (state w, vault LP w)", () => {
+    const m = { programId: W, market, registryDomain: 0, lpPortfolio: lp };
+    const [reg] = deriveLpVaultRegistry(W, market);
+    const k = buildExecuteRedemptionIxP3(m, cranker, redeemer, dest, vault, 0).keys;
+    expect(k.map((x) => x.pubkey.toBase58())).toEqual([
+      cranker, market, reg, deriveLpRedemption(W, reg, redeemer)[0], deriveInsuranceLpMint(W, market)[0], deriveLpEscrow(W, market)[0], vault,
+      deriveVaultAuthority(W, market)[0], deriveLpBackingLedger(W, market, 0)[0], dest, new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+      deriveLpBackingLedger(W, market, 1)[0], redeemer, deriveVaultLpStateP3(W, market)[0], lp,
+    ].map((p) => p.toBase58()));
+    expect(k.filter((x) => !x.isWritable).map((_, i) => i).length).toBe(2); // only vault authority + token program are read-only
+    expect(k[7].isWritable || k[10].isWritable).toBe(false);
+    expect(k[0].isSigner && k.slice(1).every((x) => !x.isSigner)).toBe(true);
+    expect(k[14].isWritable && k[13].isWritable).toBe(true);
+  });
+});
+

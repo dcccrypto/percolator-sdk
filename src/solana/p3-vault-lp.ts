@@ -18,7 +18,7 @@ import type { AccountMeta } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { buildAccountMetas } from "../abi/accounts.js";
 import type { AccountSpec } from "../abi/accounts.js";
-import { encodePermissionlessCrank } from "../abi/instructions.js";
+import { encodeExecuteRedemption, encodePermissionlessCrank } from "../abi/instructions.js";
 import type { CrankObservationHint } from "../abi/instructions.js";
 import {
   ACCOUNTS_DEPOSIT_JUNIOR_TRANCHE_P3,
@@ -43,7 +43,7 @@ import {
   CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3,
 } from "../abi/p3.js";
 import type { SetVaultLpRiskArgsP3, VaultLpSetMatcherArgsP3 } from "../abi/p3.js";
-import { deriveLpBackingLedger, deriveLpVaultRegistry, deriveMatcherDelegate, deriveVaultAuthority } from "./pda.js";
+import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveMatcherDelegate, deriveVaultAuthority } from "./pda.js";
 import {
   V17_HEADER_LEN,
   V17_KIND_OFF,
@@ -695,6 +695,51 @@ export function withBoundVaultLpTailP3(
   keys.push({ pubkey: vaultLpState, isSigner: false, isWritable: true });
   if (tag !== 78) keys.push({ pubkey: lpPortfolio, isSigner: false, isWritable: opts.lpReadOnly !== true });
   return new TransactionInstruction({ programId: base.programId, keys, data: base.data });
+}
+
+/**
+ * Tag 77 ExecuteRedemption on a BOUND (P3) vault, fully assembled: 13 base accounts + the bound
+ * tail. Security condition on `221cf006`: BOTH pot ledgers are ALWAYS writable ([8] registry-domain
+ * ledger, [11] sibling). The program tops the chosen pot up from its sibling in the same
+ * instruction only when both are writable; with a read-only one the top-up is skipped and a senior
+ * larger than one pot gets 88 (Live) / 21 (Resolved) instead of exiting. The vault LP [14] is
+ * writable too (a Live 77 runs the senior draw first; in Resolved it is only key-pinned).
+ *
+ * Accounts: 0 cranker [s,w] · 1 market [w] · 2 registry [w] · 3 redemption [w]
+ * (`["lp_redemption", registry, redeemer]`) · 4 LP mint [w] · 5 escrow [w] · 6 market vault token [w]
+ * · 7 vault authority · 8 own ledger [w] · 9 redeemer collateral ATA [w] · 10 token program ·
+ * 11 sibling ledger [w] · 12 redeemer (rent destination) [w] · 13 vault_lp_state [w] · 14 vault LP [w].
+ *
+ * @param m             Market context (`registryDomain` picks the own ledger).
+ * @param cranker       Signer (anyone; the payout always goes to the redeemer).
+ * @param redeemer      The redemption's owner (`redemption.redeemer`).
+ * @param redeemerDest  Redeemer's collateral token account (must be owned by the redeemer).
+ * @param vaultToken    Market collateral vault token account.
+ * @param sourceDomain  Pot to redeem from (the program tops it up from the sibling when short).
+ * @returns Instruction.
+ * @example
+ * ```ts
+ * const ix = buildExecuteRedemptionIxP3(m, keeper, senior, seniorAta, vaultAta, m.registryDomain);
+ * ```
+ */
+export function buildExecuteRedemptionIxP3(
+  m: VaultLpMarketP3, cranker: PublicKey, redeemer: PublicKey, redeemerDest: PublicKey, vaultToken: PublicKey, sourceDomain: number,
+): TransactionInstruction {
+  const [registry] = deriveLpVaultRegistry(m.programId, m.market);
+  const { ledger, siblingLedger } = ledgers(m.programId, m.market, m.registryDomain);
+  const w = (pubkey: PublicKey, isSigner = false): AccountMeta => ({ pubkey, isSigner, isWritable: true });
+  const r = (pubkey: PublicKey): AccountMeta => ({ pubkey, isSigner: false, isWritable: false });
+  const base = new TransactionInstruction({
+    programId: m.programId,
+    data: Buffer.from(encodeExecuteRedemption({ domain: sourceDomain })),
+    keys: [
+      w(cranker, true), w(m.market), w(registry), w(deriveLpRedemption(m.programId, registry, redeemer)[0]),
+      w(deriveInsuranceLpMint(m.programId, m.market)[0]), w(deriveLpEscrow(m.programId, m.market)[0]), w(vaultToken),
+      r(deriveVaultAuthority(m.programId, m.market)[0]), w(ledger), w(redeemerDest), r(TOKEN_PROGRAM_ID),
+      w(siblingLedger), w(redeemer),
+    ],
+  });
+  return withBoundVaultLpTailP3(base, deriveVaultLpStateP3(m.programId, m.market)[0], m.lpPortfolio);
 }
 
 // ============================================================================
