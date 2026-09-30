@@ -138,5 +138,5 @@ fn main() {
     state::init_vault_lp_state(&mut acct, &st).unwrap();
     out.push(format!("\"vaultLpStateAccountHex\":\"{}\"", hex(&acct)));
 
-    println!("{{\"p3Sha\":\"424fe7e473bec1154eacde1ac8bd7e190b526fd2\",{}}}", out.join(","));
+    println!("{{\"p3Sha\":\"b2b2559e62e08a96b978a2d81a67991c93bc6061\",{}}}", out.join(","));
 }

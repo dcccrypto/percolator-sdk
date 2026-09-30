@@ -2,7 +2,7 @@
  * P1 per-asset risk limits — wrapper tag 93 `SetAssetRiskLimits` and the `AssetRiskLimitsV17`
  * record. Additive to SDK 8.0.0.
  *
- * Source: percolator-prog `424fe7e4` (the relaunch wrapper, P1 + P3), `src/v16_program.rs`:
+ * Source: percolator-prog `b2b2559e` (the relaunch wrapper, P1 + P3), `src/v16_program.rs`:
  * decode arm `TAG_SET_ASSET_RISK_LIMITS` (93), its encoder (optional tail), `handle_set_asset_risk_limits`,
  * `state::AssetRiskLimitsV17` at wrapper-slot offset `ASSET_RISK_LIMITS_OFF` (608).
  *
