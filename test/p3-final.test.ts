@@ -34,6 +34,12 @@ import {
   POS_SCALE_P3,
   RECOMMENDED_CU_P3,
   liveExitSeniorValueP3,
+  RESOLVED_RECEIPT_ACCOUNT_OFF_P3,
+  RESOLVED_RECEIPT_LEN_P3,
+  decodeResolvedPayoutReceiptP3,
+  buildClaimResolvedPayoutTopupIxP3,
+  listOpenResolvedReceiptsP3,
+  planResolvedReceiptRevisitP3,
 } from "../src/solana/p3-vault-lp.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveVaultAuthority } from "../src/solana/pda.js";
 import { deriveVaultLpStateP3 } from "../src/solana/p3-vault-lp.js";
@@ -266,5 +272,67 @@ describe("592a77e2 E-1 live_exit_senior_value (the program's own unit-test vecto
   it("boundVaultSeniorValueP3 routes Live through it (lpValue used only when worse >= 0)", () => {
     expect(boundVaultSeniorValueP3({ nav: 800_000n, seniorClaim: 1_000_000n, lpValue: 200_000n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -100_000n })).toBe(700_000n);
     expect(boundVaultSeniorValueP3({ nav: 800_000n, seniorClaim: 1_000_000n, lpValue: 200_000n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: 50_000n })).toBe(850_000n);
+  });
+});
+
+describe("resolved receipts + revisit sweep (5544302a option B, 5e4c15ff revisit rule)", () => {
+  const FXR = JSON.parse(readFileSync(new URL("./fixtures/p3-parity.json", import.meta.url), "utf8")) as { portfolioReceipt: Record<string, number> };
+  const W = new PublicKey("ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB");
+  const market = Keypair.generate().publicKey;
+  it("receipt offsets are rustc's (account 9369, 66 B; present @64, finalized @65; after close_progress @9185)", () => {
+    expect(RESOLVED_RECEIPT_ACCOUNT_OFF_P3).toBe(FXR.portfolioReceipt.receiptAccountOff);
+    expect(RESOLVED_RECEIPT_LEN_P3).toBe(FXR.portfolioReceipt.receiptLen);
+    expect(FXR.portfolioReceipt.closeProgressAccountOff + 184).toBe(RESOLVED_RECEIPT_ACCOUNT_OFF_P3);
+    expect([FXR.portfolioReceipt.priorBoundContributionNum, FXR.portfolioReceipt.liveReleasedFaceAtReceipt, FXR.portfolioReceipt.terminalPositiveClaimFace, FXR.portfolioReceipt.paidEffective, FXR.portfolioReceipt.present, FXR.portfolioReceipt.finalized]).toEqual([0, 16, 32, 48, 64, 65]);
+  });
+  const withReceipt = (present: number, finalized: number, owner: PublicKey) => {
+    const d = new Uint8Array(9563);
+    d.set(market.toBytes(), 16); d.set(owner.toBytes(), 80);
+    const v = new DataView(d.buffer); v.setBigUint64(9369 + 48, 777n, true); d[9369 + 64] = present; d[9369 + 65] = finalized;
+    return d;
+  };
+  it("decodes present / finalized / open", () => {
+    const o = Keypair.generate().publicKey;
+    expect(decodeResolvedPayoutReceiptP3(withReceipt(1, 0, o))).toMatchObject({ present: true, finalized: false, open: true, paidEffective: 777n });
+    expect(decodeResolvedPayoutReceiptP3(withReceipt(1, 1, o)).open).toBe(false);
+    expect(decodeResolvedPayoutReceiptP3(withReceipt(0, 0, o)).open).toBe(false);
+    expect(() => decodeResolvedPayoutReceiptP3(new Uint8Array(100))).toThrow();
+  });
+  it("tag 46: permissionless = 8 accounts, owner unsigned, [7] nft_registry, data [46]; signed = 7 accounts", () => {
+    const [owner, portfolio, dest, vault] = [0, 1, 2, 3].map(() => Keypair.generate().publicKey);
+    const ix = buildClaimResolvedPayoutTopupIxP3({ programId: W, market, portfolio, owner, destToken: dest, vaultToken: vault });
+    expect([...ix.data]).toEqual([46]);
+    expect(ix.keys).toHaveLength(8);
+    expect(ix.keys[0]).toEqual({ pubkey: owner, isSigner: false, isWritable: false });
+    expect(ix.keys[2]).toEqual({ pubkey: portfolio, isSigner: false, isWritable: true });
+    expect(ix.keys[7].pubkey.equals(PublicKey.findProgramAddressSync([Buffer.from("nft_registry"), market.toBuffer()], W)[0])).toBe(true);
+    const sgn = buildClaimResolvedPayoutTopupIxP3({ programId: W, market, portfolio, owner, destToken: dest, vaultToken: vault, signed: true });
+    expect(sgn.keys).toHaveLength(7);
+    expect(sgn.keys[0].isSigner).toBe(true);
+  });
+  it("lister + planner: open receipts only; the vault LP is skipped (101 path); off-curve owners need the holder", async () => {
+    const trader = Keypair.generate().publicKey;
+    const [registry] = deriveLpVaultRegistry(W, market);
+    const escrowPda = PublicKey.findProgramAddressSync([Buffer.from("x")], W)[0];
+    const accs = [
+      { pubkey: Keypair.generate().publicKey, account: { data: Buffer.from(withReceipt(1, 0, trader)) } },
+      { pubkey: Keypair.generate().publicKey, account: { data: Buffer.from(withReceipt(1, 1, trader)) } },
+      { pubkey: Keypair.generate().publicKey, account: { data: Buffer.from(withReceipt(1, 0, registry)) } },
+      { pubkey: Keypair.generate().publicKey, account: { data: Buffer.from(withReceipt(1, 0, escrowPda)) } },
+    ];
+    const conn = { getProgramAccounts: async () => accs } as unknown as Parameters<typeof listOpenResolvedReceiptsP3>[0];
+    const open = await listOpenResolvedReceiptsP3(conn, W, market);
+    expect(open).toHaveLength(3);
+    const plan = planResolvedReceiptRevisitP3({ programId: W, market, vaultToken: Keypair.generate().publicKey, collateralMint: Keypair.generate().publicKey, open });
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0].portfolio.equals(accs[0].pubkey)).toBe(true);
+    expect([...plan.steps[0].topup46.data]).toEqual([46]);
+    expect(plan.steps[0].closeResolved.data[0]).toBe(30);
+    expect(plan.steps[0].closeResolved.data.length).toBe(17);
+    expect(plan.steps[0].closeResolved.keys.map((k) => k.pubkey.toBase58())).toEqual(plan.steps[0].topup46.keys.map((k) => k.pubkey.toBase58()));
+    expect(plan.steps[0].closeResolved.keys[0].isSigner).toBe(false);
+    expect(plan.needsHolder.map((r) => r.portfolio.toBase58())).toEqual([accs[3].pubkey.toBase58()]);
+    // a later round with nothing open plans nothing (the caller stops revisiting)
+    expect(planResolvedReceiptRevisitP3({ programId: W, market, vaultToken: PublicKey.default, collateralMint: PublicKey.default, open: [] }).steps).toHaveLength(0);
   });
 });

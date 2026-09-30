@@ -14,6 +14,7 @@
  * @module p3-vault-lp
  */
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import type { Connection } from "@solana/web3.js";
 import type { CrankObservationHint } from "../abi/instructions.js";
 import type { SetVaultLpRiskArgsP3, VaultLpSetMatcherArgsP3 } from "../abi/p3.js";
 /** `KIND_VAULT_LP_STATE`. */
@@ -797,4 +798,131 @@ export interface ResolvedVaultLpExitArgsP3 {
 export declare function planResolvedVaultLpExitP3(a: ResolvedVaultLpExitArgsP3): {
     perSeniorTxs: TransactionInstruction[][];
     junior: TransactionInstruction | null;
+};
+/** Account offset of `PortfolioAccountV16Account.resolved_payout_receipt` (HEADER_LEN + rustc offset_of; pinned by the parity fixture). */
+export declare const RESOLVED_RECEIPT_ACCOUNT_OFF_P3 = 9369;
+/** `size_of::<ResolvedPayoutReceiptV16Account>()`. */
+export declare const RESOLVED_RECEIPT_LEN_P3 = 66;
+/** Decoded `ResolvedPayoutReceiptV16Account`. */
+export interface ResolvedPayoutReceiptP3 {
+    priorBoundContributionNum: bigint;
+    liveReleasedFaceAtReceipt: bigint;
+    terminalPositiveClaimFace: bigint;
+    paidEffective: bigint;
+    present: boolean;
+    finalized: boolean;
+    /** `present && !finalized`: a PARTIAL receipt that a tag-46 top-up finalises. */
+    open: boolean;
+}
+/**
+ * Decode a portfolio account's resolved payout receipt.
+ * @param portfolioData  Portfolio account data (V17_PORTFOLIO_ACCOUNT_LEN bytes).
+ * @returns The receipt.
+ * @throws If the account is too short.
+ * @example
+ * ```ts
+ * const r = decodeResolvedPayoutReceiptP3(info.data);
+ * if (r.open) console.log("needs a tag-46 top-up");
+ * ```
+ */
+export declare function decodeResolvedPayoutReceiptP3(portfolioData: Uint8Array): ResolvedPayoutReceiptP3;
+/**
+ * Tag 46 ClaimResolvedPayoutTopup. Default = the PERMISSIONLESS form (owner NOT signing, the
+ * market's `nft_registry` PDA at [7] as the #497 escrow proof; the payout still goes to the owner's
+ * token account). `signed: true` builds the owner-signed 7-account form instead. Data = `[46]`.
+ * An NFT-escrowed portfolio (owner = the NFT program's PDA) refuses the unsigned form (ExpectedSigner):
+ * its holder must use the signed/holder-auth path.
+ * @param a  programId, market, portfolio, owner, destToken (owner's collateral ATA), vaultToken, optional `signed`.
+ * @returns Instruction.
+ * @example
+ * ```ts
+ * const ix = buildClaimResolvedPayoutTopupIxP3({ programId: W, market, portfolio, owner, destToken, vaultToken });
+ * ```
+ */
+export declare function buildClaimResolvedPayoutTopupIxP3(a: {
+    programId: PublicKey;
+    market: PublicKey;
+    portfolio: PublicKey;
+    owner: PublicKey;
+    destToken: PublicKey;
+    vaultToken: PublicKey;
+    signed?: boolean;
+}): TransactionInstruction;
+/** A portfolio with a present, non-finalised resolved receipt. */
+export interface OpenResolvedReceiptP3 {
+    portfolio: PublicKey;
+    owner: PublicKey;
+    receipt: ResolvedPayoutReceiptP3;
+    /** The vault LP (owner = LP-vault registry PDA): settles via 101, never 46. */
+    isVaultLp: boolean;
+    /** Owner is off-curve (e.g. an NFT-escrow PDA): the permissionless 46 is refused; the holder must sign. */
+    needsHolder: boolean;
+}
+/**
+ * List every portfolio of `market` with an OPEN (present, non-finalised) resolved receipt, via
+ * getProgramAccounts (dataSize + market at offset 16).
+ * @param conn       Connection.
+ * @param programId  Wrapper program id.
+ * @param market     Market (slab) account.
+ * @returns Open receipts (vault LP flagged, escrowed owners flagged).
+ * @example
+ * ```ts
+ * const open = await listOpenResolvedReceiptsP3(conn, W, market);
+ * ```
+ */
+export declare function listOpenResolvedReceiptsP3(conn: Pick<Connection, "getProgramAccounts">, programId: PublicKey, market: PublicKey): Promise<OpenResolvedReceiptP3[]>;
+/**
+ * Tag 30 CloseResolved, permissionless form (owner unsigned, `nft_registry` at [7]); data
+ * `[30][fee_rate_per_slot u128 = 0]`. The receipt-revisit fallback when a 46 is refused.
+ * @param a  programId, market, portfolio, owner, destToken (owner's collateral ATA), vaultToken.
+ * @returns Instruction.
+ * @example
+ * ```ts
+ * const ix = buildCloseResolvedUnsignedIxP3({ programId: W, market, portfolio, owner, destToken, vaultToken });
+ * ```
+ */
+export declare function buildCloseResolvedUnsignedIxP3(a: {
+    programId: PublicKey;
+    market: PublicKey;
+    portfolio: PublicKey;
+    owner: PublicKey;
+    destToken: PublicKey;
+    vaultToken: PublicKey;
+}): TransactionInstruction;
+/** One receipt-revisit step: try `topup46` first; if its simulation is refused, send `closeResolved`. */
+export interface ReceiptRevisitStepP3 {
+    portfolio: PublicKey;
+    owner: PublicKey;
+    topup46: TransactionInstruction;
+    closeResolved: TransactionInstruction;
+}
+/**
+ * Plan one ROUND of the resolved-receipt revisit (percolator-prog 5e4c15ff rule): dilution comes
+ * from ANY claimant whose pot-backed claim is still unreceipted, so after the claimants' closes and
+ * after the vault LP's 101 settles, every portfolio whose receipt is present && !finalized gets a
+ * tag 46 (or, if that is refused, a repeat CloseResolved) — and the caller REPEATS rounds (re-listing
+ * with {@link listOpenResolvedReceiptsP3}) every cycle until none is open. Only then are the
+ * portfolios closed (tag 8) and the seniors' 77 run (an open receipt blocks terminal-flat → 21).
+ * The vault LP is excluded (it settles via 101); off-curve (NFT-escrowed) owners are returned in
+ * `needsHolder` (the permissionless forms are refused for them).
+ * @param a  programId, market, vaultToken, collateralMint, the open receipts of this round.
+ * @returns `{ steps, needsHolder }` — `steps` empty ⇒ nothing left to revisit.
+ * @example
+ * ```ts
+ * for (let round = 0; round < 50; round++) {
+ *   const plan = planResolvedReceiptRevisitP3({ programId: W, market, vaultToken, collateralMint, open: await listOpenResolvedReceiptsP3(conn, W, market) });
+ *   if (plan.steps.length === 0) break;
+ *   for (const s of plan.steps) await sendFirstThatSimulates([s.topup46], [s.closeResolved]);
+ * }
+ * ```
+ */
+export declare function planResolvedReceiptRevisitP3(a: {
+    programId: PublicKey;
+    market: PublicKey;
+    vaultToken: PublicKey;
+    collateralMint: PublicKey;
+    open: OpenResolvedReceiptP3[];
+}): {
+    steps: ReceiptRevisitStepP3[];
+    needsHolder: OpenResolvedReceiptP3[];
 };

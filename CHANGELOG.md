@@ -42,7 +42,16 @@ v18.2 instructions or account layouts changed.
 ### Changed (relaunch wrapper `5544302a`, DEPLOYED to devnet ETDLAdi 2026-10-01, sha256 `0186c63a…`)
 
 - Re-pinned to `5544302a` (class-(b) resolved haircut fix). Error map (91 codes), P3 wire, layout and pricing are unchanged (the rustc oracles were re-run).
-- The tag-46 top-up sweep helpers (receipt decoder, 46 builder, lister, planner) are PAUSED: the gate found the sweep pays 0 on its seeds. They are kept on branch `feat/p3-topup46-sweep` (a9e65c6) and are not part of 8.0.0.
+- **Resolved-receipt revisit sweep** (un-paused with the builder's revised rule at 5e4c15ff):
+  - `decodeResolvedPayoutReceiptP3`: account offset 9369, 66 B, rustc-pinned.
+  - `buildClaimResolvedPayoutTopupIxP3`: tag 46.
+  - `buildCloseResolvedUnsignedIxP3`: tag 30, used as the fallback.
+  - `listOpenResolvedReceiptsP3`.
+  - `planResolvedReceiptRevisitP3`: per open receipt, 46 first and a repeat CloseResolved as the fallback.
+  - **Usage:**
+    - After the claimants' closes and after the vault LP's 101 settles, REPEAT rounds, re-listing each time, until no receipt is present && !finalized. Dilution comes from any claimant whose pot-backed claim is still unreceipted.
+    - Only then close the portfolios (tag 8) and run the seniors' 77. An open receipt blocks terminal-flat, and 77 then fails with 21.
+    - The vault LP is excluded (it settles via 101). NFT-escrowed owners are returned in `needsHolder`.
 
 ### Changed (relaunch wrapper `592286b4`, DEPLOYED to devnet ETDLAdi 2026-09-30, sha256 `7f34f9d8…`)
 
