@@ -9951,7 +9951,7 @@ function planCloseSlabAttempt(a) {
 
 // src/solana/p3-vault-lp.ts
 import { PublicKey as PublicKey15, SystemProgram as SystemProgram3, TransactionInstruction as TransactionInstruction4 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID6, getAssociatedTokenAddressSync as getAssociatedTokenAddressSync2 } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID6 } from "@solana/spl-token";
 var V18_KIND_VAULT_LP_STATE_P3 = 9;
 var VAULT_LP_STATE_BODY_LEN_P3 = 256;
 var VAULT_LP_STATE_ACCOUNT_LEN_P3 = V17_HEADER_LEN + VAULT_LP_STATE_BODY_LEN_P3;
@@ -10377,70 +10377,6 @@ function planResolvedVaultLpExitP3(a) {
     vaultToken: a.junior.vaultToken
   }) : null;
   return { perSeniorTxs, junior };
-}
-var RESOLVED_RECEIPT_ACCOUNT_OFF_P3 = 9369;
-var RESOLVED_RECEIPT_LEN_P3 = 66;
-function decodeResolvedPayoutReceiptP3(portfolioData) {
-  const o = RESOLVED_RECEIPT_ACCOUNT_OFF_P3;
-  if (portfolioData.length < o + RESOLVED_RECEIPT_LEN_P3) throw new Error(`portfolio data too short for the resolved receipt (${portfolioData.length} B)`);
-  const v = new DataView(portfolioData.buffer, portfolioData.byteOffset, portfolioData.byteLength);
-  const present = portfolioData[o + 64] !== 0;
-  const finalized = portfolioData[o + 65] !== 0;
-  return {
-    priorBoundContributionNum: u128(v, o),
-    liveReleasedFaceAtReceipt: u128(v, o + 16),
-    terminalPositiveClaimFace: u128(v, o + 32),
-    paidEffective: u128(v, o + 48),
-    present,
-    finalized,
-    open: present && !finalized
-  };
-}
-function buildClaimResolvedPayoutTopupIxP3(a) {
-  const keys = buildAccountMetas(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP, {
-    owner: a.owner,
-    market: a.market,
-    portfolio: a.portfolio,
-    destToken: a.destToken,
-    vaultToken: a.vaultToken,
-    vaultAuthority: deriveVaultAuthority(a.programId, a.market)[0],
-    tokenProgram: TOKEN_PROGRAM_ID6
-  });
-  if (!a.signed) {
-    keys[0] = { pubkey: a.owner, isSigner: false, isWritable: false };
-    keys.push({ pubkey: deriveNftRegistry(a.programId, a.market)[0], isSigner: false, isWritable: false });
-  }
-  return new TransactionInstruction4({ programId: a.programId, keys, data: Buffer.from([46]) });
-}
-async function listOpenResolvedReceiptsP3(conn, programId, market) {
-  const accs = await conn.getProgramAccounts(programId, {
-    commitment: "confirmed",
-    filters: [{ dataSize: V17_PORTFOLIO_ACCOUNT_LEN }, { memcmp: { offset: 16, bytes: market.toBase58() } }]
-  });
-  const [registry] = deriveLpVaultRegistry(programId, market);
-  const out = [];
-  for (const { pubkey, account } of accs) {
-    const data = new Uint8Array(account.data);
-    const receipt = decodeResolvedPayoutReceiptP3(data);
-    if (!receipt.open) continue;
-    const owner = new PublicKey15(data.subarray(80, 112));
-    out.push({ portfolio: pubkey, owner, receipt, isVaultLp: owner.equals(registry), needsHolder: !PublicKey15.isOnCurve(owner.toBytes()) && !owner.equals(registry) });
-  }
-  return out;
-}
-function planTopup46SweepP3(a) {
-  const ixs = [];
-  const needsHolder = [];
-  for (const r of a.open) {
-    if (r.isVaultLp) continue;
-    if (r.needsHolder) {
-      needsHolder.push(r);
-      continue;
-    }
-    const destToken = getAssociatedTokenAddressSync2(a.collateralMint, r.owner, false, TOKEN_PROGRAM_ID6);
-    ixs.push(buildClaimResolvedPayoutTopupIxP3({ programId: a.programId, market: a.market, portfolio: r.portfolio, owner: r.owner, destToken, vaultToken: a.vaultToken }));
-  }
-  return { ixs, needsHolder };
 }
 
 // src/solana/stake-wind-down.ts
@@ -11802,8 +11738,6 @@ export {
   RAYDIUM_CLMM_PROGRAM_ID,
   RECOMMENDED_CU_P3,
   RENOUNCE_ADMIN_CONFIRMATION,
-  RESOLVED_RECEIPT_ACCOUNT_OFF_P3,
-  RESOLVED_RECEIPT_LEN_P3,
   RESOLVE_MODE_DEGENERATE,
   RESOLVE_MODE_ORDINARY,
   RpcPool,
@@ -11904,7 +11838,6 @@ export {
   buildAdlInstruction,
   buildAdlTransaction,
   buildAdminCloseSlabIx,
-  buildClaimResolvedPayoutTopupIxP3,
   buildCreateVaultLpMatcherCtxIxP3,
   buildDepositJuniorTrancheIxP3,
   buildExecuteRedemptionIxP3,
@@ -11963,7 +11896,6 @@ export {
   decodeMatcherReturn,
   decodeMatcherV2Error,
   decodePortfolioMatcherControl,
-  decodeResolvedPayoutReceiptP3,
   decodeStakePool,
   decodeTerminalInsuranceCapacity,
   decodeVaultLpStateP3,
@@ -12229,7 +12161,6 @@ export {
   isV17Account,
   isV17MarketAccount,
   isValidChainlinkOracle,
-  listOpenResolvedReceiptsP3,
   liveExitSeniorValueP3,
   matcherConfigureOwnerProofAccounts,
   maxAccountIndex,
@@ -12261,7 +12192,6 @@ export {
   planReduceOnlyExit,
   planResolvedVaultLpExitP3,
   planStakeWindDown,
-  planTopup46SweepP3,
   rankAdlPositions,
   readAssetPricesP3,
   readLastThrUpdateSlot,

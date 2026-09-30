@@ -35,15 +35,14 @@ v18.2 instructions or account layouts changed.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
 
-### Added (relaunch wrapper `5544302a`, DEPLOYED to devnet ETDLAdi 2026-10-01, sha256 `0186c63a…`)
+### Changed (relaunch wrapper `5e4c15ff`, security LOW on top of 5544302a, 2026-10-01)
+
+- Re-pinned to `5e4c15ff` (the 101 claim-payout recycle is capped). Error map (91 codes), P3 wire, layout and pricing are identical (the rustc oracles were re-run). No SDK surface change.
+
+### Changed (relaunch wrapper `5544302a`, DEPLOYED to devnet ETDLAdi 2026-10-01, sha256 `0186c63a…`)
 
 - Re-pinned to `5544302a` (class-(b) resolved haircut fix). Error map (91 codes), P3 wire, layout and pricing are unchanged (the rustc oracles were re-run).
-- **Resolved payout receipts and the tag-46 sweep (option B):**
-  - `decodeResolvedPayoutReceiptP3`: `RESOLVED_RECEIPT_ACCOUNT_OFF_P3` = 9369, 66 B, rustc-pinned by the parity fixture.
-  - `buildClaimResolvedPayoutTopupIxP3`: permissionless by default (owner unsigned, `nft_registry` at [7]; data `[46]`), or `signed`.
-  - `listOpenResolvedReceiptsP3`: getProgramAccounts over the market's portfolios.
-  - `planTopup46SweepP3`: one 46 per open receipt. It skips the vault LP (settled via 101) and returns off-curve (NFT-escrowed) owners in `needsHolder`.
-  - **Usage:** run the sweep right after the vault LP's final 101 on a bound Resolved market, before any senior 77. A partial receipt left open blocks terminal-flat, and 77 then fails with 21.
+- The tag-46 top-up sweep helpers (receipt decoder, 46 builder, lister, planner) are PAUSED: the gate found the sweep pays 0 on its seeds. They are kept on branch `feat/p3-topup46-sweep` (a9e65c6) and are not part of 8.0.0.
 
 ### Changed (relaunch wrapper `592286b4`, DEPLOYED to devnet ETDLAdi 2026-09-30, sha256 `7f34f9d8…`)
 
