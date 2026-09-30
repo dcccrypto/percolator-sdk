@@ -293,7 +293,7 @@ describe("parseErrorFromLogs — error code extraction", () => {
     expect(result!.name).toBe("EngineProvenanceMismatch");
   });
 
-  it("v17: Percolator errors 89+ return Unknown(...) — past the v18/P1/P3 error table (64-88 reused 2026-09-30)", () => {
+  it("v17: Percolator errors 90+ return Unknown(...) — past the v18/P1/P3 error table (64-89 reused 2026-09-30)", () => {
     // In v12.x, codes 61-65 were ADL-specific errors (EngineSideBlocked etc.).
     // In v17 none of those MEANINGS survive, but THREE of those ordinals have
     // since been reused: 61 by AssetSlotAlreadyConfigured
@@ -304,7 +304,7 @@ describe("parseErrorFromLogs — error code extraction", () => {
     //
     // The v12 MEANINGS remaining gone is the invariant; the slots being EMPTY
     // never was. Each reuse narrows this loop by one.
-    for (const code of [89, 90]) {
+    for (const code of [90, 91]) {
       const hex = code.toString(16);
       const logs = [
         `Program failed: custom program error: 0x${hex}`,

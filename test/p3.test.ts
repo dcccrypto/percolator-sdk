@@ -1,6 +1,6 @@
 /**
  * P3 vault-owned LP parity. Fixture `test/fixtures/p3-parity.json` is emitted by the REAL
- * P3 crate (percolator-prog feat/p3-vault-owned-lp @ 39b138c8) via
+ * P3 crate (percolator-prog feat/p3-vault-owned-lp @ 4b1a5d30) via
  * scripts/p3-parity/sdk_p3_parity.rs: `Instruction::decode` of our encoder hex, rustc
  * `offset_of!`, `PercolatorError::X as u32`, `read_asset_vault_lp`, `init_vault_lp_state`.
  */
@@ -83,7 +83,7 @@ const pk = (): PublicKey => Keypair.generate().publicKey;
 
 describe("P3 encoders — round-trip through the real P3 decoder", () => {
   it("fixture is from the pinned P3 head", () => {
-    expect(FX.p3Sha).toBe("39b138c8b0773a446c36da4d3e6ca358ee06ee83");
+    expect(FX.p3Sha).toBe("4b1a5d30c5282dfbaae0ac91e6e6e3a696e064ea");
   });
   for (const [id, input] of Object.entries(P3_VECTOR_INPUTS)) {
     it(`${id}: SDK bytes == fixture bytes, and Rust decodes them to the SDK inputs`, () => {
@@ -119,11 +119,11 @@ describe("P3 encoders — round-trip through the real P3 decoder", () => {
   });
 });
 
-describe("P3 errors 72-88 (and P1 66-71) by name from the final enum", () => {
+describe("P3 errors 72-89 (and P1 66-71) by name from the final enum", () => {
   it("every ordinal matches PercolatorError::X as u32", () => {
     for (const [name, code] of Object.entries(FX.errors)) expect(PERCOLATOR_ERRORS[code]?.name, `code ${code}`).toBe(name);
-    expect(Object.keys(FX.errors)).toHaveLength(23);
-    expect(PERCOLATOR_ERRORS[89]).toBeUndefined();
+    expect(Object.keys(FX.errors)).toHaveLength(24);
+    expect(PERCOLATOR_ERRORS[90]).toBeUndefined();
   });
 });
 

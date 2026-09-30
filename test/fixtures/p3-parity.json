@@ -1,5 +1,5 @@
 {
-    "p3Sha": "39b138c8b0773a446c36da4d3e6ca358ee06ee83",
+    "p3Sha": "4b1a5d30c5282dfbaae0ac91e6e6e3a696e064ea",
     "vectors": {
         "initVaultLp_min": {
             "hex": "5ee803",
@@ -344,7 +344,8 @@
         "VaultLpValuationStale": 85,
         "VaultLpMultiAssetMarket": 86,
         "VaultLpSeniorDrawRequired": 87,
-        "VaultLpRedeemNeedsRecall": 88
+        "VaultLpRedeemNeedsRecall": 88,
+        "VaultLpPausedForSeniorDraw": 89
     },
     "layout": {
         "headerLen": 16,

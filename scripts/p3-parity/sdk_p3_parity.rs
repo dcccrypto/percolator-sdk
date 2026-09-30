@@ -57,7 +57,7 @@ fn main() {
     out.push(format!("\"vectors\":{{{}}}", vecs.join(",")));
 
     // ── errors, by NAME from the final (P1 + P3) enum ────────────────────────
-    let errs: [(&str, u32); 23] = [
+    let errs: [(&str, u32); 24] = [
         ("ExecPriceOutsideOracleBand", E::ExecPriceOutsideOracleBand as u32), ("SameOwnerTrade", E::SameOwnerTrade as u32),
         ("LpExposureCapExceeded", E::LpExposureCapExceeded as u32), ("LpFloorHalt", E::LpFloorHalt as u32),
         ("ProtocolSideOiCapExceeded", E::ProtocolSideOiCapExceeded as u32), ("CloseSlabFeesOutstanding", E::CloseSlabFeesOutstanding as u32),
@@ -69,7 +69,7 @@ fn main() {
         ("VaultLpUseSettleResolved", E::VaultLpUseSettleResolved as u32), ("VaultLpReleaseRefused", E::VaultLpReleaseRefused as u32),
         ("VaultLpHarvestPending", E::VaultLpHarvestPending as u32), ("VaultLpValuationStale", E::VaultLpValuationStale as u32),
         ("VaultLpMultiAssetMarket", E::VaultLpMultiAssetMarket as u32),
-        ("VaultLpSeniorDrawRequired", E::VaultLpSeniorDrawRequired as u32), ("VaultLpRedeemNeedsRecall", E::VaultLpRedeemNeedsRecall as u32),
+        ("VaultLpSeniorDrawRequired", E::VaultLpSeniorDrawRequired as u32), ("VaultLpRedeemNeedsRecall", E::VaultLpRedeemNeedsRecall as u32), ("VaultLpPausedForSeniorDraw", E::VaultLpPausedForSeniorDraw as u32),
     ];
     out.push(format!("\"errors\":{{{}}}", errs.iter().map(|(n, v)| format!("\"{n}\":{v}")).collect::<Vec<_>>().join(",")));
 

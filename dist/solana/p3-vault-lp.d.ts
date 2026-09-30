@@ -2,13 +2,13 @@
  * P3 vault-owned LP — account decoders, PDAs, instruction builders, the bound-vault tail for
  * Earn tags 75/77/78, and the vault-LP refresh crank. Additive to SDK 8.0.0.
  *
- * Source: percolator-prog `feat/p3-vault-owned-lp` @ `39b138c8b0773a446c36da4d3e6ca358ee06ee83` (P3 senior draw FINAL `d119eebd` + D-P3-30 recall cap)
+ * Source: percolator-prog `feat/p3-vault-owned-lp` @ `4b1a5d30c5282dfbaae0ac91e6e6e3a696e064ea` (P3 batched FINAL: senior draw `d119eebd` + recall cap + named pause code 89)
  * (`state::{VaultLpStateV18, AssetVaultLpV18, read_asset_vault_lp}`, `load_bound_vault_lp_tail`,
  * `vault_lp_refresh_snapshot`). Offsets are pinned by `test/p3.test.ts` against rustc
  * `offset_of!` on the REAL P3 structs, and the per-asset record offset against a market
  * account built by the P3 crate itself.
  *
- * Relaunch wrapper = P1 + P3 (`39b138c8`). On an older v18.2 market every AssetVaultLpV18
+ * Relaunch wrapper = P1 + P3 (`4b1a5d30`). On an older v18.2 market every AssetVaultLpV18
  * record is zero ("no vault LP bound").
  *
  * @module p3-vault-lp
@@ -311,6 +311,7 @@ export declare function buildVaultLpSetMatcherIxP3(m: VaultLpMarketP3, upgradeAu
 export declare function buildDepositJuniorTrancheIxP3(m: VaultLpMarketP3, juniorOwner: PublicKey, sourceToken: PublicKey, vaultToken: PublicKey, amount: bigint): TransactionInstruction;
 /**
  * Tag 97 WithdrawJuniorTranche (junior owner). `destToken` must be owned by the junior.
+ * Refused with 89 VaultLpPausedForSeniorDraw while a senior draw is pending/outstanding (`4b1a5d30`).
  * @param m            Market context.
  * @param juniorOwner  Signer.
  * @param destToken    Junior's collateral token account.
@@ -326,9 +327,10 @@ export declare function buildWithdrawJuniorTrancheIxP3(m: VaultLpMarketP3, junio
 /**
  * Tag 98 VaultLpRecall (permissionless). Needed before a bound redemption when the value sits
  * in the LP: a Live 75/77 otherwise fails 88 VaultLpRedeemNeedsRecall (`d119eebd`).
- * `39b138c8` (D-P3-30): `amount` is capped at `min(recall_limit, max(vault LP certified equity, 0))`
- * and is 0 while any senior draw is pending (see {@link decodeAssetVaultLpDrawP3}); above the cap
- * the program refuses with VaultLpRecallRefused. The vault LP must be flat.
+ * `39b138c8` (D-P3-30) / `4b1a5d30`: `amount` is capped at `min(recall_limit, max(vault LP
+ * POST-maintenance-fee certified equity, 0))` (above the cap: VaultLpRecallRefused); while a senior
+ * draw is pending or outstanding the recall is refused with 89 VaultLpPausedForSeniorDraw (see
+ * {@link decodeAssetVaultLpDrawP3}). The vault LP must be flat.
  * @param m             Market context.
  * @param cranker       Signer (pays rent if the target ledger is created).
  * @param amount        Atoms.
@@ -384,6 +386,8 @@ export declare function buildVaultLpConvertPnlIxP3(m: VaultLpMarketP3, caller: P
 export declare function buildVaultLpSettleResolvedIxP3(m: VaultLpMarketP3, caller: PublicKey, juniorDestToken: PublicKey, vaultToken: PublicKey, topup: 0 | 1): TransactionInstruction;
 /**
  * Tag 102 VaultLpReleaseSurplus (junior owner). Pass `resolved` for the Resolved-mode SPL payout tail.
+ * Refused with 89 VaultLpPausedForSeniorDraw while a senior draw is outstanding (`4b1a5d30`);
+ * Resolved: request at most physical − C (C keeps ≈1,005 atoms of dead-share dust), else 83.
  * @param m             Market context.
  * @param juniorOwner   Signer.
  * @param amount        Atoms.

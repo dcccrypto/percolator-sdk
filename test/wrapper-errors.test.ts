@@ -13,7 +13,7 @@ const FX = JSON.parse(readFileSync(new URL("./fixtures/wrapper-errors.json", imp
 
 describe("wrapper error map is generated from the program (rustc discriminants)", () => {
   it("fixture is from the pinned relaunch wrapper", () => {
-    expect(FX.prog).toBe("39b138c8b0773a446c36da4d3e6ca358ee06ee83");
+    expect(FX.prog).toBe("4b1a5d30c5282dfbaae0ac91e6e6e3a696e064ea");
     expect(Object.keys(FX.errors)).toHaveLength(FX.count);
   });
   it("every program code decodes to the program's variant name", () => {

@@ -12,7 +12,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 v18.3 fresh-ID relaunch. The devnet wrapper moves to a new program address.
 
 **Relaunch programs (scope set 2026-09-30):**
-- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog **`39b138c8`** (P3 senior draw FINAL `d119eebd` + the D-P3-30 recall cap; engine `35ddd692`). It supersedes `d119eebd` / `58e379f1` / `424fe7e4` / `ee29b5ac` / `b2b2559e` / `07a1d0eb`. `d119eebd` changes the P3 loss rule: losses go to the junior first, then Earn seniors pro rata, and winners are paid in full while senior backing remains (errors 87/88; wrapper-only, VERSION 18 and account sizes unchanged). Earlier: `b2b2559e` removed tag-94 path B; `07a1d0eb` added the tag-94 auto-pin, the Resolved fee harvest and C-4(b); `58e379f1` adds F-10 (the batch call extension), the F-14 family (seniors first, floored NAV) and F14-Q2 (single-asset vault markets, error 86). The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
+- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog **`4b1a5d30`** (P3 batched FINAL: senior draw `d119eebd` + D-P3-30 recall cap `39b138c8` + recall on post-fee equity `6cdd4d08` + named pause code 89; engine `35ddd692`). It supersedes `39b138c8` / `d119eebd` / `58e379f1` / `424fe7e4` / `ee29b5ac` / `b2b2559e` / `07a1d0eb`. `d119eebd` changes the P3 loss rule: losses go to the junior first, then Earn seniors pro rata, and winners are paid in full while senior backing remains (errors 87/88; wrapper-only, VERSION 18 and account sizes unchanged). Earlier: `b2b2559e` removed tag-94 path B; `07a1d0eb` added the tag-94 auto-pin, the Resolved fee harvest and C-4(b); `58e379f1` adds F-10 (the batch call extension), the F-14 family (seniors first, floored NAV) and F14-Q2 (single-asset vault markets, error 86). The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
 - Stake: the **F-9** head, percolator-stake `d13b5a9`, plus the fresh-ID bump.
 
 Everything below that targets P1 (tag 93, errors 66–71), P3 (tags 94–102, errors 72–88) or the
@@ -34,6 +34,17 @@ v18.2 instructions or account layouts changed.
   explicit `^8` bump done with the cutover. Rollback = pin `7.0.0`.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
+
+### Changed (P3 batched FINAL `4b1a5d30`, 2026-09-30)
+
+- **Error 89 `VaultLpPausedForSeniorDraw`** (appended; no code shifts; the full map is re-generated from rustc at `4b1a5d30`, 90 variants). It replaces the per-instruction halt codes:
+  - the vault LP's risk-increasing fill (was 80);
+  - 97 (was 76);
+  - 98 (was 77, and is now also returned while a draw is pending);
+  - 102 (was 83).
+- 88 is now also returned on a Live bound 77 whose pot principal cannot fund the payout (was EngineCounterUnderflow).
+- The 98 cap is taken on POST-maintenance-fee equity (`6cdd4d08`).
+- Wire, accounts and layout are identical to `39b138c8`; the parity oracle was re-run at `4b1a5d30`.
 
 ### Changed (P3 senior draw FINAL `d119eebd` / `39b138c8`, 2026-09-30)
 
