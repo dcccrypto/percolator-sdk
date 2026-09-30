@@ -12,7 +12,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 v18.3 fresh-ID relaunch. The devnet wrapper moves to a new program address.
 
 **Relaunch programs (scope set 2026-09-30):**
-- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog `07a1d0eb` (engine `35ddd692`). It supersedes `424fe7e4` / `ee29b5ac` / `b2b2559e`: `b2b2559e` removed tag-94 path B, and `07a1d0eb` adds the tag-94 auto-pin, the Resolved fee harvest and C-4(b). The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
+- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog `58e379f1` (engine `35ddd692`). It supersedes `424fe7e4` / `ee29b5ac` / `b2b2559e` / `07a1d0eb`: `b2b2559e` removed tag-94 path B; `07a1d0eb` added the tag-94 auto-pin, the Resolved fee harvest and C-4(b); `58e379f1` adds F-10 (the batch call extension), the F-14 family (seniors first, floored NAV) and F14-Q2 (single-asset vault markets, error 86). The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
 - Stake: the **F-9** head, percolator-stake `d13b5a9`, plus the fresh-ID bump.
 
 Everything below that targets P1 (tag 93, errors 66–71), P3 (tags 94–102, errors 72–85) or the
@@ -137,6 +137,31 @@ v18.2 instructions or account layouts changed.
   required), and the tag-77 [14] vault LP is only key-pinned in Resolved mode (it may be
   garbage-collected). The P3 parity oracle was re-run against the real crate at `07a1d0eb`:
   tags 94–102, errors 66–85, layout and offsets are identical.
+
+- **P3 FINAL `58e379f1`.** The P3 parity oracle was re-run against the real crate: tags 94–102
+  and errors 66–85 are unchanged, and the new error 86 is confirmed by name. A handler-by-handler
+  check (86 handlers parsed in each tree) found no account-list, signer or writable change since
+  `07a1d0eb`, and the decode section is byte-identical.
+  - **Error 86 `VaultLpMultiAssetMarket`** (F14-Q2). Tag 94 needs exactly one configured asset
+    slot (`max_market_slots == 1`, so create the market with `maxPortfolioAssets: 1`). On a bound
+    market no other asset may be activated, traded risk-increasing or backed. The SDK has no
+    InitMarket default to change.
+  - **Error 77** hint now also covers TradeNoCpi / BatchTradeNoCpi fills that grow either
+    portfolio on a bound asset.
+  - **Tag 101 VaultLpSettleResolved moves no SPL.** The payout goes into the vault's own pot.
+    The exit order is now 78 → 77 per senior → 102 junior (Resolved tail), via the new
+    `planResolvedVaultLpExitP3`. `planStakeWindDown` (the stake F-9 flow) is unaffected.
+  - **F-10: BatchTradeCpi.** The client wire is unchanged; the wrapper appends one 24-byte call
+    extension per leg to the matcher CPI when `matcher_ext_mode == 1`. New
+    `encodeMatcherBatchCall` (`18 + 26n` or `18 + 26n + 24n`) and
+    `encodeWrapperMatcherCallExt` (a port of `encode_matcher_call_ext`) are byte-exact with the
+    wrapper's `invoke_matcher_batch` and the P2 matcher's tag-3 decode. `encodeBatchTradeCpi`
+    documents the 11-leg wrapper cap and the CU guidance (~342k CU for 2 legs).
+  - **Floored bound-vault NAV** (F-14 / F14-Q1): `boundVaultNavFlooredP3` (impairment floored
+    once across both pots, available principal capped at `vaultOwnedBackingAtomsP3`),
+    `vaultPhysicalIdleBackingAtomsP3`, `boundVaultSeniorValueP3`,
+    `boundVaultRedemptionAtomsP3` and `boundVaultDepositQuoteP3`. These are ports of the tag-75
+    and tag-77 bound pricing with the program's floor rounding.
 
 ### Fixed
 

@@ -2,13 +2,13 @@
  * P3 vault-owned LP — account decoders, PDAs, instruction builders, the bound-vault tail for
  * Earn tags 75/77/78, and the vault-LP refresh crank. Additive to SDK 8.0.0.
  *
- * Source: percolator-prog `feat/p3-vault-owned-lp` @ `07a1d0ebec92d3a363b5d7f535cee1321c96d10d`
+ * Source: percolator-prog `feat/p3-vault-owned-lp` @ `58e379f1aa24f99de3b6625ef7e150ce80c93687`
  * (`state::{VaultLpStateV18, AssetVaultLpV18, read_asset_vault_lp}`, `load_bound_vault_lp_tail`,
  * `vault_lp_refresh_snapshot`). Offsets are pinned by `test/p3.test.ts` against rustc
  * `offset_of!` on the REAL P3 structs, and the per-asset record offset against a market
  * account built by the P3 crate itself.
  *
- * Relaunch wrapper = P1 + P3 (`07a1d0eb`). On an older v18.2 market every AssetVaultLpV18
+ * Relaunch wrapper = P1 + P3 (`58e379f1`). On an older v18.2 market every AssetVaultLpV18
  * record is zero ("no vault LP bound").
  *
  * @module p3-vault-lp
@@ -214,8 +214,9 @@ export declare const VAULT_LP_MATCHER_CTX_LEN_P3 = 320;
  */
 export declare function buildCreateVaultLpMatcherCtxIxP3(payer: PublicKey, matcherCtx: PublicKey, lamports: number, matcherProgram?: PublicKey): TransactionInstruction;
 /**
- * Tag 94 InitVaultLp (P3 FINAL `07a1d0eb`), marketauth only: the marketauth signs and becomes the
- * junior owner. Auto-pins the vault LP to the canonical matcher: pass the pre-created `matcherCtx`
+ * Tag 94 InitVaultLp (P3 FINAL `58e379f1`), marketauth only: the marketauth signs and becomes the
+ * junior owner. SINGLE-ASSET markets only: create the market with `maxPortfolioAssets: 1`
+ * (`max_market_slots == 1`), otherwise 86 VaultLpMultiAssetMarket. Auto-pins the vault LP to the canonical matcher: pass the pre-created `matcherCtx`
  * ({@link buildCreateVaultLpMatcherCtxIxP3}); the delegate PDA is derived with the REGISTRY as
  * the LP owner. On a stake-bound market the marketauth is the keyless stake-pool PDA, so bind
  * the vault LP before InitPool rotates it.
@@ -317,6 +318,9 @@ export declare function buildSetVaultLpRiskIxP3(programId: PublicKey, market: Pu
 export declare function buildVaultLpConvertPnlIxP3(m: VaultLpMarketP3, caller: PublicKey, amount: bigint): TransactionInstruction;
 /**
  * Tag 101 VaultLpSettleResolved (permissionless, Resolved). Replaces tags 30/46 for the vault LP.
+ * P3 FINAL (`58e379f1`): moves NO SPL — the payout goes into the vault's own backing pot. The
+ * `juniorDestToken` / `vaultToken` accounts are still required and validated. Exit order after
+ * settlement: {@link planResolvedVaultLpExitP3} (78 → 77 per senior → 102 junior).
  * @param m                Market context.
  * @param caller           Signer.
  * @param juniorDestToken  Junior owner's collateral token account.
@@ -359,7 +363,7 @@ export declare const BOUND_VAULT_LP_TAIL_INDEX_P3: Readonly<{
  * 78 LpVaultCrankFees → [6] vault_lp_state (w).
  * Tag 76 (RequestRedeemLpShares) takes no tail on P3.
  *
- * P3 FINAL (`07a1d0eb`), no wire change: in Resolved mode the tag-77 [14] vault LP is only
+ * P3 FINAL (`58e379f1`), no wire change: in Resolved mode the tag-77 [14] vault LP is only
  * KEY-pinned (it may already be settled, closed and garbage-collected, so it is not required to
  * be wrapper-owned); tag 78 is additionally allowed in Resolved mode once the market is
  * terminal-flat (no materialized portfolio, c_tot == 0) — the [6] tail is still required.
@@ -401,3 +405,160 @@ export interface VaultLpRefreshCrankArgsP3 {
  * ```
  */
 export declare function buildVaultLpRefreshCrankIxP3(a: VaultLpRefreshCrankArgsP3): TransactionInstruction;
+/** `LP_VAULT_MINIMUM_LIQUIDITY` dead shares burned from the genesis deposit. */
+export declare const LP_VAULT_MINIMUM_LIQUIDITY_P3 = 1000n;
+/** One backing pot's synced ledger counters (read the ledger AFTER a sync, i.e. as the program sees them). */
+export interface BackingPotTermsP3 {
+    totalPrincipalAtoms: bigint;
+    totalEarningsAtoms: bigint;
+    totalEarningsWithdrawnAtoms: bigint;
+    cumulativeLossAtoms: bigint;
+    cumulativeRecoveryAtoms: bigint;
+}
+/**
+ * `vault_owned_backing_atoms`: backing the vault still OWNS across both pots =
+ * Σ floor((fresh_unliened_backing_num + valid_liened_backing_num) / BOUND_SCALE) per bucket.
+ * @param buckets  The two backing buckets (own + sibling domain) `_num` fields.
+ * @returns Owned backing atoms.
+ * @example
+ * ```ts
+ * vaultOwnedBackingAtomsP3([{ freshUnlienedBackingNum: a, validLienedBackingNum: b }, sibling]);
+ * ```
+ */
+export declare function vaultOwnedBackingAtomsP3(buckets: {
+    freshUnlienedBackingNum: bigint;
+    validLienedBackingNum: bigint;
+}[]): bigint;
+/**
+ * `vault_physical_idle_backing_atoms` (Resolved senior pricing): Σ floor(fresh_unliened_backing_num / BOUND_SCALE)
+ * over both buckets (floored per bucket, as the program does).
+ * @param freshUnlienedBackingNums  The two buckets' `fresh_unliened_backing_num`.
+ * @returns Idle backing atoms.
+ * @example
+ * ```ts
+ * vaultPhysicalIdleBackingAtomsP3([own.freshUnlienedBackingNum, sib.freshUnlienedBackingNum]);
+ * ```
+ */
+export declare function vaultPhysicalIdleBackingAtomsP3(freshUnlienedBackingNums: bigint[]): bigint;
+/**
+ * Floored bound-vault NAV, bit-exact with `lp_vault_combined_nav_parts_p3` (F-14 / F14-Q1):
+ * impairment is floored ONCE across both pots and the available principal is capped at the
+ * backing the vault still owns; LP earnings are floored per pot
+ * (`floor((earnings − withdrawn)·fee_share_bps / 10000)`, saturating).
+ *
+ * @param own           Own-domain (registry.domain) ledger terms.
+ * @param sibling       Sibling-domain (domain ^ 1) ledger terms.
+ * @param feeShareBps   `registry.fee_share_bps` (<= 10000).
+ * @param ownedBacking  {@link vaultOwnedBackingAtomsP3} of the two buckets.
+ * @returns `{ availablePrincipal, lpEarnings, nav }`.
+ * @example
+ * ```ts
+ * const { nav } = boundVaultNavFlooredP3(ownLedger, siblingLedger, registry.feeShareBps, owned);
+ * ```
+ */
+export declare function boundVaultNavFlooredP3(own: BackingPotTermsP3, sibling: BackingPotTermsP3, feeShareBps: number, ownedBacking: bigint): {
+    availablePrincipal: bigint;
+    lpEarnings: bigint;
+    nav: bigint;
+};
+/**
+ * Senior value used by tag 77 on a bound vault (floored everywhere):
+ * Resolved → `min(physicalIdleBacking, C)`; Live → `C` if `nav >= C`, else `min(nav + lpValue, C)`.
+ * @param a  `nav` (floored, {@link boundVaultNavFlooredP3}), `seniorClaim` (C), `lpValue`,
+ *           `resolved`, `physicalIdleBacking` (Σ fresh_unliened_backing_num / 1e12, Resolved only).
+ * @returns Senior tranche value (atoms).
+ * @example
+ * ```ts
+ * const senior = boundVaultSeniorValueP3({ nav, seniorClaim: st.seniorClaimAtoms, lpValue, resolved: false, physicalIdleBacking: 0n });
+ * ```
+ */
+export declare function boundVaultSeniorValueP3(a: {
+    nav: bigint;
+    seniorClaim: bigint;
+    lpValue: bigint;
+    resolved: boolean;
+    physicalIdleBacking: bigint;
+}): bigint;
+/**
+ * Tag-77 payout for `shares` on a bound vault: `floor(shares · senior / S)` (null when S == 0 or
+ * shares > S — the program fails closed). Requires harvestable == 0 (bundle tag 78 first).
+ * @param shares       Shares redeemed.
+ * @param totalShares  `registry.total_lp_shares_outstanding` (S).
+ * @param seniorValue  {@link boundVaultSeniorValueP3}.
+ * @returns Atoms paid, or null.
+ * @example
+ * ```ts
+ * boundVaultRedemptionAtomsP3(1_000n, 10_000n, 5_000n); // 500n
+ * ```
+ */
+export declare function boundVaultRedemptionAtomsP3(shares: bigint, totalShares: bigint, seniorValue: bigint): bigint | null;
+/**
+ * Tag-75 deposit quote on a bound vault: `C_eff = C + floor(H · senior_fee_share / 10000)`;
+ * refused (VaultLpSeniorImpaired) when `nav + H < C_eff` and `nav + H + lpValue < C_eff`;
+ * genesis (S == 0) refused (VaultLpHarvestPending) while H > 0, else 1:1 minus the 1000 dead
+ * shares; otherwise `floor(amount · S / C_eff)`.
+ * @param a  amount, totalShares (S), seniorClaim (C), harvestable (H), seniorFeeShareBps, nav (floored), lpValue.
+ * @returns `{ ok: true, shares, minted, cEff }` or `{ ok: false, error }`.
+ * @example
+ * ```ts
+ * const q = boundVaultDepositQuoteP3({ amount, totalShares, seniorClaim, harvestable, seniorFeeShareBps: 10_000, nav, lpValue });
+ * ```
+ */
+export declare function boundVaultDepositQuoteP3(a: {
+    amount: bigint;
+    totalShares: bigint;
+    seniorClaim: bigint;
+    harvestable: bigint;
+    seniorFeeShareBps: number;
+    nav: bigint;
+    lpValue: bigint;
+}): {
+    ok: true;
+    shares: bigint;
+    minted: bigint;
+    cEff: bigint;
+} | {
+    ok: false;
+    error: "VaultLpHarvestPending" | "VaultLpSeniorImpaired" | "LpVaultDepositBelowMinimumLiquidity" | "LpVaultZeroSharesMinted" | "EngineInvalidConfig";
+};
+/** Inputs for {@link planResolvedVaultLpExitP3}. */
+export interface ResolvedVaultLpExitArgsP3 {
+    market: VaultLpMarketP3;
+    /** Unbound-form tag-78 LpVaultCrankFees instruction (6 accounts; see ACCOUNTS_LP_VAULT_CRANK_FEES). */
+    crankFeesIx: TransactionInstruction;
+    /** Unbound-form tag-77 ExecuteRedemption instructions, one per senior (13 accounts each). */
+    seniorRedemptionIxs: TransactionInstruction[];
+    /** Junior release (tag 102, Resolved tail). Omit to plan the seniors only. */
+    junior?: {
+        juniorOwner: PublicKey;
+        amount: bigint;
+        sourceDomain: number;
+        juniorDestToken: PublicKey;
+        vaultToken: PublicKey;
+    };
+}
+/**
+ * Terminal exit of a bound vault on a Resolved market, in the program's required order:
+ *   1. tag 78 LpVaultCrankFees (+[6] vault_lp_state tail) — Resolved + terminal-flat it harvests
+ *      the fee leg and absorbs any claim-free residual into the pots (a no-op success otherwise);
+ *   2. tag 77 ExecuteRedemption per senior (+[13] state, [14] vault LP tail; [14] is key-pinned
+ *      and may be garbage-collected) — each senior should bundle step 1 in the SAME transaction
+ *      (77 refuses with 84 VaultLpHarvestPending while fees are harvestable);
+ *   3. tag 102 VaultLpReleaseSurplus for the junior, with the Resolved SPL tail — pays the
+ *      remainder over C once seniors are out.
+ * PRECONDITIONS: market Resolved and terminal-flat — the vault LP settled by tag 101 (moves no SPL
+ * on this head) and closed by tag 8, no materialized portfolio, c_tot == 0.
+ *
+ * @param a  Market context, the unbound 78 / 77 instructions, and the optional junior release.
+ * @returns `{ perSeniorTxs, junior }`: one `[78, 77]` instruction pair per senior, then the 102 ix (or null).
+ * @example
+ * ```ts
+ * const plan = planResolvedVaultLpExitP3({ market: m, crankFeesIx, seniorRedemptionIxs, junior });
+ * for (const ixs of plan.perSeniorTxs) await send(ixs);
+ * if (plan.junior) await send([plan.junior]);
+ * ```
+ */
+export declare function planResolvedVaultLpExitP3(a: ResolvedVaultLpExitArgsP3): {
+    perSeniorTxs: TransactionInstruction[][];
+    junior: TransactionInstruction | null;
+};

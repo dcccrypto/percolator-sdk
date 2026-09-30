@@ -192,6 +192,8 @@ export declare function encodeSetVaultLpRiskP3(a: SetVaultLpRiskArgsP3): Uint8Ar
 export declare function encodeVaultLpConvertPnlP3(amount: bigint): Uint8Array;
 /**
  * VaultLpSettleResolved (tag 101, permissionless, Resolved): `u8 topup` (0 = close step, 1 = topup claim). 2 bytes.
+ * P3 FINAL (`58e379f1`): moves NO SPL. The whole payout goes into the vault's own backing pot;
+ * seniors exit through tag 77 and the junior through tag 102 (see `planResolvedVaultLpExitP3`).
  * @param topup  0 or 1.
  * @returns Instruction data.
  * @example
@@ -212,7 +214,10 @@ export declare function encodeVaultLpSettleResolvedP3(topup: 0 | 1): Uint8Array;
  */
 export declare function encodeVaultLpReleaseSurplusP3(amount: bigint, sourceDomain: number): Uint8Array;
 /**
- * Tag 94 InitVaultLp (P3 FINAL `07a1d0eb`): 11 accounts, marketauth only. `authority` = the
+ * Tag 94 InitVaultLp (P3 FINAL `58e379f1`; accounts unchanged since `07a1d0eb`): 11 accounts,
+ * marketauth only. SINGLE-ASSET markets only: the market must have exactly one configured asset
+ * slot (`max_market_slots == 1`, i.e. created with `maxPortfolioAssets: 1`), else 86
+ * VaultLpMultiAssetMarket; a second asset can never be activated afterwards. `authority` = the
  * market's marketauth, which becomes the junior owner. [0..7] as before, then AUTO-PIN:
  * [8] matcher program (must be CANONICAL_VAULT_LP_MATCHER_PROGRAM, else 81
  * VaultLpMatcherNotApproved), [9] matcher ctx (writable; pre-created, 320 B, owner = matcher,
@@ -234,7 +239,11 @@ export declare const ACCOUNTS_VAULT_LP_RECALL_P3: readonly AccountSpec[];
 export declare const ACCOUNTS_SET_VAULT_LP_RISK_P3: readonly AccountSpec[];
 /** Tag 100: 4 accounts (permissionless). */
 export declare const ACCOUNTS_VAULT_LP_CONVERT_PNL_P3: readonly AccountSpec[];
-/** Tag 101: 12 accounts (permissionless, Resolved). `juniorDestToken` must be owned by the junior owner. */
+/**
+ * Tag 101: 12 accounts (permissionless, Resolved). Accounts [7] juniorDestToken .. [10] tokenProgram
+ * are still validated (junior dest must be owned by the junior owner) but NO SPL moves on the
+ * FINAL head — the payout lands in the vault's own backing pot.
+ */
 export declare const ACCOUNTS_VAULT_LP_SETTLE_RESOLVED_P3: readonly AccountSpec[];
 /** Tag 102: 7 accounts (Live). In Resolved mode append {@link ACCOUNTS_VAULT_LP_RELEASE_SURPLUS_RESOLVED_TAIL_P3}. */
 export declare const ACCOUNTS_VAULT_LP_RELEASE_SURPLUS_P3: readonly AccountSpec[];

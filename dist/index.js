@@ -2888,7 +2888,7 @@ var PERCOLATOR_ERRORS = {
     name: "AssetGenerationMismatch",
     hint: "A caller-supplied market_id / expected_market_id / asset_generation_frontier did not match the asset slot's current generation (AssetStateV16.market_id / header.next_market_id). The instruction was built against an older generation of this slot. Re-read the live values and rebuild."
   },
-  // ── P1 wrapper safety release — part of the relaunch wrapper (P1+P3 @ 07a1d0eb). ──
+  // ── P1 wrapper safety release — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──
   // Appended, ordinals 0-65 unmoved.
   66: {
     name: "ExecPriceOutsideOracleBand",
@@ -2914,7 +2914,7 @@ var PERCOLATOR_ERRORS = {
     name: "CloseSlabFeesOutstanding",
     hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first \u2014 tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee \u2014 and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you."
   },
-  // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 07a1d0eb). ──
+  // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──
   // Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
   // against the P3 enum (`PercolatorError::X as u32`) in test/p3.test.ts.
   72: {
@@ -2939,7 +2939,7 @@ var PERCOLATOR_ERRORS = {
   },
   77: {
     name: "VaultLpExclusiveCounterparty",
-    hint: "P3: a risk-increasing matcher fill against an LP other than the asset's bound vault LP. On a bound asset only the vault LP may take new risk; reducing fills still work."
+    hint: "P3: on a bound asset only the vault LP may take new risk. Refused: (a) a matcher (TradeCpi/BatchTradeCpi) fill that grows an LP other than the bound vault LP; (b) any TradeNoCpi / BatchTradeNoCpi fill that grows EITHER portfolio's position on a bound asset \u2014 the vault LP is never a NoCpi party (its owner, the registry PDA, cannot sign), so direct P2P trading on a bound P3 asset can only reduce. Reducing fills still work."
   },
   78: {
     name: "VaultLpLeverageStepDown",
@@ -2972,6 +2972,10 @@ var PERCOLATOR_ERRORS = {
   85: {
     name: "VaultLpValuationStale",
     hint: "P3-L2: the vault LP holds inventory and its health certificate is not current, so the vault cannot be valued. Prepend a permissionless tag-5 crank of the vault LP (buildVaultLpRefreshCrankIxP3)."
+  },
+  86: {
+    name: "VaultLpMultiAssetMarket",
+    hint: "P3 F14-Q2: a vault LP needs a single-ASSET market. Tag 94 InitVaultLp requires exactly one configured asset slot (max_market_slots == 1 \u2014 create the market with maxPortfolioAssets: 1), and on a bound market no other asset may be activated (UpdateAssetLifecycle), traded risk-increasing or backed. The terminal residual is market-wide and is credited to the one vault."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -3631,6 +3635,39 @@ function isMatcherCtxV2(ctxAccountData) {
   if (ctxAccountData.length < MATCHER_V2_BLOCK_ACCOUNT_OFFSET + 1) return false;
   const magic = new DataView(ctxAccountData.buffer, ctxAccountData.byteOffset + 64, 8).getBigUint64(0, true);
   return magic === 0x504552434d415443n && ctxAccountData[MATCHER_V2_BLOCK_ACCOUNT_OFFSET] === MATCHER_V2_BLOCK_VERSION;
+}
+var MATCHER_BATCH_HEADER_LEN = 18;
+var MATCHER_BATCH_LEG_LEN = 26;
+var WRAPPER_BATCH_MAX_LEGS = 11;
+function encodeWrapperMatcherCallExt(mode, markSlot, lpHeadroomQ, execBandBps, takerReducing, acceptsFeeRequest) {
+  if (mode !== 1) return new Uint8Array(MATCHER_CALL_EXT_LEN);
+  const headroom = lpHeadroomQ > (1n << 64n) - 1n ? (1n << 64n) - 1n : lpHeadroomQ;
+  return encodeMatcherCallExt({ headroomQ: headroom, markSlot, execBandBps, takerReducing, acceptsFeeRequest });
+}
+function encodeMatcherBatchCall(reqId, lpAccountId, legs, exts) {
+  if (legs.length === 0 || legs.length > 16) throw new Error(`matcher batch needs 1..=16 legs, got ${legs.length}`);
+  if (exts && exts.length !== legs.length) throw new Error(`exts (${exts.length}) must match legs (${legs.length})`);
+  const out = new Uint8Array(MATCHER_BATCH_HEADER_LEN + legs.length * MATCHER_BATCH_LEG_LEN + (exts ? legs.length * MATCHER_CALL_EXT_LEN : 0));
+  const v = new DataView(out.buffer);
+  out[0] = 3;
+  out[1] = legs.length;
+  v.setBigUint64(2, reqId, true);
+  v.setBigUint64(10, lpAccountId, true);
+  legs.forEach((l, i) => {
+    const b = MATCHER_BATCH_HEADER_LEN + i * MATCHER_BATCH_LEG_LEN;
+    v.setUint16(b, l.assetIndex, true);
+    v.setBigUint64(b + 2, l.oraclePriceE6, true);
+    const u = l.reqSize < 0n ? (1n << 128n) + l.reqSize : l.reqSize;
+    v.setBigUint64(b + 10, u & (1n << 64n) - 1n, true);
+    v.setBigUint64(b + 18, u >> 64n, true);
+  });
+  if (exts) {
+    exts.forEach((e, i) => {
+      if (e.length !== MATCHER_CALL_EXT_LEN) throw new Error(`ext ${i} must be 24 bytes`);
+      out.set(e, MATCHER_BATCH_HEADER_LEN + legs.length * MATCHER_BATCH_LEG_LEN + i * MATCHER_CALL_EXT_LEN);
+    });
+  }
+  return out;
 }
 
 // src/abi/p3.ts
@@ -10169,6 +10206,58 @@ function buildVaultLpRefreshCrankIxP3(a) {
     data: Buffer.from(encodePermissionlessCrank({ nowSlot: a.nowSlot, observations: a.observations }))
   });
 }
+var BOUND_SCALE_P3 = 1000000000000n;
+var LP_VAULT_MINIMUM_LIQUIDITY_P3 = 1000n;
+var sat = (a, b) => a > b ? a - b : 0n;
+var minB = (a, b) => a < b ? a : b;
+function vaultOwnedBackingAtomsP3(buckets) {
+  return buckets.reduce((t, b) => t + (b.freshUnlienedBackingNum + b.validLienedBackingNum) / BOUND_SCALE_P3, 0n);
+}
+function vaultPhysicalIdleBackingAtomsP3(freshUnlienedBackingNums) {
+  return freshUnlienedBackingNums.reduce((t, n) => t + n / BOUND_SCALE_P3, 0n);
+}
+function boundVaultNavFlooredP3(own, sibling, feeShareBps, ownedBacking) {
+  if (!Number.isInteger(feeShareBps) || feeShareBps < 0 || feeShareBps > 1e4) throw new Error("feeShareBps must be 0..=10000");
+  const earn = (p) => sat(p.totalEarningsAtoms, p.totalEarningsWithdrawnAtoms) * BigInt(feeShareBps) / 10000n;
+  const principal = own.totalPrincipalAtoms + sibling.totalPrincipalAtoms;
+  const impairment = sat(own.cumulativeLossAtoms, own.cumulativeRecoveryAtoms) + sat(sibling.cumulativeLossAtoms, sibling.cumulativeRecoveryAtoms);
+  const availablePrincipal = minB(sat(principal, impairment), ownedBacking);
+  const lpEarnings = earn(own) + earn(sibling);
+  return { availablePrincipal, lpEarnings, nav: availablePrincipal + lpEarnings };
+}
+function boundVaultSeniorValueP3(a) {
+  if (a.resolved) return minB(a.physicalIdleBacking, a.seniorClaim);
+  if (a.nav >= a.seniorClaim) return a.seniorClaim;
+  return minB(a.nav + a.lpValue, a.seniorClaim);
+}
+function boundVaultRedemptionAtomsP3(shares, totalShares, seniorValue) {
+  if (totalShares === 0n || shares > totalShares) return null;
+  return shares * seniorValue / totalShares;
+}
+function boundVaultDepositQuoteP3(a) {
+  if (a.totalShares === 0n && a.harvestable !== 0n) return { ok: false, error: "VaultLpHarvestPending" };
+  const cEff = a.seniorClaim + a.harvestable * BigInt(a.seniorFeeShareBps) / 10000n;
+  const navH = a.nav + a.harvestable;
+  if (navH < cEff && navH + a.lpValue < cEff) return { ok: false, error: "VaultLpSeniorImpaired" };
+  let shares;
+  if (a.totalShares === 0n) shares = a.amount;
+  else if (cEff === 0n) return { ok: false, error: "EngineInvalidConfig" };
+  else shares = a.amount * a.totalShares / cEff;
+  if (shares === 0n) return { ok: false, error: "LpVaultZeroSharesMinted" };
+  const minted = a.totalShares === 0n ? shares - LP_VAULT_MINIMUM_LIQUIDITY_P3 : shares;
+  if (minted <= 0n) return { ok: false, error: "LpVaultDepositBelowMinimumLiquidity" };
+  return { ok: true, shares, minted, cEff };
+}
+function planResolvedVaultLpExitP3(a) {
+  const [vaultLpState] = deriveVaultLpStateP3(a.market.programId, a.market.market);
+  const crank = withBoundVaultLpTailP3(a.crankFeesIx, vaultLpState, a.market.lpPortfolio);
+  const perSeniorTxs = a.seniorRedemptionIxs.map((r) => [crank, withBoundVaultLpTailP3(r, vaultLpState, a.market.lpPortfolio)]);
+  const junior = a.junior ? buildVaultLpReleaseSurplusIxP3(a.market, a.junior.juniorOwner, a.junior.amount, a.junior.sourceDomain, {
+    juniorDestToken: a.junior.juniorDestToken,
+    vaultToken: a.junior.vaultToken
+  }) : null;
+  return { perSeniorTxs, junior };
+}
 
 // src/solana/stake-wind-down.ts
 import { TransactionInstruction as TransactionInstruction5 } from "@solana/web3.js";
@@ -11447,12 +11536,15 @@ export {
   LIGHTHOUSE_PROGRAM_ID,
   LIGHTHOUSE_PROGRAM_ID_STR,
   LIGHTHOUSE_USER_MESSAGE,
+  LP_VAULT_MINIMUM_LIQUIDITY_P3,
   LP_VAULT_REGISTRY_BOUND_FLAG_OFF_P3,
   MARKET_GROUP_HEADER_OFF_V18,
   MARKET_MODE_V18,
   MARK_PRICE_EMA_ALPHA_E6,
   MARK_PRICE_EMA_WINDOW_SLOTS,
   MATCHER_BACKING_FEE_CAP_BPS_MAX,
+  MATCHER_BATCH_HEADER_LEN,
+  MATCHER_BATCH_LEG_LEN,
   MATCHER_CALL_EXT_FLAG,
   MATCHER_CALL_EXT_LEN,
   MATCHER_CALL_EXT_OFFSET,
@@ -11597,6 +11689,7 @@ export {
   VAULT_LP_STATE_OFF_P3,
   ValidationError,
   WELL_KNOWN,
+  WRAPPER_BATCH_MAX_LEGS,
   WSOL_MINT,
   _internal,
   accrueFeesAccounts,
@@ -11610,6 +11703,10 @@ export {
   assetVaultLpAccountOffsetP3,
   backingBucketStatusName,
   bindInsuranceAuthorityAccounts,
+  boundVaultDepositQuoteP3,
+  boundVaultNavFlooredP3,
+  boundVaultRedemptionAtomsP3,
+  boundVaultSeniorValueP3,
   buildAccountMetas,
   buildAdlInstruction,
   buildAdlTransaction,
@@ -11768,6 +11865,7 @@ export {
   encodeLpVaultCrankFees,
   encodeLpVaultDeposit,
   encodeLpVaultWithdraw,
+  encodeMatcherBatchCall,
   encodeMatcherCallExt,
   encodeMatcherConfigureBackingFeeCap,
   encodeMatcherConfigureSetParams,
@@ -11899,6 +11997,7 @@ export {
   encodeWithdrawJuniorTrancheP3,
   encodeWithdrawLpCollateral,
   encodeWithdrawProtocolFee,
+  encodeWrapperMatcherCallExt,
   fetchAdlRankedPositions,
   fetchAdlRankings,
   fetchMintDecimals,
@@ -11961,6 +12060,7 @@ export {
   pinnedMatcherCapsP3,
   planCloseSlabAttempt,
   planReduceOnlyExit,
+  planResolvedVaultLpExitP3,
   planStakeWindDown,
   rankAdlPositions,
   readLastThrUpdateSlot,
@@ -11995,6 +12095,8 @@ export {
   validateU128,
   validateU16,
   validateU64,
+  vaultOwnedBackingAtomsP3,
+  vaultPhysicalIdleBackingAtomsP3,
   withBoundVaultLpTailP3,
   withNftEscrowProof,
   withNftHolderAuth,

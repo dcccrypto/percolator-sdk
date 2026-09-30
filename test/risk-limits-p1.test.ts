@@ -2,7 +2,7 @@
  * P1 tag 93 SetAssetRiskLimits + AssetRiskLimitsV17 (percolator-prog 07a1d0eb).
  * Record bytes cross-checked against the limits-UI lane's rustc-laid-out fixture
  * (app/__tests__/fixtures/limits/rust-layouts.json, `riskLimitsHex`, struct copied verbatim
- * from the P1 source; the field order was re-read at 07a1d0eb and is unchanged).
+ * from the P1 source; the field order was re-read at 58e379f1 and is unchanged).
  */
 import { describe, it, expect } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";

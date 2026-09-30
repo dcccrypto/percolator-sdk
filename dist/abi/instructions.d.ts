@@ -2952,7 +2952,13 @@ export declare function encodeBatchTradeNoCpi(args: BatchTradeNoCpiArgs): Uint8A
  * matcher sequence — the CPI-matched side), all AFTER the legs, in that
  * order.
  *
- * @param legs Array of up to 255 CPI trade legs.
+ * @param legs CPI trade legs. The wrapper accepts at most 11 (`MATCHER_BATCH_MAX_LEGS`; 12+
+ *   fail InvalidInstruction). CU: measured ~342k CU for a 2-leg batch on the relaunch
+ *   wrapper, ~120k per extra leg — request a compute-unit limit accordingly
+ *   (e.g. `ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })` for 2 legs).
+ *   The client wire is unchanged on P1/P3: the wrapper itself appends the per-leg 24-byte
+ *   P1/P2 matcher call extension to the matcher CPI when the asset's `matcher_ext_mode == 1`
+ *   (see `encodeMatcherBatchCall` / `encodeWrapperMatcherCallExt`).
  * @param maxSlippageAtoms  Aggregate slippage cap across the whole batch (u128).
  * @param maxFeeAtoms       Aggregate fee cap across the whole batch (u128).
  * @param accountAPortfolioId       Account A's portfolio identity.

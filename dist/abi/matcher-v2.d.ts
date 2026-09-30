@@ -10,7 +10,7 @@
  * `cargo run --bin sdk_parity_fixtures_v2`.
  *
  * STATUS: targets instructions NOT on the relaunch programs yet. The relaunch set is the
- * P1+P3 wrapper (`07a1d0eb`) + F-9 stake (`d13b5a9`); the matcher stays v1 (`4seJWjv3…` @
+ * P1+P3 wrapper (`58e379f1`) + F-9 stake (`d13b5a9`); the matcher stays v1 (`4seJWjv3…` @
  * `12bd671`) unless P2 (percolator-match#30) ships with it. A v1 matcher rejects tag 5
  * (InvalidInstructionData) and any non-zero byte in 43..67 of a tag-0 call — only send
  * tag 5 / the call extension to a v2 matcher (see {@link isMatcherCtxV2}), and keep
@@ -364,3 +364,53 @@ export declare function decodeMatcherRequestedFeeBps(flags: number): number;
  * ```
  */
 export declare function isMatcherCtxV2(ctxAccountData: Uint8Array): boolean;
+/** Matcher tag-3 header length: `[3][n u8][req_id u64][lp_account_id u64]` (`MATCHER_BATCH_HEADER_LEN`). */
+export declare const MATCHER_BATCH_HEADER_LEN = 18;
+/** Per-leg length: `asset u16, oracle_price_e6 u64, req_size i128` (`MATCHER_BATCH_LEG_LEN`). */
+export declare const MATCHER_BATCH_LEG_LEN = 26;
+/** Legs per wrapper BatchTradeCpi (`MATCHER_BATCH_MAX_LEGS` in the wrapper; the P2 matcher itself allows 16). */
+export declare const WRAPPER_BATCH_MAX_LEGS = 11;
+/**
+ * Port of the wrapper's `risk_limits_v17::encode_matcher_call_ext` (P1+P3 FINAL `58e379f1`) — the
+ * exact 24 bytes the wrapper appends per leg (TradeCpi and, since F-10, BatchTradeCpi). Mode 0 →
+ * all zero (legacy). Mode 1 → version 1, flags HEADROOM|MARK_SLOT|EXEC_BAND (+TAKER_REDUCING,
+ * +ACCEPTS_FEE_REQUEST), headroom saturated to u64::MAX.
+ *
+ * @param mode               `AssetRiskLimitsV17.matcher_ext_mode` (0 or 1).
+ * @param markSlot           The asset's `last_good_oracle_slot`.
+ * @param lpHeadroomQ        Headroom in Q (the batch route passes |leg.size_q|).
+ * @param execBandBps        Effective exec band (bps).
+ * @param takerReducing      Leg only reduces the taker.
+ * @param acceptsFeeRequest  Fee-request channel (the wrapper passes false in batches).
+ * @returns 24 bytes.
+ * @example
+ * ```ts
+ * encodeWrapperMatcherCallExt(1, 505_000_000n, 1_000_000n, 300, false, false);
+ * ```
+ */
+export declare function encodeWrapperMatcherCallExt(mode: number, markSlot: bigint, lpHeadroomQ: bigint, execBandBps: number, takerReducing: boolean, acceptsFeeRequest: boolean): Uint8Array;
+/** One matcher batch leg. */
+export interface MatcherBatchLeg {
+    assetIndex: number;
+    oraclePriceE6: bigint;
+    /** Signed request size (i128). */
+    reqSize: bigint;
+}
+/**
+ * Encode the matcher tag-3 batch call exactly as the wrapper's `invoke_matcher_batch` builds it:
+ * `[3][n][req_id u64][lp_account_id u64]` + n×(asset u16, oracle_price_e6 u64, req_size i128) +
+ * (optional) n×24-byte call extensions, in leg order — `18 + 26n` legacy or `18 + 26n + 24n`,
+ * the only two lengths the P2 matcher's `process_batch_call` accepts. For a TS reference matcher /
+ * simulator; clients send the wrapper BatchTradeCpi ({@link encodeBatchTradeCpi}), not this.
+ *
+ * @param reqId        Request id.
+ * @param lpAccountId  First 8 bytes of the matcher delegate PDA, LE (`matcher_lp_account_id`).
+ * @param legs         1..=16 legs (the wrapper sends at most 11).
+ * @param exts         Optional per-leg 24-byte extensions (must match `legs.length`).
+ * @returns Instruction data for the matcher program.
+ * @example
+ * ```ts
+ * encodeMatcherBatchCall(7n, lpId, [{ assetIndex: 0, oraclePriceE6: 1_000_000n, reqSize: 5n }], [encodeWrapperMatcherCallExt(1, slot, 5n, 300, false, false)]);
+ * ```
+ */
+export declare function encodeMatcherBatchCall(reqId: bigint, lpAccountId: bigint, legs: MatcherBatchLeg[], exts?: Uint8Array[]): Uint8Array;

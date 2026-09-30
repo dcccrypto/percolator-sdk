@@ -364,7 +364,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     hint: "A caller-supplied market_id / expected_market_id / asset_generation_frontier did not match the asset slot's current generation (AssetStateV16.market_id / header.next_market_id). The instruction was built against an older generation of this slot. Re-read the live values and rebuild.",
   },
 
-  // ── P1 wrapper safety release — part of the relaunch wrapper (P1+P3 @ 07a1d0eb). ──
+  // ── P1 wrapper safety release — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──
   // Appended, ordinals 0-65 unmoved.
   66: {
     name: "ExecPriceOutsideOracleBand",
@@ -391,7 +391,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first — tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee — and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you.",
   },
 
-  // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 07a1d0eb). ──
+  // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──
   // Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
   // against the P3 enum (`PercolatorError::X as u32`) in test/p3.test.ts.
   72: {
@@ -416,7 +416,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   77: {
     name: "VaultLpExclusiveCounterparty",
-    hint: "P3: a risk-increasing matcher fill against an LP other than the asset's bound vault LP. On a bound asset only the vault LP may take new risk; reducing fills still work.",
+    hint: "P3: on a bound asset only the vault LP may take new risk. Refused: (a) a matcher (TradeCpi/BatchTradeCpi) fill that grows an LP other than the bound vault LP; (b) any TradeNoCpi / BatchTradeNoCpi fill that grows EITHER portfolio's position on a bound asset — the vault LP is never a NoCpi party (its owner, the registry PDA, cannot sign), so direct P2P trading on a bound P3 asset can only reduce. Reducing fills still work.",
   },
   78: {
     name: "VaultLpLeverageStepDown",
@@ -449,6 +449,10 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   85: {
     name: "VaultLpValuationStale",
     hint: "P3-L2: the vault LP holds inventory and its health certificate is not current, so the vault cannot be valued. Prepend a permissionless tag-5 crank of the vault LP (buildVaultLpRefreshCrankIxP3).",
+  },
+  86: {
+    name: "VaultLpMultiAssetMarket",
+    hint: "P3 F14-Q2: a vault LP needs a single-ASSET market. Tag 94 InitVaultLp requires exactly one configured asset slot (max_market_slots == 1 — create the market with maxPortfolioAssets: 1), and on a bound market no other asset may be activated (UpdateAssetLifecycle), traded risk-increasing or backed. The terminal residual is market-wide and is credited to the one vault.",
   },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
