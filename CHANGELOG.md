@@ -57,6 +57,21 @@ sha256 `4472b3832fda…`). No instruction, account-layout or IDL/wire change.
   `CloseSlabFeesOutstanding`); stake 29 `NoRealLpHolders` (F3 dead-share guard). Fixed the
   63 hint (CreateLpVault is tag 74, not 72).
 
+- **P3 vault-owned LP** (percolator-prog `feat/p3-vault-owned-lp@424fe7e4`, stacked on P1;
+  NOT on any deployed wrapper). `src/abi/p3.ts`: `IX_TAG_P3` and encoders + account lists for
+  tags 94–102 (`encodeInitVaultLpP3` … `encodeVaultLpReleaseSurplusP3`, `ACCOUNTS_*_P3`).
+  `src/solana/p3-vault-lp.ts`: `decodeVaultLpStateP3`, `decodeAssetVaultLpP3` /
+  `decodeAssetVaultLpRecordP3` (record at account offset `2246 + 2325·i`),
+  `isLpVaultRegistryBoundP3`, `deriveVaultLpStateP3`, `deriveProgramDataAddressP3`, builders
+  `build*IxP3` for every tag, `withBoundVaultLpTailP3` (the REQUIRED tail on bound vaults:
+  75 → [11] state(w), [12] lp; 77 → [13],[14]; 78 → [6] state(w)), and the vault-LP refresh
+  crank `buildVaultLpRefreshCrankIxP3` (tag 5 on the vault LP portfolio; clears error 85 and
+  re-snapshots `lp_net_q`). Errors 72–85 (`VaultLpAlreadyBound` … `VaultLpValuationStale`).
+  Parity: every encoder round-trips through the real P3 `Instruction::decode`, layouts via
+  rustc `offset_of!`, error ordinals by name from the final enum (`scripts/p3-parity/`).
+  The deprecated v12 `IX_TAG.InitSharedVault(94)…QueueWithdrawal(102)` / `SlashCreationDeposit(93)`
+  names share these numbers (they throw); now annotated as colliding.
+
 ### Fixed
 
 - **CI parity gate** (red since 2026-09-28): it checked the engine out at `main`, and

@@ -1,0 +1,415 @@
+{
+    "p3Sha": "424fe7e473bec1154eacde1ac8bd7e190b526fd2",
+    "vectors": {
+        "initVaultLp_min": {
+            "hex": "5ee803",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 94,
+                    "juniorFloorBps": "1000"
+                }
+            }
+        },
+        "initVaultLp_min__short": {
+            "hex": "5ee8",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "initVaultLp_min__long": {
+            "hex": "5ee80300",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "initVaultLp_max": {
+            "hex": "5e1027",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 94,
+                    "juniorFloorBps": "10000"
+                }
+            }
+        },
+        "initVaultLp_max__short": {
+            "hex": "5e10",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "initVaultLp_max__long": {
+            "hex": "5e102700",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "setMatcher": {
+            "hex": "5f080706050403020107000000000000001027ffffffffffffffff020a00000032000000c80000001027000000ca9a3b000000000000000000000000e8030000000000000000000000000000ffffffffffffffffffffffffffffffff34123200",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 95,
+                    "expectedSequence": "72623859790382856",
+                    "assetGenerationFrontier": "7",
+                    "tradeFeeCapBps": "10000",
+                    "expirySlot": "18446744073709551615",
+                    "kind": "2",
+                    "tradingFeeBps": "10",
+                    "baseSpreadBps": "50",
+                    "maxTotalBps": "200",
+                    "impactKBps": "10000",
+                    "liquidityNotionalE6": "1000000000",
+                    "maxFillAbs": "1000",
+                    "maxInventoryAbs": "340282366920938463463374607431768211455",
+                    "feeToInsuranceBps": "4660",
+                    "skewSpreadMultBps": "50"
+                }
+            }
+        },
+        "setMatcher__short": {
+            "hex": "5f080706050403020107000000000000001027ffffffffffffffff020a00000032000000c80000001027000000ca9a3b000000000000000000000000e8030000000000000000000000000000ffffffffffffffffffffffffffffffff341232",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "setMatcher__long": {
+            "hex": "5f080706050403020107000000000000001027ffffffffffffffff020a00000032000000c80000001027000000ca9a3b000000000000000000000000e8030000000000000000000000000000ffffffffffffffffffffffffffffffff3412320000",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "depositJunior": {
+            "hex": "600000a0dec5adc9353600000000000000",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 96,
+                    "amount": "1000000000000000000000"
+                }
+            }
+        },
+        "depositJunior__short": {
+            "hex": "600000a0dec5adc93536000000000000",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "depositJunior__long": {
+            "hex": "600000a0dec5adc935360000000000000000",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "withdrawJunior": {
+            "hex": "6101000000000000000000000000000000",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 97,
+                    "amount": "1"
+                }
+            }
+        },
+        "withdrawJunior__short": {
+            "hex": "61010000000000000000000000000000",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "withdrawJunior__long": {
+            "hex": "610100000000000000000000000000000000",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "recall": {
+            "hex": "62ffffffffffffffffffffffffffffffff0100",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 98,
+                    "amount": "340282366920938463463374607431768211455",
+                    "targetDomain": "1"
+                }
+            }
+        },
+        "recall__short": {
+            "hex": "62ffffffffffffffffffffffffffffffff01",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "recall__long": {
+            "hex": "62ffffffffffffffffffffffffffffffff010000",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "setRisk": {
+            "hex": "630300d007000000000000ffffffffffffffff00902f50090000000000000000000000881350c30000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 99,
+                    "assetIndex": "3",
+                    "skewSlopeE9": "2000",
+                    "skewMaxE9": "18446744073709551615",
+                    "levCapQ": "40000000000",
+                    "levMaxImrBps": "5000",
+                    "vaultLpMaxLevBps": "50000",
+                    "approvedMatcherProgramHex": "398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782"
+                }
+            }
+        },
+        "setRisk__short": {
+            "hex": "630300d007000000000000ffffffffffffffff00902f50090000000000000000000000881350c30000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b7",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "setRisk__long": {
+            "hex": "630300d007000000000000ffffffffffffffff00902f50090000000000000000000000881350c30000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b78200",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "convertPnl": {
+            "hex": "64000102030405060708090a0b0c0d0e0f",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 100,
+                    "amount": "20011376718272490338853433276725592320"
+                }
+            }
+        },
+        "convertPnl__short": {
+            "hex": "64000102030405060708090a0b0c0d0e",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "convertPnl__long": {
+            "hex": "64000102030405060708090a0b0c0d0e0f00",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "settleResolved_close": {
+            "hex": "6500",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 101,
+                    "topup": "0"
+                }
+            }
+        },
+        "settleResolved_close__short": {
+            "hex": "65",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "settleResolved_close__long": {
+            "hex": "650000",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "settleResolved_topup": {
+            "hex": "6501",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 101,
+                    "topup": "1"
+                }
+            }
+        },
+        "settleResolved_topup__short": {
+            "hex": "65",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "settleResolved_topup__long": {
+            "hex": "650100",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "releaseSurplus": {
+            "hex": "6663000000000000000000000000000000efbe",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 102,
+                    "amount": "99",
+                    "sourceDomain": "48879"
+                }
+            }
+        },
+        "releaseSurplus__short": {
+            "hex": "6663000000000000000000000000000000ef",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "releaseSurplus__long": {
+            "hex": "6663000000000000000000000000000000efbe00",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "refreshCrank": {
+            "hex": "05708b221e0000000002000001020000",
+            "rust": {
+                "ok": true,
+                "decoded": {
+                    "tag": 5,
+                    "nowSlot": "505580400",
+                    "observations": [
+                        [
+                            0,
+                            1
+                        ],
+                        [
+                            2,
+                            0
+                        ]
+                    ]
+                }
+            }
+        },
+        "refreshCrank__short": {
+            "hex": "05708b221e00000000020000010200",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        },
+        "refreshCrank__long": {
+            "hex": "05708b221e000000000200000102000000",
+            "rust": {
+                "ok": false,
+                "err": "InvalidInstructionData"
+            }
+        }
+    },
+    "errors": {
+        "ExecPriceOutsideOracleBand": 66,
+        "SameOwnerTrade": 67,
+        "LpExposureCapExceeded": 68,
+        "LpFloorHalt": 69,
+        "ProtocolSideOiCapExceeded": 70,
+        "CloseSlabFeesOutstanding": 71,
+        "VaultLpAlreadyBound": 72,
+        "VaultLpNotBound": 73,
+        "VaultLpSeniorImpaired": 74,
+        "VaultLpJuniorWithdrawRefused": 75,
+        "VaultLpRecallRefused": 76,
+        "VaultLpExclusiveCounterparty": 77,
+        "VaultLpLeverageStepDown": 78,
+        "VaultLpBoundCannotClose": 79,
+        "VaultLpExposureCapExceeded": 80,
+        "VaultLpMatcherNotApproved": 81,
+        "VaultLpUseSettleResolved": 82,
+        "VaultLpReleaseRefused": 83,
+        "VaultLpHarvestPending": 84,
+        "VaultLpValuationStale": 85
+    },
+    "layout": {
+        "headerLen": 16,
+        "vaultLpStateBodyLen": 256,
+        "vaultLpStateAccountLen": 272,
+        "kindVaultLpState": 9,
+        "assetVaultLpLen": 128,
+        "assetVaultLpSlotOff": 896,
+        "flagBound": 1,
+        "registryReservedOff": 160,
+        "vaultLpStateAccountOff": {
+            "marketGroup": 16,
+            "registry": 48,
+            "lpPortfolio": 80,
+            "juniorOwner": 112,
+            "seniorClaimAtoms": 144,
+            "juniorDepositedAtoms": 160,
+            "juniorWithdrawnAtoms": 176,
+            "seniorFeeCreditedAtoms": 192,
+            "recalledAtoms": 208,
+            "assetIndex": 224,
+            "juniorFloorBps": 226,
+            "seniorFeeShareBps": 228,
+            "version": 230,
+            "bump": 231
+        },
+        "assetVaultLpFieldOff": {
+            "vaultLpPortfolio": 0,
+            "lpNetQ": 32,
+            "levCapQ": 48,
+            "lpNetSlot": 64,
+            "skewSlopeE9": 72,
+            "skewMaxE9": 80,
+            "levMaxImrBps": 88,
+            "flags": 90,
+            "reserved0": 91,
+            "vaultLpMaxLevBps": 92,
+            "approvedMatcherProgram": 96
+        }
+    },
+    "assetVaultLpOffsets": {
+        "marketLenCap4": 10650,
+        "rows": [
+            {
+                "asset": 0,
+                "sdkOffset": 2246,
+                "programReadsSame": true,
+                "recordHex": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a035fb048ee0feffffffffffffffffffff00902f50090000000000000000000000708b221e00000000d007000000000000840300000000000088130100204e00005a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+            },
+            {
+                "asset": 1,
+                "sdkOffset": 4571,
+                "programReadsSame": true,
+                "recordHex": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a134fb048ee0feffffffffffffffffffff00902f50090000000000000000000000718b221e00000000d007000000000000840300000000000088130100204e00005a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+            },
+            {
+                "asset": 2,
+                "sdkOffset": 6896,
+                "programReadsSame": true,
+                "recordHex": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a233fb048ee0feffffffffffffffffffff00902f50090000000000000000000000728b221e00000000d007000000000000840300000000000088130100204e00005a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+            },
+            {
+                "asset": 3,
+                "sdkOffset": 9221,
+                "programReadsSame": true,
+                "recordHex": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a332fb048ee0feffffffffffffffffffff00902f50090000000000000000000000738b221e00000000d007000000000000840300000000000088130100204e00005a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+            }
+        ]
+    },
+    "vaultLpStateAccountHex": "00363156435245501200090000000000010101010101010101010101010101010101010101010101010101010101010102020202020202020202020202020202020202020202020202020202020202020303030303030303030303030303030303030303030303030303030303030303040404040404040404040404040404040404040404040404040404040404040479df0d8648700000000000000000000080f0fa0200000000000000000000000007000000000000000000000000000000e70300000000000000000000000000002a0000000000000000000000000000000300d007102701fe00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+}

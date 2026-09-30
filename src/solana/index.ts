@@ -16,3 +16,4 @@ export * from "./rpc-pool.js";
 // canonical v17 SDK definition from token-program.js.
 export { TOKEN_2022_PROGRAM_ID } from "./token-program.js";
 export * from "./market-lifecycle.js";
+export * from "./p3-vault-lp.js";

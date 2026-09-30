@@ -478,25 +478,25 @@ export declare const IX_TAG: {
     readonly AuditCrank: 91;
     /** @deprecated v12.x tag 92. Not in v17. */
     readonly AdvanceOraclePhase: 92;
-    /** @deprecated v12.x tag 93. Not in v17. */
+    /** @deprecated v12.x tag 93. Not in v17. COLLIDES with P1 SetAssetRiskLimits(93). Do NOT use. */
     readonly SlashCreationDeposit: 93;
-    /** @deprecated v12.x tag 94. Not in v17. */
+    /** @deprecated v12.x tag 94. Not in v17. COLLIDES with P3 InitVaultLp(94) — see IX_TAG_P3. Do NOT use. */
     readonly InitSharedVault: 94;
-    /** @deprecated v12.x tag 95. Not in v17. */
+    /** @deprecated v12.x tag 95. Not in v17. COLLIDES with P3 VaultLpSetMatcher(95) — see IX_TAG_P3. Do NOT use. */
     readonly AllocateMarket: 95;
-    /** @deprecated v12.x tag 96. Not in v17. */
+    /** @deprecated v12.x tag 96. Not in v17. COLLIDES with P3 DepositJuniorTranche(96) — see IX_TAG_P3. Do NOT use. */
     readonly QueueWithdrawalSV: 96;
-    /** @deprecated v12.x tag 97. Not in v17. */
+    /** @deprecated v12.x tag 97. Not in v17. COLLIDES with P3 WithdrawJuniorTranche(97) — see IX_TAG_P3. Do NOT use. */
     readonly ClaimEpochWithdrawal: 97;
-    /** @deprecated v12.x tag 98. Not in v17. */
+    /** @deprecated v12.x tag 98. Not in v17. COLLIDES with P3 VaultLpRecall(98) — see IX_TAG_P3. Do NOT use. */
     readonly AdvanceEpoch: 98;
-    /** @deprecated v12.x tag 99. Not in v17. */
+    /** @deprecated v12.x tag 99. Not in v17. COLLIDES with P3 SetVaultLpRisk(99) — see IX_TAG_P3. Do NOT use. */
     readonly ReclaimSlabRent: 99;
-    /** @deprecated v12.x tag 100. Not in v17. */
+    /** @deprecated v12.x tag 100. Not in v17. COLLIDES with P3 VaultLpConvertPnl(100) — see IX_TAG_P3. Do NOT use. */
     readonly CloseStaleSlabs: 100;
-    /** @deprecated v12.x tag 101. Not in v17. */
+    /** @deprecated v12.x tag 101. Not in v17. COLLIDES with P3 VaultLpSettleResolved(101) — see IX_TAG_P3. Do NOT use. */
     readonly ExecuteAdl: 101;
-    /** @deprecated v12.x tag 102. Not in v17. */
+    /** @deprecated v12.x tag 102. Not in v17. COLLIDES with P3 VaultLpReleaseSurplus(102) — see IX_TAG_P3. Do NOT use. */
     readonly QueueWithdrawal: 102;
     /** @deprecated v12.x tag 103. Not in v17. */
     readonly ClaimQueuedWithdrawal: 103;

@@ -40,6 +40,7 @@ export default defineConfig({
       "test/vanilla.test.ts",
       "test/matcher-v2.test.ts",
       "test/market-lifecycle.test.ts",
+      "test/p3.test.ts",
     ],
   },
 });

@@ -390,6 +390,66 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "CloseSlabFeesOutstanding",
     hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first — tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee — and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you.",
   },
+
+  // ── P3 vault-owned LP (feat/p3-vault-owned-lp @ 424fe7e4) — NOT on the deployed v18.2 ──
+  // wrapper. Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
+  // against the P3 enum (`PercolatorError::X as u32`) in test/p3.test.ts.
+  72: {
+    name: "VaultLpAlreadyBound",
+    hint: "P3 tag 94: this vault (or asset) already has a bound vault LP.",
+  },
+  73: {
+    name: "VaultLpNotBound",
+    hint: "P3: a vault-LP instruction on a vault with no bound vault LP, or the passed vault_lp_state / vault LP portfolio does not match the registry (check the tail accounts on 75/77/78).",
+  },
+  74: {
+    name: "VaultLpSeniorImpaired",
+    hint: "P3 Earn deposit (tag 75) refused: the senior tranche is impaired (vault value < senior claim). New money would buy into a loss the junior did not cover. Wait for the junior to be topped up (tag 96) or the LP to recover.",
+  },
+  75: {
+    name: "VaultLpJuniorWithdrawRefused",
+    hint: "P3 tag 97: junior withdrawal over the junior surplus minus the floor (ceil(C_eff * junior_floor_bps / 10000)), or the backing pots do not fully cover the senior claim.",
+  },
+  76: {
+    name: "VaultLpRecallRefused",
+    hint: "P3 tag 98: recall of zero, or more than the senior liquidity shortfall.",
+  },
+  77: {
+    name: "VaultLpExclusiveCounterparty",
+    hint: "P3: a risk-increasing matcher fill against an LP other than the asset's bound vault LP. On a bound asset only the vault LP may take new risk; reducing fills still work.",
+  },
+  78: {
+    name: "VaultLpLeverageStepDown",
+    hint: "P3 leverage step-down: the taker's conservative equity does not cover the crowded-book initial margin for this fill. Add collateral or trade smaller.",
+  },
+  79: {
+    name: "VaultLpBoundCannotClose",
+    hint: "P3: CloseLpVault (tag 80) on a vault with a bound vault LP.",
+  },
+  80: {
+    name: "VaultLpExposureCapExceeded",
+    hint: "P3-H2: this fill would leave |vault LP position| * mark above the protocol leverage cap on the vault LP's conservative equity (AssetVaultLpV18.vault_lp_max_lev_bps, default 1x). Trade smaller or wait for the junior to add capital.",
+  },
+  81: {
+    name: "VaultLpMatcherNotApproved",
+    hint: "P3-H2 tag 95: the matcher program is not the tag-99 approved matcher for this asset, or max_fill_abs / max_inventory_abs is 0 (unbounded is refused).",
+  },
+  82: {
+    name: "VaultLpUseSettleResolved",
+    hint: "P3-H1: CloseResolved (30) / ClaimResolvedPayoutTopup (46) on the vault LP portfolio. Use VaultLpSettleResolved (tag 101): senior shortfall into backing, residual to the junior owner.",
+  },
+  83: {
+    name: "VaultLpReleaseRefused",
+    hint: "P3-M1 tag 102: release of zero, or of more than the backing surplus over the senior claim (nav - C; Resolved: physical - C).",
+  },
+  84: {
+    name: "VaultLpHarvestPending",
+    hint: "P3-L1/K1: LP fees are harvestable (H > 0). A genesis Earn deposit, or a redemption on a bound vault, must be preceded by tag 78 LpVaultCrankFees in the same transaction.",
+  },
+  85: {
+    name: "VaultLpValuationStale",
+    hint: "P3-L2: the vault LP holds inventory and its health certificate is not current, so the vault cannot be valued. Prepend a permissionless tag-5 crank of the vault LP (buildVaultLpRefreshCrankIxP3).",
+  },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
 Object.freeze(PERCOLATOR_ERRORS);
