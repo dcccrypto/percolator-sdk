@@ -29,7 +29,7 @@ import * as root from "../src/index.js";
 
 const pk = (): PublicKey => Keypair.generate().publicKey;
 const W = new PublicKey("ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB");
-const STAKE = new PublicKey("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
+const STAKE = new PublicKey("VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w");
 
 describe("stake tags 29 / 30 and errors (f9b9190)", () => {
   it("tag 29 = [29][amount u64 LE] (9 B); tag 30 = [30] (1 B)", () => {

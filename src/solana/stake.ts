@@ -3,7 +3,7 @@
  * Percolator Insurance LP Staking program — instruction encoders, PDA derivation, and account specs.
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
- * Deployed devnet:  GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3 (fresh v17 triple,
+ * Deployed devnet:  VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w (fresh v17 triple,
  *   deployed 2026-07-17, hash-verified — see PROGRAM_IDS_V17.vault in
  *   `src/config/program-ids.ts`)
  * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F (unverified — no confirmed
@@ -34,7 +34,7 @@ import { concatBytes } from '../abi/encode.js';
  *
  * devnet: UPDATED from the SUPERSEDED `51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ`
  * (the old `percolator-vault@eb3ebe8` deployment) to the FRESH v17 devnet triple's
- * stake address `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3`, deployed 2026-07-17
+ * stake address `VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w`, deployed 2026-07-17
  * from `~/v17/percolator-stake@1e08d35` (hash `0e9c2572...`), cross-verified against
  * `PROGRAM_IDS_V17.vault` in `src/config/program-ids.ts` ("v17 vault — deployed
  * devnet 2026-07-17, hash-verified"). This is a NEW address (not an in-place upgrade
@@ -54,7 +54,7 @@ import { concatBytes } from '../abi/encode.js';
  * a real, executing mainnet program rather than failing safe.
  */
 export const STAKE_PROGRAM_IDS = {
-  devnet: 'GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3',
+  devnet: 'VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w',
   mainnet: 'DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F',
 } as const;
 Object.freeze(STAKE_PROGRAM_IDS);
@@ -1782,7 +1782,7 @@ export const STAKE_POOL_SIZE_V3 = 392;
  * `STAKE_POOL_VERSION = 4`.
  *
  * NOT YET DEPLOYED (as account DATA): devnet
- * `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3` last checked with 25 pools,
+ * `VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w` last checked with 25 pools,
  * all 392 bytes / version 3 — a program code upgrade doesn't resize existing
  * account data, only a fresh re-seed does. This is the layout `STAKE_POOL_SIZE`
  * aliases to on the v18-migration branch (see that constant's doc comment).

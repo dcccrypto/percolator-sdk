@@ -35,6 +35,21 @@ v18.2 instructions or account layouts changed.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
 
+### Breaking (all-fresh relaunch IDs, decided 2026-09-30)
+
+- **The devnet stake/vault, nft and matcher also move to NEW addresses**, so the old GnwdeQr world stays untouched:
+
+  | Program | New address | Was |
+  |---|---|---|
+  | stake/vault | `VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w` | `GCHhcgw…` |
+  | nft | `EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ` | `CNGBPZR…` |
+  | matcher | `EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX` | `4seJWjv3…` |
+
+- The wrapper stays `ETDLAdi…`.
+- Affected: `PROGRAM_IDS.devnet.matcher`, `PROGRAM_IDS_V17.{matcher,nft,vault}`, `STAKE_PROGRAM_IDS.devnet`, and `CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3` (tag 94 auto-pin / 95).
+- **Requires the wrapper head that pins the new stake/matcher**: 592a77e2 still compiles in `GCHhcgw…` and `4seJWjv3…`.
+- To talk to any of the old addresses, pin 7.0.0.
+
 ### Changed (P3 candidate FINAL `592a77e2`: security fixes E-1/G-1/F-1, 2026-09-30)
 
 - **E-1 (77 exit value), ported as `liveExitSeniorValueP3`** (= `vault_lp_v18::live_exit_senior_value`), and `boundVaultSeniorValueP3` routes Live through it.

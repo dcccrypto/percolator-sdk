@@ -157,21 +157,21 @@ describe("devnet wrapper id (v18 fresh-ID cutover) + v17 record", () => {
     );
   });
 
-  it("PROGRAM_IDS_V17.vault is the fresh stake/vault program GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
+  it("PROGRAM_IDS_V17.vault is the fresh stake/vault program VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w", () => {
     expect(PROGRAM_IDS_V17.vault).toBe(
-      "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3",
+      "VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w",
     );
   });
 
-  it("PROGRAM_IDS_V17.nft is the fresh nft program CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3", () => {
+  it("PROGRAM_IDS_V17.nft is the fresh nft program EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ", () => {
     expect(PROGRAM_IDS_V17.nft).toBe(
-      "CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3",
+      "EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ",
     );
   });
 
   it("PROGRAM_IDS_V17.matcher is unchanged (upgraded in place, same address)", () => {
     expect(PROGRAM_IDS_V17.matcher).toBe(
-      "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
+      "EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX",
     );
   });
 
