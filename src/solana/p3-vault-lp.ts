@@ -2,13 +2,13 @@
  * P3 vault-owned LP — account decoders, PDAs, instruction builders, the bound-vault tail for
  * Earn tags 75/77/78, and the vault-LP refresh crank. Additive to SDK 8.0.0.
  *
- * Source: percolator-prog `feat/p3-vault-owned-lp` @ `ede691b67b0c9207af4599a86ca5a338cc6797e7` (P3 candidate FINAL: senior draw, recall cap, pause 89, cross-pot 77, resolved-lock fixes A–D, worse-of 75/77 pricing)
+ * Source: percolator-prog `feat/p3-vault-owned-lp` @ `f0b990e1baee9894d2f91a9734832766204086e5` (P3 candidate FINAL: senior draw, recall cap, pause 89, cross-pot 77, resolved-lock fixes A–D, worse-of 75/77 pricing)
  * (`state::{VaultLpStateV18, AssetVaultLpV18, read_asset_vault_lp}`, `load_bound_vault_lp_tail`,
  * `vault_lp_refresh_snapshot`). Offsets are pinned by `test/p3.test.ts` against rustc
  * `offset_of!` on the REAL P3 structs, and the per-asset record offset against a market
  * account built by the P3 crate itself.
  *
- * Relaunch wrapper = P1 + P3 (`ede691b6`). On an older v18.2 market every AssetVaultLpV18
+ * Relaunch wrapper = P1 + P3 (`f0b990e1`). On an older v18.2 market every AssetVaultLpV18
  * record is zero ("no vault LP bound").
  *
  * @module p3-vault-lp

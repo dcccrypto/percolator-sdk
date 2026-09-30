@@ -2967,7 +2967,7 @@ var PERCOLATOR_ERRORS = {
   },
   84: {
     name: "VaultLpHarvestPending",
-    hint: "P3-L1/K1: LP fees are harvestable (H > 0). A genesis Earn deposit, or a redemption on a bound vault, must be preceded by tag 78 LpVaultCrankFees in the same transaction."
+    hint: "P3-L1/K1: LP fees are harvestable (H > 0), or (Resolved, terminal-flat, f0b990e1) a terminal residual or stray pot backing is not yet absorbed. A genesis Earn deposit, or a redemption on a bound vault, must be preceded by tag 78 LpVaultCrankFees in the same transaction (planResolvedVaultLpExitP3 orders 78 before every 77)."
   },
   85: {
     name: "VaultLpValuationStale",

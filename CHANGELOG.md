@@ -35,6 +35,13 @@ v18.2 instructions or account layouts changed.
 - Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
   unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
 
+### Changed (P3 candidate FINAL `f0b990e1`, 2026-09-30)
+
+- Re-pinned to percolator-prog `f0b990e1`, which is `ede691b6` plus two fixes: stray terminal pot backing is absorbed by 78, and a resolved winner's claim is covered from the sibling pot.
+- Error map (90 codes), P3 wire, account lists, layout and price offsets are **identical** (the rustc oracles were re-run).
+- A Resolved 77 now also returns 84 while stray pot atoms remain, so bundle 78 first; the exit planner already does.
+- The pricing ports are unchanged.
+
 ### Changed (P3 candidate FINAL `ede691b6`: worse-of Earn pricing, 2026-09-30)
 
 - **New `vaultLpEquityLagBoundsP3`**, a port of `vault_lp_equity_lag_bounds_ro`.
