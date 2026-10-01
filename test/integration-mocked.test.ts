@@ -718,7 +718,7 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
     // the ordinal for its own variant is the same thing that already happened at 61 and 62.
     expect(decodeError(63)?.name).toBe("LpVaultBackingBucketNotEmpty");
     expect(PERCOLATOR_ERRORS[63].name).toBe("LpVaultBackingBucketNotEmpty");
-    expect(decodeError(64), "64 is still past the tail").toBeUndefined();
+    expect(decodeError(91), "91 is past the tail").toBeUndefined();
   });
 
   it("63 (0x3F) — parseErrorFromLogs returns LpVaultBackingBucketNotEmpty", () => {
@@ -740,46 +740,46 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
     expect(result!.name).toBe("LpVaultBackingBucketNotEmpty");
   });
 
-  it("64 — decodeError returns undefined (not in v17)", () => {
-    expect(decodeError(64)).toBeUndefined();
-    expect(PERCOLATOR_ERRORS[64]).toBeUndefined();
+  it("64 — decodeError returns RentExemptRequired (v18 reuses the ordinal; the v12 ADL meaning is gone)", () => {
+    expect(decodeError(64)?.name).toBe("RentExemptRequired");
+    expect(PERCOLATOR_ERRORS[64].name).toBe("RentExemptRequired");
   });
 
-  it("64 (0x40) — parseErrorFromLogs returns Unknown(64)", () => {
+  it("64 (0x40) — parseErrorFromLogs returns RentExemptRequired", () => {
     const result = parseErrorFromLogs(makeErrorLogs("40"));
     expect(result).not.toBeNull();
-    expect(result!.name).toBe("Unknown(64)");
+    expect(result!.name).toBe("RentExemptRequired");
   });
 
-  it("64 — realistic log: error 0x40 returns Unknown(64) in v17", () => {
+  it("64 — realistic log: error 0x40 resolves to RentExemptRequired, not the v12 ADL meaning", () => {
     const logs = [
       `Program ${PROGRAM_ID.toBase58()} invoke [1]`,
       "Program log: adl_candidates_count=0",
       `Program ${PROGRAM_ID.toBase58()} failed: custom program error: 0x40`,
     ];
     const result = parseErrorFromLogs(logs);
-    expect(result!.name).toBe("Unknown(64)");
+    expect(result!.name).toBe("RentExemptRequired");
   });
 
-  it("65 — decodeError returns undefined (not in v17)", () => {
-    expect(decodeError(65)).toBeUndefined();
-    expect(PERCOLATOR_ERRORS[65]).toBeUndefined();
+  it("65 — decodeError returns AssetGenerationMismatch (v18 reuses the ordinal; the v12 ADL meaning is gone)", () => {
+    expect(decodeError(65)?.name).toBe("AssetGenerationMismatch");
+    expect(PERCOLATOR_ERRORS[65].name).toBe("AssetGenerationMismatch");
   });
 
-  it("65 (0x41) — parseErrorFromLogs returns Unknown(65)", () => {
+  it("65 (0x41) — parseErrorFromLogs returns AssetGenerationMismatch", () => {
     const result = parseErrorFromLogs(makeErrorLogs("41"));
     expect(result).not.toBeNull();
-    expect(result!.name).toBe("Unknown(65)");
+    expect(result!.name).toBe("AssetGenerationMismatch");
   });
 
-  it("65 — realistic log: error 0x41 returns Unknown(65) in v17", () => {
+  it("65 — realistic log: error 0x41 resolves to AssetGenerationMismatch, not the v12 ADL meaning", () => {
     const logs = [
       `Program ${PROGRAM_ID.toBase58()} invoke [1]`,
       "Program log: target_idx=3 position_size=0",
       `Program ${PROGRAM_ID.toBase58()} failed: custom program error: 0x41`,
     ];
     const result = parseErrorFromLogs(logs);
-    expect(result!.name).toBe("Unknown(65)");
+    expect(result!.name).toBe("AssetGenerationMismatch");
   });
 
   // ---- Adjacent codes: code 46 IS in v17 (NftPortfolioProvenance), 47 is not ----
@@ -798,9 +798,15 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
     // The property under test is the one this comment always stated — the v12 MEANINGS are
     // gone — NOT that the slots are empty. Checking `undefined` conflated the two, which is
     // why adding a legitimate v17 variant at 63 turned this red.
-    for (let code = 64; code <= 65; code++) {
-      expect(PERCOLATOR_ERRORS[code], `code ${code} should NOT be in v17 table`).toBeUndefined();
+    // 2026-09-30: 64/65 are now reused by v18 (RentExemptRequired, AssetGenerationMismatch), so
+    // every v12 ADL ordinal 61-65 carries a v17/v18 meaning. The invariant — no v12 ADL NAME
+    // survives — is asserted by name.
+    const v12AdlNames = ["EngineSideBlocked", "EngineCorruptState", "InsuranceFundNotDepleted", "NoAdlCandidates", "BankruptPositionAlreadyClosed"];
+    for (let code = 61; code <= 65; code++) {
+      expect(v12AdlNames, `code ${code} must not carry a v12 ADL meaning`).not.toContain(PERCOLATOR_ERRORS[code].name);
     }
+    expect(PERCOLATOR_ERRORS[64].name).toBe("RentExemptRequired");
+    expect(PERCOLATOR_ERRORS[65].name).toBe("AssetGenerationMismatch");
     expect(PERCOLATOR_ERRORS[61].name).toBe("AssetSlotAlreadyConfigured");
     expect(PERCOLATOR_ERRORS[62].name).toBe("CreatorFeeOverClaim");
     expect(PERCOLATOR_ERRORS[63].name).toBe("LpVaultBackingBucketNotEmpty");

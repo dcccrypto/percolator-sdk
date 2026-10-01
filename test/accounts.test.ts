@@ -20,6 +20,12 @@ import {
   ACCOUNTS_RESOLVE_MARKET,
   ACCOUNTS_CONVERT_RELEASED_PNL,
   withNftHolderAuth,
+  ACCOUNTS_CLOSE_RESOLVED,
+  ACCOUNTS_CLOSE_RESOLVED_UNSIGNED,
+  ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP,
+  ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP_UNSIGNED,
+  ACCOUNTS_NFT_ESCROW_PROOF,
+  withNftEscrowProof,
   ACCOUNTS_WITHDRAW_INSURANCE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
@@ -309,6 +315,150 @@ describe("Signer / writable invariants", () => {
     expect(withNft.length).toBe(ACCOUNTS_CONVERT_RELEASED_PNL.length + 3);
   });
 
+});
+
+// ============================================================================
+// percolator-prog#498 (tracks #497): CloseResolved / ClaimResolvedPayoutTopup
+// unsigned-call NftRegistry proof at index 7.
+//
+// HARD STOP reminder: ACCOUNTS_CLOSE_RESOLVED_UNSIGNED /
+// ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP_UNSIGNED are NOT safe to use against the
+// currently deployed v18.0 wrapper — see the doc comment above them in
+// src/abi/accounts.ts. These tests only assert shape, not on-chain behaviour.
+// ============================================================================
+
+describe("percolator-prog#498: CloseResolved / ClaimResolvedPayoutTopup account metas", () => {
+  it("ACCOUNTS_CLOSE_RESOLVED (signed path) matches the deployed 7-account handle_close_resolved decode", () => {
+    // v16_program.rs handle_close_resolved, verified identical on deployed
+    // a9318945 and staged candidate 3262608b: account(accounts, 0..=6) =
+    // owner (not expect_writable'd), market (writable+owned), portfolio
+    // (writable+owned), destToken/vaultToken (writable, only touched when
+    // payout != 0), vaultAuthority (read-only PDA), tokenProgram (read-only).
+    expect(ACCOUNTS_CLOSE_RESOLVED).toEqual([
+      { name: "owner", signer: true, writable: false },
+      { name: "market", signer: false, writable: true },
+      { name: "portfolio", signer: false, writable: true },
+      { name: "destToken", signer: false, writable: true },
+      { name: "vaultToken", signer: false, writable: true },
+      { name: "vaultAuthority", signer: false, writable: false },
+      { name: "tokenProgram", signer: false, writable: false },
+    ]);
+  });
+
+  it("ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP (signed path) matches the deployed 7-account handle_claim_resolved_payout_topup decode", () => {
+    // handle_claim_resolved_payout_topup reads the identical account(accounts, 0..=6)
+    // shape as handle_close_resolved.
+    expect(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP).toEqual([
+      { name: "owner", signer: true, writable: false },
+      { name: "market", signer: false, writable: true },
+      { name: "portfolio", signer: false, writable: true },
+      { name: "destToken", signer: false, writable: true },
+      { name: "vaultToken", signer: false, writable: true },
+      { name: "vaultAuthority", signer: false, writable: false },
+      { name: "tokenProgram", signer: false, writable: false },
+    ]);
+  });
+
+  it("a SIGNED call's account list is unaffected/unchanged by #497/#498 — still exactly 7 accounts, no registry", () => {
+    // "Signed callers are unaffected (the check is skipped entirely when the
+    // caller signs)" — require_signer_for_escrowed_terminal_payout returns Ok
+    // immediately when owner.is_signer, so the signed-path spec needs no new
+    // account and is identical in shape before and after #497/#498 exist.
+    expect(ACCOUNTS_CLOSE_RESOLVED.length).toBe(7);
+    expect(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP.length).toBe(7);
+    expect(ACCOUNTS_CLOSE_RESOLVED.some((a) => a.name === "nftRegistry")).toBe(false);
+    expect(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP.some((a) => a.name === "nftRegistry")).toBe(false);
+  });
+
+  it("ACCOUNTS_NFT_ESCROW_PROOF is a single read-only, non-signer account named nftRegistry", () => {
+    // Deliberately NOT the 3-account ACCOUNTS_NFT_HOLDER_AUTH trio — #497's
+    // require_signer_for_escrowed_terminal_payout only ever reads
+    // accounts.get(registry_index); it never touches positionNft/signerNftAta.
+    expect(ACCOUNTS_NFT_ESCROW_PROOF).toEqual([
+      { name: "nftRegistry", signer: false, writable: false },
+    ]);
+  });
+
+  it("withNftEscrowProof(ACCOUNTS_CLOSE_RESOLVED) places nftRegistry at EXACTLY index 7 and leaves the base untouched", () => {
+    const withProof = withNftEscrowProof(ACCOUNTS_CLOSE_RESOLVED);
+    expect(withProof.length).toBe(8);
+    expect(withProof.slice(0, 7)).toEqual([...ACCOUNTS_CLOSE_RESOLVED]);
+    expect(withProof[7]).toEqual({ name: "nftRegistry", signer: false, writable: false });
+  });
+
+  it("withNftEscrowProof(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP) places nftRegistry at EXACTLY index 7 and leaves the base untouched", () => {
+    const withProof = withNftEscrowProof(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP);
+    expect(withProof.length).toBe(8);
+    expect(withProof.slice(0, 7)).toEqual([...ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP]);
+    expect(withProof[7]).toEqual({ name: "nftRegistry", signer: false, writable: false });
+  });
+
+  it("ACCOUNTS_CLOSE_RESOLVED_UNSIGNED is exactly the UNSIGNED base + registry proof at index 7", () => {
+    // owner must be non-signer for this variant — it is built for a caller
+    // that cannot obtain owner's signature (the whole point of the unsigned
+    // permissionless path) and instead proves non-escrow via the registry.
+    expect(ACCOUNTS_CLOSE_RESOLVED_UNSIGNED).toEqual([
+      { name: "owner", signer: false, writable: false },
+      { name: "market", signer: false, writable: true },
+      { name: "portfolio", signer: false, writable: true },
+      { name: "destToken", signer: false, writable: true },
+      { name: "vaultToken", signer: false, writable: true },
+      { name: "vaultAuthority", signer: false, writable: false },
+      { name: "tokenProgram", signer: false, writable: false },
+      { name: "nftRegistry", signer: false, writable: false },
+    ]);
+    expect(ACCOUNTS_CLOSE_RESOLVED_UNSIGNED[7].name).toBe("nftRegistry");
+    expect(ACCOUNTS_CLOSE_RESOLVED_UNSIGNED[0].signer).toBe(false);
+  });
+
+  it("ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP_UNSIGNED is exactly the UNSIGNED base + registry proof at index 7", () => {
+    expect(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP_UNSIGNED).toEqual([
+      { name: "owner", signer: false, writable: false },
+      { name: "market", signer: false, writable: true },
+      { name: "portfolio", signer: false, writable: true },
+      { name: "destToken", signer: false, writable: true },
+      { name: "vaultToken", signer: false, writable: true },
+      { name: "vaultAuthority", signer: false, writable: false },
+      { name: "tokenProgram", signer: false, writable: false },
+      { name: "nftRegistry", signer: false, writable: false },
+    ]);
+    expect(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP_UNSIGNED[7].name).toBe("nftRegistry");
+    expect(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP_UNSIGNED[0].signer).toBe(false);
+  });
+
+  it("the pre-existing E2 signed-NFT-holder trio still composes onto these instructions unchanged (withNftHolderAuth, NOT withNftEscrowProof)", () => {
+    // Negative-control style check: the OLD 3-account trio path
+    // (ACCOUNTS_NFT_HOLDER_AUTH, used when the NFT HOLDER itself signs) is a
+    // different mechanism from the NEW 1-account #497 proof, and this PR must
+    // not have disturbed it. Both land at base index 7, but withNftHolderAuth
+    // appends 3 accounts, not 1.
+    const withHolderAuth = withNftHolderAuth(ACCOUNTS_CLOSE_RESOLVED);
+    expect(withHolderAuth.length).toBe(10);
+    expect(withHolderAuth.slice(0, 7)).toEqual([...ACCOUNTS_CLOSE_RESOLVED]);
+    expect(withHolderAuth[7]).toEqual({ name: "nftRegistry", signer: false, writable: false });
+    expect(withHolderAuth[8]).toEqual({ name: "positionNft", signer: false, writable: false });
+    expect(withHolderAuth[9]).toEqual({ name: "signerNftAta", signer: false, writable: false });
+  });
+
+  it("buildAccountMetas produces the correct AccountMeta order/flags for an unsigned CloseResolved call", () => {
+    const keys = {
+      owner: PublicKey.unique(),
+      market: PublicKey.unique(),
+      portfolio: PublicKey.unique(),
+      destToken: PublicKey.unique(),
+      vaultToken: PublicKey.unique(),
+      vaultAuthority: PublicKey.unique(),
+      tokenProgram: PublicKey.unique(),
+      nftRegistry: PublicKey.unique(),
+    };
+    const metas = buildAccountMetas(ACCOUNTS_CLOSE_RESOLVED_UNSIGNED, keys);
+    expect(metas).toHaveLength(8);
+    expect(metas[7].pubkey.equals(keys.nftRegistry)).toBe(true);
+    expect(metas[7].isSigner).toBe(false);
+    expect(metas[7].isWritable).toBe(false);
+    expect(metas[0].pubkey.equals(keys.owner)).toBe(true);
+    expect(metas[0].isSigner).toBe(false);
+  });
 });
 
 // ============================================================================

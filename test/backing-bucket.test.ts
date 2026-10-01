@@ -746,7 +746,7 @@ describe("deriveMarketVaultAccounts", () => {
 // program's own seed constants so a rename fails loudly.
 // =============================================================================
 
-const STAKE_PROGRAM = new PublicKey("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
+const STAKE_PROGRAM = new PublicKey("VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w");
 
 describe("tag 87 stake-side derivations", () => {
   it("deriveStakePool mirrors STAKE_POOL_SEED = b\"stake_pool\"", () => {

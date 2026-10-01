@@ -4,6 +4,22 @@ TypeScript SDK for building clients, bots, and UIs on top of the [Percolator](ht
 
 > **EXPERIMENTAL. NOT AUDITED.** `2.0.5`. v12.19 single-target. 792 tests passing. Do NOT use with real funds.
 
+## 8.0.0 relaunch targets
+
+- **Wrapper:** percolator-prog P1 + P3 head `58e379f1` (engine `35ddd692`) at the fresh devnet
+  id `ETDLAdi…`. The SDK covers P1 tag 93 and errors 66–71, and P3 tags 94–102, errors 72–88,
+  the vault-LP decoders and the bound-vault Earn tails.
+- **Stake:** percolator-stake F-9 head `d13b5a9` plus the fresh-ID bump. The SDK covers tags 29
+  `RecoverTerminalInsurance` and 30 `AdminCloseSlab`, errors 29–32, and `planStakeWindDown`.
+- **Targets instructions not on the relaunch programs yet:** the matcher v2 (P2,
+  percolator-match#30) tag 5 Configure, SetParams, the call extension and the requested-fee
+  return bits. The matcher stays v1 (`12bd671`) unless P2 ships in the relaunch. On a P3
+  vault-owned LP, matcher tag 5 can never be used, because the LP owner is the registry PDA
+  and it cannot sign.
+
+See `CHANGELOG.md` [8.0.0] for the full list. The sections below this one describe the
+2.0.x / v12.19 SDK and are historical.
+
 ## Target wrapper
 
 The SDK targets the percolator v12.19 wrapper (PR #271, branch `sync/v12.19-wrapper`, commit `d760fc4`).

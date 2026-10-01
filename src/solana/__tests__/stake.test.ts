@@ -69,8 +69,8 @@ const slab = Keypair.generate().publicKey;
 const user = Keypair.generate().publicKey;
 
 describe('STAKE_PROGRAM_ID', () => {
-  it('is a valid public key pointing at the fresh devnet stake program (GCHhcgw...), matching PROGRAM_IDS_V17.vault', () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe('GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3');
+  it('is a valid public key pointing at the relaunch devnet stake program (VmpVUArR..., all-fresh), matching PROGRAM_IDS_V17.vault', () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe('VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w');
   });
 
   it('does NOT point at the OLD superseded stake/vault address (51CeUNpb...)', () => {
@@ -582,8 +582,8 @@ describe('STAKE_ERRORS hint table', () => {
     expect(STAKE_ERRORS[27]).toMatch(/pending cooldown/i);
   });
 
-  it('covers every StakeError ordinal 0-28 with no gaps', () => {
-    for (let code = 0; code <= 28; code++) {
+  it('covers every StakeError ordinal 0-32 with no gaps (29 F3, 30-32 F-9)', () => {
+    for (let code = 0; code <= 32; code++) {
       expect(STAKE_ERRORS[code], `missing hint for error code ${code}`).toBeDefined();
     }
   });

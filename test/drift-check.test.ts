@@ -735,8 +735,8 @@ describe("parseEngineLight — V12_19 uses layout-driven offsets (not stale isV2
 // ===========================================================================
 
 describe("STAKE_PROGRAM_ID — address constants", () => {
-  it("STAKE_PROGRAM_ID exports the fresh devnet address GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3 (matches PROGRAM_IDS_V17.vault)", () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
+  it("STAKE_PROGRAM_ID exports the fresh devnet address VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w (matches PROGRAM_IDS_V17.vault)", () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe("VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w");
   });
 
   it("STAKE_PROGRAM_ID does NOT export the OLD superseded address 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ", () => {
@@ -759,12 +759,12 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     }
   });
 
-  it("getStakeProgramId('devnet') returns GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
+  it("getStakeProgramId('devnet') returns VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w", () => {
     const saved = process.env.STAKE_PROGRAM_ID;
     delete process.env.STAKE_PROGRAM_ID;
     try {
       const pk = getStakeProgramId("devnet");
-      expect(pk.toBase58()).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
+      expect(pk.toBase58()).toBe("VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w");
     } finally {
       if (saved !== undefined) process.env.STAKE_PROGRAM_ID = saved;
     }
@@ -781,10 +781,10 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     }
   });
 
-  it("STAKE_PROGRAM_IDS.devnet constant is GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
+  it("STAKE_PROGRAM_IDS.devnet constant is VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w", () => {
     // This is the deployed vault per the deployment ledger (deployed commit 474079f).
     // The pre-reconcile SDK line carried 6aJb1F..., which did NOT match it.
-    expect(STAKE_PROGRAM_IDS.devnet).toBe("GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3");
+    expect(STAKE_PROGRAM_IDS.devnet).toBe("VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w");
   });
 
   it("getStakeProgramId() with no args, no env, in a browser context THROWS rather than guessing", () => {

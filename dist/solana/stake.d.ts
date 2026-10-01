@@ -3,7 +3,7 @@
  * Percolator Insurance LP Staking program — instruction encoders, PDA derivation, and account specs.
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
- * Deployed devnet:  GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3 (fresh v17 triple,
+ * Deployed devnet:  VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w (fresh v17 triple,
  *   deployed 2026-07-17, hash-verified — see PROGRAM_IDS_V17.vault in
  *   `src/config/program-ids.ts`)
  * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F (unverified — no confirmed
@@ -26,7 +26,7 @@ export { TOKEN_2022_PROGRAM_ID };
  *
  * devnet: UPDATED from the SUPERSEDED `51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ`
  * (the old `percolator-vault@eb3ebe8` deployment) to the FRESH v17 devnet triple's
- * stake address `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3`, deployed 2026-07-17
+ * stake address `VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w`, deployed 2026-07-17
  * from `~/v17/percolator-stake@1e08d35` (hash `0e9c2572...`), cross-verified against
  * `PROGRAM_IDS_V17.vault` in `src/config/program-ids.ts` ("v17 vault — deployed
  * devnet 2026-07-17, hash-verified"). This is a NEW address (not an in-place upgrade
@@ -46,7 +46,7 @@ export { TOKEN_2022_PROGRAM_ID };
  * a real, executing mainnet program rather than failing safe.
  */
 export declare const STAKE_PROGRAM_IDS: {
-    readonly devnet: "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3";
+    readonly devnet: "VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w";
     readonly mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F";
 };
 /**
@@ -349,6 +349,32 @@ export declare const STAKE_IX: {
      * `read_u64`, wrapper tag 88 with `read_u128`.
      */
     readonly AdminUpdateTradeFeePolicy: 28;
+    /**
+     * RecoverTerminalInsurance (F-9, percolator-stake #301 `d13b5a9`). PERMISSIONLESS:
+     * returns a stake-bound market's insurance budget to stakers once the wrapper
+     * market is Resolved (or a CloseSlab tombstone). CPIs wrapper tag 41 with
+     * `vault_auth` as authority and `pool.vault` as the only destination, sweeps an
+     * optional stray `vault_auth`-owned token account, and books the vault surplus.
+     *
+     * Wire: tag(1) + amount(u64) = 9 bytes. `amount` = 0 books/sweeps only (also
+     * valid after CloseSlab). Accounts: {@link recoverTerminalInsuranceAccounts}.
+     * Errors: 30 MarketNotTerminal, 31 NothingToRecover (treat as done), wrapper 21
+     * (over capacity / cooldown / portfolios remain — retry later), 15 CpiFailed,
+     * 32 UnsupportedWrapperLayout (non-retryable). Relaunch stake: F-9 head `d13b5a9`.
+     */
+    readonly RecoverTerminalInsurance: 29;
+    /**
+     * AdminCloseSlab (F-9). `pool.admin`-signed CPI proxy for the wrapper's
+     * CloseSlab (tag 13); the pool PDA is the marketauth and signs. The sweep
+     * lands in a pool-PDA-owned token account (index 5, the caller creates it)
+     * and is booked into `pool.vault`; the rent refund goes to the admin. Requires
+     * a Resolved market (30 MarketNotTerminal). On a P1 wrapper it may return Ok
+     * WITHOUT closing — repeat until the market is a tombstone.
+     *
+     * Wire: tag(1) = 1 byte. Accounts: {@link adminCloseSlabAccounts}. Also returns
+     * 32 UnsupportedWrapperLayout (non-retryable). Relaunch stake: F-9 head `d13b5a9`.
+     */
+    readonly AdminCloseSlab: 30;
 };
 /**
  * User-facing hint text for `StakeError` custom program error codes
@@ -372,7 +398,14 @@ export declare function deriveStakeVaultAuth(pool: PublicKey, programId?: Public
 export declare function deriveDepositPda(pool: PublicKey, user: PublicKey, programId?: PublicKey): [PublicKey, number];
 /** Tag 0: InitPool — create stake pool for a slab. */
 export declare function encodeStakeInitPool(cooldownSlots: bigint | number, depositCap: bigint | number): Uint8Array;
-/** Tag 1: Deposit — deposit collateral, receive LP tokens. */
+/**
+ * Tag 1: Deposit — deposit collateral, receive LP tokens.
+ *
+ * F-9 (percolator-stake #301): refused with `MarketResolved` (8) once the
+ * wrapper market is Resolved, so nobody can buy in ahead of a terminal
+ * insurance recovery (tag 29), and with `UnsupportedWrapperLayout` (32,
+ * non-retryable) when the bound wrapper market is not the pinned VERSION-18 layout.
+ */
 export declare function encodeStakeDeposit(amount: bigint | number): Uint8Array;
 /** Tag 2: Withdraw — burn LP tokens, receive collateral (subject to cooldown). */
 export declare function encodeStakeWithdraw(lpAmount: bigint | number): Uint8Array;
@@ -1193,7 +1226,7 @@ export declare const STAKE_POOL_SIZE_V3 = 392;
  * `STAKE_POOL_VERSION = 4`.
  *
  * NOT YET DEPLOYED (as account DATA): devnet
- * `GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3` last checked with 25 pools,
+ * `VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w` last checked with 25 pools,
  * all 392 bytes / version 3 — a program code upgrade doesn't resize existing
  * account data, only a fresh re-seed does. This is the layout `STAKE_POOL_SIZE`
  * aliases to on the v18-migration branch (see that constant's doc comment).
@@ -1339,9 +1372,12 @@ export interface StakeAccounts {
          * The pool's wrapper market (`pool.slab`). percolator-stake #290 (v18.2):
          * optional on-chain (index 10), but when absent a mode-0 withdrawal skips
          * the pending-fee accrual and redeems at the lower, not-yet-accrued price.
-         * The SDK always sends it. v18.1 stake ignores the extra trailing account.
+         * The SDK sends it whenever it is given. v18.1 stake ignores the extra trailing account.
+         *
+         * OMIT it (leave undefined) after the market has been retired by CloseSlab:
+         * a CloseSlab tombstone at index 10 fails `InvalidAccount` (F-9 / #290).
          */
-        slab: PublicKey;
+        slab?: PublicKey;
     };
     /** AccrueFees accounts (tag 12, permissionless) */
     accrueFees: {
@@ -1429,7 +1465,9 @@ export declare function depositJuniorAccounts(a: StakeAccounts['deposit'], token
  *
  * 11 accounts. Index 10 is the pool's wrapper market (`pool.slab`,
  * percolator-stake #290 / v18.2). It is optional on-chain, but without it a
- * mode-0 withdrawal skips the pending-fee accrual, so the SDK always sends it.
+ * mode-0 withdrawal skips the pending-fee accrual, so pass it whenever the market
+ * is still live or resolved. After CloseSlab (the market is a tombstone) leave
+ * `slab` undefined: 10 accounts, because a tombstone there fails `InvalidAccount`.
  * v18.1 stake ignores the trailing account.
  *
  * @param a - Named accounts for the Withdraw instruction.
@@ -1479,6 +1517,114 @@ export declare function accrueFeesAccounts(a: StakeAccounts['accrueFees']): {
  *   `TOKEN_2022_PROGRAM_ID` for Token-2022 collateral mints.
  */
 export declare function flushToInsuranceAccounts(a: StakeAccounts['flushToInsurance'], tokenProgramId?: PublicKey): {
+    pubkey: PublicKey;
+    isSigner: boolean;
+    isWritable: boolean;
+}[];
+/**
+ * Tag 29: RecoverTerminalInsurance. Wire: `[29][amount u64 LE]` (9 bytes).
+ *
+ * @param amount  Atoms to pull through wrapper tag 41 (<= the tag-41 terminal
+ *   capacity for `vault_auth`); 0 = book/sweep only.
+ * @returns 9-byte instruction data.
+ * @example
+ * ```ts
+ * const data = encodeStakeRecoverTerminalInsurance(5_000_000n);
+ * ```
+ */
+export declare function encodeStakeRecoverTerminalInsurance(amount: bigint | number): Uint8Array;
+/**
+ * Tag 30: AdminCloseSlab. Wire: `[30]` (1 byte).
+ *
+ * @returns 1-byte instruction data.
+ * @example
+ * ```ts
+ * const data = encodeStakeAdminCloseSlab();
+ * ```
+ */
+export declare function encodeStakeAdminCloseSlab(): Uint8Array;
+/** Account inputs for RecoverTerminalInsurance (tag 29). */
+export interface RecoverTerminalInsuranceAccounts {
+    /** Any key — no signer check (permissionless). */
+    caller: PublicKey;
+    /** Stake pool PDA `["stake_pool", slab]` (writable). */
+    pool: PublicKey;
+    /** `pool.vault` — the ONLY destination (writable). */
+    poolVault: PublicKey;
+    /** `["vault_auth", pool]` — the asset-0 insurance_authority; signs the tag-41 CPI. */
+    vaultAuth: PublicKey;
+    /** `pool.slab` — the wrapper market (writable). */
+    market: PublicKey;
+    /** Wrapper vault: canonical ATA of the wrapper `["vault", market]` PDA (writable, source). */
+    wrapperVault: PublicKey;
+    /** Wrapper vault authority PDA `["vault", market]`. */
+    wrapperVaultAuthority: PublicKey;
+    /** `pool.percolator_program`. */
+    wrapperProgram: PublicKey;
+    /** OPTIONAL stray token account to sweep (pool mint, owner `vault_auth`, not `pool.vault`). */
+    stray?: PublicKey;
+    /** Token program (default SPL Token). */
+    tokenProgram?: PublicKey;
+}
+/**
+ * Account keys for RecoverTerminalInsurance (tag 29) — d13b5a9 (unchanged since f9b9190)
+ * `process_recover_terminal_insurance`: 9 accounts, 10 with the optional stray.
+ *   [0] caller (no signer) · [1] pool (w) · [2] pool vault (w) · [3] vault_auth ·
+ *   [4] wrapper market (w) · [5] wrapper vault (w) · [6] wrapper vault authority ·
+ *   [7] token program · [8] wrapper program · [9] stray (w, optional)
+ *
+ * @param a  Named accounts.
+ * @returns Account metas in program order.
+ * @example
+ * ```ts
+ * const keys = recoverTerminalInsuranceAccounts({ caller, pool, poolVault, vaultAuth, market,
+ *   wrapperVault, wrapperVaultAuthority, wrapperProgram });
+ * ```
+ */
+export declare function recoverTerminalInsuranceAccounts(a: RecoverTerminalInsuranceAccounts): {
+    pubkey: PublicKey;
+    isSigner: boolean;
+    isWritable: boolean;
+}[];
+/** Account inputs for AdminCloseSlab (tag 30). */
+export interface AdminCloseSlabAccounts {
+    /** `pool.admin` — signer, receives the rent refund. */
+    admin: PublicKey;
+    /** Stake pool PDA (the wrapper marketauth; signs the CloseSlab CPI). */
+    pool: PublicKey;
+    /** `pool.slab` — the wrapper market (writable). */
+    market: PublicKey;
+    /** Wrapper vault token account (writable). */
+    wrapperVault: PublicKey;
+    /** Wrapper vault authority PDA. */
+    wrapperVaultAuthority: PublicKey;
+    /** A token account of the pool mint OWNED BY THE POOL PDA (CloseSlab dest). The caller creates it first (e.g. the pool PDA's ATA). */
+    poolDestToken: PublicKey;
+    /** Collateral mint (writable; read by CloseSlab only when it burns residue). */
+    collateralMint: PublicKey;
+    /** `pool.vault` — the sweep destination (writable). */
+    poolVault: PublicKey;
+    /** `pool.percolator_program`. */
+    wrapperProgram: PublicKey;
+    /** Token program (default SPL Token). */
+    tokenProgram?: PublicKey;
+}
+/**
+ * Account keys for AdminCloseSlab (tag 30) — d13b5a9 (unchanged since f9b9190) `process_admin_close_slab`, 10 accounts:
+ *   [0] admin (s, w) · [1] pool (w) · [2] market (w) · [3] wrapper vault (w) ·
+ *   [4] wrapper vault authority · [5] pool-PDA-owned token account (w) · [6] token program ·
+ *   [7] collateral mint (w) · [8] pool vault (w) · [9] wrapper program.
+ * Secondary-collateral markets are not supported.
+ *
+ * @param a  Named accounts.
+ * @returns Account metas in program order.
+ * @example
+ * ```ts
+ * const keys = adminCloseSlabAccounts({ admin, pool, market, wrapperVault, wrapperVaultAuthority,
+ *   poolDestToken, collateralMint, poolVault, wrapperProgram });
+ * ```
+ */
+export declare function adminCloseSlabAccounts(a: AdminCloseSlabAccounts): {
     pubkey: PublicKey;
     isSigner: boolean;
     isWritable: boolean;

@@ -7,6 +7,316 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [8.0.0] — unreleased (do not `npm publish` without explicit human go)
+
+v18.3 fresh-ID relaunch. The devnet wrapper moves to a new program address.
+
+**Relaunch programs (scope set 2026-09-30):**
+- Wrapper: the combined **P1 + P3** FINAL head, percolator-prog **`ede691b6`** (P3 candidate FINAL: the `4b1a5d30` batch, plus the cross-pot 77 `221cf006`, resolved-lock fixes A–D `dfa4559b`/`8f2b4ccf`, and worse-of 75/77 pricing `ede691b6`; engine `35ddd692`). It supersedes `4b1a5d30` / `39b138c8` / `d119eebd` / `58e379f1` / `424fe7e4` / `ee29b5ac` / `b2b2559e` / `07a1d0eb`. `d119eebd` changes the P3 loss rule: losses go to the junior first, then Earn seniors pro rata, and winners are paid in full while senior backing remains (errors 87/88; wrapper-only, VERSION 18 and account sizes unchanged). Earlier: `b2b2559e` removed tag-94 path B; `07a1d0eb` added the tag-94 auto-pin, the Resolved fee harvest and C-4(b); `58e379f1` adds F-10 (the batch call extension), the F-14 family (seniors first, floored NAV) and F14-Q2 (single-asset vault markets, error 86). The `.so` sha256 depends on the build path, so no single hash is quoted here; see the deployments ledger for the deployed build.
+- Stake: the **F-9** head, percolator-stake `d13b5a9`, plus the fresh-ID bump.
+
+Everything below that targets P1 (tag 93, errors 66–71), P3 (tags 94–102, errors 72–88) or the
+F-9 stake (tags 29/30, errors 30–32) targets those relaunch programs. **Only the matcher v2 (P2)
+surface targets instructions that are not on the relaunch programs yet**, unless P2
+(percolator-match#30) ships with it. The v18.2 wire (`6377376a`) is a subset: none of the
+v18.2 instructions or account layouts changed.
+
+### Breaking
+
+- **Default devnet wrapper id is now `ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB`**
+  (`PROGRAM_IDS.devnet.percolator`, `PROGRAM_IDS_V17.percolator`, `PROGRAM_ID_V17`,
+  `getProgramId()` / `getProgramId("devnet")`). The previous wrapper
+  `GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ` is ABANDONED; markets, portfolios
+  and PDAs under it are not visible to this SDK. It is also no longer in the
+  `PROGRAM_ID` env-override allowlist (override to it throws unless
+  `PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1`). Major bump on purpose: consumers pinned
+  to `^7` do not pick up the new id on a fresh install, so the repoint has to be an
+  explicit `^8` bump done with the cutover. Rollback = pin `7.0.0`.
+- Stake/vault (`GCHhcgw…`), nft (`CNGBPZR…`) and matcher (`4seJWjv3…`) ids are
+  unchanged; stake and nft are upgraded in place to trust `ETDLAdi…`.
+
+### Changed (relaunch wrapper `5e4c15ff`, security LOW on top of 5544302a, 2026-10-01)
+
+- Re-pinned to `5e4c15ff` (the 101 claim-payout recycle is capped). Error map (91 codes), P3 wire, layout and pricing are identical (the rustc oracles were re-run). No SDK surface change.
+
+### Changed (relaunch wrapper `5544302a`, DEPLOYED to devnet ETDLAdi 2026-10-01, sha256 `0186c63a…`)
+
+- Re-pinned to `5544302a` (class-(b) resolved haircut fix). Error map (91 codes), P3 wire, layout and pricing are unchanged (the rustc oracles were re-run).
+- **Resolved-receipt revisit sweep** (un-paused with the builder's revised rule at 5e4c15ff):
+  - `decodeResolvedPayoutReceiptP3`: account offset 9369, 66 B, rustc-pinned.
+  - `buildClaimResolvedPayoutTopupIxP3`: tag 46.
+  - `buildCloseResolvedUnsignedIxP3`: tag 30, used as the fallback.
+  - `listOpenResolvedReceiptsP3`.
+  - `planResolvedReceiptRevisitP3`: per open receipt, 46 first and a repeat CloseResolved as the fallback.
+  - **Usage:**
+    - After the claimants' closes and after the vault LP's 101 settles, REPEAT rounds, re-listing each time, until no receipt is present && !finalized. Dilution comes from any claimant whose pot-backed claim is still unreceipted.
+    - Only then close the portfolios (tag 8) and run the seniors' 77. An open receipt blocks terminal-flat, and 77 then fails with 21.
+    - The vault LP is excluded (it settles via 101). NFT-escrowed owners are returned in `needsHolder`.
+
+### Changed (relaunch wrapper `592286b4`, DEPLOYED to devnet ETDLAdi 2026-09-30, sha256 `7f34f9d8…`)
+
+- Re-pinned to percolator-prog `592286b4`: wrapper pins for the fresh stake/matcher, G-1, and tag 94 refusing a bind with open interest.
+- **Error 90 `VaultLpBindRequiresFlatAsset`** is appended. The map is regenerated from rustc at 592286b4 (91 codes); no code shifted.
+- P3 wire, layout and price offsets are identical (the parity oracle was re-run).
+
+### Breaking (all-fresh relaunch IDs, decided 2026-09-30)
+
+- **The devnet stake/vault, nft and matcher also move to NEW addresses**, so the old GnwdeQr world stays untouched:
+
+  | Program | New address | Was |
+  |---|---|---|
+  | stake/vault | `VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w` | `GCHhcgw…` |
+  | nft | `EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ` | `CNGBPZR…` |
+  | matcher | `EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX` | `4seJWjv3…` |
+
+- The wrapper stays `ETDLAdi…`.
+- Affected: `PROGRAM_IDS.devnet.matcher`, `PROGRAM_IDS_V17.{matcher,nft,vault}`, `STAKE_PROGRAM_IDS.devnet`, and `CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3` (tag 94 auto-pin / 95).
+- **Requires the wrapper head that pins the new stake/matcher**: 592a77e2 still compiles in `GCHhcgw…` and `4seJWjv3…`.
+- To talk to any of the old addresses, pin 7.0.0.
+
+### Changed (P3 candidate FINAL `592a77e2`: security fixes E-1/G-1/F-1, 2026-09-30)
+
+- **E-1 (77 exit value), ported as `liveExitSeniorValueP3`** (= `vault_lp_v18::live_exit_senior_value`), and `boundVaultSeniorValueP3` routes Live through it.
+  - The value is now ALWAYS taken at the worse-for-the-vault price, with no `nav ≥ C` shortcut.
+  - A negative worse bound d cuts both the claim (C') and the value: `min(max(0, nav − d), C')`.
+  - The pre-fix port overpaid, e.g. 800k instead of 700k. The program's own E-1 unit-test vectors are asserted in the SDK tests.
+- G-1 and F-1 (cover scope, owned add-back) are program-internal, with no SDK surface.
+- A new 1-byte wrapper flag sits at asset-slot offset 672 (`ASSET_VAULT_PREBIND_OI_OFF`). The SDK does not read or validate that region.
+- Error map (90), P3 wire, layout and price offsets are identical (the rustc oracles were re-run).
+
+### Added (compute guidance, 2026-09-30)
+
+- **`RECOMMENDED_CU_P3`** gives each limit with headroom over the security review's measured worst case:
+
+  | Instruction | Recommended | Worst case measured |
+  |---|---|---|
+  | TradeCpi | 600k | 405,386 |
+  | CloseResolved | 300k | 204k |
+  | 101 | 400k | 285k |
+  | 78 | 120k | 63k |
+  | keeper crank | 250k | 151k |
+
+- The runtime's 200k default fails a vault-LP TradeCpi, so always set a limit.
+- The JSDoc on the 101 builder and the resolved exit planner now says to loop the resolved close steps until final.
+
+### Changed (P3 candidate FINAL `3245e861`, 2026-09-30)
+
+- Re-pinned to percolator-prog `3245e861`, which is `f0b990e1` plus a fix: Resolved draw/cover is booked only at terminal-flat, counting stray pot backing (junior first).
+- Error map (90), P3 wire, layout and price offsets are **identical** (the rustc oracles were re-run).
+- The SDK surface and the pricing ports are unchanged.
+
+### Changed (P3 candidate FINAL `f0b990e1`, 2026-09-30)
+
+- Re-pinned to percolator-prog `f0b990e1`, which is `ede691b6` plus two fixes: stray terminal pot backing is absorbed by 78, and a resolved winner's claim is covered from the sibling pot.
+- Error map (90 codes), P3 wire, account lists, layout and price offsets are **identical** (the rustc oracles were re-run).
+- A Resolved 77 now also returns 84 while stray pot atoms remain, so bundle 78 first; the exit planner already does.
+- The pricing ports are unchanged.
+
+### Changed (P3 candidate FINAL `ede691b6`: worse-of Earn pricing, 2026-09-30)
+
+- **New `vaultLpEquityLagBoundsP3`**, a port of `vault_lp_equity_lag_bounds_ro`.
+  - It returns `{ worse, better }`: the vault LP's certified equity re-valued at the lagging `effective_price` vs the pending `raw_oracle_target_price`, per leg, with q = |basis_pos_q| and a ceil per side.
+  - A flat LP gives conservative equity for both.
+- **New `readAssetPricesP3`**, with `ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3` = **17** and `ASSET_STATE_EFFECTIVE_PRICE_OFF_P3` = 25 within `AssetStateV16Account`. Both are rustc `offset_of!`, pinned in the parity fixture; `asset` is at 0 in the engine slot.
+- **BREAKING (unpublished 8.0.0 API), `boundVaultSeniorValueP3`:** takes `lpEquityWorse`. A 77 exit uses claim = `vaultLpSeniorPricingClaimP3(C, −worse, max(0, nav − C))` when worse < 0, and the LP value is capped at max(worse, 0).
+- **BREAKING (unpublished 8.0.0 API), `boundVaultDepositQuoteP3`:** takes `seniorDrawOutstandingAtoms` + `lpEquityBetter`. While a draw is outstanding, a 75 entry adds `min(value above C at the better bound, outstanding)` to C_eff.
+- **New `vaultLpSeniorPricingClaimP3`.**
+- **Wire, accounts and error codes are unchanged** (the error map re-generated at `ede691b6` is identical, 90 codes).
+- **Relaunch markets need a FRESH seed:** pre-existing pots count 0 in the new vault-owned counter.
+
+### Added (P3 senior-lock fix `221cf006`, 2026-09-30)
+
+- **`buildExecuteRedemptionIxP3`**: a fully assembled tag 77 for bound (P3) vaults, with the 13 base accounts plus the bound tail.
+  - **Security condition:** both pot ledgers ([8] own, [11] sibling) are ALWAYS writable. `221cf006` tops the chosen pot up from its sibling only when both are writable, and a read-only one makes a senior larger than one pot fail with 88/21.
+  - The vault LP [14] is writable.
+  - Tested for both registry domains × both source pots, with the exact account order. Negative control: a read-only sibling fails.
+
+### Changed (P3 batched FINAL `4b1a5d30`, 2026-09-30)
+
+- **Error 89 `VaultLpPausedForSeniorDraw`** (appended; no code shifts; the full map is re-generated from rustc at `4b1a5d30`, 90 variants). It replaces the per-instruction halt codes:
+  - the vault LP's risk-increasing fill (was 80);
+  - 97 (was 76);
+  - 98 (was 77, and is now also returned while a draw is pending);
+  - 102 (was 83).
+- 88 is now also returned on a Live bound 77 whose pot principal cannot fund the payout (was EngineCounterUnderflow).
+- The 98 cap is taken on POST-maintenance-fee equity (`6cdd4d08`).
+- Wire, accounts and layout are identical to `39b138c8`; the parity oracle was re-run at `4b1a5d30`.
+
+### Changed (P3 senior draw FINAL `d119eebd` / `39b138c8`, 2026-09-30)
+
+- **Errors 87 `VaultLpSeniorDrawRequired` and 88 `VaultLpRedeemNeedsRecall`** added to `PERCOLATOR_ERRORS` / `decodeError`.
+  - 87: an undrawn vault-LP deficit must be drawn first. Crank the vault LP, or pass it writable to 75/77.
+  - 88: a Live 75/77 needs value that sits in the vault LP's capital. Send VaultLpRecall (98) first.
+- **`withBoundVaultLpTailP3` (75/77/78):**
+  - the 75/77 vault-LP tail account is now **writable** by default, so a Live 75/77 runs the senior draw in-instruction (opt out with `{ lpReadOnly: true }`);
+  - the two pot-ledger base slots (`BOUND_VAULT_LP_LEDGER_SLOTS_P3`: 75 → [7],[10]; 77 → [8],[11]; 78 → [3],[4]) are **forced writable**, because a pending draw is booked into both pots and read-only ledgers fail closed.
+  - 97/98/101/102 already pass the vault LP and both ledgers writable (unchanged).
+- New export `BoundVaultLpTailOptsP3`. The signature change is additive (optional 4th parameter).
+- **`decodeVaultLpStateP3`**: the old `_reserved` tail now carries `seniorDrawnAtoms` (account offset 240) and `seniorDrawOutstandingAtoms` (256). Only `_padding` [232..240) must be zero.
+  - **Fix:** the pre-`d119eebd` decoder required [232..272) to be zero, so it would have THROWN on every vault-LP state after the first senior draw.
+- **New `decodeAssetVaultLpDrawP3(marketData, assetIndex)`** reads the 64-byte `AssetVaultLpDrawV18` at asset-slot offset 832 (`ASSET_VAULT_LP_DRAW_SLOT_OFF_P3` / `ASSET_VAULT_LP_DRAW_LEN_P3`): pending out per pot (even/odd), outstanding mirror, pending moved, and `hasPendingDraw`.
+- **BREAKING (unpublished 8.0.0 API): `boundVaultNavFlooredP3` follows the B24 NAV rule.**
+  - Per pot, available = `min(principal, held)`, where held = fresh_unliened + valid_liened (new `vaultPotHeldAtomsP3`).
+  - The impairment counters are no longer used.
+  - The 4th argument is now `{ own, sibling }` held atoms.
+  - `vaultOwnedBackingAtomsP3` is removed, as the program removed `vault_owned_backing_atoms`.
+- `boundVaultSeniorValueP3` is unchanged. It is only valid in Live with no undrawn deficit; the program refuses with 87 otherwise.
+- `39b138c8` (D-P3-30): VaultLpRecall (98) is additionally capped at the vault LP's certified equity and is 0 while any draw is pending (refusal: `VaultLpRecallRefused`). There is no wire or account change.
+- The parity fixture was regenerated from the real crate at `39b138c8`: tag 94–102 vectors identical, errors 86–88 added, and the new layout fields asserted by rustc `offset_of!`.
+
+### Added (additive, 2026-09-30)
+
+- **Matcher v2 (P2) client ABI** — `src/abi/matcher-v2.ts`, pinned byte-for-byte to
+  percolator-match `feat/p2-matcher-v2@4a0f696` `sdk_parity_fixtures_v2`:
+  tag 5 Configure with owner proof (`encodeMatcherConfigureBackingFeeCap`,
+  `encodeMatcherConfigureSetParams`, `buildMatcherConfigureBackingFeeCapIx`,
+  `buildMatcherConfigureSetParamsIx`, `matcherConfigureOwnerProofAccounts`), op 1
+  SetParams (`encodeMatcherSetParams`, 105 B, `validateMatcherSetParams`,
+  `defaultMatcherV2ConfigForKind2`), the 24-byte call extension at tag-0 bytes 43..67
+  (`encodeMatcherCallExt` / `decodeMatcherCallExt`), MatcherReturn bits 22..31
+  (`decodeMatcherRequestedFeeBps`, `MATCHER_RETURN_KNOWN_FLAGS_V2`), the ctx v2 marker
+  (`isMatcherCtxV2`), and matcher errors 8002–8005 (`MATCHER_V2_ERRORS`). Tag 5 replaces
+  the unreachable tag 4 (it needed a wrapper-delegate signature). **This targets instructions
+  not on the relaunch programs yet:** the matcher `4seJWjv3@12bd671` is v1 unless P2 ships in the
+  relaunch, so send tag 5 / the extension only to a v2 matcher. **On a P3 vault-owned LP, tag 5
+  cannot be used at all**: owner-proof needs the LP owner to sign, and the vault LP's owner is
+  the LP-vault registry PDA, which nothing can sign for. Its matcher params go through wrapper
+  tag 95 only.
+  `MATCHER_RETURN_KNOWN_FLAGS` is unchanged (it mirrors the deployed wrapper).
+- **Tag 44 reduce-only exit** — `buildRebalanceReduceIx`, `planReduceOnlyExit`,
+  `ACCOUNTS_REBALANCE_REDUCE` (`[owner signer, market w, portfolio w]`, verified against
+  `6377376a` `with_one_portfolio_view`): the owner-signed exit that works in the engine's
+  ADL reduce-only state.
+- **CloseSlab retirement plan** — `planCloseSlabAttempt` orders one attempt as
+  84 WithdrawProtocolFee(0 = all, if owed) → 41 WithdrawInsurance(re-credited budget, if
+  any) → 13 CloseSlab; `isClosedMarketTombstone` detects retirement (16-byte header, kind
+  `V17_KIND_CLOSED_MARKET = 8`). A market with an Earn LP vault can never be retired
+  (dead-share floor, by design): the planner throws and its slab rent is unrecoverable.
+- **Error map**: wrapper 64 `RentExemptRequired`, 65 `AssetGenerationMismatch` (both on the
+  deployed v18.2 wrapper and previously unmapped) and P1 66–71 (`ExecPriceOutsideOracleBand`,
+  `SameOwnerTrade`, `LpExposureCapExceeded`, `LpFloorHalt`, `ProtocolSideOiCapExceeded`,
+  `CloseSlabFeesOutstanding`); stake 29 `NoRealLpHolders` (F3 dead-share guard). Fixed the
+  63 hint (CreateLpVault is tag 74, not 72).
+
+- **P3 vault-owned LP** (percolator-prog `feat/p3-vault-owned-lp@07a1d0eb`, stacked on P1;
+  part of the relaunch wrapper). `src/abi/p3.ts`: `IX_TAG_P3` and encoders + account lists for
+  tags 94–102 (`encodeInitVaultLpP3` … `encodeVaultLpReleaseSurplusP3`, `ACCOUNTS_*_P3`).
+  `src/solana/p3-vault-lp.ts`: `decodeVaultLpStateP3`, `decodeAssetVaultLpP3` /
+  `decodeAssetVaultLpRecordP3` (record at account offset `2246 + 2325·i`),
+  `isLpVaultRegistryBoundP3`, `deriveVaultLpStateP3`, `deriveProgramDataAddressP3`, builders
+  `build*IxP3` for every tag, `withBoundVaultLpTailP3` (the REQUIRED tail on bound vaults:
+  75 → [11] state(w), [12] lp; 77 → [13],[14]; 78 → [6] state(w)), and the vault-LP refresh
+  crank `buildVaultLpRefreshCrankIxP3` (tag 5 on the vault LP portfolio; clears error 85 and
+  re-snapshots `lp_net_q`). Errors 72–88 (`VaultLpAlreadyBound` … `VaultLpRedeemNeedsRecall`).
+  Parity: every encoder round-trips through the real P3 `Instruction::decode`, layouts via
+  rustc `offset_of!`, error ordinals by name from the final enum (`scripts/p3-parity/`).
+  The deprecated v12 `IX_TAG.InitSharedVault(94)…QueueWithdrawal(102)` / `SlashCreationDeposit(93)`
+  names share these numbers (they throw); now annotated as colliding.
+
+- **Stake F-9 wind-down** (percolator-stake #301 `fix/stake-f9-terminal-insurance`, the relaunch
+  stake; account lists re-checked at `d13b5a9`, unchanged from `f9b9190`). `STAKE_IX.RecoverTerminalInsurance` (29,
+  `[29][amount u64]`) with `encodeStakeRecoverTerminalInsurance`,
+  `recoverTerminalInsuranceAccounts` (9 accounts plus an optional stray; the caller does not
+  sign) and `buildRecoverTerminalInsuranceIx`. `STAKE_IX.AdminCloseSlab` (30, `[30]`) with
+  `encodeStakeAdminCloseSlab`, `adminCloseSlabAccounts` (10 accounts) and
+  `buildAdminCloseSlabIx`. `STAKE_ERRORS` 30 `MarketNotTerminal` and 31 `NothingToRecover`;
+  29 `NoRealLpHolders` was already present. The Deposit/DepositJunior docs now note they
+  return 8 once the wrapper is Resolved. `withdrawAccounts`: `slab` is now optional, so leave
+  it out after CloseSlab (10 accounts), because a tombstone there fails `InvalidAccount`.
+  `decodeTerminalInsuranceCapacity(marketData, asset)` gives the wrapper tag-41 terminal
+  capacity per the v18.2 formula (per-domain budget − spent − reserved, then the global and
+  vault caps), with `MARKET_GROUP_HEADER_OFF_V18` / `ENGINE_ASSET_SLOT_OFF_V18`. Those offsets
+  are hand-derived from the packed engine structs and checked on 15 live devnet v18 markets.
+  `planStakeWindDown` orders the steps: close portfolios → tag 29 (capacity; 21 = retry)
+  → tag 29 (0; 31 = done) → tag 30 until a tombstone, with a tag-84 claim in between.
+  `specs/stake-parity.json` has tags 29/30 added **by hand** (see
+  `specs/stake-parity.HAND-DERIVED.md`), and the stake parity test now also checks SDK → spec.
+
+- **Stake error 32 `UnsupportedWrapperLayout`** (d13b5a9). It is non-retryable: the bound
+  wrapper market is not the VERSION-18 layout the stake program pins. Tags 29 and 30 and
+  Deposit/DepositJunior (mode-0 path) can return it, and their docs say so. The relaunch
+  wrapper `07a1d0eb` satisfies the pin (magic, VERSION 18, config 576, header 758, mode at
+  592 + 626).
+- **P1 tag 93 `SetAssetRiskLimits`** (relaunch wrapper `07a1d0eb`): `IX_TAG_P1`,
+  `encodeSetAssetRiskLimitsP1`, which mirrors the wrapper's own encoder (41 B; the optional
+  tail `matcher_ext_mode` u8 is sent if either tail field is non-zero, then
+  `max_requested_fee_bps` u16 if it is non-zero), `ACCOUNTS_SET_ASSET_RISK_LIMITS_P1`
+  (`[upgrade authority (s), ProgramData, market (w)]`) and `buildSetAssetRiskLimitsIxP1`.
+  Also `decodeAssetRiskLimitsP1` / `decodeAssetRiskLimitsRecordP1` for `AssetRiskLimitsV17`
+  at account offset `1958 + 2325·i` (`assetRiskLimitsAccountOffsetP1`;
+  `max_requested_fee_bps` at +40). Keep `max_requested_fee_bps = 0` at relaunch.
+
+- **P3 tag 94 InitVaultLp is path A only.** By user decision, the relaunch P3 removes the
+  upgrade-authority path B. `ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3` is removed, and
+  `buildInitVaultLpIxP3(m, marketauth, juniorFloorBps)` no longer takes `juniorOwner`. It always
+  builds the 8-account marketauth form. (8.0.0 is unpublished, so nothing released breaks.)
+
+- **P3 FINAL `07a1d0eb`: tag 94 auto-pin.** InitVaultLp now takes **11 accounts**: [0..7] as
+  before, then [8] the canonical matcher (`CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3` =
+  `4seJWjv3…`; any other program gives 81 VaultLpMatcherNotApproved, and non-devnet builds
+  fail closed), [9] a pre-created matcher ctx (writable, 320 B, owner = matcher, zeroed), and
+  [10] the delegate PDA `["matcher", market, lp_portfolio, registry, matcher, ctx]`, which is
+  not a transaction signer. `buildInitVaultLpIxP3(m, marketauth, juniorFloorBps, matcherCtx,
+  matcherProgram?)` derives the delegate, and the new `buildCreateVaultLpMatcherCtxIxP3`
+  pre-creates the ctx. The program pins the matcher with protocol parameters, exported as
+  `VAULT_LP_PIN_P3`, `pinnedMatcherCapsP3` / `usdToQCappedP3` (ports of
+  `vault_lp_v18::pinned_matcher_caps`), `ENGINE_MAX_POSITION_ABS_Q_P3` and
+  `VAULT_LP_DEFAULT_MAX_LEV_BPS_P3` (1x). No wire change on 77/78, only rule changes: tag 78
+  is also allowed in Resolved mode once the market is terminal-flat (the [6] tail is still
+  required), and the tag-77 [14] vault LP is only key-pinned in Resolved mode (it may be
+  garbage-collected). The P3 parity oracle was re-run against the real crate at `07a1d0eb`:
+  tags 94–102, errors 66–85, layout and offsets are identical.
+
+- **P3 FINAL `58e379f1`.** The P3 parity oracle was re-run against the real crate: tags 94–102
+  and errors 66–85 are unchanged, and the new error 86 is confirmed by name. A handler-by-handler
+  check (86 handlers parsed in each tree) found no account-list, signer or writable change since
+  `07a1d0eb`, and the decode section is byte-identical.
+  - **Error 86 `VaultLpMultiAssetMarket`** (F14-Q2). Tag 94 needs exactly one configured asset
+    slot (`max_market_slots == 1`, so create the market with `maxPortfolioAssets: 1`). On a bound
+    market no other asset may be activated, traded risk-increasing or backed. The SDK has no
+    InitMarket default to change.
+  - **Error 77** hint now also covers TradeNoCpi / BatchTradeNoCpi fills that grow either
+    portfolio on a bound asset.
+  - **Tag 101 VaultLpSettleResolved moves no SPL.** The payout goes into the vault's own pot.
+    The exit order is now 78 → 77 per senior → 102 junior (Resolved tail), via the new
+    `planResolvedVaultLpExitP3`. `planStakeWindDown` (the stake F-9 flow) is unaffected.
+  - **F-10: BatchTradeCpi.** The client wire is unchanged; the wrapper appends one 24-byte call
+    extension per leg to the matcher CPI when `matcher_ext_mode == 1`. New
+    `encodeMatcherBatchCall` (`18 + 26n` or `18 + 26n + 24n`) and
+    `encodeWrapperMatcherCallExt` (a port of `encode_matcher_call_ext`) are byte-exact with the
+    wrapper's `invoke_matcher_batch` and the P2 matcher's tag-3 decode. `encodeBatchTradeCpi`
+    documents the 11-leg wrapper cap and the CU guidance (~342k CU for 2 legs).
+  - **Floored bound-vault NAV** (F-14 / F14-Q1): `boundVaultNavFlooredP3` (impairment floored
+    once across both pots, available principal capped at `vaultOwnedBackingAtomsP3`),
+    `vaultPhysicalIdleBackingAtomsP3`, `boundVaultSeniorValueP3`,
+    `boundVaultRedemptionAtomsP3` and `boundVaultDepositQuoteP3`. These are ports of the tag-75
+    and tag-77 bound pricing with the program's floor rounding.
+
+### Fixed
+
+- **CI parity gate** (red since 2026-09-28): it checked the engine out at `main`, and
+  percolator-prog's `build.rs` engine-pin guard (GH#503) refuses to build against anything
+  but `ENGINE_CI_SIBLING` from `ci/deployed-refs.env`. The workflow now pins the engine to
+  that commit. All four fixtures (prog, stake, nft, match) are unchanged and pass —
+  `specs/matcher-parity.json` was NOT stale against matcher `main` (4bc7951); `12bd671`
+  is only on the deploy branch.
+
+### Carried from 7.0.0 (still required)
+
+- Stake Deposit (tag 1) / DepositJunior (16) / Withdraw (2) / AccrueFees (12) send
+  the pool's wrapper market (`pool.slab`) as a trailing account (percolator-stake
+  #290). Stake v18.2/v18.3 requires it for mode-0 Deposit/DepositJunior/AccrueFees;
+  6.x clients fail there with `NotEnoughAccountKeys`.
+
+### Added
+
+- Cherry-picked #393 (`c2dc4da`): `ACCOUNTS_CLOSE_RESOLVED(_UNSIGNED)`,
+  `ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP(_UNSIGNED)`, `withNftEscrowProof`. The
+  unsigned variants are safe on `ETDLAdi…` (its wrapper contains #497 `3262608b`,
+  `require_signer_for_escrowed_terminal_payout`).
+
+---
+
 ## [7.0.0] — unreleased (do not `npm publish` without explicit human go)
 
 Tracks percolator-stake #298 (fixes #290, stake main `9150dea`/`de7be9a`), which

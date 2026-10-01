@@ -931,6 +931,106 @@ export declare const ACCOUNTS_EXPIRE_BACKING_BUCKET: readonly AccountSpec[];
  * from the loss backstop, so backstop gating does not apply).
  */
 export declare const ACCOUNTS_WITHDRAW_CREATOR_FEE: readonly AccountSpec[];
+/**
+ * CloseResolved (tag 30): 7 base accounts. SIGNED path — `owner` (accounts[0])
+ * signs directly. Safe against both the deployed v18.0 wrapper and the staged
+ * v18.1-security candidate; unaffected by percolator-prog#497/#498.
+ *
+ * v17 wire account layout, verified against `handle_close_resolved` in
+ * `percolator-prog/src/v16_program.rs`, identical on deployed `a9318945` and
+ * candidate `3262608b`:
+ *   [0] owner          (not writable — no `expect_writable(owner)` in the handler;
+ *                        used as the claimed portfolio owner / payout-ATA owner)
+ *   [1] market         writable  — `expect_writable` + `expect_owner`
+ *   [2] portfolio      writable  — `expect_writable` + `expect_owner`
+ *   [3] destToken      writable  — only touched when `payout != 0`
+ *   [4] vaultToken     writable  — only touched when `payout != 0`
+ *   [5] vaultAuthority read-only — PDA `["vault", market]`, only touched when `payout != 0`
+ *   [6] tokenProgram   read-only — only touched when `payout != 0`
+ *
+ * `owner` need not sign in general (`CloseResolved` is permissionless — anyone
+ * may crank a resolved position closed once `group.header.mode == Resolved`),
+ * EXCEPT while `cfg.force_close_delay_slots != 0` and that delay has not yet
+ * elapsed since `resolved_slot`, in which case the handler calls
+ * `expect_signer(owner)`. This constant models the base 7-account shape with
+ * `owner` marked as a signer, matching the common "owner closes their own
+ * position" flow; a permissionless/unsigned caller building this instruction
+ * for a NON-escrowed portfolio may still pass this exact 7-account list with
+ * `owner.isSigner` cleared and no trailing accounts — the v18.0/v18.1 handlers
+ * both accept that shape identically for a non-escrowed portfolio. Use
+ * `ACCOUNTS_CLOSE_RESOLVED_UNSIGNED` (HARD STOP — v18.1+ only) when the caller
+ * cannot prove in advance that the portfolio isn't escrowed and wants the new
+ * #497 registry proof to fail closed instead.
+ *
+ * The pre-existing E2 signed-NFT-holder path also applies to this instruction
+ * (the handler's own comment reads "NFT trio at base 7"): compose it exactly
+ * like every other E2 instruction via `withNftHolderAuth(ACCOUNTS_CLOSE_RESOLVED)`
+ * for a 10-account list (`[7]=nftRegistry, [8]=positionNft, [9]=signerNftAta`)
+ * when the CURRENT NFT HOLDER (not `portfolio.owner`) is the one signing.
+ */
+export declare const ACCOUNTS_CLOSE_RESOLVED: readonly AccountSpec[];
+/**
+ * ClaimResolvedPayoutTopup (tag 46): 7 base accounts. SIGNED path — mirror of
+ * `ACCOUNTS_CLOSE_RESOLVED` above; see that doc comment for the full account-by-
+ * account rationale. `handle_claim_resolved_payout_topup` reads the identical
+ * `account(accounts, 0..=6)` shape and is fully permissionless (no
+ * `force_close_delay_slots` gate exists for this instruction — `owner` need
+ * never sign for a non-escrowed portfolio).
+ *
+ * The pre-existing E2 signed-NFT-holder path applies here too:
+ * `withNftHolderAuth(ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP)` for the 10-account
+ * holder-signs variant (`[7]=nftRegistry, [8]=positionNft, [9]=signerNftAta`).
+ */
+export declare const ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP: readonly AccountSpec[];
+/**
+ * percolator-prog#497/#498 single-account NftRegistry proof: `["nft_registry",
+ * marketGroup]` PDA (derive with `deriveNftRegistry()` from `../solana/pda.js`),
+ * read-only, presented alone (NOT the 3-account `ACCOUNTS_NFT_HOLDER_AUTH` trio)
+ * so `require_signer_for_escrowed_terminal_payout` can confirm an unsigned
+ * `CloseResolved` / `ClaimResolvedPayoutTopup` caller's portfolio is not bound
+ * to NFT escrow. See the HARD STOP block above this section — do not use before
+ * the v18.1-security wrapper deploy.
+ */
+export declare const ACCOUNTS_NFT_ESCROW_PROOF: readonly AccountSpec[];
+/**
+ * Append the single-account #497/#498 NftRegistry proof to a base account list,
+ * for the UNSIGNED `CloseResolved` / `ClaimResolvedPayoutTopup` call path.
+ *
+ * Unlike `withNftHolderAuth()` (which appends the 3-account trio so a signing
+ * NFT holder can authorize an action), this appends exactly ONE account — the
+ * registry alone proves the portfolio is not escrowed; it never claims holder
+ * authorization, so no `positionNft` / `signerNftAta` accounts are needed or
+ * read for this check.
+ *
+ * HARD STOP — do not call this to build a live instruction before the v18.1
+ * wrapper deploy (tracks percolator-prog#498). See the HARD STOP block above.
+ */
+export declare function withNftEscrowProof(base: readonly AccountSpec[]): AccountSpec[];
+/**
+ * CloseResolved (tag 30): UNSIGNED / permissionless path, 8 accounts —
+ * `ACCOUNTS_CLOSE_RESOLVED` with `owner` NOT signing, plus the #497/#498
+ * NftRegistry proof at index 7 (`withNftEscrowProof`).
+ *
+ * HARD STOP — do NOT merge a call site that uses this, and do NOT submit a
+ * transaction built from it, before the `v18.1-security` wrapper (or whatever
+ * supersedes it) is deployed (tracks percolator-prog#498 / #497). Against the
+ * currently deployed v18.0 wrapper (`a9318945`), this account list does not add
+ * the protection it is meant to enable: `require_signer_for_escrowed_terminal_payout`
+ * does not exist on v18.0, so an escrowed portfolio's payout can still be
+ * silently burned via this exact unsigned shape. Once v18.1 is live, this is
+ * the correct 8-account list for a permissionless caller closing a resolved
+ * position it does not own and cannot get a signature for.
+ */
+export declare const ACCOUNTS_CLOSE_RESOLVED_UNSIGNED: readonly AccountSpec[];
+/**
+ * ClaimResolvedPayoutTopup (tag 46): UNSIGNED / permissionless path, 8
+ * accounts — mirror of `ACCOUNTS_CLOSE_RESOLVED_UNSIGNED` above.
+ *
+ * HARD STOP — same constraint as `ACCOUNTS_CLOSE_RESOLVED_UNSIGNED`: do not
+ * merge or use before the v18.1-security wrapper deploy (tracks
+ * percolator-prog#498 / #497).
+ */
+export declare const ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP_UNSIGNED: readonly AccountSpec[];
 export declare const WELL_KNOWN: {
     readonly tokenProgram: PublicKey;
     readonly clock: PublicKey;

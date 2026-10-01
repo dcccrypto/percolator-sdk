@@ -188,7 +188,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   38: {
     name: "LpVaultNoFeesToCrank",
-    hint: "No new fees to distribute to the LP vault. Wait for more trading activity.",
+    hint: "No new fees to distribute to the LP vault. Wait for more trading activity. On a LIVE bound vault, bundle tag 78 before 75/77 ONLY when fees are harvestable (otherwise the bundle fails with 38; without it a harvestable backlog fails with 84). On a Resolved terminal-flat bound market 78 is a no-op success.",
   },
   39: {
     name: "LpVaultSupplyMismatch",
@@ -300,7 +300,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   55: {
     name: "StakePoolOwnerMismatch",
-    hint: "The supplied stake-pool account is not owned by the wrapper's pinned STAKE_PROGRAM_ID. THIS IS THE FORGERY GATE — it is checked before any byte of the account is read. Pass the pool PDA ['stake_pool', market] derived under the canonical stake program (devnet GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3).",
+    hint: "The supplied stake-pool account is not owned by the wrapper's pinned STAKE_PROGRAM_ID. THIS IS THE FORGERY GATE — it is checked before any byte of the account is read. Pass the pool PDA ['stake_pool', market] derived under the canonical stake program (devnet VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w).",
   },
   56: {
     name: "StakePoolAuthorityMismatch",
@@ -351,7 +351,124 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   // slot 490057417, verified byte-identical.
   63: {
     name: "LpVaultBackingBucketNotEmpty",
-    hint: "CreateLpVault (tag 72) targeted a domain whose backing bucket is ALREADY funded at an expiry that is not LP_VAULT_BACKING_EXPIRY_SLOT (u64::MAX/2). The range check on `domain` passed; this is the separate REACHABILITY check, and it fires BEFORE the registry PDA takes backing_bucket_authority so a refusal leaves the existing bucket owner intact. Without it the vault would be created dead: DepositToLpVault refuses for the whole remaining term on the expiry mismatch, the provider who funded that bucket can no longer withdraw because the authority is gone, and the only exit is CloseLpVault — which permanently forfeits this market's ability to ever have an LP vault, because it leaves the LP share mint on-chain and CreateLpVault requires both PDAs to be system-owned and empty. Fix: pick a domain whose bucket is Empty, or wait for the existing backing to expire. Do NOT confuse this with Custom(9) InvalidInstruction, which this handler also returns for an out-of-range domain (domain >= configured_slots * 2) and for fee_share_bps / oi_reservation_threshold_bps > 10_000.",
+    hint: "CreateLpVault (tag 74) targeted a domain whose backing bucket is ALREADY funded at an expiry that is not LP_VAULT_BACKING_EXPIRY_SLOT (u64::MAX/2). The range check on `domain` passed; this is the separate REACHABILITY check, and it fires BEFORE the registry PDA takes backing_bucket_authority so a refusal leaves the existing bucket owner intact. Without it the vault would be created dead: DepositToLpVault refuses for the whole remaining term on the expiry mismatch, the provider who funded that bucket can no longer withdraw because the authority is gone, and the only exit is CloseLpVault — which permanently forfeits this market's ability to ever have an LP vault, because it leaves the LP share mint on-chain and CreateLpVault requires both PDAs to be system-owned and empty. Fix: pick a domain whose bucket is Empty, or wait for the existing backing to expire. Do NOT confuse this with Custom(9) InvalidInstruction, which this handler also returns for an out-of-range domain (domain >= configured_slots * 2) and for fee_share_bps / oi_reservation_threshold_bps > 10_000.",
+  },
+
+  // ── Deployed v18.2 (6377376a) — appended after 63 ─────────────────────────
+  64: {
+    name: "RentExemptRequired",
+    hint: "CloseSlab's tail must leave CLOSED_MARKET_TOMBSTONE_RENT_LAMPORTS in the market account so the closed-market tombstone (header KIND_CLOSED_MARKET = 8) stays rent-exempt forever (anti address-reuse, upstream d57411f8). Only fires if the market account holds fewer lamports than that floor at close — not reachable on a normally-funded market.",
+  },
+  65: {
+    name: "AssetGenerationMismatch",
+    hint: "A caller-supplied market_id / expected_market_id / asset_generation_frontier did not match the asset slot's current generation (AssetStateV16.market_id / header.next_market_id). The instruction was built against an older generation of this slot. Re-read the live values and rebuild.",
+  },
+
+  // ── P1 wrapper safety release — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──
+  // Appended, ordinals 0-65 unmoved.
+  66: {
+    name: "ExecPriceOutsideOracleBand",
+    hint: "P1: the matcher's fill price lies outside reference ± band (reference = the oracle_price_e6 the wrapper handed the matcher). limit_price == 0 now means 'any price inside the band', not any price. Retry smaller or when the quote is inside the band; a v2 matcher with EXEC_BAND clips instead.",
+  },
+  67: {
+    name: "SameOwnerTrade",
+    hint: "P1: the taker's portfolio owner equals the matcher LP's owner, or the traded asset's asset_admin (the market creator). Trade from a different wallet (hygiene rule; not a sybil defence).",
+  },
+  68: {
+    name: "LpExposureCapExceeded",
+    hint: "P1: this fill would leave the LP's |position| × mark above k × LP initial-margin equity on the asset. Trade smaller, or wait for the LP to add capital / reduce inventory.",
+  },
+  69: {
+    name: "LpFloorHalt",
+    hint: "P1 auto-halt: the matcher LP's initial-margin equity is at or below the protocol floor, so risk-increasing fills are refused. Reducing fills and closes still work.",
+  },
+  70: {
+    name: "ProtocolSideOiCapExceeded",
+    hint: "P1: the protocol-set per-asset side open-interest cap (tag 93 SetAssetRiskLimits) would be exceeded on this side. Trade the other side, smaller, or later.",
+  },
+  71: {
+    name: "CloseSlabFeesOutstanding",
+    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first — tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee — and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you.",
+  },
+
+  // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──
+  // Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
+  // against the P3 enum (`PercolatorError::X as u32`) in test/p3.test.ts.
+  72: {
+    name: "VaultLpAlreadyBound",
+    hint: "P3 tag 94: this vault (or asset) already has a bound vault LP.",
+  },
+  73: {
+    name: "VaultLpNotBound",
+    hint: "P3: a vault-LP instruction on a vault with no bound vault LP, or the passed vault_lp_state / vault LP portfolio does not match the registry (check the tail accounts on 75/77/78).",
+  },
+  74: {
+    name: "VaultLpSeniorImpaired",
+    hint: "P3 Earn deposit (tag 75) refused: the senior tranche is impaired (vault value < senior claim). New money would buy into a loss the junior did not cover. Wait for the junior to be topped up (tag 96) or the LP to recover.",
+  },
+  75: {
+    name: "VaultLpJuniorWithdrawRefused",
+    hint: "P3 tag 97: junior withdrawal over the junior surplus minus the floor (ceil(C_eff * junior_floor_bps / 10000)), or the backing pots do not fully cover the senior claim.",
+  },
+  76: {
+    name: "VaultLpRecallRefused",
+    hint: "P3 tag 98: recall of zero, or more than the senior liquidity shortfall.",
+  },
+  77: {
+    name: "VaultLpExclusiveCounterparty",
+    hint: "P3: on a bound asset only the vault LP may take new risk. Refused: (a) a matcher (TradeCpi/BatchTradeCpi) fill that grows an LP other than the bound vault LP; (b) any TradeNoCpi / BatchTradeNoCpi fill that grows EITHER portfolio's position on a bound asset — the vault LP is never a NoCpi party (its owner, the registry PDA, cannot sign), so direct P2P trading on a bound P3 asset can only reduce. Reducing fills still work.",
+  },
+  78: {
+    name: "VaultLpLeverageStepDown",
+    hint: "P3 leverage step-down: the taker's conservative equity does not cover the crowded-book initial margin for this fill. Add collateral or trade smaller.",
+  },
+  79: {
+    name: "VaultLpBoundCannotClose",
+    hint: "P3: CloseLpVault (tag 80) on a vault with a bound vault LP.",
+  },
+  80: {
+    name: "VaultLpExposureCapExceeded",
+    hint: "P3-H2: this fill would leave |vault LP position| * mark above the protocol leverage cap on the vault LP's conservative equity (AssetVaultLpV18.vault_lp_max_lev_bps, default 1x). Trade smaller or wait for the junior to add capital.",
+  },
+  81: {
+    name: "VaultLpMatcherNotApproved",
+    hint: "P3-H2 tag 95: the matcher program is not the tag-99 approved matcher for this asset, or max_fill_abs / max_inventory_abs is 0 (unbounded is refused).",
+  },
+  82: {
+    name: "VaultLpUseSettleResolved",
+    hint: "P3-H1: CloseResolved (30) / ClaimResolvedPayoutTopup (46) on the vault LP portfolio. Use VaultLpSettleResolved (tag 101): senior shortfall into backing, residual to the junior owner.",
+  },
+  83: {
+    name: "VaultLpReleaseRefused",
+    hint: "P3-M1 tag 102: release of zero, or of more than the backing surplus over the senior claim (nav - C; Resolved: physical - C).",
+  },
+  84: {
+    name: "VaultLpHarvestPending",
+    hint: "P3-L1/K1: LP fees are harvestable (H > 0), or (Resolved, terminal-flat, f0b990e1) a terminal residual or stray pot backing is not yet absorbed. A genesis Earn deposit, or a redemption on a bound vault, must be preceded by tag 78 LpVaultCrankFees in the same transaction (planResolvedVaultLpExitP3 orders 78 before every 77).",
+  },
+  85: {
+    name: "VaultLpValuationStale",
+    hint: "P3-L2: the vault LP holds inventory and its health certificate is not current, so the vault cannot be valued. Prepend a permissionless tag-5 crank of the vault LP (buildVaultLpRefreshCrankIxP3).",
+  },
+  86: {
+    name: "VaultLpMultiAssetMarket",
+    hint: "P3 F14-Q2: a vault LP needs a single-ASSET market. Tag 94 InitVaultLp requires exactly one configured asset slot (max_market_slots == 1 — create the market with maxPortfolioAssets: 1), and on a bound market no other asset may be activated (UpdateAssetLifecycle), traded risk-increasing or backed. The terminal residual is market-wide and is credited to the one vault.",
+  },
+  87: {
+    name: "VaultLpSeniorDrawRequired",
+    hint: "P3 senior draw: an engine step would open a bankrupt close on the vault LP (winners haircut) while the vault's own pots can still fund its undrawn deficit. Crank the vault LP first (PermissionlessCrank tag 5 draws senior backing into it; pass both pot ledgers writable), then retry.",
+  },
+  88: {
+    name: "VaultLpRedeemNeedsRecall",
+    hint: "P3 B24: a senior redemption (75/77) on a LIVE bound vault needs more than the chosen pot holds (backing or pot principal), because part of the senior value sits in the vault LP's capital. Run VaultLpRecall (tag 98, permissionless, vault LP flat) first, or redeem fewer shares. In RESOLVED mode the same per-pot shortfall is EngineLockActive (21): size each redemption to one pot's idle backing and repeat on the other pot.",
+  },
+  89: {
+    name: "VaultLpPausedForSeniorDraw",
+    hint: "P3 senior draw: PAUSED because Earn is covering a vault-LP loss (a senior draw is pending or outstanding). The vault LP's risk-increasing fills, junior withdraw (97), recall (98) and junior release (102) are halted until the seniors are restored (a later recovery restores C first). Check decodeAssetVaultLpDrawP3 / VaultLpStateP3.seniorDrawOutstandingAtoms; retry after the draw is booked and recovered.",
+  },
+  90: {
+    name: "VaultLpBindRequiresFlatAsset",
+    hint: "P3 (592286b4): VaultLp bind (tag 94) refused because the asset already has open interest. Positions that predate the vault LP are trader-vs-trader and can leave its winners short / block terminal-flat. Bind the vault at market creation, before any trade (the relaunch seed and the wizard do).",
   },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);

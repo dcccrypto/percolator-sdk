@@ -125,52 +125,53 @@ describe("getMatcherProgramId", () => {
 // self-referential comparisons against the module's own constants) so that
 // a regression fails loudly instead of silently passing.
 //
-// v18 coordinated fresh-ID redeploy (2026-09-22): the ACTIVE devnet wrapper
-// moved to a brand-new address (GnwdeQr…). PROGRAM_IDS_V17.percolator / PROGRAM_ID_V17
-// were CUT OVER to that same fresh id (single source of truth with PROGRAM_IDS.devnet;
-// deprecated back-compat aliases), so all wrapper-id pins below are GnwdeQr…. The
+// v18.3 fresh-ID redeploy (SDK 8.0.0): the ACTIVE devnet wrapper moved to a
+// brand-new address (ETDLAdi…); the v18.0–v18.2 wrapper (GnwdeQr…) is ABANDONED.
+// PROGRAM_IDS_V17.percolator / PROGRAM_ID_V17 were CUT OVER to that same fresh id (single
+// source of truth with PROGRAM_IDS.devnet; deprecated back-compat aliases), so all
+// wrapper-id pins below are ETDLAdi…. The
 // stake/vault (GCHhcgw…) and nft (CNGBPZR…) v17 ids are unaffected by the wrapper-only
-// cutover. The abandoned v17 wrapper (DhSkE7u…) must appear nowhere as an active id.
+// cutover. The abandoned wrappers (GnwdeQr…, DhSkE7u…) must appear nowhere as an active id.
 // ===========================================================================
 describe("devnet wrapper id (v18 fresh-ID cutover) + v17 record", () => {
-  it("getProgramId('devnet') resolves to the fresh v18 wrapper GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ", () => {
+  it("getProgramId('devnet') resolves to the fresh v18.3 wrapper ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB", () => {
     const pk = getProgramId("devnet");
-    expect(pk.toBase58()).toBe("GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ");
+    expect(pk.toBase58()).toBe("ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB");
   });
 
   it("PROGRAM_IDS.devnet.percolator is the fresh v18 wrapper (active cutover default)", () => {
     expect(PROGRAM_IDS.devnet.percolator).toBe(
-      "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ",
+      "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
     );
   });
 
   it("PROGRAM_IDS_V17.percolator is cut over to the fresh v18 wrapper (deprecated alias, single source of truth)", () => {
     expect(PROGRAM_IDS_V17.percolator).toBe(
-      "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ",
+      "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
     );
   });
 
   it("PROGRAM_ID_V17 PublicKey is the fresh v18 wrapper (deprecated alias of the active id)", () => {
     expect(PROGRAM_ID_V17.toBase58()).toBe(
-      "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ",
+      "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
     );
   });
 
-  it("PROGRAM_IDS_V17.vault is the fresh stake/vault program GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3", () => {
+  it("PROGRAM_IDS_V17.vault is the fresh stake/vault program VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w", () => {
     expect(PROGRAM_IDS_V17.vault).toBe(
-      "GCHhcgwPyrai8SWHEVWw3odedguFXEtJobNnWSfWBCU3",
+      "VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w",
     );
   });
 
-  it("PROGRAM_IDS_V17.nft is the fresh nft program CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3", () => {
+  it("PROGRAM_IDS_V17.nft is the fresh nft program EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ", () => {
     expect(PROGRAM_IDS_V17.nft).toBe(
-      "CNGBPZRALk9Xu8BdgWNyrLJ7daQ9eJYFf1GnEEC7YCU3",
+      "EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ",
     );
   });
 
   it("PROGRAM_IDS_V17.matcher is unchanged (upgraded in place, same address)", () => {
     expect(PROGRAM_IDS_V17.matcher).toBe(
-      "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
+      "EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX",
     );
   });
 
@@ -199,6 +200,32 @@ describe("devnet wrapper id (v18 fresh-ID cutover) + v17 record", () => {
     const saved = process.env.PROGRAM_ID;
     const savedOptIn = process.env.PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE;
     process.env.PROGRAM_ID = "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj";
+    delete process.env.PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE;
+    try {
+      expect(() => getProgramId()).toThrow(/not a known program address/i);
+    } finally {
+      if (saved === undefined) delete process.env.PROGRAM_ID;
+      else process.env.PROGRAM_ID = saved;
+      if (savedOptIn !== undefined) process.env.PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE = savedOptIn;
+    }
+  });
+});
+
+// SDK 8.0.0 negative controls: the v18.0–v18.2 wrapper GnwdeQr… is ABANDONED. Devnet
+// resolution must not return it, and an env override to it must be rejected without the
+// explicit opt-in (rollback to GnwdeQr… = pin @percolatorct/sdk@7.0.0, not an env var).
+describe("abandoned v18.0–v18.2 wrapper GnwdeQr… (SDK 8.0.0 cutover)", () => {
+  const ABANDONED_V18 = "GnwdeQrAh4qzChJeVLrM21CXXWC1akjLH3DiijwzEEYZ";
+
+  it("getProgramId('devnet') and PROGRAM_ID_V17 no longer resolve to GnwdeQr…", () => {
+    expect(getProgramId("devnet").toBase58()).not.toBe(ABANDONED_V18);
+    expect(PROGRAM_ID_V17.toBase58()).not.toBe(ABANDONED_V18);
+  });
+
+  it("#308: env PROGRAM_ID=GnwdeQr… is rejected without opt-in", () => {
+    const saved = process.env.PROGRAM_ID;
+    const savedOptIn = process.env.PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE;
+    process.env.PROGRAM_ID = ABANDONED_V18;
     delete process.env.PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE;
     try {
       expect(() => getProgramId()).toThrow(/not a known program address/i);

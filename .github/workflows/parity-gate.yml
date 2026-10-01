@@ -69,6 +69,19 @@ jobs:
           repository: ${{ github.repository_owner }}/percolator
           path: percolator
 
+      # GH#503/#510: percolator-prog's build.rs refuses to build unless the engine sibling
+      # is at ENGINE_CI_SIBLING from percolator-prog/ci/deployed-refs.env. Checking the
+      # engine out at its default branch made the prog target fail with "percolator engine
+      # sibling does not match the committed pin" on every scheduled run since 2026-09-28.
+      # Follow the committed pin; moving it stays a reviewable change in percolator-prog.
+      - name: Pin engine to percolator-prog ENGINE_CI_SIBLING
+        run: |
+          PIN=$(grep -E '^ENGINE_CI_SIBLING=' percolator-prog/ci/deployed-refs.env | cut -d= -f2 | tr -d '[:space:]')
+          if [ -z "$PIN" ]; then echo "ENGINE_CI_SIBLING missing from percolator-prog/ci/deployed-refs.env"; exit 1; fi
+          git -C percolator fetch --depth 1 origin "$PIN"
+          git -C percolator checkout --detach "$PIN"
+          echo "engine pinned at $(git -C percolator rev-parse HEAD)"
+
       - name: Checkout percolator-stake
         uses: actions/checkout@v4
         with:
