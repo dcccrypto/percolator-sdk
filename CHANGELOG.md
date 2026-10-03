@@ -16,10 +16,13 @@ Client-side prep for the devnet wrapper upgrade to percolator-prog **`7a3ac04c`*
 
 ### Added
 
-- **Error 91 `LpVaultTargetPotImpaired`** (appended; no existing code shifts). A NON-BOUND Earn
-  deposit (tag 75) routed into a pot whose net impairment (cumulative loss − recovery) exceeds its
-  principal is refused; deposit to the sibling pot (`principal ≥ net impairment`). The map is
-  regenerated from rustc at `7a3ac04c` (`scripts/wrapper-errors/gen.py`, 92 codes; 0–90 identical).
+- **Error 91 `LpVaultTargetPotImpaired`** (appended; no existing code shifts): non-bound Earn
+  deposits paused. 7a3ac04c refuses a tag 75 into a pot whose net impairment (cumulative loss −
+  recovery) exceeds its principal; the H-1 successor required by the 2026-10-03 security review
+  reuses the same code for EITHER pot over-impaired or a collapsed share price
+  (`nav * 1000 < total_shares`). The map is regenerated from rustc at `7a3ac04c`
+  (`scripts/wrapper-errors/gen.py`, 92 codes; 0–90 identical). Error 90
+  `VaultLpBindRequiresFlatAsset` was already mapped in 8.0.0 (this branch); `main` (5.0.0) predates both.
 
 ### Unchanged (verified by diffing `7a3ac04c` against the deployed `553d76f0`)
 

@@ -24,7 +24,7 @@ describe("wrapper error map is generated from the program (rustc discriminants)"
     expect(FX.errors["90"]).toBe("VaultLpBindRequiresFlatAsset");
     expect(FX.errors["91"]).toBe("LpVaultTargetPotImpaired");
     expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
-    expect(decodeError(91)?.hint).toMatch(/sibling pot/);
+    expect(decodeError(91)?.hint).toMatch(/deposits paused/);
   });
   it("the SDK defines no code the program does not have", () => {
     for (const code of Object.keys(PERCOLATOR_ERRORS)) expect(FX.errors[code], `sdk code ${code}`).toBeDefined();

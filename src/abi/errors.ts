@@ -472,7 +472,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   91: {
     name: "LpVaultTargetPotImpaired",
-    hint: "Non-bound Earn vault (7a3ac04c NAV floor): a deposit (tag 75) was routed into a pot whose net impairment (cumulative loss minus recovery) exceeds its principal. That pot is priced at zero, so the deposit would be absorbed by its excess loss; the program refuses instead. Nothing moved. Route the deposit to the sibling pot (the one with principal >= net impairment), or retry later.",
+    hint: "Non-bound Earn vault, deposits paused (wrapper 7a3ac04c NAV floor + its H-1 successor): DepositToLpVault (tag 75) is refused while a backing pot's net impairment (cumulative loss minus recovery) exceeds its principal (7a3ac04c: the target pot; H-1: either pot), or while the share price has collapsed (nav * 1000 < total shares). Depositing then would be absorbed by the excess loss or would mint almost every share at a near-zero price. Nothing moved; withdrawals (tag 77) still work. Retry once the vault recovers. Do NOT send RebalanceLpVaultBacking (91) into an over-impaired pot to clear it: under the floor that only moves holders' value into that pot.",
   },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
