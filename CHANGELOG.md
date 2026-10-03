@@ -7,6 +7,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [8.0.1] — unreleased (do not `npm publish` without explicit human go)
+
+Client-side prep for the devnet wrapper upgrade to percolator-prog **`7a3ac04c`**
+(`fix/matcher-inventory-sync`: matcher inventory sync `f01b490a`/`1b620da6` + non-bound NAV floor
+`fdf07759`) on the SAME program id `ETDLAdi…`, together with matcher `EDKKgRaV…` → percolator-match
+`b5b419da`. Additive only; safe to use before and after the upgrade (the live wrapper never raises 91).
+
+### Added
+
+- **Error 91 `LpVaultTargetPotImpaired`** (appended; no existing code shifts). A NON-BOUND Earn
+  deposit (tag 75) routed into a pot whose net impairment (cumulative loss − recovery) exceeds its
+  principal is refused; deposit to the sibling pot (`principal ≥ net impairment`). The map is
+  regenerated from rustc at `7a3ac04c` (`scripts/wrapper-errors/gen.py`, 92 codes; 0–90 identical).
+
+### Unchanged (verified by diffing `7a3ac04c` against the deployed `553d76f0`)
+
+- No instruction tag, instruction data, account list, account layout or return-data change. The
+  only wire change is the wrapper→matcher CPI (tag-0 call 67 → 83 bytes, ext v2 = 40 bytes; batch
+  tag 3 `18 + 26n + 40n`), which the WRAPPER builds; clients send TradeCpi (10) / BatchTradeCpi (67)
+  exactly as before. The matcher context layout is unchanged (`inventory_base` is overwritten with
+  the LP's real engine position on each v2 fill). `MATCHER_CALL_EXT_*` (v1, parity) stay as they are.
+
 ## [8.0.0] — unreleased (do not `npm publish` without explicit human go)
 
 v18.3 fresh-ID relaunch. The devnet wrapper moves to a new program address.

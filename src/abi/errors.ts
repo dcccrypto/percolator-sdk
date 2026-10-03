@@ -470,6 +470,10 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "VaultLpBindRequiresFlatAsset",
     hint: "P3 (592286b4): VaultLp bind (tag 94) refused because the asset already has open interest. Positions that predate the vault LP are trader-vs-trader and can leave its winners short / block terminal-flat. Bind the vault at market creation, before any trade (the relaunch seed and the wizard do).",
   },
+  91: {
+    name: "LpVaultTargetPotImpaired",
+    hint: "Non-bound Earn vault (7a3ac04c NAV floor): a deposit (tag 75) was routed into a pot whose net impairment (cumulative loss minus recovery) exceeds its principal. That pot is priced at zero, so the deposit would be absorbed by its excess loss; the program refuses instead. Nothing moved. Route the deposit to the sibling pot (the one with principal >= net impairment), or retry later.",
+  },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
 Object.freeze(PERCOLATOR_ERRORS);

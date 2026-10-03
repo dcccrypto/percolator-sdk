@@ -50,7 +50,7 @@ describe("PERCOLATOR_ERRORS table", () => {
     }
   });
 
-  it("error code 63 is LpVaultBackingBucketNotEmpty, 64-90 are defined (v18.2 64-65, P1 66-71, P3 72-90) and 91+ are not", () => {
+  it("error code 63 is LpVaultBackingBucketNotEmpty, 64-91 are defined (v18.2 64-65, P1 66-71, P3 72-90, NAV floor 91) and 92+ are not", () => {
     // Boundary moved 62 -> 63 by the LP-vault reachability guard, DEPLOYED to devnet
     // 2026-08-29 (wrapper 02326f4f, sha c9827970bf02098b, slot 490057417). The PROPERTY
     // this test encodes is unchanged — the tail is pinned so an accidental insertion or
@@ -73,7 +73,9 @@ describe("PERCOLATOR_ERRORS table", () => {
     expect(PERCOLATOR_ERRORS[88]?.name).toBe("VaultLpRedeemNeedsRecall");
     expect(PERCOLATOR_ERRORS[89]?.name).toBe("VaultLpPausedForSeniorDraw");
     expect(PERCOLATOR_ERRORS[90]?.name).toBe("VaultLpBindRequiresFlatAsset");
-    expect(PERCOLATOR_ERRORS[91]).toBeUndefined();
+    // 91 appended by the non-bound NAV floor (percolator-prog 7a3ac04c, fdf07759).
+    expect(PERCOLATOR_ERRORS[91]?.name).toBe("LpVaultTargetPotImpaired");
+    expect(PERCOLATOR_ERRORS[92]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[100]).toBeUndefined();
   });
 
@@ -249,14 +251,15 @@ describe("decodeError", () => {
     expect(decodeError(61)!.name).toBe("AssetSlotAlreadyConfigured");
   });
 
-  it("decodes 63 as LpVaultBackingBucketNotEmpty and returns undefined for 91 (beyond current table)", () => {
+  it("decodes 63 as LpVaultBackingBucketNotEmpty and returns undefined for 92 (beyond current table)", () => {
     expect(decodeError(62)!.name).toBe("CreatorFeeOverClaim");
     expect(decodeError(63)?.name).toBe("LpVaultBackingBucketNotEmpty");
     expect(decodeError(64)?.name).toBe("RentExemptRequired");
     expect(decodeError(88)?.name).toBe("VaultLpRedeemNeedsRecall");
     expect(decodeError(89)?.name).toBe("VaultLpPausedForSeniorDraw");
     expect(decodeError(90)?.name).toBe("VaultLpBindRequiresFlatAsset");
-    expect(decodeError(91)).toBeUndefined();
+    expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
+    expect(decodeError(92)).toBeUndefined();
   });
 
   it("returns undefined for unknown code 10_000", () => {
@@ -292,7 +295,7 @@ describe("getErrorName", () => {
     // bug-fix pass added 61 (AssetSlotAlreadyConfigured), and the creator-fee
     // claim added 62 (CreatorFeeOverClaim); the LP-vault reachability guard added 63
     // (LpVaultBackingBucketNotEmpty, deployed 2026-08-29); 64-65 (deployed v18.2) and 66-71
-    // (P1 safety release) and 72-88 (P3 vault-owned LP; 87/88 senior draw d119eebd) followed; 89 = VaultLpPausedForSeniorDraw (4b1a5d30), 90 = VaultLpBindRequiresFlatAsset (592286b4); 91 is the first unknown.
+    // (P1 safety release) and 72-88 (P3 vault-owned LP; 87/88 senior draw d119eebd) followed; 89 = VaultLpPausedForSeniorDraw (4b1a5d30), 90 = VaultLpBindRequiresFlatAsset (592286b4), 91 = LpVaultTargetPotImpaired (7a3ac04c); 92 is the first unknown.
     expect(getErrorName(62)).toBe("CreatorFeeOverClaim");
     expect(getErrorName(63)).toBe("LpVaultBackingBucketNotEmpty");
     expect(getErrorName(64)).toBe("RentExemptRequired");
@@ -302,7 +305,8 @@ describe("getErrorName", () => {
     expect(getErrorName(88)).toBe("VaultLpRedeemNeedsRecall");
     expect(getErrorName(89)).toBe("VaultLpPausedForSeniorDraw");
     expect(getErrorName(90)).toBe("VaultLpBindRequiresFlatAsset");
-    expect(getErrorName(91)).toBe("Unknown(91)");
+    expect(getErrorName(91)).toBe("LpVaultTargetPotImpaired");
+    expect(getErrorName(92)).toBe("Unknown(92)");
     expect(getErrorName(999)).toBe("Unknown(999)");
     expect(getErrorName(100)).toBe("Unknown(100)");
   });

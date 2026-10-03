@@ -1,6 +1,6 @@
 {
-  "prog": "5e4c15ff66a4176cf9b0204ef35aef6df058f018",
-  "count": 91,
+  "prog": "7a3ac04c710240c1fa6be7ee7ea302b403012e4e",
+  "count": 92,
   "errors": {
     "0": "InvalidMagic",
     "1": "InvalidVersion",
@@ -92,6 +92,7 @@
     "87": "VaultLpSeniorDrawRequired",
     "88": "VaultLpRedeemNeedsRecall",
     "89": "VaultLpPausedForSeniorDraw",
-    "90": "VaultLpBindRequiresFlatAsset"
+    "90": "VaultLpBindRequiresFlatAsset",
+    "91": "LpVaultTargetPotImpaired"
   }
 }

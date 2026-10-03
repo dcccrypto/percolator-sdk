@@ -1112,7 +1112,8 @@ describe("Error codes — v17 NFT/LP-vault boundary parsing in discovery/fallbac
     expect(decodeError(88)?.name).toBe("VaultLpRedeemNeedsRecall");
     expect(decodeError(89)?.name).toBe("VaultLpPausedForSeniorDraw");
     expect(decodeError(90)?.name).toBe("VaultLpBindRequiresFlatAsset");
-    expect(decodeError(91)).toBeUndefined();
+    expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
+    expect(decodeError(92)).toBeUndefined();
   });
 });
 
