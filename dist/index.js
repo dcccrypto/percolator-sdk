@@ -2992,6 +2992,10 @@ var PERCOLATOR_ERRORS = {
   90: {
     name: "VaultLpBindRequiresFlatAsset",
     hint: "P3 (592286b4): VaultLp bind (tag 94) refused because the asset already has open interest. Positions that predate the vault LP are trader-vs-trader and can leave its winners short / block terminal-flat. Bind the vault at market creation, before any trade (the relaunch seed and the wizard do)."
+  },
+  91: {
+    name: "LpVaultTargetPotImpaired",
+    hint: "Non-bound Earn vault, deposits paused (wrapper 7a3ac04c NAV floor + its H-1 successor): DepositToLpVault (tag 75) is refused while a backing pot's net impairment (cumulative loss minus recovery) exceeds its principal (7a3ac04c: the target pot; H-1: either pot), or while the share price has collapsed (nav * 1000 < total shares). Depositing then would be absorbed by the excess loss or would mint almost every share at a near-zero price. Nothing moved; withdrawals (tag 77) still work. Retry once the vault recovers. Do NOT send RebalanceLpVaultBacking (91) into an over-impaired pot to clear it: under the floor that only moves holders' value into that pot."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
