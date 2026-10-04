@@ -7,10 +7,10 @@ import {
   decodeAssetGrowthRecordV19, decodeAssetGrowthFromSlotV19, decodeAssetGrowthV19, assetGrowthAccountOffsetV19,
   imrBpsForLeverageX100, leverageX100ForImrBps, ceilingImrBps, nCapQ, liquidityNotionalE6, dynImrBps, utilizationBps,
   conservativeEquity, quoteMaxLeverage, encodeInitMarketV19, encodeInitVaultLpV19, encodeSetAssetRiskLimitsV19,
-  encodeMatcherCallExtV2, encodeMatcherCallExtV3, encodeMatcherCallExtV3FromV2, encodeInitMarket, encodeSetAssetRiskLimitsP1,
+  encodeMatcherCallExtV2, encodeMatcherCallExtV3, encodeMatcherCallExtV3FromV2, encodeInitMarket,
   assetRiskLimitsAccountOffsetP1, PERCOLATOR_ERRORS, decodeError, growthMatcherCapsV3, GROWTH_PIN_MATCHER_EXT_MODE,
   GROWTH_PIN_MAX_REQUESTED_FEE_BPS, GROWTH_PIN_LP_FLOOR_ATOMS, GROWTH_PIN_MATCHER_KIND, GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS,
-  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS,
+  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS, rGapFloorBps, assertGrowthBatchLegs, GROWTH_BATCH_MAX_LEGS, markExtV3TakerReducing,
 } from "../src/index.js";
 import type { AssetGrowthV19, InitMarketV17Args } from "../src/index.js";
 
@@ -146,6 +146,12 @@ describe("quoteMaxLeverage", () => {
     expect(quoteMaxLeverage({ ...i, lpPnl: -500_000_000n }, "long").nCapQ).toBe(500_000_000n);
     expect(quoteMaxLeverage({ ...i, lpPnl: 500_000_000n }, "long").nCapQ).toBe(1_000_000_000n);
   });
+  it("M-1: reduces/closes are always allowed, even where new risk is closed", () => {
+    const i = { ...base, lpEffectivePositionQ: -1_000_000_000n };
+    expect(quoteMaxLeverage(i, "long")).toMatchObject({ closed: true, reduceOnlyAlwaysAllowed: true });
+    expect(quoteMaxLeverage({ ...i, bankruptcyHlockActive: true }, "long").reduceOnlyAlwaysAllowed).toBe(true);
+    expect(quoteMaxLeverage({ ...base, lpEffectivePositionQ: 0n }, "short").reduceOnlyAlwaysAllowed).toBe(true);
+  });
   it("growth OFF -> engine leverage", () => {
     expect(quoteMaxLeverage({ ...base, growth: null, lpEffectivePositionQ: -5n }, "long")).toMatchObject({ growthOn: false, closed: false, imrBps: 1_000n, maxLeverageX100: 1_000 });
   });
@@ -159,38 +165,56 @@ describe("encoders", () => {
     maxAbsFundingE9PerSlot: 1_000n, minFundingLifetimeSlots: 0n, maxAccountBSettlementChunks: 10n, maxBankruptCloseChunks: 10n,
     maxBankruptCloseLifetimeSlots: 500n, publicBChunkAtoms: 1_000_000n, maintenanceFeePerSlot: 0n,
   } as InitMarketV17Args;
-  it("tag 0 trailer = legacy bytes + r_gap u16 + l_launch u16", () => {
+  it("tag 0 trailer = legacy bytes + r_gap u16 + l_launch u16, with the L-2 floor and MMR rule", () => {
     const legacy = encodeInitMarket(initArgs);
-    const g = encodeInitMarketV19(initArgs, 500, 550);
+    const g = encodeInitMarketV19(initArgs, 400, 550); // move 4 -> floor 200; MMR 500 >= 400 + fee 50
     expect(g.length).toBe(legacy.length + 4);
     expect(hex(g.subarray(0, legacy.length))).toBe(hex(legacy));
-    expect(hex(g.subarray(legacy.length))).toBe("f4012602");
+    expect(hex(g.subarray(legacy.length))).toBe("90012602");
+    expect(hex(encodeInitMarketV19(initArgs, 200, 550).subarray(legacy.length))).toBe("c8002602"); // exactly the floor
+    expect(() => encodeInitMarketV19(initArgs, 199, 550)).toThrow(/floor 200/);
+    expect(() => encodeInitMarketV19(initArgs, 1, 550)).toThrow(/floor/);
+    expect(() => encodeInitMarketV19(initArgs, 451, 550)).toThrow(/maintenanceMarginBps/); // 451 + 50 > 500
     expect(() => encodeInitMarketV19(initArgs, 0, 550)).toThrow();
-    expect(() => encodeInitMarketV19(initArgs, 500, 0)).toThrow();
+    expect(() => encodeInitMarketV19(initArgs, 400, 0)).toThrow();
     expect(() => encodeInitMarketV19(initArgs, 70_000, 550)).toThrow();
+  });
+  it("rGapFloorBps = move * 50 (fails closed on overflow)", () => {
+    expect(rGapFloorBps(4n)).toBe(200n);
+    expect(rGapFloorBps(0n)).toBe(0n);
+    expect(() => rGapFloorBps(1n << 60n)).toThrow();
   });
   it("tag 94 trailer known vector (junior 2000, l_launch 550)", () => {
     expect(hex(encodeInitVaultLpV19(2000, 550))).toBe("5ed0072602");
     expect(() => encodeInitVaultLpV19(2000, 0)).toThrow();
   });
-  it("tag 93 growth form: full legacy body + u32 lambda + u16 kink = 50 bytes", () => {
-    const a = { assetIndex: 3, execBandBps: 300, lpExposureKBps: 50_000, lpFloorAtoms: 250_000_000n, sideOiCapQ: 7_000_000_000n };
-    const d = encodeSetAssetRiskLimitsV19(a, { growthLambdaBps: 10_000, growthKinkBps: 5_000 });
+  it("tag 93 dials-only form: tag, asset u16, 41 zero body bytes, u32 lambda, u16 kink = 50 bytes", () => {
+    const d = encodeSetAssetRiskLimitsV19(3, 10_000, 5_000);
     expect(d.length).toBe(50);
-    const legacy41 = encodeSetAssetRiskLimitsP1(a);
-    expect(hex(d.subarray(0, 41))).toBe(hex(legacy41));
-    expect(hex(d.subarray(41))).toBe("00" + "0000" + "10270000" + "8813");
-    const withTail = encodeSetAssetRiskLimitsV19({ ...a, matcherExtMode: 1, maxRequestedFeeBps: 40 }, { growthLambdaBps: 1, growthKinkBps: 0 });
-    expect(withTail.length).toBe(50);
-    expect(hex(withTail.subarray(41))).toBe("01" + "2800" + "01000000" + "0000");
-    expect(hex(withTail.subarray(0, 44))).toBe(hex(encodeSetAssetRiskLimitsP1({ ...a, matcherExtMode: 1, maxRequestedFeeBps: 40 })));
+    expect(hex(d)).toBe("5d" + "0300" + "00".repeat(41) + "10270000" + "8813");
+    expect(hex(encodeSetAssetRiskLimitsV19(0, 1, 0))).toBe("5d" + "00".repeat(43) + "01000000" + "0000");
   });
-  it("tag 93 growth bounds: lambda in [1,10000], kink in [0,5000]", () => {
-    const a = { assetIndex: 0, execBandBps: 0, lpExposureKBps: 0, lpFloorAtoms: 0n, sideOiCapQ: 0n };
-    expect(() => encodeSetAssetRiskLimitsV19(a, { growthLambdaBps: 0, growthKinkBps: 0 })).toThrow();
-    expect(() => encodeSetAssetRiskLimitsV19(a, { growthLambdaBps: 10_001, growthKinkBps: 0 })).toThrow();
-    expect(() => encodeSetAssetRiskLimitsV19(a, { growthLambdaBps: 1, growthKinkBps: 5_001 })).toThrow();
-    expect(encodeSetAssetRiskLimitsV19(a, { growthLambdaBps: 10_000, growthKinkBps: 5_000 }).length).toBe(50);
+  it("tag 93 bounds: lambda in [1,10000], kink in [0,5000] (no epoch clamp)", () => {
+    expect(() => encodeSetAssetRiskLimitsV19(0, 0, 0)).toThrow();
+    expect(() => encodeSetAssetRiskLimitsV19(0, 10_001, 0)).toThrow();
+    expect(() => encodeSetAssetRiskLimitsV19(0, 1, 5_001)).toThrow();
+    expect(() => encodeSetAssetRiskLimitsV19(70_000, 1, 0)).toThrow();
+  });
+  it("batch guard: > 10 legs with a growth leg is refused client-side", () => {
+    expect(GROWTH_BATCH_MAX_LEGS).toBe(10);
+    expect(() => assertGrowthBatchLegs(10, true)).not.toThrow();
+    expect(() => assertGrowthBatchLegs(11, true)).toThrow();
+    expect(() => assertGrowthBatchLegs(11, false)).not.toThrow();
+  });
+  it("ext v3 TAKER_REDUCING: encoder sets byte1 bit 3; markExtV3TakerReducing mirrors ext_v3_mark_taker_reducing", () => {
+    const v1b = { headroomQ: 1n, markSlot: 2n, execBandBps: 500, takerReducing: false, acceptsFeeRequest: false, lpPositionQ: 0n };
+    const caps = { inventoryCapQ: 1n, liquidityNotionalE6: 1n };
+    const off = encodeMatcherCallExtV3(v1b, caps);
+    expect(off[1]! & 0x08).toBe(0);
+    expect(encodeMatcherCallExtV3({ ...v1b, takerReducing: true }, caps)[1]! & 0x08).toBe(8);
+    expect(markExtV3TakerReducing(off, true)[1]! & 0x08).toBe(8);
+    expect(hex(markExtV3TakerReducing(off, false))).toBe(hex(off));
+    expect(off[1]! & 0x08).toBe(0); // input not mutated
   });
   const V3_HEX = "031ff40118171615141312110807060504030201000000007929edffffffffffffffffffffffffff00ba1dd205000000000000000000000080d81168000000000000000000000000";
   const v1 = { headroomQ: 0x0102030405060708n, markSlot: 0x1112131415161718n, execBandBps: 500, takerReducing: true, acceptsFeeRequest: true, lpPositionQ: -1_234_567n };
@@ -227,12 +251,13 @@ describe("ext-v3 caps the wrapper sends + growth-asset pins", () => {
   });
 });
 
-describe("errors 92-94", () => {
+describe("errors 92-95", () => {
   it("named + hints", () => {
+    expect(PERCOLATOR_ERRORS[95]?.name).toBe("GrowthNeedsLpCounterparty");
     expect(PERCOLATOR_ERRORS[92]?.name).toBe("GrowthLeverageExceeded");
     expect(PERCOLATOR_ERRORS[93]?.name).toBe("GrowthCapacityFull");
     expect(PERCOLATOR_ERRORS[94]?.name).toBe("GrowthInvalidConfig");
-    expect(decodeError(92)?.hint.startsWith("Max leverage on this side is lower right now: this market's liquidity is in use")).toBe(true);
-    expect(decodeError(93)?.hint.startsWith("This side is full right now. Closes and the other side are open.")).toBe(true);
+    expect(decodeError(92)?.hint.startsWith("Max leverage on this side is lower right now: this market's liquidity is in use. Reducing or closing is always allowed.")).toBe(true);
+    expect(decodeError(93)?.hint.startsWith("New positions on this side are paused: the market's capacity is full.")).toBe(true);
   });
 });

@@ -2999,15 +2999,19 @@ var PERCOLATOR_ERRORS = {
   },
   92: {
     name: "GrowthLeverageExceeded",
-    hint: "Max leverage on this side is lower right now: this market's liquidity is in use. growth-v19: a risk-increasing fill on a growth-enabled asset left the taker's conservative equity (no credit for positive PnL) below the dynamic initial margin (the launch ceiling IMR(L_ceil), stepped up on the crowded side as the LP's capacity fills). Reduce the size or add margin; reductions and closes are never refused. Use quoteMaxLeverage() to preview."
+    hint: "Max leverage on this side is lower right now: this market's liquidity is in use. Reducing or closing is always allowed. growth-v19: a risk-increasing fill on a growth-enabled asset left the taker's conservative equity (no credit for positive PnL) below the dynamic initial margin (the launch ceiling IMR(L_ceil), stepped up on the crowded side as the LP's capacity fills). Reduce the size or add margin. Use quoteMaxLeverage() to preview."
   },
   93: {
     name: "GrowthCapacityFull",
-    hint: "This side is full right now. Closes and the other side are open. growth-v19: a crowd-side risk-increasing fill when the LP's capacity N_cap = lambda * C_m / P is full (u >= 1), its capital is 0, the price is 0, or the market's bankruptcy h-lock is latched. The thin side, reductions and closes stay open."
+    hint: "New positions on this side are paused: the market's capacity is full. Reducing or closing your position is always allowed. growth-v19: a crowd-side risk-increasing fill would take the LP past its capacity N_cap = lambda * C_m / P (refused only when u > 1; u == 1 is admitted at 100% IMR), the LP's capital is 0, the price is 0, or the market's bankruptcy h-lock is latched."
   },
   94: {
     name: "GrowthInvalidConfig",
-    hint: "growth-v19: invalid growth configuration. InitMarket with a growth block: MMR < r_gap + liquidation fee, r_gap == 0, l_launch outside [1x, tier max], or max_abs_funding_e9_per_slot == 0 on a single-slot market. InitVaultLp (94) with an l_launch on an asset whose growth block is off or outside the tier."
+    hint: "growth-v19: invalid growth configuration. InitMarket with a growth block: MMR < r_gap + liquidation fee, r_gap == 0, r_gap below max_price_move_bps_per_slot * 50, l_launch outside [1x, tier max], or max_abs_funding_e9_per_slot == 0 on a single-slot market. InitVaultLp (94) with an l_launch on an asset whose growth block is off or outside the tier."
+  },
+  95: {
+    name: "GrowthNeedsLpCounterparty",
+    hint: "Open against the market maker: trade through the book. growth-v19: on a growth asset every risk-increasing fill must face an LP counterparty. A fill between two non-LP portfolios, or between two LPs, may only reduce or close."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -4055,6 +4059,12 @@ var ASSET_GROWTH_FIELD_OFF = Object.freeze({
   flags: 39,
   reserved: 40
 });
+var R_GAP_MIN_LIQUIDATION_SLOTS = 50n;
+var GROWTH_BATCH_MAX_LEGS = 10;
+var INIT_MARKET_MMR_OFF = 59;
+var INIT_MARKET_LIQ_FEE_OFF = 91;
+var INIT_MARKET_MAX_PRICE_MOVE_OFF = 131;
+var MATCHER_CALL_EXT_FLAG_TAKER_REDUCING = 8;
 var MATCHER_CALL_EXT_VERSION_V3 = 3;
 var MATCHER_CALL_EXT_V2_LEN = 40;
 var MATCHER_CALL_EXT_V3_LEN = 72;
@@ -4191,6 +4201,7 @@ function quoteMaxLeverage(input, side) {
     nCapQ: null,
     growthOn: g !== null,
     headroomQ: null,
+    reduceOnlyAlwaysAllowed: true,
     ...p
   });
   const lev = (imr) => {
@@ -4218,13 +4229,29 @@ function quoteMaxLeverage(input, side) {
   if (dyn === null) return closed("capacity-full", { ...info, headroomQ: 0n });
   return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - lpAbs });
 }
+function rGapFloorBps(maxPriceMoveBpsPerSlot) {
+  const f = maxPriceMoveBpsPerSlot * R_GAP_MIN_LIQUIDATION_SLOTS;
+  if (maxPriceMoveBpsPerSlot < 0n || f > U64_MAX2) throw new Error("r_gap floor overflows u64 (wrapper fails closed)");
+  return f;
+}
+function assertGrowthBatchLegs(legCount, anyGrowthLeg) {
+  if (anyGrowthLeg && legCount > GROWTH_BATCH_MAX_LEGS) throw new Error(`a batch with a growth leg is limited to ${GROWTH_BATCH_MAX_LEGS} legs, got ${legCount}`);
+}
 function u16nz(name, v) {
   if (!Number.isInteger(v) || v <= 0 || v > 65535) throw new Error(`${name} must be a non-zero u16, got ${v}`);
 }
 function encodeInitMarketV19(args, rGapBps, lLaunchX100) {
   u16nz("rGapBps", rGapBps);
   u16nz("lLaunchX100", lLaunchX100);
-  return concatBytes(encodeInitMarket(args), encU16(rGapBps), encU16(lLaunchX100));
+  const legacy = encodeInitMarket(args);
+  const dv3 = new DataView(legacy.buffer, legacy.byteOffset, legacy.byteLength);
+  const mmr = dv3.getBigUint64(INIT_MARKET_MMR_OFF, true);
+  const liqFee = dv3.getBigUint64(INIT_MARKET_LIQ_FEE_OFF, true);
+  const move = dv3.getBigUint64(INIT_MARKET_MAX_PRICE_MOVE_OFF, true);
+  const floor = rGapFloorBps(move);
+  if (BigInt(rGapBps) < floor) throw new Error(`rGapBps ${rGapBps} is below the floor ${floor} (= maxPriceMoveBpsPerSlot ${move} * ${R_GAP_MIN_LIQUIDATION_SLOTS}); the wrapper refuses with GrowthInvalidConfig (94)`);
+  if (mmr < BigInt(rGapBps) + liqFee) throw new Error(`maintenanceMarginBps ${mmr} must be >= rGapBps ${rGapBps} + liquidationFeeBps ${liqFee}; the wrapper refuses with GrowthInvalidConfig (94)`);
+  return concatBytes(legacy, encU16(rGapBps), encU16(lLaunchX100));
 }
 function encodeInitVaultLpV19(juniorFloorBps, lLaunchX100) {
   if (!Number.isInteger(juniorFloorBps) || juniorFloorBps < 0 || juniorFloorBps > 65535) {
@@ -4233,24 +4260,18 @@ function encodeInitVaultLpV19(juniorFloorBps, lLaunchX100) {
   u16nz("lLaunchX100", lLaunchX100);
   return concatBytes(encU8(IX_TAG_P3.InitVaultLp), encU16(juniorFloorBps), encU16(lLaunchX100));
 }
-function encodeSetAssetRiskLimitsV19(a, growth) {
-  const { growthLambdaBps: lambda, growthKinkBps: kink } = growth;
-  if (!Number.isInteger(lambda) || lambda < 1 || lambda > GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS) throw new Error(`growthLambdaBps must be in 1..=10000, got ${lambda}`);
-  if (!Number.isInteger(kink) || kink < 0 || kink > GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS) throw new Error(`growthKinkBps must be in 0..=${GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS}, got ${kink}`);
-  encodeSetAssetRiskLimitsP1(a);
+function encodeSetAssetRiskLimitsV19(assetIndex, lambdaBps, kinkBps) {
+  if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex > 65535) throw new Error(`assetIndex must be a u16, got ${assetIndex}`);
+  if (!Number.isInteger(lambdaBps) || lambdaBps < 1 || lambdaBps > GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS) throw new Error(`lambdaBps must be in 1..=${GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}, got ${lambdaBps}`);
+  if (!Number.isInteger(kinkBps) || kinkBps < 0 || kinkBps > GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS) throw new Error(`kinkBps must be in 0..=${GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS}, got ${kinkBps}`);
   const out = concatBytes(
     encU8(IX_TAG_P1.SetAssetRiskLimits),
-    encU16(a.assetIndex),
-    encU16(a.execBandBps),
-    encU32(a.lpExposureKBps),
-    encU128(a.lpFloorAtoms),
-    encU128(a.sideOiCapQ),
-    encU8(a.matcherExtMode ?? 0),
-    encU16(a.maxRequestedFeeBps ?? 0),
-    encU32(lambda),
-    encU16(kink)
+    encU16(assetIndex),
+    new Uint8Array(41),
+    encU32(lambdaBps),
+    encU16(kinkBps)
   );
-  if (out.length !== 50 || out[0] !== IX_TAG_P1.SetAssetRiskLimits) throw new Error(`encodeSetAssetRiskLimitsV19: internal length ${out.length}`);
+  if (out.length !== 50) throw new Error(`encodeSetAssetRiskLimitsV19: internal length ${out.length}`);
   return out;
 }
 function encodeMatcherCallExtV2(ext) {
@@ -4277,6 +4298,12 @@ function encodeMatcherCallExtV3FromV2(v2, caps) {
   out[0] = MATCHER_CALL_EXT_VERSION_V3;
   out.set(encU128(caps.inventoryCapQ), 40);
   out.set(encU128(caps.liquidityNotionalE6), 56);
+  return out;
+}
+function markExtV3TakerReducing(v3, takerReducing) {
+  if (v3.length !== MATCHER_CALL_EXT_V3_LEN) throw new Error(`v3 block must be ${MATCHER_CALL_EXT_V3_LEN} bytes, got ${v3.length}`);
+  const out = Uint8Array.from(v3);
+  if (takerReducing) out[1] = out[1] | MATCHER_CALL_EXT_FLAG_TAKER_REDUCING;
   return out;
 }
 var GROWTH_U64_MAX = U64_MAX2;
@@ -12002,6 +12029,7 @@ export {
   ENGINE_OFF,
   EXPECTED_SLAB_VERSION,
   FEE_SPLIT,
+  GROWTH_BATCH_MAX_LEGS,
   GROWTH_BPS,
   GROWTH_DEPTH_MULT,
   GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS,
@@ -12038,6 +12066,7 @@ export {
   MATCHER_BATCH_HEADER_LEN,
   MATCHER_BATCH_LEG_LEN,
   MATCHER_CALL_EXT_FLAG,
+  MATCHER_CALL_EXT_FLAG_TAKER_REDUCING,
   MATCHER_CALL_EXT_LEN,
   MATCHER_CALL_EXT_OFFSET,
   MATCHER_CALL_EXT_V2_LEN,
@@ -12113,6 +12142,7 @@ export {
   RESOLVED_RECEIPT_LEN_P3,
   RESOLVE_MODE_DEGENERATE,
   RESOLVE_MODE_ORDINARY,
+  R_GAP_MIN_LIQUIDATION_SLOTS,
   RpcPool,
   SLAB_MAGIC,
   SLAB_TIERS,
@@ -12199,6 +12229,7 @@ export {
   adminUpdateFeeSplitAccounts,
   adminUpdateMaintenanceFeePerSlotAccounts,
   adminUpdateTradeFeePolicyAccounts,
+  assertGrowthBatchLegs,
   assetGrowthAccountOffsetV19,
   assetRiskLimitsAccountOffsetP1,
   assetVaultLpAccountOffsetP3,
@@ -12556,6 +12587,7 @@ export {
   liquidityNotionalE6,
   listOpenResolvedReceiptsP3,
   liveExitSeniorValueP3,
+  markExtV3TakerReducing,
   matcherConfigureOwnerProofAccounts,
   maxAccountIndex,
   nCapQ,
@@ -12589,6 +12621,7 @@ export {
   planResolvedVaultLpExitP3,
   planStakeWindDown,
   quoteMaxLeverage,
+  rGapFloorBps,
   rankAdlPositions,
   readAssetPricesP3,
   readLastThrUpdateSlot,

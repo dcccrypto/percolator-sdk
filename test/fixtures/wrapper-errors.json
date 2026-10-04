@@ -1,6 +1,6 @@
 {
-  "prog": "5993a5c11cfbb616f28c7636c44c9dfbac516034",
-  "count": 95,
+  "prog": "e8e5f3992ab45728b24259c53bd90897dcdd1692",
+  "count": 96,
   "errors": {
     "0": "InvalidMagic",
     "1": "InvalidVersion",
@@ -96,6 +96,7 @@
     "91": "LpVaultTargetPotImpaired",
     "92": "GrowthLeverageExceeded",
     "93": "GrowthCapacityFull",
-    "94": "GrowthInvalidConfig"
+    "94": "GrowthInvalidConfig",
+    "95": "GrowthNeedsLpCounterparty"
   }
 }

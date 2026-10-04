@@ -1,6 +1,5 @@
 import type { InitMarketV17Args, InitMarketArgs } from "./instructions.js";
 import type { MatcherCallExt } from "./matcher-v2.js";
-import type { SetAssetRiskLimitsArgsP1 } from "./risk-limits-p1.js";
 /** `growth_v19::BPS`. */
 export declare const GROWTH_BPS = 10000n;
 /** `growth_v19::MAX_IMR_BPS` (100% initial margin = 1x). */
@@ -62,6 +61,12 @@ export declare const ASSET_GROWTH_FIELD_OFF: Readonly<{
     readonly flags: 39;
     readonly reserved: 40;
 }>;
+/** `R_GAP_MIN_LIQUIDATION_SLOTS` (L-2): liquidation latency, in slots, behind the `r_gap` floor. */
+export declare const R_GAP_MIN_LIQUIDATION_SLOTS = 50n;
+/** `GROWTH_BATCH_MAX_LEGS`: a BatchTradeCpi carrying ANY growth leg is refused above this many legs. */
+export declare const GROWTH_BATCH_MAX_LEGS = 10;
+/** `EXT_FLAG_TAKER_REDUCING` (byte 1, bit 3). */
+export declare const MATCHER_CALL_EXT_FLAG_TAKER_REDUCING = 8;
 /** `CALL_EXT_V3_VERSION`. */
 export declare const MATCHER_CALL_EXT_VERSION_V3 = 3;
 /** v2 block length (24-byte v1 + i128 lp_position_q). */
@@ -321,6 +326,13 @@ export interface MaxLeverageQuote {
      * `null` on the thin side or when growth is off.
      */
     headroomQ: bigint | null;
+    /**
+     * M-1: always `true`. On a growth asset a strict reduce or close is never clipped or refused for
+     * LP capacity, the LP floor, closed mode or the h-lock (the wrapper marks such legs TAKER_REDUCING).
+     * On a single TradeCpi a FLIP is clipped to its closing part; the opening part needs a new order,
+     * which faces the gate. Every `closed` above applies to NEW risk only.
+     */
+    reduceOnlyAlwaysAllowed: true;
 }
 /**
  * Quote the maximum leverage a taker can open on `side` right now.
@@ -335,7 +347,9 @@ export interface MaxLeverageQuote {
  * IMPORTANT: on-chain the check runs on the POST-TRADE LP position (`|LP| + fill`), and the
  * requirement is evaluated at that larger utilisation. This quote uses the current `|LP|`, so it is
  * an UPPER BOUND for any order that grows the crowd; a large order can be refused (92/93) even
- * when quoted. Reductions and closes are never checked.
+ * when quoted. Reductions and closes are never checked, clipped or refused (`reduceOnlyAlwaysAllowed`):
+ * `closed` means NEW risk on that side only (a flip is clipped to its closing part on a single TradeCpi).
+ * Every risk-increasing fill must also face an LP (error 95), so NoCpi trades between two non-LPs can only reduce.
  *
  * @param input  Market/LP state (see {@link QuoteMaxLeverageInput}).
  * @param side   Taker side.
@@ -348,6 +362,31 @@ export interface MaxLeverageQuote {
  * ```
  */
 export declare function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "short"): MaxLeverageQuote;
+/**
+ * L-2 floor on the creator-declared `r_gap`: `max_price_move_bps_per_slot * 50`. Port of
+ * `r_gap_floor_bps` (the wrapper fails closed on u64 overflow; so does this).
+ *
+ * @param maxPriceMoveBpsPerSlot  Engine per-slot price limit (bps).
+ * @returns The minimum `r_gap_bps`.
+ * @example
+ * ```ts
+ * rGapFloorBps(4n); // 200n
+ * ```
+ */
+export declare function rGapFloorBps(maxPriceMoveBpsPerSlot: bigint): bigint;
+/**
+ * Client guard for the batch cap: a BatchTradeCpi carrying any growth leg is refused above
+ * {@link GROWTH_BATCH_MAX_LEGS} legs (every leg then sends the 72-byte ext v3; CU headroom).
+ *
+ * @param legCount        Number of legs in the batch.
+ * @param anyGrowthLeg    Whether at least one leg's asset has growth ON.
+ * @returns void; throws when the wrapper would refuse (InvalidInstruction).
+ * @example
+ * ```ts
+ * assertGrowthBatchLegs(11, true); // throws
+ * ```
+ */
+export declare function assertGrowthBatchLegs(legCount: number, anyGrowthLeg: boolean): void;
 /**
  * Tag 0 InitMarket with the growth trailer: the existing {@link encodeInitMarket} bytes followed by
  * `u16 r_gap_bps` and `u16 l_launch_x100` (both must be non-zero, else the wrapper returns
@@ -376,30 +415,25 @@ export declare function encodeInitMarketV19(args: InitMarketV17Args | InitMarket
  * ```
  */
 export declare function encodeInitVaultLpV19(juniorFloorBps: number, lLaunchX100: number): Uint8Array;
-/** Tag 93 growth trailer fields (upgrade-authority only). */
-export interface SetAssetRiskLimitsGrowthV19 {
-    /** `lambda_bps` in [1, 10_000] (no-clamp bound, see {@link GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}). */
-    growthLambdaBps: number;
-    /** Kink u_k in [0, 5_000]. */
-    growthKinkBps: number;
-}
 /**
- * Tag 93 SetAssetRiskLimits with the growth trailer (UA-only). The FULL legacy body is always
- * present in this form (41 bytes + `matcher_ext_mode` u8 + `max_requested_fee_bps` u16 = 44),
- * followed by `u32 growth_lambda_bps` + `u16 growth_kink_bps` = 50 bytes including the tag.
+ * Tag 93 SetAssetRiskLimitsV19 (growth dials only, upgrade-authority). Wire: `[93, asset_index u16]`,
+ * then the rest of the 44-byte legacy body (incl. tag) ALL ZERO (it exists only for wire disambiguation: the wrapper refuses
+ * a non-zero body with Custom(9), never applies it, and a dial change leaves the asset's risk limits
+ * untouched), then `u32 growth_lambda_bps` + `u16 growth_kink_bps`: 50 bytes including the tag.
  *
- * Bounds enforced client-side (= wrapper `growth_dials_ok(false, ..)`): lambda in [1, 10_000], kink in [0, 5_000].
+ * Bounds enforced client-side (= wrapper `growth_dials_ok(false, ..)`, no epoch clamp):
+ * lambda in [1, 10_000], kink in [0, 5_000].
  *
- * @param a       Legacy tag-93 fields (the optional tail defaults to 0, but is ALWAYS emitted).
- * @param growth  Growth trailer.
+ * @param assetIndex  Asset slot (must be a growth-enabled asset on-chain).
+ * @param lambdaBps   `lambda_bps`, 1..=10_000.
+ * @param kinkBps     Kink u_k, 0..=5_000.
  * @returns 50 bytes.
  * @example
  * ```ts
- * encodeSetAssetRiskLimitsV19({ assetIndex: 0, execBandBps: 300, lpExposureKBps: 0, lpFloorAtoms: 0n, sideOiCapQ: 0n },
- *   { growthLambdaBps: 10_000, growthKinkBps: 5_000 });
+ * encodeSetAssetRiskLimitsV19(0, 10_000, 5_000);
  * ```
  */
-export declare function encodeSetAssetRiskLimitsV19(a: SetAssetRiskLimitsArgsP1, growth: SetAssetRiskLimitsGrowthV19): Uint8Array;
+export declare function encodeSetAssetRiskLimitsV19(assetIndex: number, lambdaBps: number, kinkBps: number): Uint8Array;
 /** v2 call-extension fields: the v1 block plus the LP's signed position. */
 export interface MatcherCallExtV2 extends MatcherCallExt {
     /** i128 `lp_position_q` (the LP's engine position; `i128::MIN` is refused by the matcher). */
@@ -451,6 +485,20 @@ export declare function encodeMatcherCallExtV3(ext: MatcherCallExtV2, caps: Matc
  * ```
  */
 export declare function encodeMatcherCallExtV3FromV2(v2: Uint8Array, caps: MatcherCallExtCapsV3): Uint8Array;
+/**
+ * Port of `ext_v3_mark_taker_reducing` (M-1): the wrapper sets TAKER_REDUCING (byte 1 bit 3) on a
+ * growth leg's v3 block, in any ext mode, whenever the leg only reduces the taker (strictly, or a
+ * flip already clipped to its close). The matcher then never clips it for LP capacity.
+ *
+ * @param v3            72-byte v3 block.
+ * @param takerReducing Whether the leg only reduces the taker.
+ * @returns A copy with the flag set when `takerReducing`.
+ * @example
+ * ```ts
+ * markExtV3TakerReducing(block, true)[1] & 0x08; // 8
+ * ```
+ */
+export declare function markExtV3TakerReducing(v3: Uint8Array, takerReducing: boolean): Uint8Array;
 /** Re-exported for convenience: u64 max (headroom saturation). */
 export declare const GROWTH_U64_MAX: bigint;
 export {};

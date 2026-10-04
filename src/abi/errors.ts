@@ -476,15 +476,19 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   92: {
     name: "GrowthLeverageExceeded",
-    hint: "Max leverage on this side is lower right now: this market's liquidity is in use. growth-v19: a risk-increasing fill on a growth-enabled asset left the taker's conservative equity (no credit for positive PnL) below the dynamic initial margin (the launch ceiling IMR(L_ceil), stepped up on the crowded side as the LP's capacity fills). Reduce the size or add margin; reductions and closes are never refused. Use quoteMaxLeverage() to preview.",
+    hint: "Max leverage on this side is lower right now: this market's liquidity is in use. Reducing or closing is always allowed. growth-v19: a risk-increasing fill on a growth-enabled asset left the taker's conservative equity (no credit for positive PnL) below the dynamic initial margin (the launch ceiling IMR(L_ceil), stepped up on the crowded side as the LP's capacity fills). Reduce the size or add margin. Use quoteMaxLeverage() to preview.",
   },
   93: {
     name: "GrowthCapacityFull",
-    hint: "This side is full right now. Closes and the other side are open. growth-v19: a crowd-side risk-increasing fill when the LP's capacity N_cap = lambda * C_m / P is full (u >= 1), its capital is 0, the price is 0, or the market's bankruptcy h-lock is latched. The thin side, reductions and closes stay open.",
+    hint: "New positions on this side are paused: the market's capacity is full. Reducing or closing your position is always allowed. growth-v19: a crowd-side risk-increasing fill would take the LP past its capacity N_cap = lambda * C_m / P (refused only when u > 1; u == 1 is admitted at 100% IMR), the LP's capital is 0, the price is 0, or the market's bankruptcy h-lock is latched.",
   },
   94: {
     name: "GrowthInvalidConfig",
-    hint: "growth-v19: invalid growth configuration. InitMarket with a growth block: MMR < r_gap + liquidation fee, r_gap == 0, l_launch outside [1x, tier max], or max_abs_funding_e9_per_slot == 0 on a single-slot market. InitVaultLp (94) with an l_launch on an asset whose growth block is off or outside the tier.",
+    hint: "growth-v19: invalid growth configuration. InitMarket with a growth block: MMR < r_gap + liquidation fee, r_gap == 0, r_gap below max_price_move_bps_per_slot * 50, l_launch outside [1x, tier max], or max_abs_funding_e9_per_slot == 0 on a single-slot market. InitVaultLp (94) with an l_launch on an asset whose growth block is off or outside the tier.",
+  },
+  95: {
+    name: "GrowthNeedsLpCounterparty",
+    hint: "Open against the market maker: trade through the book. growth-v19: on a growth asset every risk-increasing fill must face an LP counterparty. A fill between two non-LP portfolios, or between two LPs, may only reduce or close.",
   },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);

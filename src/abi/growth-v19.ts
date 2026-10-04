@@ -21,8 +21,7 @@ import {
   MATCHER_CALL_EXT_LEN,
 } from "./matcher-v2.js";
 import type { MatcherCallExt } from "./matcher-v2.js";
-import { encodeSetAssetRiskLimitsP1, IX_TAG_P1 } from "./risk-limits-p1.js";
-import type { SetAssetRiskLimitsArgsP1 } from "./risk-limits-p1.js";
+import { IX_TAG_P1 } from "./risk-limits-p1.js";
 import { IX_TAG_P3 } from "./p3.js";
 
 // ============================================================================
@@ -81,6 +80,16 @@ export const ASSET_GROWTH_FIELD_OFF = Object.freeze({
   cushionShareBps: 36, version: 38, flags: 39, reserved: 40,
 } as const);
 
+/** `R_GAP_MIN_LIQUIDATION_SLOTS` (L-2): liquidation latency, in slots, behind the `r_gap` floor. */
+export const R_GAP_MIN_LIQUIDATION_SLOTS = 50n;
+/** `GROWTH_BATCH_MAX_LEGS`: a BatchTradeCpi carrying ANY growth leg is refused above this many legs. */
+export const GROWTH_BATCH_MAX_LEGS = 10;
+/** Tag-0 byte offsets (v17 InitMarket body) of the fields the growth rule reads. */
+const INIT_MARKET_MMR_OFF = 59;
+const INIT_MARKET_LIQ_FEE_OFF = 91;
+const INIT_MARKET_MAX_PRICE_MOVE_OFF = 131;
+/** `EXT_FLAG_TAKER_REDUCING` (byte 1, bit 3). */
+export const MATCHER_CALL_EXT_FLAG_TAKER_REDUCING = 0x08;
 /** `CALL_EXT_V3_VERSION`. */
 export const MATCHER_CALL_EXT_VERSION_V3 = 3;
 /** v2 block length (24-byte v1 + i128 lp_position_q). */
@@ -477,6 +486,13 @@ export interface MaxLeverageQuote {
    * `null` on the thin side or when growth is off.
    */
   headroomQ: bigint | null;
+  /**
+   * M-1: always `true`. On a growth asset a strict reduce or close is never clipped or refused for
+   * LP capacity, the LP floor, closed mode or the h-lock (the wrapper marks such legs TAKER_REDUCING).
+   * On a single TradeCpi a FLIP is clipped to its closing part; the opening part needs a new order,
+   * which faces the gate. Every `closed` above applies to NEW risk only.
+   */
+  reduceOnlyAlwaysAllowed: true;
 }
 
 /**
@@ -492,7 +508,9 @@ export interface MaxLeverageQuote {
  * IMPORTANT: on-chain the check runs on the POST-TRADE LP position (`|LP| + fill`), and the
  * requirement is evaluated at that larger utilisation. This quote uses the current `|LP|`, so it is
  * an UPPER BOUND for any order that grows the crowd; a large order can be refused (92/93) even
- * when quoted. Reductions and closes are never checked.
+ * when quoted. Reductions and closes are never checked, clipped or refused (`reduceOnlyAlwaysAllowed`):
+ * `closed` means NEW risk on that side only (a flip is clipped to its closing part on a single TradeCpi).
+ * Every risk-increasing fill must also face an LP (error 95), so NoCpi trades between two non-LPs can only reduce.
  *
  * @param input  Market/LP state (see {@link QuoteMaxLeverageInput}).
  * @param side   Taker side.
@@ -511,7 +529,7 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   const e = input.engineImrBps;
   const out = (p: Partial<MaxLeverageQuote>): MaxLeverageQuote => ({
     side, crowd, closed: false, closedReason: null, maxLeverageX100: 0, imrBps: null,
-    utilizationBps: null, nCapQ: null, growthOn: g !== null, headroomQ: null, ...p,
+    utilizationBps: null, nCapQ: null, growthOn: g !== null, headroomQ: null, reduceOnlyAlwaysAllowed: true, ...p,
   });
   const lev = (imr: bigint): number => {
     const l = leverageX100ForImrBps(imr);
@@ -544,6 +562,39 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - lpAbs });
 }
 
+/**
+ * L-2 floor on the creator-declared `r_gap`: `max_price_move_bps_per_slot * 50`. Port of
+ * `r_gap_floor_bps` (the wrapper fails closed on u64 overflow; so does this).
+ *
+ * @param maxPriceMoveBpsPerSlot  Engine per-slot price limit (bps).
+ * @returns The minimum `r_gap_bps`.
+ * @example
+ * ```ts
+ * rGapFloorBps(4n); // 200n
+ * ```
+ */
+export function rGapFloorBps(maxPriceMoveBpsPerSlot: bigint): bigint {
+  const f = maxPriceMoveBpsPerSlot * R_GAP_MIN_LIQUIDATION_SLOTS;
+  if (maxPriceMoveBpsPerSlot < 0n || f > U64_MAX) throw new Error("r_gap floor overflows u64 (wrapper fails closed)");
+  return f;
+}
+
+/**
+ * Client guard for the batch cap: a BatchTradeCpi carrying any growth leg is refused above
+ * {@link GROWTH_BATCH_MAX_LEGS} legs (every leg then sends the 72-byte ext v3; CU headroom).
+ *
+ * @param legCount        Number of legs in the batch.
+ * @param anyGrowthLeg    Whether at least one leg's asset has growth ON.
+ * @returns void; throws when the wrapper would refuse (InvalidInstruction).
+ * @example
+ * ```ts
+ * assertGrowthBatchLegs(11, true); // throws
+ * ```
+ */
+export function assertGrowthBatchLegs(legCount: number, anyGrowthLeg: boolean): void {
+  if (anyGrowthLeg && legCount > GROWTH_BATCH_MAX_LEGS) throw new Error(`a batch with a growth leg is limited to ${GROWTH_BATCH_MAX_LEGS} legs, got ${legCount}`);
+}
+
 // ============================================================================
 // Instruction encoders
 // ============================================================================
@@ -569,7 +620,18 @@ function u16nz(name: string, v: number): void {
 export function encodeInitMarketV19(args: InitMarketV17Args | InitMarketArgs, rGapBps: number, lLaunchX100: number): Uint8Array {
   u16nz("rGapBps", rGapBps);
   u16nz("lLaunchX100", lLaunchX100);
-  return concatBytes(encodeInitMarket(args), encU16(rGapBps), encU16(lLaunchX100));
+  const legacy = encodeInitMarket(args);
+  // Wrapper rule (`init_margin_rule_ok`, L-2): r_gap >= max_price_move_bps_per_slot * 50 and
+  // MMR >= r_gap + liquidation_fee_bps. Read both inputs back from the encoded bytes so every args
+  // shape (v17 and the v12 compat shim) is checked identically.
+  const dv = new DataView(legacy.buffer, legacy.byteOffset, legacy.byteLength);
+  const mmr = dv.getBigUint64(INIT_MARKET_MMR_OFF, true);
+  const liqFee = dv.getBigUint64(INIT_MARKET_LIQ_FEE_OFF, true);
+  const move = dv.getBigUint64(INIT_MARKET_MAX_PRICE_MOVE_OFF, true);
+  const floor = rGapFloorBps(move);
+  if (BigInt(rGapBps) < floor) throw new Error(`rGapBps ${rGapBps} is below the floor ${floor} (= maxPriceMoveBpsPerSlot ${move} * ${R_GAP_MIN_LIQUIDATION_SLOTS}); the wrapper refuses with GrowthInvalidConfig (94)`);
+  if (mmr < BigInt(rGapBps) + liqFee) throw new Error(`maintenanceMarginBps ${mmr} must be >= rGapBps ${rGapBps} + liquidationFeeBps ${liqFee}; the wrapper refuses with GrowthInvalidConfig (94)`);
+  return concatBytes(legacy, encU16(rGapBps), encU16(lLaunchX100));
 }
 
 /**
@@ -592,43 +654,33 @@ export function encodeInitVaultLpV19(juniorFloorBps: number, lLaunchX100: number
   return concatBytes(encU8(IX_TAG_P3.InitVaultLp), encU16(juniorFloorBps), encU16(lLaunchX100));
 }
 
-/** Tag 93 growth trailer fields (upgrade-authority only). */
-export interface SetAssetRiskLimitsGrowthV19 {
-  /** `lambda_bps` in [1, 10_000] (no-clamp bound, see {@link GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}). */
-  growthLambdaBps: number;
-  /** Kink u_k in [0, 5_000]. */
-  growthKinkBps: number;
-}
-
 /**
- * Tag 93 SetAssetRiskLimits with the growth trailer (UA-only). The FULL legacy body is always
- * present in this form (41 bytes + `matcher_ext_mode` u8 + `max_requested_fee_bps` u16 = 44),
- * followed by `u32 growth_lambda_bps` + `u16 growth_kink_bps` = 50 bytes including the tag.
+ * Tag 93 SetAssetRiskLimitsV19 (growth dials only, upgrade-authority). Wire: `[93, asset_index u16]`,
+ * then the rest of the 44-byte legacy body (incl. tag) ALL ZERO (it exists only for wire disambiguation: the wrapper refuses
+ * a non-zero body with Custom(9), never applies it, and a dial change leaves the asset's risk limits
+ * untouched), then `u32 growth_lambda_bps` + `u16 growth_kink_bps`: 50 bytes including the tag.
  *
- * Bounds enforced client-side (= wrapper `growth_dials_ok(false, ..)`): lambda in [1, 10_000], kink in [0, 5_000].
+ * Bounds enforced client-side (= wrapper `growth_dials_ok(false, ..)`, no epoch clamp):
+ * lambda in [1, 10_000], kink in [0, 5_000].
  *
- * @param a       Legacy tag-93 fields (the optional tail defaults to 0, but is ALWAYS emitted).
- * @param growth  Growth trailer.
+ * @param assetIndex  Asset slot (must be a growth-enabled asset on-chain).
+ * @param lambdaBps   `lambda_bps`, 1..=10_000.
+ * @param kinkBps     Kink u_k, 0..=5_000.
  * @returns 50 bytes.
  * @example
  * ```ts
- * encodeSetAssetRiskLimitsV19({ assetIndex: 0, execBandBps: 300, lpExposureKBps: 0, lpFloorAtoms: 0n, sideOiCapQ: 0n },
- *   { growthLambdaBps: 10_000, growthKinkBps: 5_000 });
+ * encodeSetAssetRiskLimitsV19(0, 10_000, 5_000);
  * ```
  */
-export function encodeSetAssetRiskLimitsV19(a: SetAssetRiskLimitsArgsP1, growth: SetAssetRiskLimitsGrowthV19): Uint8Array {
-  const { growthLambdaBps: lambda, growthKinkBps: kink } = growth;
-  if (!Number.isInteger(lambda) || lambda < 1 || lambda > GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS) throw new Error(`growthLambdaBps must be in 1..=10000, got ${lambda}`);
-  if (!Number.isInteger(kink) || kink < 0 || kink > GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS) throw new Error(`growthKinkBps must be in 0..=${GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS}, got ${kink}`);
-  // Validate the legacy fields with the P1 encoder (it drops a zero tail; the growth form always
-  // carries it so the trailer sits at the fixed offset 44).
-  encodeSetAssetRiskLimitsP1(a);
+export function encodeSetAssetRiskLimitsV19(assetIndex: number, lambdaBps: number, kinkBps: number): Uint8Array {
+  if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex > 0xffff) throw new Error(`assetIndex must be a u16, got ${assetIndex}`);
+  if (!Number.isInteger(lambdaBps) || lambdaBps < 1 || lambdaBps > GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS) throw new Error(`lambdaBps must be in 1..=${GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}, got ${lambdaBps}`);
+  if (!Number.isInteger(kinkBps) || kinkBps < 0 || kinkBps > GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS) throw new Error(`kinkBps must be in 0..=${GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS}, got ${kinkBps}`);
   const out = concatBytes(
-    encU8(IX_TAG_P1.SetAssetRiskLimits), encU16(a.assetIndex), encU16(a.execBandBps), encU32(a.lpExposureKBps),
-    encU128(a.lpFloorAtoms), encU128(a.sideOiCapQ), encU8(a.matcherExtMode ?? 0), encU16(a.maxRequestedFeeBps ?? 0),
-    encU32(lambda), encU16(kink),
+    encU8(IX_TAG_P1.SetAssetRiskLimits), encU16(assetIndex), new Uint8Array(41),
+    encU32(lambdaBps), encU16(kinkBps),
   );
-  if (out.length !== 50 || out[0] !== IX_TAG_P1.SetAssetRiskLimits) throw new Error(`encodeSetAssetRiskLimitsV19: internal length ${out.length}`);
+  if (out.length !== 50) throw new Error(`encodeSetAssetRiskLimitsV19: internal length ${out.length}`);
   return out;
 }
 
@@ -712,6 +764,26 @@ export function encodeMatcherCallExtV3FromV2(v2: Uint8Array, caps: MatcherCallEx
   out[0] = MATCHER_CALL_EXT_VERSION_V3;
   out.set(encU128(caps.inventoryCapQ), 40);
   out.set(encU128(caps.liquidityNotionalE6), 56);
+  return out;
+}
+
+/**
+ * Port of `ext_v3_mark_taker_reducing` (M-1): the wrapper sets TAKER_REDUCING (byte 1 bit 3) on a
+ * growth leg's v3 block, in any ext mode, whenever the leg only reduces the taker (strictly, or a
+ * flip already clipped to its close). The matcher then never clips it for LP capacity.
+ *
+ * @param v3            72-byte v3 block.
+ * @param takerReducing Whether the leg only reduces the taker.
+ * @returns A copy with the flag set when `takerReducing`.
+ * @example
+ * ```ts
+ * markExtV3TakerReducing(block, true)[1] & 0x08; // 8
+ * ```
+ */
+export function markExtV3TakerReducing(v3: Uint8Array, takerReducing: boolean): Uint8Array {
+  if (v3.length !== MATCHER_CALL_EXT_V3_LEN) throw new Error(`v3 block must be ${MATCHER_CALL_EXT_V3_LEN} bytes, got ${v3.length}`);
+  const out = Uint8Array.from(v3);
+  if (takerReducing) out[1] = (out[1] as number) | MATCHER_CALL_EXT_FLAG_TAKER_REDUCING;
   return out;
 }
 
