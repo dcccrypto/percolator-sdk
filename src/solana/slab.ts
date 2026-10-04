@@ -4689,11 +4689,11 @@ export interface V17MarketGroupOI {
  * Reads the group-level insurance balance from MarketGroupV16HeaderAccount and
  * iterates every asset-slot capacity to accumulate oi_eff_long_q / oi_eff_short_q
  * from AssetStateV16Account (the first sub-struct of EngineAssetSlotV16Account
- * which follows the 512-byte wrapper T at the start of each slot).
+ * which follows the 1024-byte wrapper T ({@link V17_ASSET_ORACLE_WRAPPER_LEN}) at the start of each slot).
  *
  * Relative offsets verified with `offset_of!` against the engine's own `#[repr(C)]`
  * structs (`percolator/src/v16.rs`): `MarketGroupV16HeaderAccount::insurance` @ 301,
- * `AssetStateV16Account::oi_eff_long_q` @ 273, `oi_eff_short_q` @ 289. Every
+ * `AssetStateV16Account::oi_eff_long_q` @ 289 (= 49 + 15 x 16), `oi_eff_short_q` @ 305. Every
  * `V16Pod*` field is an align-1 `[u8; N]` and the structs derive `bytemuck::Pod`
  * (which forbids implicit padding), so these are exact byte offsets.
  *
@@ -4703,8 +4703,13 @@ export interface V17MarketGroupOI {
  * `assert!(size_of::<WrapperConfigV16>() == WRAPPER_CONFIG_LEN)`):
  * - slots base:        V17_MARKET_GROUP_OFF(592) + V17_MARKET_GROUP_LEN(758) = 1350
  * - insurance:         592 + 301 = 893
- * - oi_eff_long_q(i):  1350 + i×1797 + 512 + 273 = 2135 + i×1797
- * - oi_eff_short_q(i): 1350 + i×1797 + 512 + 289 = 2151 + i×1797
+ * - oi_eff_long_q(i):  1350 + i×2325 + 1024 + 289 = 2663 + i×2325
+ * - oi_eff_short_q(i): 1350 + i×2325 + 1024 + 305 = 2679 + i×2325
+ *
+ * (Pre-v18 these read 273 / 289 over a 512-byte wrapper and 1797-byte slots; the
+ * constants V17_ASSET_STATE_OI_LONG_REL / _SHORT_REL below were already moved to
+ * 289 / 305 and checked against a live devnet slab with open interest - only this
+ * comment still quoted the old numbers.)
  *
  * (This block previously quoted 432/496 and 448/512 from a pre-fee-split layout,
  * giving insurance @ 813. The CODE was always correct — it composes the named
