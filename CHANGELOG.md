@@ -7,6 +7,41 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — growth-v19 support (DRAFT; needs a version-bump decision, probably 9.0.0; do not publish)
+
+Additive client support for wrapper `dcccrypto/percolator-prog#524` (`e8e5f399`) and matcher
+`dcccrypto/percolator-match#33`. New module `src/abi/growth-v19.ts`: `AssetGrowthV19` decoder (120 B at
+asset slot + 672), bigint mirror of `growth_v19.rs` (`imrBpsForLeverageX100`, `ceilingImrBps`, `nCapQ`,
+`dynImrBps`, `utilizationBps`, ...), `quoteMaxLeverage`, tag 0 / 93 / 94 growth trailer encoders, matcher
+call-ext v2/v3 encoders; errors 92 GrowthLeverageExceeded, 93 GrowthCapacityFull, 94 GrowthInvalidConfig.
+
+**Re-verification sync (N-1, BREAKING for `quoteMaxLeverage` callers).** The wrapper now measures
+growth capacity on the USERS' open interest per side (`OI_eff(side)` minus the vault LP's own leg),
+caps BOTH sides at `N_cap`, and admits growth opens only against the asset's BOUND P3 vault LP.
+- `QuoteMaxLeverageInput` gains REQUIRED `assetBound`, `oiEffLongQ`, `oiEffShortQ`; `utilizationBps`
+  and `headroomQ` are per side on users OI; the thin side can be `closed: "capacity-full"`; new
+  closed reason `"not-bound"`. New helper `usersSideOiQ` (port of `users_side_oi_q`).
+- `MaxLeverageQuote.reduceOnlyAlwaysAllowed` is RENAMED `reduceOnlyCapacityExempt` (closes are
+  exempt from growth CAPACITY, not from the engine's own IM on the LP, and a NoCpi close into an
+  opener is refused as a whole).
+- Errors 96 `GrowthBatchTooManyLegs` (was the generic InvalidInstruction) and 97
+  `GrowthRequiresBoundVaultLp`; map regenerated with `scripts/wrapper-errors/gen.py` (98 codes).
+
+**Round-3 sync (N-2 utilisation fee, wrapper 9cc6d281).** Opens into a side above its utilisation
+kink pay `ceil(max * (u - u_k) / (1 - u_k))` bps of the opening notional to the vault LP (default
+max 500 bps at u = 1); closes never pay it.
+- `AssetGrowthV19.utilFeeMaxBps` (offset 40; 0 = `GROWTH_UTIL_FEE_DEFAULT_BPS`).
+- `utilisationFeeBps`, `utilFeeMaxEffectiveBps`, `openingPartQ`, and `previewGrowthOpenFee(input,
+  takerEffQ, sizeQ, tradeFeeBaseBps)` -> the exact fee rate charged, the fee_bps to sign (ex the
+  matcher's request) and whether a batch leg is allowed. `MaxLeverageQuote.utilisationFeeBps` is
+  the rate at the side's current utilisation.
+- `encodeSetAssetRiskLimitsV19(asset, lambda, kink, utilFeeMaxBps?)`: the 52-byte form sets the
+  dial (tighten-only 500..2000).
+- Errors 98 `GrowthUtilisationFeeNotCovered`, 99 `GrowthUtilisationFeeRequiresTradeCpi`; map
+  regenerated (100 codes).
+
+---
+
 ## [8.0.1] — unreleased (do not `npm publish` without explicit human go)
 
 Client-side prep for the devnet wrapper upgrade to percolator-prog **`7a3ac04c`**

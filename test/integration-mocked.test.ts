@@ -719,7 +719,8 @@ describe("Error codes 61-65 (ADL) — parseErrorFromLogs + decodeError (PERC-833
     expect(decodeError(63)?.name).toBe("LpVaultBackingBucketNotEmpty");
     expect(PERCOLATOR_ERRORS[63].name).toBe("LpVaultBackingBucketNotEmpty");
     expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
-    expect(decodeError(92), "92 is past the tail").toBeUndefined();
+    expect(decodeError(92)?.name).toBe("GrowthLeverageExceeded");
+    expect(decodeError(100), "100 is past the tail").toBeUndefined();
   });
 
   it("63 (0x3F) — parseErrorFromLogs returns LpVaultBackingBucketNotEmpty", () => {

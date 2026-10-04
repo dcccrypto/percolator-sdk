@@ -474,6 +474,38 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "LpVaultTargetPotImpaired",
     hint: "Non-bound Earn vault, deposits paused (wrapper 7a3ac04c NAV floor + its H-1 successor): DepositToLpVault (tag 75) is refused while a backing pot's net impairment (cumulative loss minus recovery) exceeds its principal (7a3ac04c: the target pot; H-1: either pot), or while the share price has collapsed (nav * 1000 < total shares). Depositing then would be absorbed by the excess loss or would mint almost every share at a near-zero price. Nothing moved; withdrawals (tag 77) still work. Retry once the vault recovers. Do NOT send RebalanceLpVaultBacking (91) into an over-impaired pot to clear it: under the floor that only moves holders' value into that pot.",
   },
+  92: {
+    name: "GrowthLeverageExceeded",
+    hint: "Max leverage on this side is lower right now: this market's liquidity is in use. Reducing or closing is always allowed. growth-v19: a risk-increasing fill on a growth-enabled asset left the taker's conservative equity (no credit for positive PnL) below the dynamic initial margin (the launch ceiling IMR(L_ceil), stepped up on the crowded side as the LP's capacity fills). Reduce the size or add margin. Use quoteMaxLeverage() to preview.",
+  },
+  93: {
+    name: "GrowthCapacityFull",
+    hint: "New positions on this side are paused: the market's capacity is full. Reducing or closing your position is always allowed. growth-v19: a crowd-side risk-increasing fill would take the LP past its capacity N_cap = lambda * C_m / P (refused only when u > 1; u == 1 is admitted at 100% IMR), the LP's capital is 0, the price is 0, or the market's bankruptcy h-lock is latched.",
+  },
+  94: {
+    name: "GrowthInvalidConfig",
+    hint: "growth-v19: invalid growth configuration. InitMarket with a growth block: MMR < r_gap + liquidation fee, r_gap == 0, r_gap below max_price_move_bps_per_slot * 50, l_launch outside [1x, tier max], or max_abs_funding_e9_per_slot == 0 on a single-slot market. InitVaultLp (94) with an l_launch on an asset whose growth block is off or outside the tier.",
+  },
+  95: {
+    name: "GrowthNeedsLpCounterparty",
+    hint: "Open against the market maker: trade through the book. growth-v19: on a growth asset every risk-increasing fill must face the asset's bound vault LP. A fill between two non-LP portfolios, between two LPs, or against any other LP may only reduce or close.",
+  },
+  96: {
+    name: "GrowthBatchTooManyLegs",
+    hint: "Split this order into batches of at most 10 markets. growth-v19: a BatchTradeCpi carrying a leg on a growth-enabled asset is limited to GROWTH_BATCH_MAX_LEGS (10) legs (compute budget). Nothing was executed.",
+  },
+  97: {
+    name: "GrowthRequiresBoundVaultLp",
+    hint: "This market is not open for new positions. Reducing or closing is always allowed. growth-v19: opens on a growth-enabled asset are admitted only when the asset has a bound vault LP (P3); capacity is measured on the users' open interest against that LP.",
+  },
+  98: {
+    name: "GrowthUtilisationFeeNotCovered",
+    hint: "This side is busy: raise your max fee to cover the utilisation fee (see the quote). growth-v19 N-2: an open into a side above its utilisation kink pays a utilisation fee to the market maker, and the signed fee_bps (or the market's fee cap) does not cover base + matcher fee + that fee. Use previewGrowthOpenFee(). Closing is never charged.",
+  },
+  99: {
+    name: "GrowthUtilisationFeeRequiresTradeCpi",
+    hint: "Place this order on its own (not in a batch). growth-v19 N-2: a batch leg that opens into a side above its utilisation kink owes a utilisation fee only a single TradeCpi can pay. Closes and opens below the kink can still be batched.",
+  },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
 Object.freeze(PERCOLATOR_ERRORS);

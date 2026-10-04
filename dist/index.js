@@ -2996,6 +2996,38 @@ var PERCOLATOR_ERRORS = {
   91: {
     name: "LpVaultTargetPotImpaired",
     hint: "Non-bound Earn vault, deposits paused (wrapper 7a3ac04c NAV floor + its H-1 successor): DepositToLpVault (tag 75) is refused while a backing pot's net impairment (cumulative loss minus recovery) exceeds its principal (7a3ac04c: the target pot; H-1: either pot), or while the share price has collapsed (nav * 1000 < total shares). Depositing then would be absorbed by the excess loss or would mint almost every share at a near-zero price. Nothing moved; withdrawals (tag 77) still work. Retry once the vault recovers. Do NOT send RebalanceLpVaultBacking (91) into an over-impaired pot to clear it: under the floor that only moves holders' value into that pot."
+  },
+  92: {
+    name: "GrowthLeverageExceeded",
+    hint: "Max leverage on this side is lower right now: this market's liquidity is in use. Reducing or closing is always allowed. growth-v19: a risk-increasing fill on a growth-enabled asset left the taker's conservative equity (no credit for positive PnL) below the dynamic initial margin (the launch ceiling IMR(L_ceil), stepped up on the crowded side as the LP's capacity fills). Reduce the size or add margin. Use quoteMaxLeverage() to preview."
+  },
+  93: {
+    name: "GrowthCapacityFull",
+    hint: "New positions on this side are paused: the market's capacity is full. Reducing or closing your position is always allowed. growth-v19: a crowd-side risk-increasing fill would take the LP past its capacity N_cap = lambda * C_m / P (refused only when u > 1; u == 1 is admitted at 100% IMR), the LP's capital is 0, the price is 0, or the market's bankruptcy h-lock is latched."
+  },
+  94: {
+    name: "GrowthInvalidConfig",
+    hint: "growth-v19: invalid growth configuration. InitMarket with a growth block: MMR < r_gap + liquidation fee, r_gap == 0, r_gap below max_price_move_bps_per_slot * 50, l_launch outside [1x, tier max], or max_abs_funding_e9_per_slot == 0 on a single-slot market. InitVaultLp (94) with an l_launch on an asset whose growth block is off or outside the tier."
+  },
+  95: {
+    name: "GrowthNeedsLpCounterparty",
+    hint: "Open against the market maker: trade through the book. growth-v19: on a growth asset every risk-increasing fill must face the asset's bound vault LP. A fill between two non-LP portfolios, between two LPs, or against any other LP may only reduce or close."
+  },
+  96: {
+    name: "GrowthBatchTooManyLegs",
+    hint: "Split this order into batches of at most 10 markets. growth-v19: a BatchTradeCpi carrying a leg on a growth-enabled asset is limited to GROWTH_BATCH_MAX_LEGS (10) legs (compute budget). Nothing was executed."
+  },
+  97: {
+    name: "GrowthRequiresBoundVaultLp",
+    hint: "This market is not open for new positions. Reducing or closing is always allowed. growth-v19: opens on a growth-enabled asset are admitted only when the asset has a bound vault LP (P3); capacity is measured on the users' open interest against that LP."
+  },
+  98: {
+    name: "GrowthUtilisationFeeNotCovered",
+    hint: "This side is busy: raise your max fee to cover the utilisation fee (see the quote). growth-v19 N-2: an open into a side above its utilisation kink pays a utilisation fee to the market maker, and the signed fee_bps (or the market's fee cap) does not cover base + matcher fee + that fee. Use previewGrowthOpenFee(). Closing is never charged."
+  },
+  99: {
+    name: "GrowthUtilisationFeeRequiresTradeCpi",
+    hint: "Place this order on its own (not in a batch). growth-v19 N-2: a batch leg that opens into a side above its utilisation kink owes a utilisation fee only a single TradeCpi can pay. Closes and opens below the kink can still be batched."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -4006,6 +4038,351 @@ function decodeAssetRiskLimitsP1(marketData, assetIndex) {
   if (marketData.length < off + ASSET_RISK_LIMITS_LEN_P1) throw new Error(`market account too short for asset ${assetIndex}`);
   return decodeAssetRiskLimitsRecordP1(marketData.subarray(off, off + ASSET_RISK_LIMITS_LEN_P1));
 }
+
+// src/abi/growth-v19.ts
+var GROWTH_BPS = 10000n;
+var GROWTH_MAX_IMR_BPS = 10000n;
+var GROWTH_LEVERAGE_X100_ONE = 100;
+var GROWTH_MAX_LAMBDA_BPS = 1e5;
+var GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS = 1e4;
+var GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS = 5e3;
+var GROWTH_DEPTH_MULT = 4n;
+var GROWTH_MAX_POSITION_ABS_Q = 100000000000000n;
+var GROWTH_PIN_MATCHER_EXT_MODE = 1;
+var GROWTH_PIN_MAX_REQUESTED_FEE_BPS = 100;
+var GROWTH_PIN_LP_FLOOR_ATOMS = 1000000n;
+var GROWTH_PIN_MATCHER_KIND = 2;
+var GROWTH_VERSION = 1;
+var GROWTH_POS_SCALE = 1000000n;
+var ASSET_GROWTH_SLOT_OFF = 672;
+var ASSET_GROWTH_LEN = 120;
+var ASSET_GROWTH_VERSION_FIELD_OFF = 38;
+var ASSET_WRAPPER_SLOT_LEN = 1024;
+var ASSET_GROWTH_FIELD_OFF = Object.freeze({
+  cLaunchAtoms: 0,
+  ceilSlot: 8,
+  lambdaBps: 16,
+  lLaunchX100: 20,
+  lTierX100: 22,
+  ceilX100: 24,
+  kinkBps: 26,
+  rGapBps: 28,
+  allocAlphaBps: 30,
+  allocBufferBps: 32,
+  cushionTargetBps: 34,
+  cushionShareBps: 36,
+  version: 38,
+  flags: 39,
+  utilFeeMaxBps: 40,
+  reserved: 42
+});
+var GROWTH_UTIL_FEE_DEFAULT_BPS = 500;
+var GROWTH_UTIL_FEE_HARD_MAX_BPS = 2e3;
+var R_GAP_MIN_LIQUIDATION_SLOTS = 50n;
+var GROWTH_BATCH_MAX_LEGS = 10;
+var INIT_MARKET_MMR_OFF = 59;
+var INIT_MARKET_LIQ_FEE_OFF = 91;
+var INIT_MARKET_MAX_PRICE_MOVE_OFF = 131;
+var MATCHER_CALL_EXT_FLAG_TAKER_REDUCING = 8;
+var MATCHER_CALL_EXT_VERSION_V3 = 3;
+var MATCHER_CALL_EXT_V2_LEN = 40;
+var MATCHER_CALL_EXT_V3_LEN = 72;
+var MATCHER_CALL_EXT_VERSION_V2 = 2;
+var U64_MAX2 = (1n << 64n) - 1n;
+var U128_MAX2 = (1n << 128n) - 1n;
+var I128_MAX = (1n << 127n) - 1n;
+var I128_MIN = -(1n << 127n);
+function big2(name, v) {
+  if (typeof v === "bigint") return v;
+  if (!Number.isInteger(v)) throw new Error(`${name} must be an integer, got ${v}`);
+  return BigInt(v);
+}
+function divCeil(a, b) {
+  return (a + b - 1n) / b;
+}
+function decodeAssetGrowthRecordV19(rec) {
+  if (rec.length !== ASSET_GROWTH_LEN) throw new Error(`AssetGrowthV19 record must be ${ASSET_GROWTH_LEN} bytes, got ${rec.length}`);
+  const F = ASSET_GROWTH_FIELD_OFF;
+  const version = rec[F.version];
+  if (version === 0) return null;
+  const v = new DataView(rec.buffer, rec.byteOffset, rec.byteLength);
+  return {
+    cLaunchAtoms: v.getBigUint64(F.cLaunchAtoms, true),
+    ceilSlot: v.getBigUint64(F.ceilSlot, true),
+    lambdaBps: v.getUint32(F.lambdaBps, true),
+    lLaunchX100: v.getUint16(F.lLaunchX100, true),
+    lTierX100: v.getUint16(F.lTierX100, true),
+    ceilX100: v.getUint16(F.ceilX100, true),
+    kinkBps: v.getUint16(F.kinkBps, true),
+    rGapBps: v.getUint16(F.rGapBps, true),
+    allocAlphaBps: v.getUint16(F.allocAlphaBps, true),
+    allocBufferBps: v.getUint16(F.allocBufferBps, true),
+    cushionTargetBps: v.getUint16(F.cushionTargetBps, true),
+    cushionShareBps: v.getUint16(F.cushionShareBps, true),
+    version,
+    flags: rec[F.flags],
+    utilFeeMaxBps: v.getUint16(F.utilFeeMaxBps, true)
+  };
+}
+function decodeAssetGrowthFromSlotV19(slot) {
+  const end = ASSET_GROWTH_SLOT_OFF + ASSET_GROWTH_LEN;
+  if (slot.length < end) throw new Error(`asset slot too short for AssetGrowthV19: ${slot.length} < ${end}`);
+  return decodeAssetGrowthRecordV19(slot.subarray(ASSET_GROWTH_SLOT_OFF, end));
+}
+function assetGrowthAccountOffsetV19(assetIndex) {
+  if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`bad assetIndex ${assetIndex}`);
+  return 592 + 758 + 2325 * assetIndex + ASSET_GROWTH_SLOT_OFF;
+}
+function decodeAssetGrowthV19(marketData, assetIndex) {
+  if (marketData[10] !== 1) throw new Error(`not a market account (kind ${marketData[10]})`);
+  const off = assetGrowthAccountOffsetV19(assetIndex);
+  if (marketData.length < off + ASSET_GROWTH_LEN) throw new Error(`market account too short for asset ${assetIndex}`);
+  return decodeAssetGrowthRecordV19(marketData.subarray(off, off + ASSET_GROWTH_LEN));
+}
+function imrBpsForLeverageX100(lX100) {
+  const l = big2("lX100", lX100);
+  if (l < BigInt(GROWTH_LEVERAGE_X100_ONE) || l > 0xffffn) return null;
+  return divCeil(1000000n, l);
+}
+function leverageX100ForImrBps(imrBps) {
+  const imr = big2("imrBps", imrBps);
+  if (imr === 0n || imr < 0n || imr > GROWTH_MAX_IMR_BPS) return null;
+  const l = 1000000n / imr;
+  return l > 0xffffn ? 0xffffn : l;
+}
+function ceilingImrBps(engineImrBps, lCeilX100) {
+  const e = big2("engineImrBps", engineImrBps);
+  if (e < 0n || e > GROWTH_MAX_IMR_BPS) return null;
+  const c = imrBpsForLeverageX100(lCeilX100);
+  if (c === null) return null;
+  return c > e ? c : e;
+}
+function nCapQ(cM, lambdaBps, priceE6, posScale = GROWTH_POS_SCALE) {
+  if (priceE6 === 0n) return null;
+  const a = cM * big2("lambdaBps", lambdaBps);
+  if (a > U128_MAX2) return null;
+  const num = a * posScale;
+  if (num > U128_MAX2) return null;
+  const den = GROWTH_BPS * priceE6;
+  if (den > U128_MAX2) return null;
+  return num / den;
+}
+function liquidityNotionalE6(cM, lambdaBps) {
+  const a = cM * big2("lambdaBps", lambdaBps);
+  if (a > U128_MAX2) return null;
+  const p = a * GROWTH_DEPTH_MULT;
+  if (p > U128_MAX2) return null;
+  return p / GROWTH_BPS;
+}
+function growthMatcherCapsV3(g, cM, priceE6, hlockActive, posScale = GROWTH_POS_SCALE) {
+  if (hlockActive) return { inventoryCapQ: 0n, liquidityNotionalE6: 0n };
+  const n = nCapQ(cM, g.lambdaBps, priceE6, posScale) ?? 0n;
+  const cap = n < GROWTH_MAX_POSITION_ABS_Q ? n : GROWTH_MAX_POSITION_ABS_Q;
+  const liq = cap === 0n ? 0n : liquidityNotionalE6(cM, g.lambdaBps) ?? 0n;
+  return { inventoryCapQ: cap, liquidityNotionalE6: liq };
+}
+function dynImrBps(lpAbsAfter, nCap, baseImr, kinkBps) {
+  const base = big2("baseImr", baseImr);
+  const kink = big2("kinkBps", kinkBps);
+  if (base < 0n || base > GROWTH_MAX_IMR_BPS || kink < 0n || kink > GROWTH_BPS) return null;
+  if (nCap === 0n || lpAbsAfter > nCap) return null;
+  const lhs = lpAbsAfter * GROWTH_BPS;
+  const rhs = kink * nCap;
+  if (lhs > U128_MAX2 || rhs > U128_MAX2) return null;
+  if (lhs <= rhs) return base;
+  const span = GROWTH_MAX_IMR_BPS - base;
+  const num = span * (lhs - rhs);
+  const den = nCap * (GROWTH_BPS - kink);
+  if (num > U128_MAX2 || den > U128_MAX2) return null;
+  const imr = base + divCeil(num, den);
+  return imr > GROWTH_MAX_IMR_BPS ? GROWTH_MAX_IMR_BPS : imr;
+}
+function utilizationBps(lpAbs, nCap) {
+  if (nCap === 0n) return null;
+  return lpAbs * GROWTH_BPS / nCap;
+}
+function conservativeEquity(capital, pnl, feeCredits) {
+  const c = capital + (pnl < 0n ? pnl : 0n) + (feeCredits < 0n ? feeCredits : 0n);
+  return c > 0n ? c : 0n;
+}
+function quoteMaxLeverage(input, side) {
+  const lp = input.lpEffectivePositionQ;
+  const crowd = side === "long" ? lp <= 0n : lp >= 0n;
+  const g = input.growth;
+  const e = input.engineImrBps;
+  const out = (p) => ({
+    side,
+    crowd,
+    closed: false,
+    closedReason: null,
+    maxLeverageX100: 0,
+    imrBps: null,
+    utilizationBps: null,
+    nCapQ: null,
+    growthOn: g !== null,
+    headroomQ: null,
+    reduceOnlyCapacityExempt: true,
+    utilisationFeeBps: null,
+    ...p
+  });
+  const lev = (imr) => {
+    const l = leverageX100ForImrBps(imr);
+    return l === null ? 0 : Number(l);
+  };
+  const closed = (reason, extra = {}) => out({ closed: true, closedReason: reason, maxLeverageX100: 0, ...extra });
+  if (g === null) {
+    if (e === 0n || e > GROWTH_MAX_IMR_BPS) return closed("invalid-config");
+    return out({ imrBps: e, maxLeverageX100: lev(e) });
+  }
+  const lCeil = Math.min(g.lLaunchX100, g.lTierX100);
+  const base = ceilingImrBps(e, lCeil);
+  if (base === null) return closed("invalid-config");
+  if (!input.assetBound) return closed("not-bound", { headroomQ: 0n });
+  const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
+  const nCap = nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
+  const usersOi = usersSideOiQ(side === "long" ? input.oiEffLongQ : input.oiEffShortQ, lp, side === "long");
+  const util = nCap === null ? null : utilizationBps(usersOi, nCap);
+  const info = { nCapQ: nCap, utilizationBps: util };
+  if (crowd && input.bankruptcyHlockActive) return closed("hlock", { ...info, headroomQ: 0n });
+  if (nCap === null || nCap === 0n) return closed("capacity-zero", { ...info, headroomQ: 0n });
+  if (usersOi >= nCap) return closed("capacity-full", { ...info, headroomQ: 0n });
+  const utilisationFeeBps2 = utilisationFeeBps_(usersOi, nCap, g.kinkBps, utilFeeMaxEffectiveBps(g.utilFeeMaxBps));
+  if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base), headroomQ: nCap - usersOi, utilisationFeeBps: utilisationFeeBps2 });
+  const dyn = dynImrBps(usersOi, nCap, base, g.kinkBps);
+  if (dyn === null) return closed("capacity-full", { ...info, headroomQ: 0n });
+  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - usersOi, utilisationFeeBps: utilisationFeeBps2 });
+}
+function usersSideOiQ(oiEffSideQ, vaultLpEffQ, longSide) {
+  const onSide = longSide ? vaultLpEffQ > 0n : vaultLpEffQ < 0n;
+  if (!onSide) return oiEffSideQ;
+  const abs = vaultLpEffQ < 0n ? -vaultLpEffQ : vaultLpEffQ;
+  return oiEffSideQ > abs ? oiEffSideQ - abs : 0n;
+}
+function utilisationFeeBps(usersOiAfterQ, nCapQ2, kinkBps, maxFeeBps) {
+  if (nCapQ2 === 0n || kinkBps > 1e4) return null;
+  const lhs = usersOiAfterQ * 10000n;
+  const rhs = BigInt(kinkBps) * nCapQ2;
+  if (lhs <= rhs || maxFeeBps === 0) return 0;
+  const fee = divCeil(BigInt(maxFeeBps) * (lhs - rhs), nCapQ2 * BigInt(1e4 - kinkBps));
+  return fee > BigInt(maxFeeBps) ? maxFeeBps : Number(fee);
+}
+var utilisationFeeBps_ = (a, n, k, m) => utilisationFeeBps(a, n, k, m);
+function utilFeeMaxEffectiveBps(stored) {
+  return stored === 0 ? GROWTH_UTIL_FEE_DEFAULT_BPS : stored;
+}
+function openingPartQ(beforeQ, afterQ) {
+  const abs = (x) => x < 0n ? -x : x;
+  const reduces = afterQ === 0n || beforeQ !== 0n && beforeQ > 0n === afterQ > 0n && abs(afterQ) <= abs(beforeQ);
+  if (reduces) return 0n;
+  if (beforeQ !== 0n && beforeQ > 0n !== afterQ > 0n) return abs(afterQ);
+  return abs(afterQ - beforeQ);
+}
+function previewGrowthOpenFee(input, takerEffQ, sizeQ, tradeFeeBaseBps) {
+  const g = input.growth;
+  const afterQ = takerEffQ + sizeQ;
+  const openingQ = openingPartQ(takerEffQ, afterQ);
+  const long = afterQ > 0n;
+  const usersBefore = usersSideOiQ(long ? input.oiEffLongQ : input.oiEffShortQ, input.lpEffectivePositionQ, long);
+  const usersOiAfterQ = usersBefore + openingQ;
+  let utilFeeBps = 0;
+  if (g !== null && input.assetBound && openingQ > 0n) {
+    const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
+    const nCap = nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
+    const f = nCap === null ? 0 : utilisationFeeBps(usersOiAfterQ, nCap, g.kinkBps, utilFeeMaxEffectiveBps(g.utilFeeMaxBps)) ?? 0;
+    const fill = sizeQ < 0n ? -sizeQ : sizeQ;
+    const o = openingQ > fill ? fill : openingQ;
+    utilFeeBps = fill === 0n ? 0 : Number(BigInt(f) * o / fill);
+  }
+  return {
+    openingQ,
+    usersOiAfterQ,
+    utilFeeBps,
+    minSignedFeeBpsExMatcher: tradeFeeBaseBps + BigInt(utilFeeBps),
+    batchAllowed: utilFeeBps === 0
+  };
+}
+function rGapFloorBps(maxPriceMoveBpsPerSlot) {
+  const f = maxPriceMoveBpsPerSlot * R_GAP_MIN_LIQUIDATION_SLOTS;
+  if (maxPriceMoveBpsPerSlot < 0n || f > U64_MAX2) throw new Error("r_gap floor overflows u64 (wrapper fails closed)");
+  return f;
+}
+function assertGrowthBatchLegs(legCount, anyGrowthLeg) {
+  if (anyGrowthLeg && legCount > GROWTH_BATCH_MAX_LEGS) throw new Error(`a batch with a growth leg is limited to ${GROWTH_BATCH_MAX_LEGS} legs, got ${legCount} (wrapper error 96 GrowthBatchTooManyLegs)`);
+}
+function u16nz(name, v) {
+  if (!Number.isInteger(v) || v <= 0 || v > 65535) throw new Error(`${name} must be a non-zero u16, got ${v}`);
+}
+function encodeInitMarketV19(args, rGapBps, lLaunchX100) {
+  u16nz("rGapBps", rGapBps);
+  u16nz("lLaunchX100", lLaunchX100);
+  const legacy = encodeInitMarket(args);
+  const dv3 = new DataView(legacy.buffer, legacy.byteOffset, legacy.byteLength);
+  const mmr = dv3.getBigUint64(INIT_MARKET_MMR_OFF, true);
+  const liqFee = dv3.getBigUint64(INIT_MARKET_LIQ_FEE_OFF, true);
+  const move = dv3.getBigUint64(INIT_MARKET_MAX_PRICE_MOVE_OFF, true);
+  const floor = rGapFloorBps(move);
+  if (BigInt(rGapBps) < floor) throw new Error(`rGapBps ${rGapBps} is below the floor ${floor} (= maxPriceMoveBpsPerSlot ${move} * ${R_GAP_MIN_LIQUIDATION_SLOTS}); the wrapper refuses with GrowthInvalidConfig (94)`);
+  if (mmr < BigInt(rGapBps) + liqFee) throw new Error(`maintenanceMarginBps ${mmr} must be >= rGapBps ${rGapBps} + liquidationFeeBps ${liqFee}; the wrapper refuses with GrowthInvalidConfig (94)`);
+  return concatBytes(legacy, encU16(rGapBps), encU16(lLaunchX100));
+}
+function encodeInitVaultLpV19(juniorFloorBps, lLaunchX100) {
+  if (!Number.isInteger(juniorFloorBps) || juniorFloorBps < 0 || juniorFloorBps > 65535) {
+    throw new Error(`juniorFloorBps must be a u16, got ${juniorFloorBps}`);
+  }
+  u16nz("lLaunchX100", lLaunchX100);
+  return concatBytes(encU8(IX_TAG_P3.InitVaultLp), encU16(juniorFloorBps), encU16(lLaunchX100));
+}
+function encodeSetAssetRiskLimitsV19(assetIndex, lambdaBps, kinkBps, utilFeeMaxBps = 0) {
+  if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex > 65535) throw new Error(`assetIndex must be a u16, got ${assetIndex}`);
+  if (!Number.isInteger(lambdaBps) || lambdaBps < 1 || lambdaBps > GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS) throw new Error(`lambdaBps must be in 1..=${GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}, got ${lambdaBps}`);
+  if (!Number.isInteger(kinkBps) || kinkBps < 0 || kinkBps > GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS) throw new Error(`kinkBps must be in 0..=${GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS}, got ${kinkBps}`);
+  if (!Number.isInteger(utilFeeMaxBps) || utilFeeMaxBps !== 0 && (utilFeeMaxBps < GROWTH_UTIL_FEE_DEFAULT_BPS || utilFeeMaxBps > GROWTH_UTIL_FEE_HARD_MAX_BPS)) {
+    throw new Error(`utilFeeMaxBps must be 0 (unchanged) or in ${GROWTH_UTIL_FEE_DEFAULT_BPS}..=${GROWTH_UTIL_FEE_HARD_MAX_BPS} (tighten-only), got ${utilFeeMaxBps}`);
+  }
+  const out = concatBytes(
+    encU8(IX_TAG_P1.SetAssetRiskLimits),
+    encU16(assetIndex),
+    new Uint8Array(41),
+    encU32(lambdaBps),
+    encU16(kinkBps),
+    ...utilFeeMaxBps === 0 ? [] : [encU16(utilFeeMaxBps)]
+  );
+  if (out.length !== (utilFeeMaxBps === 0 ? 50 : 52)) throw new Error(`encodeSetAssetRiskLimitsV19: internal length ${out.length}`);
+  return out;
+}
+function encodeMatcherCallExtV2(ext) {
+  const p = ext.lpPositionQ;
+  if (p < I128_MIN + 1n || p > I128_MAX) throw new Error("lpPositionQ must be a non-MIN i128");
+  const v1 = encodeMatcherCallExt(ext);
+  if (v1.length !== MATCHER_CALL_EXT_LEN) throw new Error("internal v1 length");
+  const out = new Uint8Array(MATCHER_CALL_EXT_V2_LEN);
+  out.set(v1, 0);
+  out[0] = MATCHER_CALL_EXT_VERSION_V2;
+  const u = BigInt.asUintN(128, p);
+  out.set(encU128(u), 24);
+  return out;
+}
+function encodeMatcherCallExtV3(ext, caps) {
+  return encodeMatcherCallExtV3FromV2(encodeMatcherCallExtV2(ext), caps);
+}
+function encodeMatcherCallExtV3FromV2(v2, caps) {
+  if (v2.length !== MATCHER_CALL_EXT_V2_LEN) throw new Error(`v2 block must be ${MATCHER_CALL_EXT_V2_LEN} bytes, got ${v2.length}`);
+  if (caps.inventoryCapQ < 0n || caps.inventoryCapQ > I128_MAX) throw new Error("inventoryCapQ must fit i128 (matcher fails closed otherwise)");
+  if (caps.liquidityNotionalE6 < 0n || caps.liquidityNotionalE6 > U128_MAX2) throw new Error("liquidityNotionalE6 out of u128 range");
+  const out = new Uint8Array(MATCHER_CALL_EXT_V3_LEN);
+  out.set(v2, 0);
+  out[0] = MATCHER_CALL_EXT_VERSION_V3;
+  out.set(encU128(caps.inventoryCapQ), 40);
+  out.set(encU128(caps.liquidityNotionalE6), 56);
+  return out;
+}
+function markExtV3TakerReducing(v3, takerReducing) {
+  if (v3.length !== MATCHER_CALL_EXT_V3_LEN) throw new Error(`v3 block must be ${MATCHER_CALL_EXT_V3_LEN} bytes, got ${v3.length}`);
+  const out = Uint8Array.from(v3);
+  if (takerReducing) out[1] = out[1] | MATCHER_CALL_EXT_FLAG_TAKER_REDUCING;
+  return out;
+}
+var GROWTH_U64_MAX = U64_MAX2;
 
 // src/solana/slab.ts
 import { PublicKey as PublicKey7 } from "@solana/web3.js";
@@ -8587,24 +8964,24 @@ function u64Le(v) {
   if (typeof v === "number" && !Number.isSafeInteger(v)) {
     throw new Error(`u64Le: number ${v} exceeds Number.MAX_SAFE_INTEGER \u2014 use BigInt`);
   }
-  const big2 = BigInt(v);
-  if (big2 < 0n) throw new Error(`u64Le: value must be non-negative, got ${big2}`);
-  if (big2 > 0xFFFFFFFFFFFFFFFFn) throw new Error(`u64Le: value exceeds u64 max`);
+  const big3 = BigInt(v);
+  if (big3 < 0n) throw new Error(`u64Le: value must be non-negative, got ${big3}`);
+  if (big3 > 0xFFFFFFFFFFFFFFFFn) throw new Error(`u64Le: value exceeds u64 max`);
   const arr = new Uint8Array(8);
-  new DataView(arr.buffer).setBigUint64(0, big2, true);
+  new DataView(arr.buffer).setBigUint64(0, big3, true);
   return arr;
 }
 function u128Le(v) {
   if (typeof v === "number" && !Number.isSafeInteger(v)) {
     throw new Error(`u128Le: number ${v} exceeds Number.MAX_SAFE_INTEGER \u2014 use BigInt`);
   }
-  const big2 = BigInt(v);
-  if (big2 < 0n) throw new Error(`u128Le: value must be non-negative, got ${big2}`);
-  if (big2 > (1n << 128n) - 1n) throw new Error(`u128Le: value exceeds u128 max`);
+  const big3 = BigInt(v);
+  if (big3 < 0n) throw new Error(`u128Le: value must be non-negative, got ${big3}`);
+  if (big3 > (1n << 128n) - 1n) throw new Error(`u128Le: value exceeds u128 max`);
   const arr = new Uint8Array(16);
   const view2 = new DataView(arr.buffer);
-  view2.setBigUint64(0, big2 & 0xFFFFFFFFFFFFFFFFn, true);
-  view2.setBigUint64(8, big2 >> 64n, true);
+  view2.setBigUint64(0, big3 & 0xFFFFFFFFFFFFFFFFn, true);
+  view2.setBigUint64(8, big3 >> 64n, true);
   return arr;
 }
 function u16Le(v) {
@@ -11139,12 +11516,12 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 // src/validation.ts
 import { PublicKey as PublicKey19 } from "@solana/web3.js";
 var U16_MAX3 = 65535;
-var U64_MAX2 = BigInt("18446744073709551615");
+var U64_MAX3 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
 var I64_MAX = BigInt("9223372036854775807");
-var U128_MAX2 = (1n << 128n) - 1n;
-var I128_MIN = -(1n << 127n);
-var I128_MAX = (1n << 127n) - 1n;
+var U128_MAX3 = (1n << 128n) - 1n;
+var I128_MIN2 = -(1n << 127n);
+var I128_MAX2 = (1n << 127n) - 1n;
 var ValidationError = class extends Error {
   constructor(field, message) {
     super(`Invalid ${field}: ${message}`);
@@ -11203,10 +11580,10 @@ function validateAmount(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U64_MAX2) {
+  if (num > U64_MAX3) {
     throw new ValidationError(
       field,
-      `must be <= ${U64_MAX2} (u64 max), got ${num}`
+      `must be <= ${U64_MAX3} (u64 max), got ${num}`
     );
   }
   return num;
@@ -11217,10 +11594,10 @@ function validateU128(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U128_MAX2) {
+  if (num > U128_MAX3) {
     throw new ValidationError(
       field,
-      `must be <= ${U128_MAX2} (u128 max), got ${num}`
+      `must be <= ${U128_MAX3} (u128 max), got ${num}`
     );
   }
   return num;
@@ -11259,16 +11636,16 @@ function validateI128(value, field) {
       `"${value}" is not a valid number. Use decimal digits only, with optional leading minus.`
     );
   }
-  if (num < I128_MIN) {
+  if (num < I128_MIN2) {
     throw new ValidationError(
       field,
-      `must be >= ${I128_MIN} (i128 min), got ${num}`
+      `must be >= ${I128_MIN2} (i128 min), got ${num}`
     );
   }
-  if (num > I128_MAX) {
+  if (num > I128_MAX2) {
     throw new ValidationError(
       field,
-      `must be <= ${I128_MAX} (i128 max), got ${num}`
+      `must be <= ${I128_MAX2} (i128 max), got ${num}`
     );
   }
   return num;
@@ -11687,6 +12064,10 @@ export {
   ACCOUNTS_WITHDRAW_LP_COLLATERAL,
   ACCOUNTS_WITHDRAW_PROTOCOL_FEE,
   ASSET_AUTH_KIND,
+  ASSET_GROWTH_FIELD_OFF,
+  ASSET_GROWTH_LEN,
+  ASSET_GROWTH_SLOT_OFF,
+  ASSET_GROWTH_VERSION_FIELD_OFF,
   ASSET_RISK_LIMITS_FIELD_OFF_P1,
   ASSET_RISK_LIMITS_LEN_P1,
   ASSET_RISK_LIMITS_SLOT_OFF_P1,
@@ -11698,6 +12079,7 @@ export {
   ASSET_VAULT_LP_FLAG_BOUND_P3,
   ASSET_VAULT_LP_LEN_P3,
   ASSET_VAULT_LP_SLOT_OFF_P3,
+  ASSET_WRAPPER_SLOT_LEN,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   AccountKind,
   BOUND_VAULT_LP_LEDGER_SLOTS_P3,
@@ -11723,6 +12105,24 @@ export {
   ENGINE_OFF,
   EXPECTED_SLAB_VERSION,
   FEE_SPLIT,
+  GROWTH_BATCH_MAX_LEGS,
+  GROWTH_BPS,
+  GROWTH_DEPTH_MULT,
+  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS,
+  GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS,
+  GROWTH_LEVERAGE_X100_ONE,
+  GROWTH_MAX_IMR_BPS,
+  GROWTH_MAX_LAMBDA_BPS,
+  GROWTH_MAX_POSITION_ABS_Q,
+  GROWTH_PIN_LP_FLOOR_ATOMS,
+  GROWTH_PIN_MATCHER_EXT_MODE,
+  GROWTH_PIN_MATCHER_KIND,
+  GROWTH_PIN_MAX_REQUESTED_FEE_BPS,
+  GROWTH_POS_SCALE,
+  GROWTH_U64_MAX,
+  GROWTH_UTIL_FEE_DEFAULT_BPS,
+  GROWTH_UTIL_FEE_HARD_MAX_BPS,
+  GROWTH_VERSION,
   HEX_RE,
   INIT_CTX_LEN,
   INIT_MATCHER_CTX_V17_LEN,
@@ -11744,9 +12144,14 @@ export {
   MATCHER_BATCH_HEADER_LEN,
   MATCHER_BATCH_LEG_LEN,
   MATCHER_CALL_EXT_FLAG,
+  MATCHER_CALL_EXT_FLAG_TAKER_REDUCING,
   MATCHER_CALL_EXT_LEN,
   MATCHER_CALL_EXT_OFFSET,
+  MATCHER_CALL_EXT_V2_LEN,
+  MATCHER_CALL_EXT_V3_LEN,
   MATCHER_CALL_EXT_VERSION_V1,
+  MATCHER_CALL_EXT_VERSION_V2,
+  MATCHER_CALL_EXT_VERSION_V3,
   MATCHER_CALL_LEN,
   MATCHER_CONFIGURE_AUTH_LP_PDA,
   MATCHER_CONFIGURE_AUTH_OWNER_PROOF,
@@ -11815,6 +12220,7 @@ export {
   RESOLVED_RECEIPT_LEN_P3,
   RESOLVE_MODE_DEGENERATE,
   RESOLVE_MODE_ORDINARY,
+  R_GAP_MIN_LIQUIDATION_SLOTS,
   RpcPool,
   SLAB_MAGIC,
   SLAB_TIERS,
@@ -11901,6 +12307,8 @@ export {
   adminUpdateFeeSplitAccounts,
   adminUpdateMaintenanceFeePerSlotAccounts,
   adminUpdateTradeFeePolicyAccounts,
+  assertGrowthBatchLegs,
+  assetGrowthAccountOffsetV19,
   assetRiskLimitsAccountOffsetP1,
   assetVaultLpAccountOffsetP3,
   backingBucketStatusName,
@@ -11935,6 +12343,7 @@ export {
   buildVaultLpSettleResolvedIxP3,
   buildWithdrawJuniorTrancheIxP3,
   burnAssetAdminAccounts,
+  ceilingImrBps,
   checkPhaseTransition,
   checkRpcHealth,
   classifyLighthouseError,
@@ -11960,7 +12369,11 @@ export {
   computeWarmupMaxPositionSize,
   computeWarmupUnlockedCapital,
   concatBytes,
+  conservativeEquity,
   countLighthouseInstructions,
+  decodeAssetGrowthFromSlotV19,
+  decodeAssetGrowthRecordV19,
+  decodeAssetGrowthV19,
   decodeAssetRiskLimitsP1,
   decodeAssetRiskLimitsRecordP1,
   decodeAssetVaultLpDrawP3,
@@ -12011,6 +12424,7 @@ export {
   discoverMarkets,
   discoverMarketsViaApi,
   discoverMarketsViaStaticBundle,
+  dynImrBps,
   encBool,
   encI128,
   encI64,
@@ -12063,10 +12477,12 @@ export {
   encodeFundMarketInsurance,
   encodeInitLP,
   encodeInitMarket,
+  encodeInitMarketV19,
   encodeInitMatcherCtx,
   encodeInitSharedVault,
   encodeInitUser,
   encodeInitVaultLpP3,
+  encodeInitVaultLpV19,
   encodeKeeperCrank,
   encodeLiquidateAtOracle,
   encodeLpVaultCrankFees,
@@ -12074,6 +12490,9 @@ export {
   encodeLpVaultWithdraw,
   encodeMatcherBatchCall,
   encodeMatcherCallExt,
+  encodeMatcherCallExtV2,
+  encodeMatcherCallExtV3,
+  encodeMatcherCallExtV3FromV2,
   encodeMatcherConfigureBackingFeeCap,
   encodeMatcherConfigureSetParams,
   encodeMatcherInitPassive,
@@ -12103,6 +12522,7 @@ export {
   encodeResolvePermissionless,
   encodeRestartAssetOracle,
   encodeSetAssetRiskLimitsP1,
+  encodeSetAssetRiskLimitsV19,
   encodeSetDexPool,
   encodeSetDisputeParams,
   encodeSetInsuranceIsolation,
@@ -12224,6 +12644,8 @@ export {
   getProgramId,
   getStakeProgramId,
   getStaticMarkets,
+  growthMatcherCapsV3,
+  imrBpsForLeverageX100,
   initPoolAccounts,
   isAccountUsed,
   isAdlTriggered,
@@ -12239,10 +12661,15 @@ export {
   isV17Account,
   isV17MarketAccount,
   isValidChainlinkOracle,
+  leverageX100ForImrBps,
+  liquidityNotionalE6,
   listOpenResolvedReceiptsP3,
   liveExitSeniorValueP3,
+  markExtV3TakerReducing,
   matcherConfigureOwnerProofAccounts,
   maxAccountIndex,
+  nCapQ,
+  openingPartQ,
   packOiCap,
   parseAccount,
   parseAdlEvent,
@@ -12272,6 +12699,9 @@ export {
   planResolvedReceiptRevisitP3,
   planResolvedVaultLpExitP3,
   planStakeWindDown,
+  previewGrowthOpenFee,
+  quoteMaxLeverage,
+  rGapFloorBps,
   rankAdlPositions,
   readAssetPricesP3,
   readLastThrUpdateSlot,
@@ -12293,6 +12723,10 @@ export {
   stripLighthouseFromTransaction,
   stripLighthouseInstructions,
   usdToQCappedP3,
+  usersSideOiQ,
+  utilFeeMaxEffectiveBps,
+  utilisationFeeBps,
+  utilizationBps,
   v17MarketAccountLen,
   validateAmount,
   validateBps,
