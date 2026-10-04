@@ -10,7 +10,7 @@ import {
   encodeMatcherCallExtV2, encodeMatcherCallExtV3, encodeMatcherCallExtV3FromV2, encodeInitMarket,
   assetRiskLimitsAccountOffsetP1, PERCOLATOR_ERRORS, decodeError, growthMatcherCapsV3, GROWTH_PIN_MATCHER_EXT_MODE,
   GROWTH_PIN_MAX_REQUESTED_FEE_BPS, GROWTH_PIN_LP_FLOOR_ATOMS, GROWTH_PIN_MATCHER_KIND, GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS,
-  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS, rGapFloorBps, assertGrowthBatchLegs, GROWTH_BATCH_MAX_LEGS, markExtV3TakerReducing,
+  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS, rGapFloorBps, usersSideOiQ, assertGrowthBatchLegs, GROWTH_BATCH_MAX_LEGS, markExtV3TakerReducing,
 } from "../src/index.js";
 import type { AssetGrowthV19, InitMarketV17Args } from "../src/index.js";
 
@@ -108,10 +108,16 @@ describe("AssetGrowthV19 decoder", () => {
 
 describe("quoteMaxLeverage", () => {
   const growth = decodeAssetGrowthRecordV19(growthRecord({ launch: 1_000, tier: 1_000, kink: 5_000, lambda: 10_000 })) as AssetGrowthV19;
-  const base = { engineImrBps: 1_000n, growth, lpCapital: 1_000_000_000n, lpPnl: 0n, lpFeeCredits: 0n, priceE6: 1_000_000n, bankruptcyHlockActive: false };
+  // N-1: the users sit on ONE side, all against the bound vault LP, so each side's engine OI is
+  // |LP| (users' leg on the crowd side, the LP's own leg on the other) and the crowd's users OI == |LP|.
+  const lpAt = (lp: bigint) => {
+    const a = lp < 0n ? -lp : lp;
+    return { lpEffectivePositionQ: lp, oiEffLongQ: a, oiEffShortQ: a };
+  };
+  const base = { engineImrBps: 1_000n, growth, lpCapital: 1_000_000_000n, lpPnl: 0n, lpFeeCredits: 0n, priceE6: 1_000_000n, bankruptcyHlockActive: false, assetBound: true };
   // N_cap = 1_000_000_000 Q (1:1 here)
   it("LP short 72%: longs are crowd (marginal 4960 bps IMR -> 2.01x); shorts are thin (10x)", () => {
-    const i = { ...base, lpEffectivePositionQ: -720_000_000n };
+    const i = { ...base, ...lpAt(-720_000_000n) };
     const l = quoteMaxLeverage(i, "long");
     expect(l).toMatchObject({ crowd: true, closed: false, imrBps: 4_960n, maxLeverageX100: 201, utilizationBps: 7_200n });
     expect(l.nCapQ).toBe(1_000_000_000n);
@@ -119,41 +125,59 @@ describe("quoteMaxLeverage", () => {
     expect(s).toMatchObject({ crowd: false, closed: false, imrBps: 1_000n, maxLeverageX100: 1_000 });
   });
   it("flat LP: both sides crowd; at the kink and below the leverage is the ceiling", () => {
-    const i = { ...base, lpEffectivePositionQ: 0n };
+    const i = { ...base, ...lpAt(0n) };
     expect(quoteMaxLeverage(i, "long").crowd).toBe(true);
     expect(quoteMaxLeverage(i, "short").crowd).toBe(true);
     expect(quoteMaxLeverage(i, "long").maxLeverageX100).toBe(1_000);
   });
   it("ceiling = min(l_launch, l_tier): 5.5x launch on a 10x tier", () => {
     const g = decodeAssetGrowthRecordV19(growthRecord({ launch: 550, tier: 1_000 })) as AssetGrowthV19;
-    const q = quoteMaxLeverage({ ...base, growth: g, lpEffectivePositionQ: 100_000_000n }, "long"); // LP long -> longs thin
+    const q = quoteMaxLeverage({ ...base, growth: g, ...lpAt(100_000_000n) }, "long"); // LP long -> longs thin
     expect(q).toMatchObject({ crowd: false, imrBps: 1_819n, maxLeverageX100: 549 });
   });
   it("closed: h-lock, |LP| >= N_cap, zero capital, zero price (crowd side only)", () => {
-    const i = { ...base, lpEffectivePositionQ: -100n };
+    const i = { ...base, ...lpAt(-100n) };
     expect(quoteMaxLeverage({ ...i, bankruptcyHlockActive: true }, "long")).toMatchObject({ closed: true, closedReason: "hlock", maxLeverageX100: 0 });
     // |LP| == N_cap: gate would admit a landing at u == 1, but no marginal room for NEW growth -> closed, headroom 0
-    expect(quoteMaxLeverage({ ...base, lpEffectivePositionQ: -1_000_000_000n }, "long")).toMatchObject({ closed: true, closedReason: "capacity-full", headroomQ: 0n });
-    expect(quoteMaxLeverage({ ...base, lpEffectivePositionQ: -1_000_000_001n }, "long")).toMatchObject({ closed: true, closedReason: "capacity-full" });
-    expect(quoteMaxLeverage({ ...base, lpEffectivePositionQ: -999_999_999n }, "long")).toMatchObject({ closed: false, headroomQ: 1n, imrBps: 10_000n, maxLeverageX100: 100 });
+    expect(quoteMaxLeverage({ ...base, ...lpAt(-1_000_000_000n) }, "long")).toMatchObject({ closed: true, closedReason: "capacity-full", headroomQ: 0n });
+    expect(quoteMaxLeverage({ ...base, ...lpAt(-1_000_000_001n) }, "long")).toMatchObject({ closed: true, closedReason: "capacity-full" });
+    expect(quoteMaxLeverage({ ...base, ...lpAt(-999_999_999n) }, "long")).toMatchObject({ closed: false, headroomQ: 1n, imrBps: 10_000n, maxLeverageX100: 100 });
     expect(quoteMaxLeverage({ ...i, lpCapital: 0n }, "long")).toMatchObject({ closed: true, closedReason: "capacity-zero" });
     expect(quoteMaxLeverage({ ...i, priceE6: 0n }, "long")).toMatchObject({ closed: true, closedReason: "capacity-zero" });
     // thin side stays open even with the h-lock
     expect(quoteMaxLeverage({ ...i, bankruptcyHlockActive: true }, "short")).toMatchObject({ closed: false, crowd: false, maxLeverageX100: 1_000 });
   });
   it("equity is conservative: negative PnL shrinks N_cap, positive PnL does not grow it", () => {
-    const i = { ...base, lpEffectivePositionQ: 0n };
+    const i = { ...base, ...lpAt(0n) };
     expect(quoteMaxLeverage({ ...i, lpPnl: -500_000_000n }, "long").nCapQ).toBe(500_000_000n);
     expect(quoteMaxLeverage({ ...i, lpPnl: 500_000_000n }, "long").nCapQ).toBe(1_000_000_000n);
   });
+  it("N-1: utilisation is the users' OI per side; the thin side is capped too; unbound => both closed", () => {
+    // LP short 300 net, but the crowd's users OI is 1,000 (= N_cap) against 700 thin shorts:
+    // the LP-net measure would show 70% room; the users-OI measure shows the crowd FULL.
+    const i = { ...base, lpEffectivePositionQ: -300_000_000n, oiEffLongQ: 1_000_000_000n, oiEffShortQ: 1_000_000_000n };
+    expect(quoteMaxLeverage(i, "long")).toMatchObject({ crowd: true, closed: true, closedReason: "capacity-full", headroomQ: 0n, utilizationBps: 10_000n });
+    // shorts: users short = 1,000 - the LP's own 300 = 700 -> thin side open with 300 room
+    expect(quoteMaxLeverage(i, "short")).toMatchObject({ crowd: false, closed: false, headroomQ: 300_000_000n, utilizationBps: 7_000n, maxLeverageX100: 1_000 });
+    // thin side at N_cap is closed for NEW risk as well
+    const t = { ...base, lpEffectivePositionQ: 100_000_000n, oiEffLongQ: 1_100_000_000n, oiEffShortQ: 1_100_000_000n };
+    expect(quoteMaxLeverage(t, "long")).toMatchObject({ crowd: false, closed: true, closedReason: "capacity-full" });
+    expect(usersSideOiQ(1_000n, 400n, true)).toBe(600n);
+    expect(usersSideOiQ(1_000n, -400n, true)).toBe(1_000n);
+    expect(usersSideOiQ(300n, 400n, true)).toBe(0n);
+    // not bound: both sides closed for new risk, closes still exempt
+    const u = quoteMaxLeverage({ ...base, ...lpAt(0n), assetBound: false }, "long");
+    expect(u).toMatchObject({ closed: true, closedReason: "not-bound", reduceOnlyCapacityExempt: true });
+    expect(quoteMaxLeverage({ ...base, ...lpAt(0n), assetBound: false }, "short").closedReason).toBe("not-bound");
+  });
   it("M-1: reduces/closes are always allowed, even where new risk is closed", () => {
-    const i = { ...base, lpEffectivePositionQ: -1_000_000_000n };
-    expect(quoteMaxLeverage(i, "long")).toMatchObject({ closed: true, reduceOnlyAlwaysAllowed: true });
-    expect(quoteMaxLeverage({ ...i, bankruptcyHlockActive: true }, "long").reduceOnlyAlwaysAllowed).toBe(true);
-    expect(quoteMaxLeverage({ ...base, lpEffectivePositionQ: 0n }, "short").reduceOnlyAlwaysAllowed).toBe(true);
+    const i = { ...base, ...lpAt(-1_000_000_000n) };
+    expect(quoteMaxLeverage(i, "long")).toMatchObject({ closed: true, reduceOnlyCapacityExempt: true });
+    expect(quoteMaxLeverage({ ...i, bankruptcyHlockActive: true }, "long").reduceOnlyCapacityExempt).toBe(true);
+    expect(quoteMaxLeverage({ ...base, ...lpAt(0n) }, "short").reduceOnlyCapacityExempt).toBe(true);
   });
   it("growth OFF -> engine leverage", () => {
-    expect(quoteMaxLeverage({ ...base, growth: null, lpEffectivePositionQ: -5n }, "long")).toMatchObject({ growthOn: false, closed: false, imrBps: 1_000n, maxLeverageX100: 1_000 });
+    expect(quoteMaxLeverage({ ...base, growth: null, ...lpAt(-5n) }, "long")).toMatchObject({ growthOn: false, closed: false, imrBps: 1_000n, maxLeverageX100: 1_000 });
   });
 });
 

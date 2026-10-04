@@ -3011,7 +3011,15 @@ var PERCOLATOR_ERRORS = {
   },
   95: {
     name: "GrowthNeedsLpCounterparty",
-    hint: "Open against the market maker: trade through the book. growth-v19: on a growth asset every risk-increasing fill must face an LP counterparty. A fill between two non-LP portfolios, or between two LPs, may only reduce or close."
+    hint: "Open against the market maker: trade through the book. growth-v19: on a growth asset every risk-increasing fill must face the asset's bound vault LP. A fill between two non-LP portfolios, between two LPs, or against any other LP may only reduce or close."
+  },
+  96: {
+    name: "GrowthBatchTooManyLegs",
+    hint: "Split this order into batches of at most 10 markets. growth-v19: a BatchTradeCpi carrying a leg on a growth-enabled asset is limited to GROWTH_BATCH_MAX_LEGS (10) legs (compute budget). Nothing was executed."
+  },
+  97: {
+    name: "GrowthRequiresBoundVaultLp",
+    hint: "This market is not open for new positions. Reducing or closing is always allowed. growth-v19: opens on a growth-enabled asset are admitted only when the asset has a bound vault LP (P3); capacity is measured on the users' open interest against that LP."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -4201,7 +4209,7 @@ function quoteMaxLeverage(input, side) {
     nCapQ: null,
     growthOn: g !== null,
     headroomQ: null,
-    reduceOnlyAlwaysAllowed: true,
+    reduceOnlyCapacityExempt: true,
     ...p
   });
   const lev = (imr) => {
@@ -4216,18 +4224,25 @@ function quoteMaxLeverage(input, side) {
   const lCeil = Math.min(g.lLaunchX100, g.lTierX100);
   const base = ceilingImrBps(e, lCeil);
   if (base === null) return closed("invalid-config");
+  if (!input.assetBound) return closed("not-bound", { headroomQ: 0n });
   const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
   const nCap = nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
-  const lpAbs = lp < 0n ? -lp : lp;
-  const util = nCap === null ? null : utilizationBps(lpAbs, nCap);
+  const usersOi = usersSideOiQ(side === "long" ? input.oiEffLongQ : input.oiEffShortQ, lp, side === "long");
+  const util = nCap === null ? null : utilizationBps(usersOi, nCap);
   const info = { nCapQ: nCap, utilizationBps: util };
-  if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base) });
-  if (input.bankruptcyHlockActive) return closed("hlock", { ...info, headroomQ: 0n });
+  if (crowd && input.bankruptcyHlockActive) return closed("hlock", { ...info, headroomQ: 0n });
   if (nCap === null || nCap === 0n) return closed("capacity-zero", { ...info, headroomQ: 0n });
-  if (lpAbs >= nCap) return closed("capacity-full", { ...info, headroomQ: 0n });
-  const dyn = dynImrBps(lpAbs, nCap, base, g.kinkBps);
+  if (usersOi >= nCap) return closed("capacity-full", { ...info, headroomQ: 0n });
+  if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base), headroomQ: nCap - usersOi });
+  const dyn = dynImrBps(usersOi, nCap, base, g.kinkBps);
   if (dyn === null) return closed("capacity-full", { ...info, headroomQ: 0n });
-  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - lpAbs });
+  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - usersOi });
+}
+function usersSideOiQ(oiEffSideQ, vaultLpEffQ, longSide) {
+  const onSide = longSide ? vaultLpEffQ > 0n : vaultLpEffQ < 0n;
+  if (!onSide) return oiEffSideQ;
+  const abs = vaultLpEffQ < 0n ? -vaultLpEffQ : vaultLpEffQ;
+  return oiEffSideQ > abs ? oiEffSideQ - abs : 0n;
 }
 function rGapFloorBps(maxPriceMoveBpsPerSlot) {
   const f = maxPriceMoveBpsPerSlot * R_GAP_MIN_LIQUIDATION_SLOTS;
@@ -4235,7 +4250,7 @@ function rGapFloorBps(maxPriceMoveBpsPerSlot) {
   return f;
 }
 function assertGrowthBatchLegs(legCount, anyGrowthLeg) {
-  if (anyGrowthLeg && legCount > GROWTH_BATCH_MAX_LEGS) throw new Error(`a batch with a growth leg is limited to ${GROWTH_BATCH_MAX_LEGS} legs, got ${legCount}`);
+  if (anyGrowthLeg && legCount > GROWTH_BATCH_MAX_LEGS) throw new Error(`a batch with a growth leg is limited to ${GROWTH_BATCH_MAX_LEGS} legs, got ${legCount} (wrapper error 96 GrowthBatchTooManyLegs)`);
 }
 function u16nz(name, v) {
   if (!Number.isInteger(v) || v <= 0 || v > 65535) throw new Error(`${name} must be a non-zero u16, got ${v}`);
@@ -12643,6 +12658,7 @@ export {
   stripLighthouseFromTransaction,
   stripLighthouseInstructions,
   usdToQCappedP3,
+  usersSideOiQ,
   utilizationBps,
   v17MarketAccountLen,
   validateAmount,

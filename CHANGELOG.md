@@ -15,6 +15,18 @@ asset slot + 672), bigint mirror of `growth_v19.rs` (`imrBpsForLeverageX100`, `c
 `dynImrBps`, `utilizationBps`, ...), `quoteMaxLeverage`, tag 0 / 93 / 94 growth trailer encoders, matcher
 call-ext v2/v3 encoders; errors 92 GrowthLeverageExceeded, 93 GrowthCapacityFull, 94 GrowthInvalidConfig.
 
+**Re-verification sync (N-1, BREAKING for `quoteMaxLeverage` callers).** The wrapper now measures
+growth capacity on the USERS' open interest per side (`OI_eff(side)` minus the vault LP's own leg),
+caps BOTH sides at `N_cap`, and admits growth opens only against the asset's BOUND P3 vault LP.
+- `QuoteMaxLeverageInput` gains REQUIRED `assetBound`, `oiEffLongQ`, `oiEffShortQ`; `utilizationBps`
+  and `headroomQ` are per side on users OI; the thin side can be `closed: "capacity-full"`; new
+  closed reason `"not-bound"`. New helper `usersSideOiQ` (port of `users_side_oi_q`).
+- `MaxLeverageQuote.reduceOnlyAlwaysAllowed` is RENAMED `reduceOnlyCapacityExempt` (closes are
+  exempt from growth CAPACITY, not from the engine's own IM on the LP, and a NoCpi close into an
+  opener is refused as a whole).
+- Errors 96 `GrowthBatchTooManyLegs` (was the generic InvalidInstruction) and 97
+  `GrowthRequiresBoundVaultLp`; map regenerated with `scripts/wrapper-errors/gen.py` (98 codes).
+
 ---
 
 ## [8.0.1] — unreleased (do not `npm publish` without explicit human go)

@@ -488,7 +488,15 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   95: {
     name: "GrowthNeedsLpCounterparty",
-    hint: "Open against the market maker: trade through the book. growth-v19: on a growth asset every risk-increasing fill must face an LP counterparty. A fill between two non-LP portfolios, or between two LPs, may only reduce or close.",
+    hint: "Open against the market maker: trade through the book. growth-v19: on a growth asset every risk-increasing fill must face the asset's bound vault LP. A fill between two non-LP portfolios, between two LPs, or against any other LP may only reduce or close.",
+  },
+  96: {
+    name: "GrowthBatchTooManyLegs",
+    hint: "Split this order into batches of at most 10 markets. growth-v19: a BatchTradeCpi carrying a leg on a growth-enabled asset is limited to GROWTH_BATCH_MAX_LEGS (10) legs (compute budget). Nothing was executed.",
+  },
+  97: {
+    name: "GrowthRequiresBoundVaultLp",
+    hint: "This market is not open for new positions. Reducing or closing is always allowed. growth-v19: opens on a growth-enabled asset are admitted only when the asset has a bound vault LP (P3); capacity is measured on the users' open interest against that LP.",
   },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);

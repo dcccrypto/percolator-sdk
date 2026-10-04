@@ -450,16 +450,25 @@ export interface QuoteMaxLeverageInput {
   lpFeeCredits: bigint;
   /** LP's ADL-effective signed position (Q). */
   lpEffectivePositionQ: bigint;
+  /**
+   * N-1 (wrapper re-verification fix): the asset has a BOUND P3 vault LP and the LP above IS it.
+   * Growth opens are admitted only then (otherwise error 97 / 95); `false` => both sides closed.
+   */
+  assetBound: boolean;
+  /** Asset `oi_eff_long_q` (engine, ADL-effective, includes the vault LP's own leg). */
+  oiEffLongQ: bigint;
+  /** Asset `oi_eff_short_q`. */
+  oiEffShortQ: bigint;
   /** Oracle price (e6). */
   priceE6: bigint;
-  /** The market's bankruptcy h-lock is latched: crowd side is closed. */
+  /** The market's bankruptcy h-lock is latched: crowd side is closed (the thin side stays open). */
   bankruptcyHlockActive: boolean;
   /** Engine `POS_SCALE` (default 1_000_000n). */
   posScale?: bigint;
 }
 
 /** Why a side is closed. */
-export type GrowthClosedReason = "hlock" | "capacity-zero" | "capacity-full" | "invalid-config";
+export type GrowthClosedReason = "hlock" | "capacity-zero" | "capacity-full" | "invalid-config" | "not-bound";
 
 /** Result of {@link quoteMaxLeverage}. */
 export interface MaxLeverageQuote {
@@ -473,26 +482,32 @@ export interface MaxLeverageQuote {
   maxLeverageX100: number;
   /** The IMR (bps) the quote is based on: ceiling IMR (thin side) or the marginal dynamic IMR (crowd side). */
   imrBps: bigint | null;
-  /** `|LP| / N_cap` in bps; `null` when growth is off or capacity is 0. */
+  /**
+   * `u = OI_users(this side) / N_cap` in bps (N-1: the users' open interest on this side, NOT the
+   * LP's net); `null` when growth is off or capacity is 0.
+   */
   utilizationBps: bigint | null;
   /** `N_cap_q`; `null` when growth is off or the price is 0. */
   nCapQ: bigint | null;
   /** Whether growth-v19 is on for this asset. */
   growthOn: boolean;
   /**
-   * Crowd-side marginal capacity `N_cap - |LP|` (Q). 0 when closed on the crowd side, INCLUDING
-   * `|LP| == N_cap`: the wrapper admits a fill that lands exactly on `N_cap` (u == 1, 100% IMR), but
-   * at `|LP| == N_cap` any further crowd fill would exceed it, so there is no room for NEW growth.
-   * `null` on the thin side or when growth is off.
+   * Marginal capacity on this side, `N_cap - OI_users(side)` (Q): the TradeCpi clip. 0 when this
+   * side is closed, INCLUDING `OI_users == N_cap` (a fill landing exactly on N_cap is admitted at
+   * u == 1, but no NEW room is left). Both sides have one since N-1. `null` when growth is off.
    */
   headroomQ: bigint | null;
   /**
    * M-1: always `true`. On a growth asset a strict reduce or close is never clipped or refused for
-   * LP capacity, the LP floor, closed mode or the h-lock (the wrapper marks such legs TAKER_REDUCING).
-   * On a single TradeCpi a FLIP is clipped to its closing part; the opening part needs a new order,
-   * which faces the gate. Every `closed` above applies to NEW risk only.
+   * growth CAPACITY: not for N_cap, the LP floor, closed mode or the h-lock (the wrapper marks such
+   * legs TAKER_REDUCING from the ADL-effective position). On a single TradeCpi a FLIP is clipped to
+   * its closing part; the opening part needs a new order, which faces the gate. Every `closed`
+   * above applies to NEW risk only. NOT a promise that every close fills: (a) the ENGINE's own
+   * initial margin on the LP still applies (an LP that cannot carry the position refuses, Custom 49:
+   * "the market maker can't take this close right now"), and (b) a NoCpi close into a counterparty
+   * that OPENS is refused as a whole (95): close against the book (TradeCpi) instead.
    */
-  reduceOnlyAlwaysAllowed: true;
+  reduceOnlyCapacityExempt: true;
 }
 
 /**
@@ -500,17 +515,22 @@ export interface MaxLeverageQuote {
  *
  * Crowd detection: taker long => the LP goes shorter. A side is "crowd" iff the taker's fill on it
  * grows |LP|: LP short or flat => longs crowd; LP long or flat => shorts crowd (a flat LP: both).
- * Ceiling `L_ceil = min(l_launch, l_tier)` (graduation is compiled off in the wrapper). Thin side:
- * `1e6 / ceilingImr`. Crowd side: closed if the h-lock is active, `N_cap == 0` (also a zero price)
- * or `|LP| >= N_cap` (at `== N_cap` the quote reports 0 headroom: see `headroomQ`); otherwise the MARGINAL leverage at the current utilisation,
- * `floor(1e6 / dynImr(|LP|, N_cap, base, kink))`. Growth OFF => `floor(1e6 / engineImr)`.
+ * Ceiling `L_ceil = min(l_launch, l_tier)` (graduation is compiled off in the wrapper).
+ * N-1 (wrapper re-verification fix): opens need the asset's BOUND vault LP (`assetBound`, else
+ * closed "not-bound"), and capacity is the USERS' open interest on each side
+ * (`usersSideOiQ`), capped at `N_cap` on BOTH sides, so `|LP| <= N_cap` after any sequence.
+ * Thin side: `1e6 / ceilingImr`, closed when its users OI is at `N_cap`. Crowd side: closed if the
+ * h-lock is active, `N_cap == 0` (also a zero price) or users OI `>= N_cap`; otherwise the MARGINAL
+ * leverage at the current utilisation, `floor(1e6 / dynImr(OI_users, N_cap, base, kink))`.
+ * Growth OFF => `floor(1e6 / engineImr)`.
  *
- * IMPORTANT: on-chain the check runs on the POST-TRADE LP position (`|LP| + fill`), and the
- * requirement is evaluated at that larger utilisation. This quote uses the current `|LP|`, so it is
+ * IMPORTANT: on-chain the check runs on the POST-TRADE users OI (`OI_users + fill`), and the
+ * requirement is evaluated at that larger utilisation. This quote uses the current OI, so it is
  * an UPPER BOUND for any order that grows the crowd; a large order can be refused (92/93) even
- * when quoted. Reductions and closes are never checked, clipped or refused (`reduceOnlyAlwaysAllowed`):
- * `closed` means NEW risk on that side only (a flip is clipped to its closing part on a single TradeCpi).
- * Every risk-increasing fill must also face an LP (error 95), so NoCpi trades between two non-LPs can only reduce.
+ * when quoted. Reductions and closes are never checked, clipped or refused for capacity
+ * (`reduceOnlyCapacityExempt`, with the two stated exceptions): `closed` means NEW risk on that
+ * side only (a flip is clipped to its closing part on a single TradeCpi). Every risk-increasing
+ * fill must face the bound vault LP (error 95), so NoCpi trades between two non-LPs can only reduce.
  *
  * @param input  Market/LP state (see {@link QuoteMaxLeverageInput}).
  * @param side   Taker side.
@@ -518,7 +538,8 @@ export interface MaxLeverageQuote {
  * @example
  * ```ts
  * const q = quoteMaxLeverage({ engineImrBps: 1000n, growth, lpCapital: 1_746_000_000n, lpPnl: 0n,
- *   lpFeeCredits: 0n, lpEffectivePositionQ: -720_000_000n, priceE6: 1_000_000n, bankruptcyHlockActive: false }, "long");
+ *   lpFeeCredits: 0n, lpEffectivePositionQ: -720_000_000n, priceE6: 1_000_000n, bankruptcyHlockActive: false,
+ *   assetBound: true, oiEffLongQ: 720_000_000n, oiEffShortQ: 720_000_000n }, "long");
  * q.maxLeverageX100; // marginal leverage x100
  * ```
  */
@@ -529,7 +550,7 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   const e = input.engineImrBps;
   const out = (p: Partial<MaxLeverageQuote>): MaxLeverageQuote => ({
     side, crowd, closed: false, closedReason: null, maxLeverageX100: 0, imrBps: null,
-    utilizationBps: null, nCapQ: null, growthOn: g !== null, headroomQ: null, reduceOnlyAlwaysAllowed: true, ...p,
+    utilizationBps: null, nCapQ: null, growthOn: g !== null, headroomQ: null, reduceOnlyCapacityExempt: true, ...p,
   });
   const lev = (imr: bigint): number => {
     const l = leverageX100ForImrBps(imr);
@@ -545,21 +566,45 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   const lCeil = Math.min(g.lLaunchX100, g.lTierX100);
   const base = ceilingImrBps(e, lCeil);
   if (base === null) return closed("invalid-config");
+  // N-1: growth opens only against the asset's BOUND vault LP (wrapper 97 / 95 otherwise).
+  if (!input.assetBound) return closed("not-bound", { headroomQ: 0n });
   const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
   const nCap = nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
-  const lpAbs = lp < 0n ? -lp : lp;
-  const util = nCap === null ? null : utilizationBps(lpAbs, nCap);
+  // N-1: utilisation is the USERS' open interest on this side (the engine OI minus the vault
+  // LP's own leg on it), the same number the wrapper gates on (`users_side_oi_q`).
+  const usersOi = usersSideOiQ(side === "long" ? input.oiEffLongQ : input.oiEffShortQ, lp, side === "long");
+  const util = nCap === null ? null : utilizationBps(usersOi, nCap);
   const info = { nCapQ: nCap, utilizationBps: util };
 
-  if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base) });
-  if (input.bankruptcyHlockActive) return closed("hlock", { ...info, headroomQ: 0n });
+  if (crowd && input.bankruptcyHlockActive) return closed("hlock", { ...info, headroomQ: 0n });
   if (nCap === null || nCap === 0n) return closed("capacity-zero", { ...info, headroomQ: 0n });
-  // |LP| == N_cap: the gate would still admit a fill landing exactly on N_cap, but there is no
-  // marginal capacity left for NEW growth (any further crowd fill exceeds it): report closed.
-  if (lpAbs >= nCap) return closed("capacity-full", { ...info, headroomQ: 0n });
-  const dyn = dynImrBps(lpAbs, nCap, base, g.kinkBps);
+  // OI_users == N_cap: the gate would still admit a fill landing exactly on N_cap, but there is
+  // no marginal capacity left for NEW risk on this side (thin or crowd): report closed.
+  if (usersOi >= nCap) return closed("capacity-full", { ...info, headroomQ: 0n });
+  if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base), headroomQ: nCap - usersOi });
+  const dyn = dynImrBps(usersOi, nCap, base, g.kinkBps);
   if (dyn === null) return closed("capacity-full", { ...info, headroomQ: 0n });
-  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - lpAbs });
+  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - usersOi });
+}
+
+/**
+ * N-1: the users' (everyone but the vault LP) ADL-effective open interest on one side. Port of
+ * the wrapper's `users_side_oi_q` (saturating).
+ *
+ * @param oiEffSideQ     The asset's `oi_eff_long_q` (long) or `oi_eff_short_q` (short).
+ * @param vaultLpEffQ    The vault LP's ADL-effective signed position.
+ * @param longSide       Which side.
+ * @returns Users OI on that side (Q).
+ * @example
+ * ```ts
+ * usersSideOiQ(1_000n, 400n, true); // 600n (the LP's own long leg removed)
+ * ```
+ */
+export function usersSideOiQ(oiEffSideQ: bigint, vaultLpEffQ: bigint, longSide: boolean): bigint {
+  const onSide = longSide ? vaultLpEffQ > 0n : vaultLpEffQ < 0n;
+  if (!onSide) return oiEffSideQ;
+  const abs = vaultLpEffQ < 0n ? -vaultLpEffQ : vaultLpEffQ;
+  return oiEffSideQ > abs ? oiEffSideQ - abs : 0n;
 }
 
 /**
@@ -585,14 +630,14 @@ export function rGapFloorBps(maxPriceMoveBpsPerSlot: bigint): bigint {
  *
  * @param legCount        Number of legs in the batch.
  * @param anyGrowthLeg    Whether at least one leg's asset has growth ON.
- * @returns void; throws when the wrapper would refuse (InvalidInstruction).
+ * @returns void; throws when the wrapper would refuse (96 GrowthBatchTooManyLegs).
  * @example
  * ```ts
  * assertGrowthBatchLegs(11, true); // throws
  * ```
  */
 export function assertGrowthBatchLegs(legCount: number, anyGrowthLeg: boolean): void {
-  if (anyGrowthLeg && legCount > GROWTH_BATCH_MAX_LEGS) throw new Error(`a batch with a growth leg is limited to ${GROWTH_BATCH_MAX_LEGS} legs, got ${legCount}`);
+  if (anyGrowthLeg && legCount > GROWTH_BATCH_MAX_LEGS) throw new Error(`a batch with a growth leg is limited to ${GROWTH_BATCH_MAX_LEGS} legs, got ${legCount} (wrapper error 96 GrowthBatchTooManyLegs)`);
 }
 
 // ============================================================================
