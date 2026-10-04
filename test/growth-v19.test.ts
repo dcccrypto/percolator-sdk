@@ -8,7 +8,9 @@ import {
   imrBpsForLeverageX100, leverageX100ForImrBps, ceilingImrBps, nCapQ, liquidityNotionalE6, dynImrBps, utilizationBps,
   conservativeEquity, quoteMaxLeverage, encodeInitMarketV19, encodeInitVaultLpV19, encodeSetAssetRiskLimitsV19,
   encodeMatcherCallExtV2, encodeMatcherCallExtV3, encodeMatcherCallExtV3FromV2, encodeInitMarket, encodeSetAssetRiskLimitsP1,
-  assetRiskLimitsAccountOffsetP1, PERCOLATOR_ERRORS, decodeError,
+  assetRiskLimitsAccountOffsetP1, PERCOLATOR_ERRORS, decodeError, growthMatcherCapsV3, GROWTH_PIN_MATCHER_EXT_MODE,
+  GROWTH_PIN_MAX_REQUESTED_FEE_BPS, GROWTH_PIN_LP_FLOOR_ATOMS, GROWTH_PIN_MATCHER_KIND, GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS,
+  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS,
 } from "../src/index.js";
 import type { AssetGrowthV19, InitMarketV17Args } from "../src/index.js";
 
@@ -24,8 +26,9 @@ describe("math parity with growth_v19.rs unit tests", () => {
     expect(dynImrBps(100_000n, n, 1_000n, 0n)).toBe(1_900n);
     expect(dynImrBps(999_999n, n, 1_000n, 10_000n)).toBe(1_000n);
   });
-  it("u >= 1 and N_cap 0 are REFUSED (wrapper a7c07f34: lp_abs_after >= n_cap -> None)", () => {
-    expect(dynImrBps(1_000_000n, n, 1_000n, 5_000n)).toBeNull();
+  it("u == 1 is ADMITTED at 100% IMR; u > 1 and N_cap 0 are REFUSED (wrapper 5993a5c1, Q3: lp_abs_after > n_cap -> None)", () => {
+    expect(dynImrBps(1_000_000n, n, 1_000n, 5_000n)).toBe(10_000n);
+    expect(dynImrBps(1_000_000n, n, 1_000n, 10_000n)).toBe(1_000n); // kink 100%: no step even at u == 1
     expect(dynImrBps(1_000_001n, n, 1_000n, 5_000n)).toBeNull();
     expect(dynImrBps(2_000_000n, n, 1_000n, 5_000n)).toBeNull();
     expect(dynImrBps(0n, 0n, 1_000n, 5_000n)).toBeNull();
@@ -36,7 +39,8 @@ describe("math parity with growth_v19.rs unit tests", () => {
     expect(nCapQ(1_746_000_000n, 10_000n, 1_000_000n)).toBe(1_746_000_000n);
     expect(nCapQ(1n, 10_000n, 0n)).toBeNull();
     expect(nCapQ((1n << 128n) - 1n, 10_000n, 1n)).toBeNull(); // u128 overflow fails closed
-    expect(liquidityNotionalE6(1_746_000_000n, 10_000n)).toBe(1_746_000_000n);
+    expect(liquidityNotionalE6(1_000_000_000n, 10_000n)).toBe(4_000_000_000n); // DEPTH_MULT = 4
+    expect(liquidityNotionalE6((1n << 126n), 10_000n)).toBeNull();
   });
   it("leverage <-> IMR", () => {
     expect(imrBpsForLeverageX100(1_000)).toBe(1_000n);
@@ -128,7 +132,10 @@ describe("quoteMaxLeverage", () => {
   it("closed: h-lock, |LP| >= N_cap, zero capital, zero price (crowd side only)", () => {
     const i = { ...base, lpEffectivePositionQ: -100n };
     expect(quoteMaxLeverage({ ...i, bankruptcyHlockActive: true }, "long")).toMatchObject({ closed: true, closedReason: "hlock", maxLeverageX100: 0 });
-    expect(quoteMaxLeverage({ ...base, lpEffectivePositionQ: -1_000_000_000n }, "long")).toMatchObject({ closed: true, closedReason: "capacity-full" });
+    // |LP| == N_cap: gate would admit a landing at u == 1, but no marginal room for NEW growth -> closed, headroom 0
+    expect(quoteMaxLeverage({ ...base, lpEffectivePositionQ: -1_000_000_000n }, "long")).toMatchObject({ closed: true, closedReason: "capacity-full", headroomQ: 0n });
+    expect(quoteMaxLeverage({ ...base, lpEffectivePositionQ: -1_000_000_001n }, "long")).toMatchObject({ closed: true, closedReason: "capacity-full" });
+    expect(quoteMaxLeverage({ ...base, lpEffectivePositionQ: -999_999_999n }, "long")).toMatchObject({ closed: false, headroomQ: 1n, imrBps: 10_000n, maxLeverageX100: 100 });
     expect(quoteMaxLeverage({ ...i, lpCapital: 0n }, "long")).toMatchObject({ closed: true, closedReason: "capacity-zero" });
     expect(quoteMaxLeverage({ ...i, priceE6: 0n }, "long")).toMatchObject({ closed: true, closedReason: "capacity-zero" });
     // thin side stays open even with the h-lock
@@ -201,6 +208,22 @@ describe("encoders", () => {
     expect(hex(encodeMatcherCallExtV3(v1, { inventoryCapQ: 0n, liquidityNotionalE6: 0n }).subarray(40))).toBe("00".repeat(32));
     expect(() => encodeMatcherCallExtV3(v1, { inventoryCapQ: 1n << 127n, liquidityNotionalE6: 0n })).toThrow();
     expect(() => encodeMatcherCallExtV2({ ...v1, lpPositionQ: -(1n << 127n) })).toThrow();
+  });
+});
+
+describe("ext-v3 caps the wrapper sends + growth-asset pins", () => {
+  const g = { lambdaBps: 10_000 };
+  it("cap = min(N_cap, 1e14); liquidity = 4*lambda*C_m/1e4; both 0 under the h-lock; liquidity 0 when cap 0", () => {
+    expect(growthMatcherCapsV3(g, 1_000_000_000n, 1_000_000n, false)).toEqual({ inventoryCapQ: 1_000_000_000n, liquidityNotionalE6: 4_000_000_000n });
+    expect(growthMatcherCapsV3(g, 1_000_000_000n, 1_000_000n, true)).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
+    expect(growthMatcherCapsV3(g, 1_000_000_000n, 0n, false)).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
+    expect(growthMatcherCapsV3(g, 0n, 1_000_000n, false)).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
+    expect(growthMatcherCapsV3(g, 10n ** 26n, 1_000_000n, false).inventoryCapQ).toBe(100_000_000_000_000n);
+    expect(growthMatcherCapsV3(g, 10n ** 30n, 1_000_000n, false).inventoryCapQ).toBe(0n); // u128 overflow fails closed
+  });
+  it("tag-94 pins on a growth asset", () => {
+    expect([GROWTH_PIN_MATCHER_EXT_MODE, GROWTH_PIN_MAX_REQUESTED_FEE_BPS, GROWTH_PIN_LP_FLOOR_ATOMS, GROWTH_PIN_MATCHER_KIND]).toEqual([1, 100, 1_000_000n, 2]);
+    expect([GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS, GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS]).toEqual([10_000, 5_000]);
   });
 });
 

@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — growth-v19 support (DRAFT; needs a version-bump decision, probably 9.0.0; do not publish)
 
-Additive client support for wrapper `dcccrypto/percolator-prog#524` (`a7c07f34`) and matcher
+Additive client support for wrapper `dcccrypto/percolator-prog#524` (`5993a5c1`) and matcher
 `dcccrypto/percolator-match#33`. New module `src/abi/growth-v19.ts`: `AssetGrowthV19` decoder (120 B at
 asset slot + 672), bigint mirror of `growth_v19.rs` (`imrBpsForLeverageX100`, `ceilingImrBps`, `nCapQ`,
 `dynImrBps`, `utilizationBps`, ...), `quoteMaxLeverage`, tag 0 / 93 / 94 growth trailer encoders, matcher

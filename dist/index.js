@@ -4024,7 +4024,14 @@ var GROWTH_BPS = 10000n;
 var GROWTH_MAX_IMR_BPS = 10000n;
 var GROWTH_LEVERAGE_X100_ONE = 100;
 var GROWTH_MAX_LAMBDA_BPS = 1e5;
-var GROWTH_MAX_KINK_BPS_TAG93 = 5e3;
+var GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS = 1e4;
+var GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS = 5e3;
+var GROWTH_DEPTH_MULT = 4n;
+var GROWTH_MAX_POSITION_ABS_Q = 100000000000000n;
+var GROWTH_PIN_MATCHER_EXT_MODE = 1;
+var GROWTH_PIN_MAX_REQUESTED_FEE_BPS = 100;
+var GROWTH_PIN_LP_FLOOR_ATOMS = 1000000n;
+var GROWTH_PIN_MATCHER_KIND = 2;
 var GROWTH_VERSION = 1;
 var GROWTH_POS_SCALE = 1000000n;
 var ASSET_GROWTH_SLOT_OFF = 672;
@@ -4131,15 +4138,24 @@ function nCapQ(cM, lambdaBps, priceE6, posScale = GROWTH_POS_SCALE) {
   return num / den;
 }
 function liquidityNotionalE6(cM, lambdaBps) {
-  const p = cM * big2("lambdaBps", lambdaBps);
+  const a = cM * big2("lambdaBps", lambdaBps);
+  if (a > U128_MAX2) return null;
+  const p = a * GROWTH_DEPTH_MULT;
   if (p > U128_MAX2) return null;
   return p / GROWTH_BPS;
+}
+function growthMatcherCapsV3(g, cM, priceE6, hlockActive, posScale = GROWTH_POS_SCALE) {
+  if (hlockActive) return { inventoryCapQ: 0n, liquidityNotionalE6: 0n };
+  const n = nCapQ(cM, g.lambdaBps, priceE6, posScale) ?? 0n;
+  const cap = n < GROWTH_MAX_POSITION_ABS_Q ? n : GROWTH_MAX_POSITION_ABS_Q;
+  const liq = cap === 0n ? 0n : liquidityNotionalE6(cM, g.lambdaBps) ?? 0n;
+  return { inventoryCapQ: cap, liquidityNotionalE6: liq };
 }
 function dynImrBps(lpAbsAfter, nCap, baseImr, kinkBps) {
   const base = big2("baseImr", baseImr);
   const kink = big2("kinkBps", kinkBps);
   if (base < 0n || base > GROWTH_MAX_IMR_BPS || kink < 0n || kink > GROWTH_BPS) return null;
-  if (nCap === 0n || lpAbsAfter >= nCap) return null;
+  if (nCap === 0n || lpAbsAfter > nCap) return null;
   const lhs = lpAbsAfter * GROWTH_BPS;
   const rhs = kink * nCap;
   if (lhs > U128_MAX2 || rhs > U128_MAX2) return null;
@@ -4174,6 +4190,7 @@ function quoteMaxLeverage(input, side) {
     utilizationBps: null,
     nCapQ: null,
     growthOn: g !== null,
+    headroomQ: null,
     ...p
   });
   const lev = (imr) => {
@@ -4194,12 +4211,12 @@ function quoteMaxLeverage(input, side) {
   const util = nCap === null ? null : utilizationBps(lpAbs, nCap);
   const info = { nCapQ: nCap, utilizationBps: util };
   if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base) });
-  if (input.bankruptcyHlockActive) return closed("hlock", info);
-  if (nCap === null || nCap === 0n) return closed("capacity-zero", info);
-  if (lpAbs >= nCap) return closed("capacity-full", info);
+  if (input.bankruptcyHlockActive) return closed("hlock", { ...info, headroomQ: 0n });
+  if (nCap === null || nCap === 0n) return closed("capacity-zero", { ...info, headroomQ: 0n });
+  if (lpAbs >= nCap) return closed("capacity-full", { ...info, headroomQ: 0n });
   const dyn = dynImrBps(lpAbs, nCap, base, g.kinkBps);
-  if (dyn === null) return closed("capacity-full", info);
-  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn) });
+  if (dyn === null) return closed("capacity-full", { ...info, headroomQ: 0n });
+  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - lpAbs });
 }
 function u16nz(name, v) {
   if (!Number.isInteger(v) || v <= 0 || v > 65535) throw new Error(`${name} must be a non-zero u16, got ${v}`);
@@ -4218,8 +4235,8 @@ function encodeInitVaultLpV19(juniorFloorBps, lLaunchX100) {
 }
 function encodeSetAssetRiskLimitsV19(a, growth) {
   const { growthLambdaBps: lambda, growthKinkBps: kink } = growth;
-  if (!Number.isInteger(lambda) || lambda < 1 || lambda > 1e4) throw new Error(`growthLambdaBps must be in 1..=10000, got ${lambda}`);
-  if (!Number.isInteger(kink) || kink < 0 || kink > GROWTH_MAX_KINK_BPS_TAG93) throw new Error(`growthKinkBps must be in 0..=${GROWTH_MAX_KINK_BPS_TAG93}, got ${kink}`);
+  if (!Number.isInteger(lambda) || lambda < 1 || lambda > GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS) throw new Error(`growthLambdaBps must be in 1..=10000, got ${lambda}`);
+  if (!Number.isInteger(kink) || kink < 0 || kink > GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS) throw new Error(`growthKinkBps must be in 0..=${GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS}, got ${kink}`);
   encodeSetAssetRiskLimitsP1(a);
   const out = concatBytes(
     encU8(IX_TAG_P1.SetAssetRiskLimits),
@@ -11986,10 +12003,17 @@ export {
   EXPECTED_SLAB_VERSION,
   FEE_SPLIT,
   GROWTH_BPS,
+  GROWTH_DEPTH_MULT,
+  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS,
+  GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS,
   GROWTH_LEVERAGE_X100_ONE,
   GROWTH_MAX_IMR_BPS,
-  GROWTH_MAX_KINK_BPS_TAG93,
   GROWTH_MAX_LAMBDA_BPS,
+  GROWTH_MAX_POSITION_ABS_Q,
+  GROWTH_PIN_LP_FLOOR_ATOMS,
+  GROWTH_PIN_MATCHER_EXT_MODE,
+  GROWTH_PIN_MATCHER_KIND,
+  GROWTH_PIN_MAX_REQUESTED_FEE_BPS,
   GROWTH_POS_SCALE,
   GROWTH_U64_MAX,
   GROWTH_VERSION,
@@ -12511,6 +12535,7 @@ export {
   getProgramId,
   getStakeProgramId,
   getStaticMarkets,
+  growthMatcherCapsV3,
   imrBpsForLeverageX100,
   initPoolAccounts,
   isAccountUsed,

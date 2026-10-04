@@ -13,7 +13,7 @@ const FX = JSON.parse(readFileSync(new URL("./fixtures/wrapper-errors.json", imp
 
 describe("wrapper error map is generated from the program (rustc discriminants)", () => {
   it("fixture is from the pinned relaunch wrapper", () => {
-    expect(FX.prog).toBe("a7c07f3400d0ec727bbacfc123303b0d025d5e3c");
+    expect(FX.prog).toBe("5993a5c11cfbb616f28c7636c44c9dfbac516034");
     expect(Object.keys(FX.errors)).toHaveLength(FX.count);
   });
   it("every program code decodes to the program's variant name", () => {
@@ -26,7 +26,7 @@ describe("wrapper error map is generated from the program (rustc discriminants)"
     expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
     expect(decodeError(91)?.hint).toMatch(/deposits paused/);
   });
-  it("growth-v19 (a7c07f34) appends exactly 92 GrowthLeverageExceeded, 93 GrowthCapacityFull, 94 GrowthInvalidConfig", () => {
+  it("growth-v19 (5993a5c1) appends exactly 92 GrowthLeverageExceeded, 93 GrowthCapacityFull, 94 GrowthInvalidConfig", () => {
     expect(FX.errors["91"]).toBe("LpVaultTargetPotImpaired");
     expect(FX.errors["92"]).toBe("GrowthLeverageExceeded");
     expect(FX.errors["93"]).toBe("GrowthCapacityFull");

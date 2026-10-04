@@ -2,13 +2,11 @@
  * growth-v19 (dynamic leverage + capital-derived capacity) client ABI. Additive to SDK 8.0.1.
  *
  * Source of truth (read, every offset verified):
- *  - wrapper `dcccrypto/percolator-prog#524` branch `feat/growth-v19-dynamic-leverage` @ `a7c07f34`:
+ *  - wrapper `dcccrypto/percolator-prog#524` branch `feat/growth-v19-dynamic-leverage` @ `5993a5c1`:
  *    `src/growth_v19.rs` (pure math; mirrored here with bigint, exact integer semantics),
  *    `src/v16_program.rs` (`state::AssetGrowthV19`, `ASSET_GROWTH_OFF = 672`, decode arms for
- *    tag 0 / tag 94 growth trailers, `PercolatorError` 92..=94).
+ *    tag 0 / 93 / 94 growth trailers incl. `SetAssetRiskLimitsV19`, `PercolatorError` 92..=94).
  *  - matcher `dcccrypto/percolator-match#33` `src/v2.rs` (`CallExt::encode_v3`, `parse_v3`).
- *  - tag 93 growth trailer (`SetAssetRiskLimitsV19`): spec from the growth plan; the wrapper arm had
- *    not landed at `a7c07f34`, so its bytes are pinned only by this SDK's tests until it does.
  *
  * Units: leverage is x100 (550 = 5.5x); IMR / utilisation / lambda / kink are bps out of 10_000;
  * positions are engine Q (`POS_SCALE` per unit); prices are e6.
@@ -39,8 +37,29 @@ export const GROWTH_MAX_IMR_BPS = 10_000n;
 export const GROWTH_LEVERAGE_X100_ONE = 100;
 /** `growth_v19::MAX_LAMBDA_BPS` (10x of capital). */
 export const GROWTH_MAX_LAMBDA_BPS = 100_000;
-/** Tag-93 growth trailer bound: kink in [0, 5_000] (program-enforced; plan §2.1). */
-export const GROWTH_MAX_KINK_BPS_TAG93 = 5_000;
+/**
+ * Tag-93 growth trailer bounds WITHOUT the epoch clamp (`growth_dials_ok(false, ..)`, the only mode
+ * enabled today): lambda in [1, 10_000], kink in [0, 5_000]. With the clamp (`EPOCH_CLAMP_ENFORCED`,
+ * not yet enabled) the wrapper would allow lambda up to 100_000 and kink up to 10_000.
+ */
+export const GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS = 10_000;
+/** See {@link GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}. */
+export const GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS = 5_000;
+/** `DEPTH_MULT`: the ext-v3 liquidity depth multiple of `lambda * C_m / 1e4`. */
+export const GROWTH_DEPTH_MULT = 4n;
+/** Engine `MAX_POSITION_ABS_Q` (1e14): upper clamp of the ext-v3 `inventory_cap_q`. */
+export const GROWTH_MAX_POSITION_ABS_Q = 100_000_000_000_000n;
+/** Tag 94 on a growth asset pins `matcher_ext_mode = 1` (P2 call extension on). */
+export const GROWTH_PIN_MATCHER_EXT_MODE = 1;
+/**
+ * Tag 94 on a growth asset pins a requested-fee cap of 100 bps: the taker's signed `fee_bps` must
+ * cover the base fee plus up to this much (the matcher's spread is paid to the LP as a fee).
+ */
+export const GROWTH_PIN_MAX_REQUESTED_FEE_BPS = 100;
+/** Tag 94 on a growth asset pins an LP floor of 1_000_000 atoms ($1 on a 6-decimal mint). */
+export const GROWTH_PIN_LP_FLOOR_ATOMS = 1_000_000n;
+/** Tag 94 on a growth asset binds a kind-2 (adaptive) matcher context. */
+export const GROWTH_PIN_MATCHER_KIND = 2;
 /** `AssetGrowthV19::version` of an enabled block (`GROWTH_VERSION`). */
 export const GROWTH_VERSION = 1;
 /** Engine `POS_SCALE` used by `n_cap_q` callers. */
@@ -287,27 +306,57 @@ export function nCapQ(cM: bigint, lambdaBps: Num, priceE6: bigint, posScale: big
 }
 
 /**
- * `liquidity_notional_e6` the wrapper hands the matcher: `floor(c_m * lambda / 1e4)`. Port of
- * `liquidity_notional_e6`.
+ * `liquidity_notional_e6` the wrapper hands the matcher (ext v3): `floor(c_m * lambda * DEPTH_MULT / 1e4)`
+ * with `DEPTH_MULT = 4`. Port of `liquidity_notional_e6`.
  *
  * @param cM         Conservative LP equity (atoms).
  * @param lambdaBps  Lambda (bps).
  * @returns The depth, or `null` on u128 overflow.
  * @example
  * ```ts
- * liquidityNotionalE6(1_746_000_000n, 10_000n); // 1_746_000_000n
+ * liquidityNotionalE6(1_000_000_000n, 10_000n); // 4_000_000_000n
  * ```
  */
 export function liquidityNotionalE6(cM: bigint, lambdaBps: Num): bigint | null {
-  const p = cM * big("lambdaBps", lambdaBps);
+  const a = cM * big("lambdaBps", lambdaBps);
+  if (a > U128_MAX) return null;
+  const p = a * GROWTH_DEPTH_MULT;
   if (p > U128_MAX) return null;
   return p / GROWTH_BPS;
 }
 
 /**
+ * The `(inventory_cap_q, liquidity_notional_e6)` pair the wrapper puts in the matcher ext v3
+ * (`growth_matcher_caps_view`): both 0 while the bankruptcy h-lock is latched; otherwise
+ * `cap = min(N_cap, 1e14)` (0 on a zero price / overflow) and `liquidity = 0` when `cap == 0`, else
+ * `4 * lambda * C_m / 1e4`.
+ *
+ * @param g            Decoded growth record (only `lambdaBps` is used).
+ * @param cM           Conservative LP equity (atoms), see {@link conservativeEquity}.
+ * @param priceE6      Effective price (e6).
+ * @param hlockActive  Bankruptcy h-lock latched.
+ * @param posScale     Engine `POS_SCALE` (default 1_000_000n).
+ * @returns Caps ready for {@link encodeMatcherCallExtV3}.
+ * @example
+ * ```ts
+ * growthMatcherCapsV3(g, 1_000_000_000n, 1_000_000n, false); // { inventoryCapQ: 1_000_000_000n, liquidityNotionalE6: 4_000_000_000n }
+ * ```
+ */
+export function growthMatcherCapsV3(
+  g: Pick<AssetGrowthV19, "lambdaBps">, cM: bigint, priceE6: bigint, hlockActive: boolean, posScale: bigint = GROWTH_POS_SCALE,
+): MatcherCallExtCapsV3 {
+  if (hlockActive) return { inventoryCapQ: 0n, liquidityNotionalE6: 0n };
+  const n = nCapQ(cM, g.lambdaBps, priceE6, posScale) ?? 0n;
+  const cap = n < GROWTH_MAX_POSITION_ABS_Q ? n : GROWTH_MAX_POSITION_ABS_Q;
+  const liq = cap === 0n ? 0n : (liquidityNotionalE6(cM, g.lambdaBps) ?? 0n);
+  return { inventoryCapQ: cap, liquidityNotionalE6: liq };
+}
+
+/**
  * Kinked dynamic IMR for a crowd-joining fill. Port of `dyn_imr_bps`. `null` == refused
- * (GrowthCapacityFull): `n_cap` is 0, `lp_abs_after >= n_cap` (u >= 1 is REFUSED, exactly as in
- * the wrapper: `u == 1` does not get the 100% IMR), a corrupt input or a u128 overflow.
+ * (GrowthCapacityFull): `n_cap` is 0, `lp_abs_after > n_cap` (u > 1), a corrupt input or a u128
+ * overflow. Q3 (wrapper 5993a5c1): `u == 1` exactly is ADMITTED, at 100% IMR (the headroom clip and
+ * the matcher's `<= cap` inventory check agree, so no crowd fill leaves `|LP| > N_cap`).
  *
  * `lp*1e4 <= kink*n` -> base; else `base + ceil((1e4 - base) * (lp*1e4 - kink*n) / (n * (1e4 - kink)))`,
  * clamped to 10_000.
@@ -326,7 +375,7 @@ export function dynImrBps(lpAbsAfter: bigint, nCap: bigint, baseImr: Num, kinkBp
   const base = big("baseImr", baseImr);
   const kink = big("kinkBps", kinkBps);
   if (base < 0n || base > GROWTH_MAX_IMR_BPS || kink < 0n || kink > GROWTH_BPS) return null;
-  if (nCap === 0n || lpAbsAfter >= nCap) return null;
+  if (nCap === 0n || lpAbsAfter > nCap) return null;
   const lhs = lpAbsAfter * GROWTH_BPS;
   const rhs = kink * nCap;
   if (lhs > U128_MAX || rhs > U128_MAX) return null;
@@ -421,6 +470,13 @@ export interface MaxLeverageQuote {
   nCapQ: bigint | null;
   /** Whether growth-v19 is on for this asset. */
   growthOn: boolean;
+  /**
+   * Crowd-side marginal capacity `N_cap - |LP|` (Q). 0 when closed on the crowd side, INCLUDING
+   * `|LP| == N_cap`: the wrapper admits a fill that lands exactly on `N_cap` (u == 1, 100% IMR), but
+   * at `|LP| == N_cap` any further crowd fill would exceed it, so there is no room for NEW growth.
+   * `null` on the thin side or when growth is off.
+   */
+  headroomQ: bigint | null;
 }
 
 /**
@@ -430,7 +486,7 @@ export interface MaxLeverageQuote {
  * grows |LP|: LP short or flat => longs crowd; LP long or flat => shorts crowd (a flat LP: both).
  * Ceiling `L_ceil = min(l_launch, l_tier)` (graduation is compiled off in the wrapper). Thin side:
  * `1e6 / ceilingImr`. Crowd side: closed if the h-lock is active, `N_cap == 0` (also a zero price)
- * or `|LP| >= N_cap`; otherwise the MARGINAL leverage at the current utilisation,
+ * or `|LP| >= N_cap` (at `== N_cap` the quote reports 0 headroom: see `headroomQ`); otherwise the MARGINAL leverage at the current utilisation,
  * `floor(1e6 / dynImr(|LP|, N_cap, base, kink))`. Growth OFF => `floor(1e6 / engineImr)`.
  *
  * IMPORTANT: on-chain the check runs on the POST-TRADE LP position (`|LP| + fill`), and the
@@ -455,7 +511,7 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   const e = input.engineImrBps;
   const out = (p: Partial<MaxLeverageQuote>): MaxLeverageQuote => ({
     side, crowd, closed: false, closedReason: null, maxLeverageX100: 0, imrBps: null,
-    utilizationBps: null, nCapQ: null, growthOn: g !== null, ...p,
+    utilizationBps: null, nCapQ: null, growthOn: g !== null, headroomQ: null, ...p,
   });
   const lev = (imr: bigint): number => {
     const l = leverageX100ForImrBps(imr);
@@ -478,12 +534,14 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   const info = { nCapQ: nCap, utilizationBps: util };
 
   if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base) });
-  if (input.bankruptcyHlockActive) return closed("hlock", info);
-  if (nCap === null || nCap === 0n) return closed("capacity-zero", info);
-  if (lpAbs >= nCap) return closed("capacity-full", info);
+  if (input.bankruptcyHlockActive) return closed("hlock", { ...info, headroomQ: 0n });
+  if (nCap === null || nCap === 0n) return closed("capacity-zero", { ...info, headroomQ: 0n });
+  // |LP| == N_cap: the gate would still admit a fill landing exactly on N_cap, but there is no
+  // marginal capacity left for NEW growth (any further crowd fill exceeds it): report closed.
+  if (lpAbs >= nCap) return closed("capacity-full", { ...info, headroomQ: 0n });
   const dyn = dynImrBps(lpAbs, nCap, base, g.kinkBps);
-  if (dyn === null) return closed("capacity-full", info);
-  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn) });
+  if (dyn === null) return closed("capacity-full", { ...info, headroomQ: 0n });
+  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - lpAbs });
 }
 
 // ============================================================================
@@ -536,7 +594,7 @@ export function encodeInitVaultLpV19(juniorFloorBps: number, lLaunchX100: number
 
 /** Tag 93 growth trailer fields (upgrade-authority only). */
 export interface SetAssetRiskLimitsGrowthV19 {
-  /** `lambda_bps` in [1, 100_000]. The task spec bounds it to [1, 10_000]; the wrapper constant `MAX_LAMBDA_BPS` is 100_000 (see PR notes). */
+  /** `lambda_bps` in [1, 10_000] (no-clamp bound, see {@link GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}). */
   growthLambdaBps: number;
   /** Kink u_k in [0, 5_000]. */
   growthKinkBps: number;
@@ -547,7 +605,7 @@ export interface SetAssetRiskLimitsGrowthV19 {
  * present in this form (41 bytes + `matcher_ext_mode` u8 + `max_requested_fee_bps` u16 = 44),
  * followed by `u32 growth_lambda_bps` + `u16 growth_kink_bps` = 50 bytes including the tag.
  *
- * Bounds enforced client-side: lambda in [1, 10_000] (plan), kink in [0, 5_000].
+ * Bounds enforced client-side (= wrapper `growth_dials_ok(false, ..)`): lambda in [1, 10_000], kink in [0, 5_000].
  *
  * @param a       Legacy tag-93 fields (the optional tail defaults to 0, but is ALWAYS emitted).
  * @param growth  Growth trailer.
@@ -560,8 +618,8 @@ export interface SetAssetRiskLimitsGrowthV19 {
  */
 export function encodeSetAssetRiskLimitsV19(a: SetAssetRiskLimitsArgsP1, growth: SetAssetRiskLimitsGrowthV19): Uint8Array {
   const { growthLambdaBps: lambda, growthKinkBps: kink } = growth;
-  if (!Number.isInteger(lambda) || lambda < 1 || lambda > 10_000) throw new Error(`growthLambdaBps must be in 1..=10000, got ${lambda}`);
-  if (!Number.isInteger(kink) || kink < 0 || kink > GROWTH_MAX_KINK_BPS_TAG93) throw new Error(`growthKinkBps must be in 0..=${GROWTH_MAX_KINK_BPS_TAG93}, got ${kink}`);
+  if (!Number.isInteger(lambda) || lambda < 1 || lambda > GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS) throw new Error(`growthLambdaBps must be in 1..=10000, got ${lambda}`);
+  if (!Number.isInteger(kink) || kink < 0 || kink > GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS) throw new Error(`growthKinkBps must be in 0..=${GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS}, got ${kink}`);
   // Validate the legacy fields with the P1 encoder (it drops a zero tail; the growth form always
   // carries it so the trailer sits at the fixed offset 44).
   encodeSetAssetRiskLimitsP1(a);

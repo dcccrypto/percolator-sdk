@@ -9,8 +9,29 @@ export declare const GROWTH_MAX_IMR_BPS = 10000n;
 export declare const GROWTH_LEVERAGE_X100_ONE = 100;
 /** `growth_v19::MAX_LAMBDA_BPS` (10x of capital). */
 export declare const GROWTH_MAX_LAMBDA_BPS = 100000;
-/** Tag-93 growth trailer bound: kink in [0, 5_000] (program-enforced; plan §2.1). */
-export declare const GROWTH_MAX_KINK_BPS_TAG93 = 5000;
+/**
+ * Tag-93 growth trailer bounds WITHOUT the epoch clamp (`growth_dials_ok(false, ..)`, the only mode
+ * enabled today): lambda in [1, 10_000], kink in [0, 5_000]. With the clamp (`EPOCH_CLAMP_ENFORCED`,
+ * not yet enabled) the wrapper would allow lambda up to 100_000 and kink up to 10_000.
+ */
+export declare const GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS = 10000;
+/** See {@link GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}. */
+export declare const GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS = 5000;
+/** `DEPTH_MULT`: the ext-v3 liquidity depth multiple of `lambda * C_m / 1e4`. */
+export declare const GROWTH_DEPTH_MULT = 4n;
+/** Engine `MAX_POSITION_ABS_Q` (1e14): upper clamp of the ext-v3 `inventory_cap_q`. */
+export declare const GROWTH_MAX_POSITION_ABS_Q = 100000000000000n;
+/** Tag 94 on a growth asset pins `matcher_ext_mode = 1` (P2 call extension on). */
+export declare const GROWTH_PIN_MATCHER_EXT_MODE = 1;
+/**
+ * Tag 94 on a growth asset pins a requested-fee cap of 100 bps: the taker's signed `fee_bps` must
+ * cover the base fee plus up to this much (the matcher's spread is paid to the LP as a fee).
+ */
+export declare const GROWTH_PIN_MAX_REQUESTED_FEE_BPS = 100;
+/** Tag 94 on a growth asset pins an LP floor of 1_000_000 atoms ($1 on a 6-decimal mint). */
+export declare const GROWTH_PIN_LP_FLOOR_ATOMS = 1000000n;
+/** Tag 94 on a growth asset binds a kind-2 (adaptive) matcher context. */
+export declare const GROWTH_PIN_MATCHER_KIND = 2;
 /** `AssetGrowthV19::version` of an enabled block (`GROWTH_VERSION`). */
 export declare const GROWTH_VERSION = 1;
 /** Engine `POS_SCALE` used by `n_cap_q` callers. */
@@ -175,22 +196,41 @@ export declare function ceilingImrBps(engineImrBps: Num, lCeilX100: Num): bigint
  */
 export declare function nCapQ(cM: bigint, lambdaBps: Num, priceE6: bigint, posScale?: bigint): bigint | null;
 /**
- * `liquidity_notional_e6` the wrapper hands the matcher: `floor(c_m * lambda / 1e4)`. Port of
- * `liquidity_notional_e6`.
+ * `liquidity_notional_e6` the wrapper hands the matcher (ext v3): `floor(c_m * lambda * DEPTH_MULT / 1e4)`
+ * with `DEPTH_MULT = 4`. Port of `liquidity_notional_e6`.
  *
  * @param cM         Conservative LP equity (atoms).
  * @param lambdaBps  Lambda (bps).
  * @returns The depth, or `null` on u128 overflow.
  * @example
  * ```ts
- * liquidityNotionalE6(1_746_000_000n, 10_000n); // 1_746_000_000n
+ * liquidityNotionalE6(1_000_000_000n, 10_000n); // 4_000_000_000n
  * ```
  */
 export declare function liquidityNotionalE6(cM: bigint, lambdaBps: Num): bigint | null;
 /**
+ * The `(inventory_cap_q, liquidity_notional_e6)` pair the wrapper puts in the matcher ext v3
+ * (`growth_matcher_caps_view`): both 0 while the bankruptcy h-lock is latched; otherwise
+ * `cap = min(N_cap, 1e14)` (0 on a zero price / overflow) and `liquidity = 0` when `cap == 0`, else
+ * `4 * lambda * C_m / 1e4`.
+ *
+ * @param g            Decoded growth record (only `lambdaBps` is used).
+ * @param cM           Conservative LP equity (atoms), see {@link conservativeEquity}.
+ * @param priceE6      Effective price (e6).
+ * @param hlockActive  Bankruptcy h-lock latched.
+ * @param posScale     Engine `POS_SCALE` (default 1_000_000n).
+ * @returns Caps ready for {@link encodeMatcherCallExtV3}.
+ * @example
+ * ```ts
+ * growthMatcherCapsV3(g, 1_000_000_000n, 1_000_000n, false); // { inventoryCapQ: 1_000_000_000n, liquidityNotionalE6: 4_000_000_000n }
+ * ```
+ */
+export declare function growthMatcherCapsV3(g: Pick<AssetGrowthV19, "lambdaBps">, cM: bigint, priceE6: bigint, hlockActive: boolean, posScale?: bigint): MatcherCallExtCapsV3;
+/**
  * Kinked dynamic IMR for a crowd-joining fill. Port of `dyn_imr_bps`. `null` == refused
- * (GrowthCapacityFull): `n_cap` is 0, `lp_abs_after >= n_cap` (u >= 1 is REFUSED, exactly as in
- * the wrapper: `u == 1` does not get the 100% IMR), a corrupt input or a u128 overflow.
+ * (GrowthCapacityFull): `n_cap` is 0, `lp_abs_after > n_cap` (u > 1), a corrupt input or a u128
+ * overflow. Q3 (wrapper 5993a5c1): `u == 1` exactly is ADMITTED, at 100% IMR (the headroom clip and
+ * the matcher's `<= cap` inventory check agree, so no crowd fill leaves `|LP| > N_cap`).
  *
  * `lp*1e4 <= kink*n` -> base; else `base + ceil((1e4 - base) * (lp*1e4 - kink*n) / (n * (1e4 - kink)))`,
  * clamped to 10_000.
@@ -274,6 +314,13 @@ export interface MaxLeverageQuote {
     nCapQ: bigint | null;
     /** Whether growth-v19 is on for this asset. */
     growthOn: boolean;
+    /**
+     * Crowd-side marginal capacity `N_cap - |LP|` (Q). 0 when closed on the crowd side, INCLUDING
+     * `|LP| == N_cap`: the wrapper admits a fill that lands exactly on `N_cap` (u == 1, 100% IMR), but
+     * at `|LP| == N_cap` any further crowd fill would exceed it, so there is no room for NEW growth.
+     * `null` on the thin side or when growth is off.
+     */
+    headroomQ: bigint | null;
 }
 /**
  * Quote the maximum leverage a taker can open on `side` right now.
@@ -282,7 +329,7 @@ export interface MaxLeverageQuote {
  * grows |LP|: LP short or flat => longs crowd; LP long or flat => shorts crowd (a flat LP: both).
  * Ceiling `L_ceil = min(l_launch, l_tier)` (graduation is compiled off in the wrapper). Thin side:
  * `1e6 / ceilingImr`. Crowd side: closed if the h-lock is active, `N_cap == 0` (also a zero price)
- * or `|LP| >= N_cap`; otherwise the MARGINAL leverage at the current utilisation,
+ * or `|LP| >= N_cap` (at `== N_cap` the quote reports 0 headroom: see `headroomQ`); otherwise the MARGINAL leverage at the current utilisation,
  * `floor(1e6 / dynImr(|LP|, N_cap, base, kink))`. Growth OFF => `floor(1e6 / engineImr)`.
  *
  * IMPORTANT: on-chain the check runs on the POST-TRADE LP position (`|LP| + fill`), and the
@@ -331,7 +378,7 @@ export declare function encodeInitMarketV19(args: InitMarketV17Args | InitMarket
 export declare function encodeInitVaultLpV19(juniorFloorBps: number, lLaunchX100: number): Uint8Array;
 /** Tag 93 growth trailer fields (upgrade-authority only). */
 export interface SetAssetRiskLimitsGrowthV19 {
-    /** `lambda_bps` in [1, 100_000]. The task spec bounds it to [1, 10_000]; the wrapper constant `MAX_LAMBDA_BPS` is 100_000 (see PR notes). */
+    /** `lambda_bps` in [1, 10_000] (no-clamp bound, see {@link GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}). */
     growthLambdaBps: number;
     /** Kink u_k in [0, 5_000]. */
     growthKinkBps: number;
@@ -341,7 +388,7 @@ export interface SetAssetRiskLimitsGrowthV19 {
  * present in this form (41 bytes + `matcher_ext_mode` u8 + `max_requested_fee_bps` u16 = 44),
  * followed by `u32 growth_lambda_bps` + `u16 growth_kink_bps` = 50 bytes including the tag.
  *
- * Bounds enforced client-side: lambda in [1, 10_000] (plan), kink in [0, 5_000].
+ * Bounds enforced client-side (= wrapper `growth_dials_ok(false, ..)`): lambda in [1, 10_000], kink in [0, 5_000].
  *
  * @param a       Legacy tag-93 fields (the optional tail defaults to 0, but is ALWAYS emitted).
  * @param growth  Growth trailer.
