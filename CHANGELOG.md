@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — growth-v19 support (DRAFT; needs a version-bump decision, probably 9.0.0; do not publish)
+
+Additive client support for wrapper `dcccrypto/percolator-prog#524` (`a7c07f34`) and matcher
+`dcccrypto/percolator-match#33`. New module `src/abi/growth-v19.ts`: `AssetGrowthV19` decoder (120 B at
+asset slot + 672), bigint mirror of `growth_v19.rs` (`imrBpsForLeverageX100`, `ceilingImrBps`, `nCapQ`,
+`dynImrBps`, `utilizationBps`, ...), `quoteMaxLeverage`, tag 0 / 93 / 94 growth trailer encoders, matcher
+call-ext v2/v3 encoders; errors 92 GrowthLeverageExceeded, 93 GrowthCapacityFull, 94 GrowthInvalidConfig.
+
+---
+
 ## [8.0.1] — unreleased (do not `npm publish` without explicit human go)
 
 Client-side prep for the devnet wrapper upgrade to percolator-prog **`7a3ac04c`**

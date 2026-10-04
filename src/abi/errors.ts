@@ -474,6 +474,18 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "LpVaultTargetPotImpaired",
     hint: "Non-bound Earn vault, deposits paused (wrapper 7a3ac04c NAV floor + its H-1 successor): DepositToLpVault (tag 75) is refused while a backing pot's net impairment (cumulative loss minus recovery) exceeds its principal (7a3ac04c: the target pot; H-1: either pot), or while the share price has collapsed (nav * 1000 < total shares). Depositing then would be absorbed by the excess loss or would mint almost every share at a near-zero price. Nothing moved; withdrawals (tag 77) still work. Retry once the vault recovers. Do NOT send RebalanceLpVaultBacking (91) into an over-impaired pot to clear it: under the floor that only moves holders' value into that pot.",
   },
+  92: {
+    name: "GrowthLeverageExceeded",
+    hint: "Max leverage on this side is lower right now: this market's liquidity is in use. growth-v19: a risk-increasing fill on a growth-enabled asset left the taker's conservative equity (no credit for positive PnL) below the dynamic initial margin (the launch ceiling IMR(L_ceil), stepped up on the crowded side as the LP's capacity fills). Reduce the size or add margin; reductions and closes are never refused. Use quoteMaxLeverage() to preview.",
+  },
+  93: {
+    name: "GrowthCapacityFull",
+    hint: "This side is full right now. Closes and the other side are open. growth-v19: a crowd-side risk-increasing fill when the LP's capacity N_cap = lambda * C_m / P is full (u >= 1), its capital is 0, the price is 0, or the market's bankruptcy h-lock is latched. The thin side, reductions and closes stay open.",
+  },
+  94: {
+    name: "GrowthInvalidConfig",
+    hint: "growth-v19: invalid growth configuration. InitMarket with a growth block: MMR < r_gap + liquidation fee, r_gap == 0, l_launch outside [1x, tier max], or max_abs_funding_e9_per_slot == 0 on a single-slot market. InitVaultLp (94) with an l_launch on an asset whose growth block is off or outside the tier.",
+  },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
 Object.freeze(PERCOLATOR_ERRORS);

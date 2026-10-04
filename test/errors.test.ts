@@ -50,7 +50,7 @@ describe("PERCOLATOR_ERRORS table", () => {
     }
   });
 
-  it("error code 63 is LpVaultBackingBucketNotEmpty, 64-91 are defined (v18.2 64-65, P1 66-71, P3 72-90, NAV floor 91) and 92+ are not", () => {
+  it("error code 63 is LpVaultBackingBucketNotEmpty, 64-94 are defined (v18.2 64-65, P1 66-71, P3 72-90, NAV floor 91, growth-v19 92-94) and 95+ are not", () => {
     // Boundary moved 62 -> 63 by the LP-vault reachability guard, DEPLOYED to devnet
     // 2026-08-29 (wrapper 02326f4f, sha c9827970bf02098b, slot 490057417). The PROPERTY
     // this test encodes is unchanged — the tail is pinned so an accidental insertion or
@@ -75,7 +75,10 @@ describe("PERCOLATOR_ERRORS table", () => {
     expect(PERCOLATOR_ERRORS[90]?.name).toBe("VaultLpBindRequiresFlatAsset");
     // 91 appended by the non-bound NAV floor (percolator-prog 7a3ac04c, fdf07759).
     expect(PERCOLATOR_ERRORS[91]?.name).toBe("LpVaultTargetPotImpaired");
-    expect(PERCOLATOR_ERRORS[92]).toBeUndefined();
+    expect(PERCOLATOR_ERRORS[92]?.name).toBe("GrowthLeverageExceeded");
+    expect(PERCOLATOR_ERRORS[93]?.name).toBe("GrowthCapacityFull");
+    expect(PERCOLATOR_ERRORS[94]?.name).toBe("GrowthInvalidConfig");
+    expect(PERCOLATOR_ERRORS[95]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[100]).toBeUndefined();
   });
 
@@ -251,7 +254,7 @@ describe("decodeError", () => {
     expect(decodeError(61)!.name).toBe("AssetSlotAlreadyConfigured");
   });
 
-  it("decodes 63 as LpVaultBackingBucketNotEmpty and returns undefined for 92 (beyond current table)", () => {
+  it("decodes 63 as LpVaultBackingBucketNotEmpty and returns undefined for 95 (beyond current table)", () => {
     expect(decodeError(62)!.name).toBe("CreatorFeeOverClaim");
     expect(decodeError(63)?.name).toBe("LpVaultBackingBucketNotEmpty");
     expect(decodeError(64)?.name).toBe("RentExemptRequired");
@@ -259,7 +262,8 @@ describe("decodeError", () => {
     expect(decodeError(89)?.name).toBe("VaultLpPausedForSeniorDraw");
     expect(decodeError(90)?.name).toBe("VaultLpBindRequiresFlatAsset");
     expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
-    expect(decodeError(92)).toBeUndefined();
+    expect(decodeError(92)?.name).toBe("GrowthLeverageExceeded");
+    expect(decodeError(95)).toBeUndefined();
   });
 
   it("returns undefined for unknown code 10_000", () => {
@@ -306,7 +310,8 @@ describe("getErrorName", () => {
     expect(getErrorName(89)).toBe("VaultLpPausedForSeniorDraw");
     expect(getErrorName(90)).toBe("VaultLpBindRequiresFlatAsset");
     expect(getErrorName(91)).toBe("LpVaultTargetPotImpaired");
-    expect(getErrorName(92)).toBe("Unknown(92)");
+    expect(getErrorName(92)).toBe("GrowthLeverageExceeded");
+    expect(getErrorName(95)).toBe("Unknown(95)");
     expect(getErrorName(999)).toBe("Unknown(999)");
     expect(getErrorName(100)).toBe("Unknown(100)");
   });

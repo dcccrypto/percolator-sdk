@@ -45,6 +45,7 @@ export default defineConfig({
       "test/p3-final.test.ts",
       "test/stake-wind-down.test.ts",
       "test/risk-limits-p1.test.ts",
+      "test/growth-v19.test.ts",
     ],
   },
 });
