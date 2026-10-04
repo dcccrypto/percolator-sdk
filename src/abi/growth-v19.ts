@@ -77,8 +77,13 @@ export const ASSET_WRAPPER_SLOT_LEN = 1024;
 export const ASSET_GROWTH_FIELD_OFF = Object.freeze({
   cLaunchAtoms: 0, ceilSlot: 8, lambdaBps: 16, lLaunchX100: 20, lTierX100: 22, ceilX100: 24,
   kinkBps: 26, rGapBps: 28, allocAlphaBps: 30, allocBufferBps: 32, cushionTargetBps: 34,
-  cushionShareBps: 36, version: 38, flags: 39, reserved: 40,
+  cushionShareBps: 36, version: 38, flags: 39, utilFeeMaxBps: 40, reserved: 42,
 } as const);
+
+/** N-2: utilisation fee at `u = 1` when the per-asset dial is 0 (bps of the opening notional). */
+export const GROWTH_UTIL_FEE_DEFAULT_BPS = 500;
+/** N-2: hard ceiling of the per-asset utilisation-fee dial. */
+export const GROWTH_UTIL_FEE_HARD_MAX_BPS = 2_000;
 
 /** `R_GAP_MIN_LIQUIDATION_SLOTS` (L-2): liquidation latency, in slots, behind the `r_gap` floor. */
 export const R_GAP_MIN_LIQUIDATION_SLOTS = 50n;
@@ -143,6 +148,8 @@ export interface AssetGrowthV19 {
   cushionShareBps: number;
   version: number;
   flags: number;
+  /** N-2: stored utilisation-fee dial at `u = 1` (bps); 0 = {@link GROWTH_UTIL_FEE_DEFAULT_BPS}. */
+  utilFeeMaxBps: number;
 }
 
 /**
@@ -178,6 +185,7 @@ export function decodeAssetGrowthRecordV19(rec: Uint8Array): AssetGrowthV19 | nu
     cushionShareBps: v.getUint16(F.cushionShareBps, true),
     version,
     flags: rec[F.flags] as number,
+    utilFeeMaxBps: v.getUint16(F.utilFeeMaxBps, true),
   };
 }
 
@@ -508,6 +516,12 @@ export interface MaxLeverageQuote {
    * that OPENS is refused as a whole (95): close against the book (TradeCpi) instead.
    */
   reduceOnlyCapacityExempt: true;
+  /**
+   * N-2: the utilisation-fee rate (bps of the opening notional) at this side's CURRENT utilisation
+   * (0 at or below the kink; `null` when growth is off or the side is closed). Any open pushes u up, so it
+   * pays at least this: use {@link previewGrowthOpenFee} for the exact charge and the fee to sign.
+   */
+  utilisationFeeBps: number | null;
 }
 
 /**
@@ -550,7 +564,7 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   const e = input.engineImrBps;
   const out = (p: Partial<MaxLeverageQuote>): MaxLeverageQuote => ({
     side, crowd, closed: false, closedReason: null, maxLeverageX100: 0, imrBps: null,
-    utilizationBps: null, nCapQ: null, growthOn: g !== null, headroomQ: null, reduceOnlyCapacityExempt: true, ...p,
+    utilizationBps: null, nCapQ: null, growthOn: g !== null, headroomQ: null, reduceOnlyCapacityExempt: true, utilisationFeeBps: null, ...p,
   });
   const lev = (imr: bigint): number => {
     const l = leverageX100ForImrBps(imr);
@@ -581,10 +595,11 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   // OI_users == N_cap: the gate would still admit a fill landing exactly on N_cap, but there is
   // no marginal capacity left for NEW risk on this side (thin or crowd): report closed.
   if (usersOi >= nCap) return closed("capacity-full", { ...info, headroomQ: 0n });
-  if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base), headroomQ: nCap - usersOi });
+  const utilisationFeeBps = utilisationFeeBps_(usersOi, nCap, g.kinkBps, utilFeeMaxEffectiveBps(g.utilFeeMaxBps));
+  if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base), headroomQ: nCap - usersOi, utilisationFeeBps });
   const dyn = dynImrBps(usersOi, nCap, base, g.kinkBps);
   if (dyn === null) return closed("capacity-full", { ...info, headroomQ: 0n });
-  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - usersOi });
+  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - usersOi, utilisationFeeBps });
 }
 
 /**
@@ -605,6 +620,124 @@ export function usersSideOiQ(oiEffSideQ: bigint, vaultLpEffQ: bigint, longSide: 
   if (!onSide) return oiEffSideQ;
   const abs = vaultLpEffQ < 0n ? -vaultLpEffQ : vaultLpEffQ;
   return oiEffSideQ > abs ? oiEffSideQ - abs : 0n;
+}
+
+/**
+ * N-2: the utilisation fee (bps) an open pays when it leaves its side's users OI at
+ * `usersOiAfterQ`: 0 at or below the kink, `ceil(max * (u - u_k) / (1 - u_k))` above, capped at
+ * `max`. Port of `growth_v19::utilisation_fee_bps`; `null` when `nCap == 0`.
+ *
+ * @param usersOiAfterQ  Users OI on the taker's side after the open (Q).
+ * @param nCapQ          `N_cap` (Q).
+ * @param kinkBps        The growth kink (bps).
+ * @param maxFeeBps      The utilisation fee at u = 1 (`utilFeeMaxEffectiveBps(record)`).
+ * @returns The fee in bps, or `null`.
+ * @example
+ * ```ts
+ * utilisationFeeBps(700n, 1_000n, 5_000, 500); // 200
+ * ```
+ */
+export function utilisationFeeBps(usersOiAfterQ: bigint, nCapQ: bigint, kinkBps: number, maxFeeBps: number): number | null {
+  if (nCapQ === 0n || kinkBps > 10_000) return null;
+  const lhs = usersOiAfterQ * 10_000n;
+  const rhs = BigInt(kinkBps) * nCapQ;
+  if (lhs <= rhs || maxFeeBps === 0) return 0;
+  const fee = divCeil(BigInt(maxFeeBps) * (lhs - rhs), nCapQ * BigInt(10_000 - kinkBps));
+  return fee > BigInt(maxFeeBps) ? maxFeeBps : Number(fee);
+}
+
+const utilisationFeeBps_ = (a: bigint, n: bigint, k: number, m: number): number | null => utilisationFeeBps(a, n, k, m);
+
+/**
+ * N-2: the utilisation-fee dial in force (a stored 0 means the protocol default).
+ *
+ * @param stored  `AssetGrowthV19.utilFeeMaxBps`.
+ * @returns bps at u = 1.
+ * @example
+ * ```ts
+ * utilFeeMaxEffectiveBps(0); // 500
+ * ```
+ */
+export function utilFeeMaxEffectiveBps(stored: number): number {
+  return stored === 0 ? GROWTH_UTIL_FEE_DEFAULT_BPS : stored;
+}
+
+/**
+ * N-2: the OPENING part of a taker fill (`|after|` for a flip, `|after - before|` for an open or
+ * grow, 0 for a reduce / close). Port of `growth_v19::opening_part_q`.
+ *
+ * @param beforeQ  Taker's ADL-effective position before (Q).
+ * @param afterQ   After (Q).
+ * @returns Opening part (Q).
+ * @example
+ * ```ts
+ * openingPartQ(-100n, 50n); // 50n
+ * ```
+ */
+export function openingPartQ(beforeQ: bigint, afterQ: bigint): bigint {
+  const abs = (x: bigint) => (x < 0n ? -x : x);
+  const reduces = afterQ === 0n || (beforeQ !== 0n && (beforeQ > 0n) === (afterQ > 0n) && abs(afterQ) <= abs(beforeQ));
+  if (reduces) return 0n;
+  if (beforeQ !== 0n && (beforeQ > 0n) !== (afterQ > 0n)) return abs(afterQ);
+  return abs(afterQ - beforeQ);
+}
+
+/** Result of {@link previewGrowthOpenFee}. */
+export interface GrowthOpenFeePreview {
+  /** The opening part of the order (Q); 0 for a close / reduce. */
+  openingQ: bigint;
+  /** Users OI on the order's side after it fills (Q). */
+  usersOiAfterQ: bigint;
+  /** Utilisation fee as a rate on the WHOLE fill (bps), exactly what the wrapper charges. */
+  utilFeeBps: number;
+  /**
+   * Minimum `fee_bps` the taker must sign on TradeCpi for this order, excluding the matcher's own
+   * requested fee (add up to {@link GROWTH_PIN_MAX_REQUESTED_FEE_BPS} for the kind-2 quote).
+   */
+  minSignedFeeBpsExMatcher: bigint;
+  /** A BatchTradeCpi leg with `utilFeeBps > 0` is refused (99): use TradeCpi. */
+  batchAllowed: boolean;
+}
+
+/**
+ * N-2 fee preview for a growth open on a BOUND asset (the vault LP is the counterparty): the
+ * utilisation fee the wrapper will charge and the fee the taker must sign. Closes / reduces never
+ * pay it. Evaluated at the CURRENT N_cap and users OI (the wrapper uses the same pre-fill numbers).
+ *
+ * @param input        The quote inputs (see {@link QuoteMaxLeverageInput}).
+ * @param takerEffQ    Taker's ADL-effective signed position on the asset (Q).
+ * @param sizeQ        Signed order size (Q).
+ * @param tradeFeeBaseBps  The market's `trade_fee_base_bps`.
+ * @returns {@link GrowthOpenFeePreview}.
+ * @example
+ * ```ts
+ * const p = previewGrowthOpenFee(input, 0n, 100_000_000n, 30n);
+ * p.minSignedFeeBpsExMatcher; // 30 + utilisation fee
+ * ```
+ */
+export function previewGrowthOpenFee(input: QuoteMaxLeverageInput, takerEffQ: bigint, sizeQ: bigint, tradeFeeBaseBps: bigint): GrowthOpenFeePreview {
+  const g = input.growth;
+  const afterQ = takerEffQ + sizeQ;
+  const openingQ = openingPartQ(takerEffQ, afterQ);
+  const long = afterQ > 0n;
+  const usersBefore = usersSideOiQ(long ? input.oiEffLongQ : input.oiEffShortQ, input.lpEffectivePositionQ, long);
+  const usersOiAfterQ = usersBefore + openingQ;
+  let utilFeeBps = 0;
+  if (g !== null && input.assetBound && openingQ > 0n) {
+    const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
+    const nCap = nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
+    const f = nCap === null ? 0 : (utilisationFeeBps(usersOiAfterQ, nCap, g.kinkBps, utilFeeMaxEffectiveBps(g.utilFeeMaxBps)) ?? 0);
+    const fill = sizeQ < 0n ? -sizeQ : sizeQ;
+    const o = openingQ > fill ? fill : openingQ;
+    utilFeeBps = fill === 0n ? 0 : Number((BigInt(f) * o) / fill);
+  }
+  return {
+    openingQ,
+    usersOiAfterQ,
+    utilFeeBps,
+    minSignedFeeBpsExMatcher: tradeFeeBaseBps + BigInt(utilFeeBps),
+    batchAllowed: utilFeeBps === 0,
+  };
 }
 
 /**
@@ -717,15 +850,19 @@ export function encodeInitVaultLpV19(juniorFloorBps: number, lLaunchX100: number
  * encodeSetAssetRiskLimitsV19(0, 10_000, 5_000);
  * ```
  */
-export function encodeSetAssetRiskLimitsV19(assetIndex: number, lambdaBps: number, kinkBps: number): Uint8Array {
+export function encodeSetAssetRiskLimitsV19(assetIndex: number, lambdaBps: number, kinkBps: number, utilFeeMaxBps = 0): Uint8Array {
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex > 0xffff) throw new Error(`assetIndex must be a u16, got ${assetIndex}`);
   if (!Number.isInteger(lambdaBps) || lambdaBps < 1 || lambdaBps > GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS) throw new Error(`lambdaBps must be in 1..=${GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}, got ${lambdaBps}`);
   if (!Number.isInteger(kinkBps) || kinkBps < 0 || kinkBps > GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS) throw new Error(`kinkBps must be in 0..=${GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS}, got ${kinkBps}`);
+  if (!Number.isInteger(utilFeeMaxBps) || (utilFeeMaxBps !== 0 && (utilFeeMaxBps < GROWTH_UTIL_FEE_DEFAULT_BPS || utilFeeMaxBps > GROWTH_UTIL_FEE_HARD_MAX_BPS))) {
+    throw new Error(`utilFeeMaxBps must be 0 (unchanged) or in ${GROWTH_UTIL_FEE_DEFAULT_BPS}..=${GROWTH_UTIL_FEE_HARD_MAX_BPS} (tighten-only), got ${utilFeeMaxBps}`);
+  }
   const out = concatBytes(
     encU8(IX_TAG_P1.SetAssetRiskLimits), encU16(assetIndex), new Uint8Array(41),
     encU32(lambdaBps), encU16(kinkBps),
+    ...(utilFeeMaxBps === 0 ? [] : [encU16(utilFeeMaxBps)]),
   );
-  if (out.length !== 50) throw new Error(`encodeSetAssetRiskLimitsV19: internal length ${out.length}`);
+  if (out.length !== (utilFeeMaxBps === 0 ? 50 : 52)) throw new Error(`encodeSetAssetRiskLimitsV19: internal length ${out.length}`);
   return out;
 }
 

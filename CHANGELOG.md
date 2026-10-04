@@ -27,6 +27,19 @@ caps BOTH sides at `N_cap`, and admits growth opens only against the asset's BOU
 - Errors 96 `GrowthBatchTooManyLegs` (was the generic InvalidInstruction) and 97
   `GrowthRequiresBoundVaultLp`; map regenerated with `scripts/wrapper-errors/gen.py` (98 codes).
 
+**Round-3 sync (N-2 utilisation fee, wrapper 9cc6d281).** Opens into a side above its utilisation
+kink pay `ceil(max * (u - u_k) / (1 - u_k))` bps of the opening notional to the vault LP (default
+max 500 bps at u = 1); closes never pay it.
+- `AssetGrowthV19.utilFeeMaxBps` (offset 40; 0 = `GROWTH_UTIL_FEE_DEFAULT_BPS`).
+- `utilisationFeeBps`, `utilFeeMaxEffectiveBps`, `openingPartQ`, and `previewGrowthOpenFee(input,
+  takerEffQ, sizeQ, tradeFeeBaseBps)` -> the exact fee rate charged, the fee_bps to sign (ex the
+  matcher's request) and whether a batch leg is allowed. `MaxLeverageQuote.utilisationFeeBps` is
+  the rate at the side's current utilisation.
+- `encodeSetAssetRiskLimitsV19(asset, lambda, kink, utilFeeMaxBps?)`: the 52-byte form sets the
+  dial (tighten-only 500..2000).
+- Errors 98 `GrowthUtilisationFeeNotCovered`, 99 `GrowthUtilisationFeeRequiresTradeCpi`; map
+  regenerated (100 codes).
+
 ---
 
 ## [8.0.1] — unreleased (do not `npm publish` without explicit human go)

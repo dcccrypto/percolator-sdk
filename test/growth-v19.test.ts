@@ -10,7 +10,7 @@ import {
   encodeMatcherCallExtV2, encodeMatcherCallExtV3, encodeMatcherCallExtV3FromV2, encodeInitMarket,
   assetRiskLimitsAccountOffsetP1, PERCOLATOR_ERRORS, decodeError, growthMatcherCapsV3, GROWTH_PIN_MATCHER_EXT_MODE,
   GROWTH_PIN_MAX_REQUESTED_FEE_BPS, GROWTH_PIN_LP_FLOOR_ATOMS, GROWTH_PIN_MATCHER_KIND, GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS,
-  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS, rGapFloorBps, usersSideOiQ, assertGrowthBatchLegs, GROWTH_BATCH_MAX_LEGS, markExtV3TakerReducing,
+  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS, rGapFloorBps, usersSideOiQ, utilisationFeeBps, utilFeeMaxEffectiveBps, openingPartQ, previewGrowthOpenFee, GROWTH_UTIL_FEE_DEFAULT_BPS, assertGrowthBatchLegs, GROWTH_BATCH_MAX_LEGS, markExtV3TakerReducing,
 } from "../src/index.js";
 import type { AssetGrowthV19, InitMarketV17Args } from "../src/index.js";
 
@@ -68,12 +68,12 @@ describe("math parity with growth_v19.rs unit tests", () => {
 function growthRecord(over: Partial<Record<string, number | bigint>> = {}): Uint8Array {
   const r = new Uint8Array(120);
   const v = new DataView(r.buffer);
-  const d = { c: 5_000_000_000n, slot: 123_456_789n, lambda: 10_000, launch: 550, tier: 1_000, ceil: 550, kink: 5_000, gap: 500, version: 1, flags: 0, ...over };
+  const d = { c: 5_000_000_000n, slot: 123_456_789n, lambda: 10_000, launch: 550, tier: 1_000, ceil: 550, kink: 5_000, gap: 500, version: 1, flags: 0, util: 0, ...over };
   v.setBigUint64(0, d.c as bigint, true); v.setBigUint64(8, d.slot as bigint, true); v.setUint32(16, d.lambda as number, true);
   v.setUint16(20, d.launch as number, true); v.setUint16(22, d.tier as number, true); v.setUint16(24, d.ceil as number, true);
   v.setUint16(26, d.kink as number, true); v.setUint16(28, d.gap as number, true);
   v.setUint16(30, 11, true); v.setUint16(32, 12, true); v.setUint16(34, 13, true); v.setUint16(36, 14, true);
-  r[38] = d.version as number; r[39] = d.flags as number;
+  r[38] = d.version as number; r[39] = d.flags as number; v.setUint16(40, d.util as number, true);
   return r;
 }
 
@@ -81,11 +81,12 @@ describe("AssetGrowthV19 decoder", () => {
   it("round-trips every field from a synthetic 1024-byte asset slot at slot+672", () => {
     const slot = new Uint8Array(1024);
     slot.fill(0xee, 0, 672); slot.fill(0xdd, 792);
-    slot.set(growthRecord({ flags: 3 }), 672);
+    slot.set(growthRecord({ flags: 3, util: 777 }), 672);
     const g = decodeAssetGrowthFromSlotV19(slot) as AssetGrowthV19;
     expect(g).toEqual({
       cLaunchAtoms: 5_000_000_000n, ceilSlot: 123_456_789n, lambdaBps: 10_000, lLaunchX100: 550, lTierX100: 1_000, ceilX100: 550,
       kinkBps: 5_000, rGapBps: 500, allocAlphaBps: 11, allocBufferBps: 12, cushionTargetBps: 13, cushionShareBps: 14, version: 1, flags: 3,
+      utilFeeMaxBps: 777,
     });
   });
   it("version 0 -> null (growth OFF), even with junk in other fields", () => {
@@ -178,6 +179,52 @@ describe("quoteMaxLeverage", () => {
   });
   it("growth OFF -> engine leverage", () => {
     expect(quoteMaxLeverage({ ...base, growth: null, ...lpAt(-5n) }, "long")).toMatchObject({ growthOn: false, closed: false, imrBps: 1_000n, maxLeverageX100: 1_000 });
+  });
+});
+
+describe("N-2 utilisation fee", () => {
+  const growth = decodeAssetGrowthRecordV19(growthRecord({ launch: 1_000, tier: 1_000, kink: 5_000, lambda: 10_000 })) as AssetGrowthV19;
+  const lpAt = (lp: bigint) => { const a = lp < 0n ? -lp : lp; return { lpEffectivePositionQ: lp, oiEffLongQ: a, oiEffShortQ: a }; };
+  const base = { engineImrBps: 1_000n, growth, lpCapital: 1_000_000_000n, lpPnl: 0n, lpFeeCredits: 0n, priceE6: 1_000_000n, bankruptcyHlockActive: false, assetBound: true };
+  it("mirrors utilisation_fee_bps: 0 at/below the kink, linear to max, capped; null on N_cap 0", () => {
+    expect(utilisationFeeBps(500n, 1_000n, 5_000, 500)).toBe(0);
+    expect(utilisationFeeBps(501n, 1_000n, 5_000, 500)).toBe(1);
+    expect(utilisationFeeBps(600n, 1_000n, 5_000, 500)).toBe(100);
+    expect(utilisationFeeBps(700n, 1_006n, 5_000, 500)).toBe(196); // the wrapper test's case
+    expect(utilisationFeeBps(1_000n, 1_000n, 5_000, 500)).toBe(500);
+    expect(utilisationFeeBps(9_000n, 1_000n, 5_000, 500)).toBe(500);
+    expect(utilisationFeeBps(1n, 0n, 5_000, 500)).toBeNull();
+    expect(utilFeeMaxEffectiveBps(0)).toBe(GROWTH_UTIL_FEE_DEFAULT_BPS);
+    expect(openingPartQ(-100n, 0n)).toBe(0n);
+    expect(openingPartQ(-100n, -40n)).toBe(0n);
+    expect(openingPartQ(-100n, 50n)).toBe(50n);
+    expect(openingPartQ(20n, 70n)).toBe(50n);
+  });
+  it("previewGrowthOpenFee: the charge and the fee to sign; closes free; batch only below the kink", () => {
+    const i = { ...base, ...lpAt(-600_000_000n) }; // users long 600 of N_cap 1,000
+    const p = previewGrowthOpenFee(i, 0n, 100_000_000n, 30n);
+    expect(p).toMatchObject({ openingQ: 100_000_000n, usersOiAfterQ: 700_000_000n, utilFeeBps: 200, minSignedFeeBpsExMatcher: 230n, batchAllowed: false });
+    const close = previewGrowthOpenFee(i, 100_000_000n, -100_000_000n, 30n);
+    expect(close).toMatchObject({ openingQ: 0n, utilFeeBps: 0, minSignedFeeBpsExMatcher: 30n, batchAllowed: true });
+    const flip = previewGrowthOpenFee(i, 100_000_000n, -300_000_000n, 30n); // short side: users short 0 -> 200
+    expect(flip.openingQ).toBe(200_000_000n);
+    expect(flip.utilFeeBps).toBe(0);
+    const thin = previewGrowthOpenFee(i, 0n, -100_000_000n, 30n);
+    expect(thin.batchAllowed).toBe(true);
+    // the quote's marginal rate
+    expect(quoteMaxLeverage(i, "long").utilisationFeeBps).toBe(100);
+    expect(quoteMaxLeverage({ ...base, ...lpAt(0n) }, "long").utilisationFeeBps).toBe(0);
+    // a raised dial
+    const g2 = decodeAssetGrowthRecordV19(growthRecord({ launch: 1_000, tier: 1_000, kink: 5_000, lambda: 10_000, util: 1_000 })) as AssetGrowthV19;
+    expect(previewGrowthOpenFee({ ...i, growth: g2 }, 0n, 100_000_000n, 30n).utilFeeBps).toBe(400);
+  });
+  it("tag 93 dial: the 8-byte form carries util_fee_max_bps (tighten-only 500..2000)", () => {
+    const d = encodeSetAssetRiskLimitsV19(0, 10_000, 5_000, 1_000);
+    expect(d.length).toBe(52);
+    expect(hex(d)).toBe("5d" + "00".repeat(43) + "10270000" + "8813" + "e803");
+    expect(encodeSetAssetRiskLimitsV19(0, 10_000, 5_000).length).toBe(50);
+    expect(() => encodeSetAssetRiskLimitsV19(0, 10_000, 5_000, 499)).toThrow();
+    expect(() => encodeSetAssetRiskLimitsV19(0, 10_000, 5_000, 2_001)).toThrow();
   });
 });
 

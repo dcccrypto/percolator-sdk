@@ -3020,6 +3020,14 @@ var PERCOLATOR_ERRORS = {
   97: {
     name: "GrowthRequiresBoundVaultLp",
     hint: "This market is not open for new positions. Reducing or closing is always allowed. growth-v19: opens on a growth-enabled asset are admitted only when the asset has a bound vault LP (P3); capacity is measured on the users' open interest against that LP."
+  },
+  98: {
+    name: "GrowthUtilisationFeeNotCovered",
+    hint: "This side is busy: raise your max fee to cover the utilisation fee (see the quote). growth-v19 N-2: an open into a side above its utilisation kink pays a utilisation fee to the market maker, and the signed fee_bps (or the market's fee cap) does not cover base + matcher fee + that fee. Use previewGrowthOpenFee(). Closing is never charged."
+  },
+  99: {
+    name: "GrowthUtilisationFeeRequiresTradeCpi",
+    hint: "Place this order on its own (not in a batch). growth-v19 N-2: a batch leg that opens into a side above its utilisation kink owes a utilisation fee only a single TradeCpi can pay. Closes and opens below the kink can still be batched."
   }
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
@@ -4065,8 +4073,11 @@ var ASSET_GROWTH_FIELD_OFF = Object.freeze({
   cushionShareBps: 36,
   version: 38,
   flags: 39,
-  reserved: 40
+  utilFeeMaxBps: 40,
+  reserved: 42
 });
+var GROWTH_UTIL_FEE_DEFAULT_BPS = 500;
+var GROWTH_UTIL_FEE_HARD_MAX_BPS = 2e3;
 var R_GAP_MIN_LIQUIDATION_SLOTS = 50n;
 var GROWTH_BATCH_MAX_LEGS = 10;
 var INIT_MARKET_MMR_OFF = 59;
@@ -4109,7 +4120,8 @@ function decodeAssetGrowthRecordV19(rec) {
     cushionTargetBps: v.getUint16(F.cushionTargetBps, true),
     cushionShareBps: v.getUint16(F.cushionShareBps, true),
     version,
-    flags: rec[F.flags]
+    flags: rec[F.flags],
+    utilFeeMaxBps: v.getUint16(F.utilFeeMaxBps, true)
   };
 }
 function decodeAssetGrowthFromSlotV19(slot) {
@@ -4210,6 +4222,7 @@ function quoteMaxLeverage(input, side) {
     growthOn: g !== null,
     headroomQ: null,
     reduceOnlyCapacityExempt: true,
+    utilisationFeeBps: null,
     ...p
   });
   const lev = (imr) => {
@@ -4233,16 +4246,60 @@ function quoteMaxLeverage(input, side) {
   if (crowd && input.bankruptcyHlockActive) return closed("hlock", { ...info, headroomQ: 0n });
   if (nCap === null || nCap === 0n) return closed("capacity-zero", { ...info, headroomQ: 0n });
   if (usersOi >= nCap) return closed("capacity-full", { ...info, headroomQ: 0n });
-  if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base), headroomQ: nCap - usersOi });
+  const utilisationFeeBps2 = utilisationFeeBps_(usersOi, nCap, g.kinkBps, utilFeeMaxEffectiveBps(g.utilFeeMaxBps));
+  if (!crowd) return out({ ...info, imrBps: base, maxLeverageX100: lev(base), headroomQ: nCap - usersOi, utilisationFeeBps: utilisationFeeBps2 });
   const dyn = dynImrBps(usersOi, nCap, base, g.kinkBps);
   if (dyn === null) return closed("capacity-full", { ...info, headroomQ: 0n });
-  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - usersOi });
+  return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - usersOi, utilisationFeeBps: utilisationFeeBps2 });
 }
 function usersSideOiQ(oiEffSideQ, vaultLpEffQ, longSide) {
   const onSide = longSide ? vaultLpEffQ > 0n : vaultLpEffQ < 0n;
   if (!onSide) return oiEffSideQ;
   const abs = vaultLpEffQ < 0n ? -vaultLpEffQ : vaultLpEffQ;
   return oiEffSideQ > abs ? oiEffSideQ - abs : 0n;
+}
+function utilisationFeeBps(usersOiAfterQ, nCapQ2, kinkBps, maxFeeBps) {
+  if (nCapQ2 === 0n || kinkBps > 1e4) return null;
+  const lhs = usersOiAfterQ * 10000n;
+  const rhs = BigInt(kinkBps) * nCapQ2;
+  if (lhs <= rhs || maxFeeBps === 0) return 0;
+  const fee = divCeil(BigInt(maxFeeBps) * (lhs - rhs), nCapQ2 * BigInt(1e4 - kinkBps));
+  return fee > BigInt(maxFeeBps) ? maxFeeBps : Number(fee);
+}
+var utilisationFeeBps_ = (a, n, k, m) => utilisationFeeBps(a, n, k, m);
+function utilFeeMaxEffectiveBps(stored) {
+  return stored === 0 ? GROWTH_UTIL_FEE_DEFAULT_BPS : stored;
+}
+function openingPartQ(beforeQ, afterQ) {
+  const abs = (x) => x < 0n ? -x : x;
+  const reduces = afterQ === 0n || beforeQ !== 0n && beforeQ > 0n === afterQ > 0n && abs(afterQ) <= abs(beforeQ);
+  if (reduces) return 0n;
+  if (beforeQ !== 0n && beforeQ > 0n !== afterQ > 0n) return abs(afterQ);
+  return abs(afterQ - beforeQ);
+}
+function previewGrowthOpenFee(input, takerEffQ, sizeQ, tradeFeeBaseBps) {
+  const g = input.growth;
+  const afterQ = takerEffQ + sizeQ;
+  const openingQ = openingPartQ(takerEffQ, afterQ);
+  const long = afterQ > 0n;
+  const usersBefore = usersSideOiQ(long ? input.oiEffLongQ : input.oiEffShortQ, input.lpEffectivePositionQ, long);
+  const usersOiAfterQ = usersBefore + openingQ;
+  let utilFeeBps = 0;
+  if (g !== null && input.assetBound && openingQ > 0n) {
+    const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
+    const nCap = nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
+    const f = nCap === null ? 0 : utilisationFeeBps(usersOiAfterQ, nCap, g.kinkBps, utilFeeMaxEffectiveBps(g.utilFeeMaxBps)) ?? 0;
+    const fill = sizeQ < 0n ? -sizeQ : sizeQ;
+    const o = openingQ > fill ? fill : openingQ;
+    utilFeeBps = fill === 0n ? 0 : Number(BigInt(f) * o / fill);
+  }
+  return {
+    openingQ,
+    usersOiAfterQ,
+    utilFeeBps,
+    minSignedFeeBpsExMatcher: tradeFeeBaseBps + BigInt(utilFeeBps),
+    batchAllowed: utilFeeBps === 0
+  };
 }
 function rGapFloorBps(maxPriceMoveBpsPerSlot) {
   const f = maxPriceMoveBpsPerSlot * R_GAP_MIN_LIQUIDATION_SLOTS;
@@ -4275,18 +4332,22 @@ function encodeInitVaultLpV19(juniorFloorBps, lLaunchX100) {
   u16nz("lLaunchX100", lLaunchX100);
   return concatBytes(encU8(IX_TAG_P3.InitVaultLp), encU16(juniorFloorBps), encU16(lLaunchX100));
 }
-function encodeSetAssetRiskLimitsV19(assetIndex, lambdaBps, kinkBps) {
+function encodeSetAssetRiskLimitsV19(assetIndex, lambdaBps, kinkBps, utilFeeMaxBps = 0) {
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex > 65535) throw new Error(`assetIndex must be a u16, got ${assetIndex}`);
   if (!Number.isInteger(lambdaBps) || lambdaBps < 1 || lambdaBps > GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS) throw new Error(`lambdaBps must be in 1..=${GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS}, got ${lambdaBps}`);
   if (!Number.isInteger(kinkBps) || kinkBps < 0 || kinkBps > GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS) throw new Error(`kinkBps must be in 0..=${GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS}, got ${kinkBps}`);
+  if (!Number.isInteger(utilFeeMaxBps) || utilFeeMaxBps !== 0 && (utilFeeMaxBps < GROWTH_UTIL_FEE_DEFAULT_BPS || utilFeeMaxBps > GROWTH_UTIL_FEE_HARD_MAX_BPS)) {
+    throw new Error(`utilFeeMaxBps must be 0 (unchanged) or in ${GROWTH_UTIL_FEE_DEFAULT_BPS}..=${GROWTH_UTIL_FEE_HARD_MAX_BPS} (tighten-only), got ${utilFeeMaxBps}`);
+  }
   const out = concatBytes(
     encU8(IX_TAG_P1.SetAssetRiskLimits),
     encU16(assetIndex),
     new Uint8Array(41),
     encU32(lambdaBps),
-    encU16(kinkBps)
+    encU16(kinkBps),
+    ...utilFeeMaxBps === 0 ? [] : [encU16(utilFeeMaxBps)]
   );
-  if (out.length !== 50) throw new Error(`encodeSetAssetRiskLimitsV19: internal length ${out.length}`);
+  if (out.length !== (utilFeeMaxBps === 0 ? 50 : 52)) throw new Error(`encodeSetAssetRiskLimitsV19: internal length ${out.length}`);
   return out;
 }
 function encodeMatcherCallExtV2(ext) {
@@ -12059,6 +12120,8 @@ export {
   GROWTH_PIN_MAX_REQUESTED_FEE_BPS,
   GROWTH_POS_SCALE,
   GROWTH_U64_MAX,
+  GROWTH_UTIL_FEE_DEFAULT_BPS,
+  GROWTH_UTIL_FEE_HARD_MAX_BPS,
   GROWTH_VERSION,
   HEX_RE,
   INIT_CTX_LEN,
@@ -12606,6 +12669,7 @@ export {
   matcherConfigureOwnerProofAccounts,
   maxAccountIndex,
   nCapQ,
+  openingPartQ,
   packOiCap,
   parseAccount,
   parseAdlEvent,
@@ -12635,6 +12699,7 @@ export {
   planResolvedReceiptRevisitP3,
   planResolvedVaultLpExitP3,
   planStakeWindDown,
+  previewGrowthOpenFee,
   quoteMaxLeverage,
   rGapFloorBps,
   rankAdlPositions,
@@ -12659,6 +12724,8 @@ export {
   stripLighthouseInstructions,
   usdToQCappedP3,
   usersSideOiQ,
+  utilFeeMaxEffectiveBps,
+  utilisationFeeBps,
   utilizationBps,
   v17MarketAccountLen,
   validateAmount,

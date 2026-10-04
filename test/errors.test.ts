@@ -50,7 +50,7 @@ describe("PERCOLATOR_ERRORS table", () => {
     }
   });
 
-  it("error code 63 is LpVaultBackingBucketNotEmpty, 64-97 are defined (v18.2 64-65, P1 66-71, P3 72-90, NAV floor 91, growth-v19 92-97) and 98+ are not", () => {
+  it("error code 63 is LpVaultBackingBucketNotEmpty, 64-99 are defined (v18.2 64-65, P1 66-71, P3 72-90, NAV floor 91, growth-v19 92-99) and 100+ are not", () => {
     // Boundary moved 62 -> 63 by the LP-vault reachability guard, DEPLOYED to devnet
     // 2026-08-29 (wrapper 02326f4f, sha c9827970bf02098b, slot 490057417). The PROPERTY
     // this test encodes is unchanged — the tail is pinned so an accidental insertion or
@@ -81,7 +81,9 @@ describe("PERCOLATOR_ERRORS table", () => {
     expect(PERCOLATOR_ERRORS[95]?.name).toBe("GrowthNeedsLpCounterparty");
     expect(PERCOLATOR_ERRORS[96]?.name).toBe("GrowthBatchTooManyLegs");
     expect(PERCOLATOR_ERRORS[97]?.name).toBe("GrowthRequiresBoundVaultLp");
-    expect(PERCOLATOR_ERRORS[98]).toBeUndefined();
+    expect(PERCOLATOR_ERRORS[98]?.name).toBe("GrowthUtilisationFeeNotCovered");
+    expect(PERCOLATOR_ERRORS[99]?.name).toBe("GrowthUtilisationFeeRequiresTradeCpi");
+    expect(PERCOLATOR_ERRORS[100]).toBeUndefined();
     expect(PERCOLATOR_ERRORS[100]).toBeUndefined();
   });
 
@@ -257,7 +259,7 @@ describe("decodeError", () => {
     expect(decodeError(61)!.name).toBe("AssetSlotAlreadyConfigured");
   });
 
-  it("decodes 63 as LpVaultBackingBucketNotEmpty and returns undefined for 98 (beyond current table)", () => {
+  it("decodes 63 as LpVaultBackingBucketNotEmpty and returns undefined for 100 (beyond current table)", () => {
     expect(decodeError(62)!.name).toBe("CreatorFeeOverClaim");
     expect(decodeError(63)?.name).toBe("LpVaultBackingBucketNotEmpty");
     expect(decodeError(64)?.name).toBe("RentExemptRequired");
@@ -266,7 +268,7 @@ describe("decodeError", () => {
     expect(decodeError(90)?.name).toBe("VaultLpBindRequiresFlatAsset");
     expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
     expect(decodeError(92)?.name).toBe("GrowthLeverageExceeded");
-    expect(decodeError(98)).toBeUndefined();
+    expect(decodeError(100)).toBeUndefined();
   });
 
   it("returns undefined for unknown code 10_000", () => {
@@ -317,7 +319,8 @@ describe("getErrorName", () => {
     expect(getErrorName(95)).toBe("GrowthNeedsLpCounterparty");
     expect(getErrorName(96)).toBe("GrowthBatchTooManyLegs");
     expect(getErrorName(97)).toBe("GrowthRequiresBoundVaultLp");
-    expect(getErrorName(98)).toBe("Unknown(98)");
+    expect(getErrorName(98)).toBe("GrowthUtilisationFeeNotCovered");
+    expect(getErrorName(99)).toBe("GrowthUtilisationFeeRequiresTradeCpi");
     expect(getErrorName(999)).toBe("Unknown(999)");
     expect(getErrorName(100)).toBe("Unknown(100)");
   });

@@ -59,8 +59,13 @@ export declare const ASSET_GROWTH_FIELD_OFF: Readonly<{
     readonly cushionShareBps: 36;
     readonly version: 38;
     readonly flags: 39;
-    readonly reserved: 40;
+    readonly utilFeeMaxBps: 40;
+    readonly reserved: 42;
 }>;
+/** N-2: utilisation fee at `u = 1` when the per-asset dial is 0 (bps of the opening notional). */
+export declare const GROWTH_UTIL_FEE_DEFAULT_BPS = 500;
+/** N-2: hard ceiling of the per-asset utilisation-fee dial. */
+export declare const GROWTH_UTIL_FEE_HARD_MAX_BPS = 2000;
 /** `R_GAP_MIN_LIQUIDATION_SLOTS` (L-2): liquidation latency, in slots, behind the `r_gap` floor. */
 export declare const R_GAP_MIN_LIQUIDATION_SLOTS = 50n;
 /** `GROWTH_BATCH_MAX_LEGS`: a BatchTradeCpi carrying ANY growth leg is refused above this many legs. */
@@ -100,6 +105,8 @@ export interface AssetGrowthV19 {
     cushionShareBps: number;
     version: number;
     flags: number;
+    /** N-2: stored utilisation-fee dial at `u = 1` (bps); 0 = {@link GROWTH_UTIL_FEE_DEFAULT_BPS}. */
+    utilFeeMaxBps: number;
 }
 /**
  * Decode one 120-byte `AssetGrowthV19` record.
@@ -348,6 +355,12 @@ export interface MaxLeverageQuote {
      * that OPENS is refused as a whole (95): close against the book (TradeCpi) instead.
      */
     reduceOnlyCapacityExempt: true;
+    /**
+     * N-2: the utilisation-fee rate (bps of the opening notional) at this side's CURRENT utilisation
+     * (0 at or below the kink; `null` when growth is off or the side is closed). Any open pushes u up, so it
+     * pays at least this: use {@link previewGrowthOpenFee} for the exact charge and the fee to sign.
+     */
+    utilisationFeeBps: number | null;
 }
 /**
  * Quote the maximum leverage a taker can open on `side` right now.
@@ -397,6 +410,79 @@ export declare function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "lo
  * ```
  */
 export declare function usersSideOiQ(oiEffSideQ: bigint, vaultLpEffQ: bigint, longSide: boolean): bigint;
+/**
+ * N-2: the utilisation fee (bps) an open pays when it leaves its side's users OI at
+ * `usersOiAfterQ`: 0 at or below the kink, `ceil(max * (u - u_k) / (1 - u_k))` above, capped at
+ * `max`. Port of `growth_v19::utilisation_fee_bps`; `null` when `nCap == 0`.
+ *
+ * @param usersOiAfterQ  Users OI on the taker's side after the open (Q).
+ * @param nCapQ          `N_cap` (Q).
+ * @param kinkBps        The growth kink (bps).
+ * @param maxFeeBps      The utilisation fee at u = 1 (`utilFeeMaxEffectiveBps(record)`).
+ * @returns The fee in bps, or `null`.
+ * @example
+ * ```ts
+ * utilisationFeeBps(700n, 1_000n, 5_000, 500); // 200
+ * ```
+ */
+export declare function utilisationFeeBps(usersOiAfterQ: bigint, nCapQ: bigint, kinkBps: number, maxFeeBps: number): number | null;
+/**
+ * N-2: the utilisation-fee dial in force (a stored 0 means the protocol default).
+ *
+ * @param stored  `AssetGrowthV19.utilFeeMaxBps`.
+ * @returns bps at u = 1.
+ * @example
+ * ```ts
+ * utilFeeMaxEffectiveBps(0); // 500
+ * ```
+ */
+export declare function utilFeeMaxEffectiveBps(stored: number): number;
+/**
+ * N-2: the OPENING part of a taker fill (`|after|` for a flip, `|after - before|` for an open or
+ * grow, 0 for a reduce / close). Port of `growth_v19::opening_part_q`.
+ *
+ * @param beforeQ  Taker's ADL-effective position before (Q).
+ * @param afterQ   After (Q).
+ * @returns Opening part (Q).
+ * @example
+ * ```ts
+ * openingPartQ(-100n, 50n); // 50n
+ * ```
+ */
+export declare function openingPartQ(beforeQ: bigint, afterQ: bigint): bigint;
+/** Result of {@link previewGrowthOpenFee}. */
+export interface GrowthOpenFeePreview {
+    /** The opening part of the order (Q); 0 for a close / reduce. */
+    openingQ: bigint;
+    /** Users OI on the order's side after it fills (Q). */
+    usersOiAfterQ: bigint;
+    /** Utilisation fee as a rate on the WHOLE fill (bps), exactly what the wrapper charges. */
+    utilFeeBps: number;
+    /**
+     * Minimum `fee_bps` the taker must sign on TradeCpi for this order, excluding the matcher's own
+     * requested fee (add up to {@link GROWTH_PIN_MAX_REQUESTED_FEE_BPS} for the kind-2 quote).
+     */
+    minSignedFeeBpsExMatcher: bigint;
+    /** A BatchTradeCpi leg with `utilFeeBps > 0` is refused (99): use TradeCpi. */
+    batchAllowed: boolean;
+}
+/**
+ * N-2 fee preview for a growth open on a BOUND asset (the vault LP is the counterparty): the
+ * utilisation fee the wrapper will charge and the fee the taker must sign. Closes / reduces never
+ * pay it. Evaluated at the CURRENT N_cap and users OI (the wrapper uses the same pre-fill numbers).
+ *
+ * @param input        The quote inputs (see {@link QuoteMaxLeverageInput}).
+ * @param takerEffQ    Taker's ADL-effective signed position on the asset (Q).
+ * @param sizeQ        Signed order size (Q).
+ * @param tradeFeeBaseBps  The market's `trade_fee_base_bps`.
+ * @returns {@link GrowthOpenFeePreview}.
+ * @example
+ * ```ts
+ * const p = previewGrowthOpenFee(input, 0n, 100_000_000n, 30n);
+ * p.minSignedFeeBpsExMatcher; // 30 + utilisation fee
+ * ```
+ */
+export declare function previewGrowthOpenFee(input: QuoteMaxLeverageInput, takerEffQ: bigint, sizeQ: bigint, tradeFeeBaseBps: bigint): GrowthOpenFeePreview;
 /**
  * L-2 floor on the creator-declared `r_gap`: `max_price_move_bps_per_slot * 50`. Port of
  * `r_gap_floor_bps` (the wrapper fails closed on u64 overflow; so does this).
@@ -468,7 +554,7 @@ export declare function encodeInitVaultLpV19(juniorFloorBps: number, lLaunchX100
  * encodeSetAssetRiskLimitsV19(0, 10_000, 5_000);
  * ```
  */
-export declare function encodeSetAssetRiskLimitsV19(assetIndex: number, lambdaBps: number, kinkBps: number): Uint8Array;
+export declare function encodeSetAssetRiskLimitsV19(assetIndex: number, lambdaBps: number, kinkBps: number, utilFeeMaxBps?: number): Uint8Array;
 /** v2 call-extension fields: the v1 block plus the LP's signed position. */
 export interface MatcherCallExtV2 extends MatcherCallExt {
     /** i128 `lp_position_q` (the LP's engine position; `i128::MIN` is refused by the matcher). */
