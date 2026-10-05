@@ -4,7 +4,7 @@ import { Keypair } from "@solana/web3.js";
 import {
   IX_TAG_P2B, encodeAdlWindDown, buildAdlWindDownIx, encodeSetAdlWindDownMaxSlots, decodeAdlEpisodeRecord,
   adlEpisodeSlotsRemaining, isBankruptcyHlockActive, decodeBankruptcyHlock, adlWindDownDustNotionalAtoms,
-  ADL_WIND_DOWN_DEFAULT_MAX_EPISODE_SLOTS,
+  ADL_WIND_DOWN_DEFAULT_MAX_EPISODE_SLOTS, adlEpisodeKey,
 } from "../src/abi/p2b-lock-exits.js";
 import { PERCOLATOR_ERRORS } from "../src/abi/errors.js";
 
@@ -33,20 +33,26 @@ describe("P2b tags", () => {
 });
 
 describe("episode record (risk-limits bytes 42..64)", () => {
-  it("decodes the rustc layout and computes remaining slots", () => {
+  it("decodes the rustc layout (P2b owns 44..64) and computes remaining slots", () => {
     const rec = new Uint8Array(64);
     const v = new DataView(rec.buffer);
-    v.setUint16(42, 0x1234, true);
+    rec[42] = 0x34; rec[43] = 0x12; // senior floor (prog #526): not P2b's, ignored
+    const mid = 0x51234n;
+    const [kl, ks] = adlEpisodeKey(mid, 3n, 4n);
     v.setUint32(44, 0, true);
     v.setBigUint64(48, 1000n, true);
-    v.setUint32(56, 3, true);
-    v.setUint32(60, 4, true);
+    v.setUint32(56, kl, true);
+    v.setUint32(60, ks, true);
     const ep = decodeAdlEpisodeRecord(rec);
-    expect(ep).toMatchObject({ marketIdLo: 0x1234, maxEpisodeSlots: 0, effectiveMaxEpisodeSlots: ADL_WIND_DOWN_DEFAULT_MAX_EPISODE_SLOTS, sinceSlot: 1000n, epochLong: 3, epochShort: 4 });
-    expect(adlEpisodeSlotsRemaining(ep, 0x51234n, 3n, 4n, 1000n)).toBe(9000n);
-    expect(adlEpisodeSlotsRemaining(ep, 0x51234n, 3n, 4n, 10_000n)).toBe(0n);
-    expect(adlEpisodeSlotsRemaining(ep, 0x51235n, 3n, 4n, 10_000n)).toBeNull(); // new market: re-arms
-    expect(adlEpisodeSlotsRemaining(ep, 0x51234n, 4n, 4n, 10_000n)).toBeNull(); // a reset happened
+    expect(ep).toMatchObject({ maxEpisodeSlots: 0, effectiveMaxEpisodeSlots: ADL_WIND_DOWN_DEFAULT_MAX_EPISODE_SLOTS, sinceSlot: 1000n, epochKeyLong: kl, epochKeyShort: ks });
+    expect(adlEpisodeSlotsRemaining(ep, mid, 3n, 4n, 1000n)).toBe(9000n);
+    expect(adlEpisodeSlotsRemaining(ep, mid, 3n, 4n, 10_000n)).toBe(0n);
+    expect(adlEpisodeSlotsRemaining(ep, mid + 1n, 3n, 4n, 10_000n)).toBeNull(); // new market: re-arms
+    expect(adlEpisodeSlotsRemaining(ep, mid, 4n, 4n, 10_000n)).toBeNull(); // a reset happened
+  });
+  it("adlEpisodeKey matches the program's mix (pinned vector)", () => {
+    // processor::adl_episode_key(1, 0, 0): mix = 1 * 0x9E3779B1
+    expect(adlEpisodeKey(1n, 0n, 0n)).toEqual([0x9e3779b1, 0x79b19e37]);
   });
   it("dust bound is 10^decimals", () => {
     expect(adlWindDownDustNotionalAtoms(6)).toBe(1_000_000n);

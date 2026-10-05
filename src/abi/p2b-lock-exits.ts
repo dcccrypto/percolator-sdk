@@ -106,23 +106,38 @@ export function buildSetAdlWindDownMaxSlotsIx(
 
 // ---------------------------------------------------------------------------- episode record
 
-/** Field offsets inside the 64-byte `AssetRiskLimitsV17` record (bytes 42..64 were `_reserved`). */
+/**
+ * Field offsets inside the 64-byte `AssetRiskLimitsV17` record. P2b owns bytes 44..64 (asset-slot
+ * 652..672); bytes 42..44 (650..652) belong to the Earn senior floor (prog #526), not P2b.
+ */
 export const ADL_EPISODE_FIELD_OFF = Object.freeze({
-  marketIdLo: 42, maxEpisodeSlots: 44, sinceSlot: 48, epochLong: 56, epochShort: 60,
+  maxEpisodeSlots: 44, sinceSlot: 48, epochKeyLong: 56, epochKeyShort: 60,
 } as const);
+
+/**
+ * The on-chain episode key (`processor::adl_episode_key`): each side-reset epoch (low 32 bits)
+ * XOR a multiplicative mix of the asset's market_id (the long word uses the mix, the short word
+ * the mix rotated left 16).
+ */
+export function adlEpisodeKey(marketId: bigint, epochLong: bigint, epochShort: bigint): [number, number] {
+  const lo = Number(marketId & 0xffffffffn);
+  const hi = Number((marketId >> 32n) & 0xffffffffn);
+  const mix = Math.imul((lo ^ hi) >>> 0, 0x9e3779b1) >>> 0;
+  const rot = ((mix << 16) | (mix >>> 16)) >>> 0;
+  return [((Number(epochLong & 0xffffffffn) ^ mix) >>> 0), ((Number(epochShort & 0xffffffffn) ^ rot) >>> 0)];
+}
 
 /** Decoded ADL wind-down episode record. */
 export interface AdlEpisode {
-  /** Low 16 bits of the asset's market_id when the episode was recorded. */
-  marketIdLo: number;
   /** Stored override (0 = default). */
   maxEpisodeSlots: number;
   /** Effective bound in slots. */
   effectiveMaxEpisodeSlots: number;
   /** First slot tag 104 observed this episode (0n = none recorded). */
   sinceSlot: bigint;
-  epochLong: number;
-  epochShort: number;
+  /** Stored key words (see `adlEpisodeKey`). */
+  epochKeyLong: number;
+  epochKeyShort: number;
 }
 
 /** Decode the episode fields from one 64-byte risk-limits record. */
@@ -132,12 +147,11 @@ export function decodeAdlEpisodeRecord(rec: Uint8Array): AdlEpisode {
   const F = ADL_EPISODE_FIELD_OFF;
   const maxEpisodeSlots = v.getUint32(F.maxEpisodeSlots, true);
   return {
-    marketIdLo: v.getUint16(F.marketIdLo, true),
     maxEpisodeSlots,
     effectiveMaxEpisodeSlots: maxEpisodeSlots === 0 ? ADL_WIND_DOWN_DEFAULT_MAX_EPISODE_SLOTS : maxEpisodeSlots,
     sinceSlot: v.getBigUint64(F.sinceSlot, true),
-    epochLong: v.getUint32(F.epochLong, true),
-    epochShort: v.getUint32(F.epochShort, true),
+    epochKeyLong: v.getUint32(F.epochKeyLong, true),
+    epochKeyShort: v.getUint32(F.epochKeyShort, true),
   };
 }
 
@@ -155,10 +169,8 @@ export function decodeAdlEpisode(marketData: Uint8Array, assetIndex: number): Ad
 export function adlEpisodeSlotsRemaining(
   ep: AdlEpisode, marketId: bigint, epochLong: bigint, epochShort: bigint, nowSlot: bigint,
 ): bigint | null {
-  const armed = ep.sinceSlot !== 0n
-    && ep.marketIdLo === Number(marketId & 0xffffn)
-    && ep.epochLong === Number(epochLong & 0xffffffffn)
-    && ep.epochShort === Number(epochShort & 0xffffffffn);
+  const [kl, ks] = adlEpisodeKey(marketId, epochLong, epochShort);
+  const armed = ep.sinceSlot !== 0n && ep.epochKeyLong === kl && ep.epochKeyShort === ks;
   if (!armed) return null;
   const end = ep.sinceSlot + BigInt(ep.effectiveMaxEpisodeSlots);
   return nowSlot >= end ? 0n : end - nowSlot;
