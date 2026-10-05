@@ -12392,11 +12392,31 @@ async function simulateV1(connection, wire, o = {}) {
 }
 async function sendV1(connection, wire, opts = {}) {
   if (opts.fetchImpl === void 0 && opts.headers === void 0) {
-    return connection.sendRawTransaction(wire, {
-      skipPreflight: opts.skipPreflight ?? false,
-      preflightCommitment: opts.preflightCommitment ?? "confirmed",
-      ...opts.maxRetries !== void 0 ? { maxRetries: opts.maxRetries } : {}
-    });
+    const transport = connection._rpcRequest;
+    const seen = {};
+    const view2 = Object.create(connection);
+    if (typeof transport === "function") {
+      view2._rpcRequest = async (method, args) => {
+        const res = await transport.call(connection, method, args);
+        const e = res?.error;
+        if (method === "sendTransaction" && e && typeof e.code === "number") seen.error = { code: e.code, message: String(e.message) };
+        return res;
+      };
+    }
+    try {
+      return await view2.sendRawTransaction(wire, {
+        skipPreflight: opts.skipPreflight ?? false,
+        preflightCommitment: opts.preflightCommitment ?? "confirmed",
+        ...opts.maxRetries !== void 0 ? { maxRetries: opts.maxRetries } : {}
+      });
+    } catch (err) {
+      if (seen.error) {
+        const typed = new V1RpcError("sendTransaction", seen.error.code, seen.error.message);
+        Object.defineProperty(typed, "cause", { value: err, enumerable: false });
+        throw typed;
+      }
+      throw err;
+    }
   }
   return await rawRpc(
     connection,

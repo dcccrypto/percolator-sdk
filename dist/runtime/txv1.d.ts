@@ -323,10 +323,9 @@ export declare function simulateV1(connection: Connection, wire: Uint8Array, o?:
  * @param opts - `skipPreflight` / `maxRetries` plus raw RPC options.
  * @returns Transaction signature.
  * @throws On any JSON-RPC error. On the raw-fetch path (`fetchImpl`/`headers` given) errors are {@link V1RpcError}s and format
- *   rejections satisfy {@link isTxV1FormatRejection}. On the default `sendRawTransaction` path web3.js 1.x throws a
- *   `SendTransactionError` that does NOT keep the node's error code, so a format rejection is NOT classified there: the failure
- *   is surfaced (fail closed, never an automatic resend). Callers that want the automatic fallback must pass `headers` or use a
- *   `sender` that preserves the code.
+ *   rejections satisfy {@link isTxV1FormatRejection}. On the default path (`connection.sendRawTransaction`) web3.js 1.x drops
+ *   the node's error code, so it is recorded from the Connection's transport and rethrown as a {@link V1RpcError}. A guard
+ *   refusal or a network failure is rethrown unchanged and is never a format rejection.
  */
 export declare function sendV1(connection: Connection, wire: Uint8Array, opts?: RawRpcOptions & {
     skipPreflight?: boolean;

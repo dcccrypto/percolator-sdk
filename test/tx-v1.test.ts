@@ -514,6 +514,16 @@ describe("SDK-5: send/simulate go through the caller's Connection", () => {
     const refusing = { rpcEndpoint: "http://never-called.test", sendRawTransaction: vi.fn().mockRejectedValue(new Error("DRY_RUN: send blocked")) } as unknown as Connection;
     await expect(sendV1(refusing, wire)).rejects.toThrow(/DRY_RUN/);
   });
+  it("a node format rejection through the default path keeps its JSON-RPC code (web3.js drops it); a guard error and a network error do not classify", async () => {
+    const { Connection: Conn } = await import("@solana/web3.js");
+    const mk = (res: unknown) => { const c = new Conn("http://127.0.0.1:1"); (c as unknown as { _rpcRequest: unknown })._rpcRequest = vi.fn().mockResolvedValue(res); return c; };
+    const rejected = mk({ error: { code: -32602, message: "invalid transaction: Transaction failed to sanitize accounts offsets correctly" } });
+    await expect(sendV1(rejected, wire)).rejects.toSatisfy((e: Error) => e instanceof V1RpcError && e.code === -32602 && isTxV1FormatRejection(e));
+    const onchain = mk({ error: { code: -32002, message: "Transaction simulation failed", data: { logs: [] } } });
+    await expect(sendV1(onchain, wire)).rejects.toSatisfy((e: Error) => !isTxV1FormatRejection(e));
+    const net = new Conn("http://127.0.0.1:1"); (net as unknown as { _rpcRequest: unknown })._rpcRequest = vi.fn().mockRejectedValue(new Error("fetch failed: payload too large"));
+    await expect(sendV1(net, wire)).rejects.toSatisfy((e: Error) => !isTxV1FormatRejection(e));
+  });
   it("simulateV1 uses the Connection's own JSON-RPC transport when it has one (custom headers/middleware apply)", async () => {
     const _rpcRequest = vi.fn().mockResolvedValue({ result: { value: { err: null, logs: ["ok"], unitsConsumed: 5 } } });
     const conn = { rpcEndpoint: "http://never-called.test", _rpcRequest } as unknown as Connection;
