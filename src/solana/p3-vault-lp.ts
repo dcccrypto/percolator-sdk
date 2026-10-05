@@ -463,7 +463,7 @@ export const VAULT_LP_MATCHER_CTX_LEN_P3 = 320;
  * @param payer           Funds the rent.
  * @param matcherCtx      New account address (fresh keypair's public key).
  * @param lamports        Rent-exempt minimum for 320 bytes (`getMinimumBalanceForRentExemption(320)`).
- * @param matcherProgram  Owner (default: the devnet canonical matcher EDKKgRaV…, all-fresh relaunch).
+ * @param matcherProgram  Owner (default: the devnet v2.1 canonical matcher DfTxJUT5…; pass PROGRAM_IDS_DEVNET_V1.matcher for a v1 market).
  * @returns SystemProgram createAccount instruction.
  * @example
  * ```ts
@@ -491,7 +491,7 @@ export function buildCreateVaultLpMatcherCtxIxP3(
  * @param marketauth      The market's marketauth (signer; becomes the junior owner).
  * @param juniorFloorBps  1000..=10000.
  * @param matcherCtx      Pre-created 320-byte ctx owned by the matcher program (writable).
- * @param matcherProgram  Must be the canonical matcher (default: devnet EDKKgRaV…, all-fresh relaunch).
+ * @param matcherProgram  Must be the canonical matcher (default: devnet v2.1 DfTxJUT5…; PROGRAM_IDS_DEVNET_V1.matcher for a v1 market).
  * @returns Instruction (11 accounts).
  * @example
  * ```ts

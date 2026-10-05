@@ -38,6 +38,24 @@ and encoder is round-tripped through the REAL crate (`scripts/p2b-parity/`, fixt
 
 Deploy coupling (wrapper review I-3): the program, SDK and keeper ship together, at the v2.1 re-seed only.
 
+### Breaking — v2.1 fresh devnet program IDs (mode ii; programs NOT yet deployed at this commit)
+
+Devnet defaults move to the v2.1 fresh-ID set. Mainnet ids are unchanged. No wire/ABI change.
+
+| program | v2.1 default (`PROGRAM_IDS.devnet` / `PROGRAM_IDS_V17`) | v1 / close-only (`PROGRAM_IDS_DEVNET_V1`) |
+|---|---|---|
+| wrapper | `5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe` | `ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB` |
+| stake/vault | `A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE` | `VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w` |
+| nft | `DWUNq2iYh6Sdgdv3qv7aWJNJGhoK25FqyQrqDUrDD9zs` | `EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ` |
+| matcher | `DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam` | `EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX` |
+
+- `getProgramId("devnet")`, `PROGRAM_ID_V17`, `STAKE_PROGRAM_IDS.devnet` / `STAKE_PROGRAM_ID`, `NFT_PROGRAM_ID` and
+  `CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3` (= percolator-prog `431f6807`'s devnet constant) resolve to v2.1.
+- NEW export `PROGRAM_IDS_DEVNET_V1` (`percolator`, `matcher`, `nft`, `vault`): the ETDLAdi world stays live as
+  "v1 / close-only" so users can exit. Nothing defaults to it; pass its ids explicitly (`programId`,
+  `matcherProgram`, `stakeProgram`) to read or close a v1 market. Its ids are accepted by the `PROGRAM_ID`,
+  `MATCHER_PROGRAM_ID`, `STAKE_PROGRAM_ID` and `NFT_PROGRAM_ID` env-override allowlists.
+
 ## [Unreleased] — growth-v19 support (DRAFT; needs a version-bump decision, probably 9.0.0; do not publish)
 
 Additive client support for wrapper `dcccrypto/percolator-prog#524` (`e8e5f399`) and matcher

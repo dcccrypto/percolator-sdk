@@ -24,18 +24,15 @@ export function safeEnv(key: string): string | undefined {
 
 export const PROGRAM_IDS = {
   devnet: {
-    // v18.3 fresh-ID redeploy (SDK 8.0.0): the devnet wrapper moves to a BRAND-NEW program
-    // address (ETDLAdi…) running the byte-identical v18.2 wrapper, so no market/portfolio
-    // created under the previous v18 wrapper (GnwdeQr…, ABANDONED; 2026-09-22 → 8.0.0) or
-    // the v17 wrapper (DhSkE7u…, ABANDONED) is visible to this SDK. This is the ACTIVE
-    // devnet wrapper id that getProgramId() / getProgramId("devnet") resolves and that PDA
-    // derivation + tx targeting use. Neither abandoned id is in the env-override allowlist;
-    // pin @percolatorct/sdk@7.0.0 to talk to GnwdeQr…. ALL-FRESH relaunch (decided 2026-09-30):
-    // matcher, stake/vault and nft ALSO move to brand-new devnet addresses (EDKKgRaV…, VmpVUArR…,
-    // EMYT15LZ…), so the old GnwdeQr world (matcher 4seJWjv3…, stake GCHhcgw…, nft CNGBPZR…)
-    // stays untouched. Pin @percolatorct/sdk@7.0.0 for any of the old addresses.
-    percolator: "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
-    matcher: "EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX",
+    // v2.1 fresh-ID deploy (SDK 9.0.0, decided 2026-10-05, "mode ii"): the devnet wrapper and
+    // matcher move to BRAND-NEW program addresses (5NGgnU2j… / DfTxJUT5…), and stake/nft move
+    // with them (see PROGRAM_IDS_V17). This is the ACTIVE devnet set that getProgramId() /
+    // getProgramId("devnet") resolves and that PDA derivation + tx targeting use. The previous
+    // ETDLAdi… world (SDK 8.x) stays LIVE as "v1 / close-only" so users can exit: its four ids
+    // are exported as PROGRAM_IDS_DEVNET_V1 — pass them explicitly to read/close v1 markets.
+    // Older abandoned wrappers (GnwdeQr…, DhSkE7u…) remain outside every allowlist.
+    percolator: "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
+    matcher: "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam",
   },
   mainnet: {
     percolator: "ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv",
@@ -47,40 +44,73 @@ Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 
 /**
- * Devnet program IDs, historically named "v17" — stake/vault + nft deployed 2026-07-17,
- * matcher live in place. As of the v18.3 fresh-ID redeploy (SDK 8.0.0) the
- * `percolator` (wrapper) member below has been CUT OVER to the fresh devnet wrapper
- * (ETDLAdi…; previously GnwdeQr… in SDK 6.x/7.x), so this object is a SINGLE SOURCE OF TRUTH with PROGRAM_IDS.devnet: both
- * resolve the same active wrapper. There is no longer a second, divergent wrapper id.
+ * Devnet program IDs, historically named "v17". As of the v2.1 fresh-ID deploy (SDK 9.0.0)
+ * every member points at the v2.1 devnet set — wrapper 5NGgnU2j…, matcher DfTxJUT5…,
+ * nft DWUNq2iY…, stake/vault A6DVNubv… — so this object is a SINGLE SOURCE OF TRUTH with
+ * PROGRAM_IDS.devnet (same wrapper, same matcher) and is the devnet default consumed by
+ * stake.ts / abi/nft.ts.
+ *
+ * The previous all-fresh relaunch set (SDK 8.x: ETDLAdi… / EDKKgRaV… / EMYT15LZ… /
+ * VmpVUArR…) is NOT abandoned — it stays live as "v1 / close-only" and is exported as
+ * {@link PROGRAM_IDS_DEVNET_V1}.
  *
  * @deprecated Prefer PROGRAM_IDS.devnet / getProgramId("devnet"). PROGRAM_IDS_V17 and
- * PROGRAM_ID_V17 are retained only for back-compat with consumers that still import them;
- * `percolator`/PROGRAM_ID_V17 now point at the ACTIVE devnet wrapper (ETDLAdi…), NOT the
- * abandoned v18.0–v18.2 wrapper (GnwdeQr…) or v17 wrapper (DhSkE7u…). All-fresh relaunch (8.0.0): the
- * stake/vault (VmpVUArR…), nft (EMYT15LZ…) and matcher (EDKKgRaV…) members are NEW devnet addresses
- * (the old GCHhcgw… / CNGBPZR… / 4seJWjv3… stay with the untouched GnwdeQr world) and are the devnet
- * defaults consumed by stake.ts / abi/nft.ts.
+ * PROGRAM_ID_V17 are retained only for back-compat with consumers that still import them.
  *
- * (An earlier 2026-06-26 triple — wrapper 69VUZ7a2..., vault 51CeUNpb..., nft 5TnritLt... —
- * was superseded before this.)
+ * (Earlier sets — GnwdeQr… world (matcher 4seJWjv3…, stake GCHhcgw…, nft CNGBPZR…), the
+ * v17 DhSkE7u… wrapper, and the 2026-06-26 triple 69VUZ7a2… / 51CeUNpb… / 5TnritLt… — are
+ * superseded; pin @percolatorct/sdk@7.0.0 for the GnwdeQr world.)
  */
 export const PROGRAM_IDS_V17 = {
-  /** ACTIVE devnet wrapper (ETDLAdi…) — v18.3 fresh-ID cutover (SDK 8.0.0) from the
-   *  abandoned GnwdeQr… (v18.0–v18.2) and DhSkE7u… (v17) wrappers. Kept in this "v17"-named object as a single source of truth with
-   *  PROGRAM_IDS.devnet.percolator; @deprecated alias, prefer PROGRAM_IDS.devnet. */
-  percolator: "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
-  /** Relaunch matcher (P2 4a0f696) — fresh devnet address (all-fresh relaunch, 8.0.0). */
-  matcher: "EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX",
-  /** Relaunch nft (v18.3 7c50d01) — fresh devnet address (all-fresh relaunch, 8.0.0). */
-  nft: "EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ",
-  /** Relaunch stake/vault (F-9, fresh-ID e0d72bd) — fresh devnet address (all-fresh relaunch, 8.0.0). */
-  vault: "VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w",
+  /** ACTIVE devnet wrapper (5NGgnU2j…) — v2.1 fresh-ID deploy (SDK 9.0.0). Single source of
+   *  truth with PROGRAM_IDS.devnet.percolator; @deprecated alias, prefer PROGRAM_IDS.devnet. */
+  percolator: "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
+  /** v2.1 matcher — fresh devnet address (SDK 9.0.0). */
+  matcher: "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam",
+  /** v2.1 nft — fresh devnet address (SDK 9.0.0). */
+  nft: "DWUNq2iYh6Sdgdv3qv7aWJNJGhoK25FqyQrqDUrDD9zs",
+  /** v2.1 stake/vault — fresh devnet address (SDK 9.0.0); the wrapper's pinned STAKE_PROGRAM_ID. */
+  vault: "A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE",
 } as const;
 Object.freeze(PROGRAM_IDS_V17);
 
 /**
- * The devnet wrapper PublicKey. As of the v18.3 fresh-ID cutover (SDK 8.0.0) this resolves to
- * the ACTIVE devnet wrapper (ETDLAdi…) — identical to getProgramId("devnet") — because
+ * LEGACY devnet "v1 / close-only" program-ID set — the ETDLAdi… world that was the active
+ * devnet set in SDK 8.x (all-fresh relaunch, 2026-09-30). It stays deployed after the v2.1
+ * fresh-ID cutover so users can close positions and withdraw; new markets are created only
+ * on the v2.1 set ({@link PROGRAM_IDS_V17} / {@link PROGRAM_IDS}.devnet).
+ *
+ * Nothing in the SDK defaults to these ids. Pass them explicitly (e.g. as `programId`,
+ * `matcherProgram`, `stakeProgram`) when reading or closing a v1 market. The v1 wrapper,
+ * matcher, stake and nft ids are accepted by the corresponding env-override allowlists.
+ *
+ * The wire format is unchanged between v1 and v2.1 for every instruction this SDK encodes
+ * against both; only the program addresses differ.
+ *
+ * @example
+ * ```ts
+ * import { PublicKey } from "@solana/web3.js";
+ * import { PROGRAM_IDS_DEVNET_V1, getProgramId } from "@percolatorct/sdk";
+ *
+ * const v1Wrapper = new PublicKey(PROGRAM_IDS_DEVNET_V1.percolator); // ETDLAdi…
+ * const v21Wrapper = getProgramId("devnet");                          // 5NGgnU2j…
+ * ```
+ */
+export const PROGRAM_IDS_DEVNET_V1 = {
+  /** v1 (close-only) devnet wrapper. */
+  percolator: "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
+  /** v1 (close-only) devnet matcher — the v1 wrapper's canonical vault-LP matcher. */
+  matcher: "EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX",
+  /** v1 (close-only) devnet nft program. */
+  nft: "EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ",
+  /** v1 (close-only) devnet stake/vault program — the v1 wrapper's pinned STAKE_PROGRAM_ID. */
+  vault: "VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w",
+} as const;
+Object.freeze(PROGRAM_IDS_DEVNET_V1);
+
+/**
+ * The devnet wrapper PublicKey. As of the v2.1 fresh-ID deploy (SDK 9.0.0) this resolves to
+ * the ACTIVE devnet wrapper (5NGgnU2j…) — identical to getProgramId("devnet") — because
  * PROGRAM_IDS_V17.percolator was cut over. Retained (with its historical "V17" name) only for
  * back-compat with consumers that still import it.
  * @deprecated Prefer getProgramId("devnet") / PROGRAM_IDS.devnet.percolator.
@@ -94,12 +124,14 @@ const KNOWN_PROGRAM_IDS = new Set<string>([
   PROGRAM_IDS.devnet.percolator,
   PROGRAM_IDS.mainnet.percolator,
   PROGRAM_IDS_V17.percolator,
+  PROGRAM_IDS_DEVNET_V1.percolator, // v1 / close-only devnet wrapper (still live)
 ]);
 
 /** Allowlist of legitimate matcher program addresses (all networks). */
 const KNOWN_MATCHER_IDS = new Set<string>([
   PROGRAM_IDS.devnet.matcher,
   PROGRAM_IDS.mainnet.matcher,
+  PROGRAM_IDS_DEVNET_V1.matcher, // v1 / close-only devnet matcher (still live)
 ]);
 
 /**

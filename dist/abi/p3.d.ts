@@ -24,8 +24,11 @@ export declare const VAULT_LP_DEFAULT_MAX_LEV_BPS_P3 = 10000;
 /**
  * `CANONICAL_VAULT_LP_MATCHER_PROGRAM` (devnet build only; tag 94 fails closed off-devnet with
  * VaultLpMatcherNotApproved). The ONE matcher program a vault LP is auto-pinned to at tag 94.
+ * SDK 9.0.0: the v2.1 wrapper's constant (percolator-prog `431f6807`) — `DfTxJUT5…`. The v1 /
+ * close-only ETDLAdi… wrapper pins `EDKKgRaV…` (= PROGRAM_IDS_DEVNET_V1.matcher); pass that
+ * explicitly as `matcherProgram` when building against a v1 market.
  */
-export declare const CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3 = "EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX";
+export declare const CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3 = "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam";
 /**
  * `vault_lp_v18::PIN_*` — the matcher context tag 94 gives every vault LP (protocol constants;
  * the creator passes none of them). The upgrade authority may adjust later via tags 99/95.

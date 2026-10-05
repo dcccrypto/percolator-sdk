@@ -2827,7 +2827,7 @@ var PERCOLATOR_ERRORS = {
   },
   55: {
     name: "StakePoolOwnerMismatch",
-    hint: "The supplied stake-pool account is not owned by the wrapper's pinned STAKE_PROGRAM_ID. THIS IS THE FORGERY GATE \u2014 it is checked before any byte of the account is read. Pass the pool PDA ['stake_pool', market] derived under the canonical stake program (devnet VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w)."
+    hint: "The supplied stake-pool account is not owned by the wrapper's pinned STAKE_PROGRAM_ID. THIS IS THE FORGERY GATE \u2014 it is checked before any byte of the account is read. Pass the pool PDA ['stake_pool', market] derived under the canonical stake program (devnet v2.1 A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE; v1 close-only wrapper ETDLAdi\u2026 pins VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w)."
   },
   56: {
     name: "StakePoolAuthorityMismatch",
@@ -3115,18 +3115,15 @@ function safeEnv(key2) {
 }
 var PROGRAM_IDS = {
   devnet: {
-    // v18.3 fresh-ID redeploy (SDK 8.0.0): the devnet wrapper moves to a BRAND-NEW program
-    // address (ETDLAdi…) running the byte-identical v18.2 wrapper, so no market/portfolio
-    // created under the previous v18 wrapper (GnwdeQr…, ABANDONED; 2026-09-22 → 8.0.0) or
-    // the v17 wrapper (DhSkE7u…, ABANDONED) is visible to this SDK. This is the ACTIVE
-    // devnet wrapper id that getProgramId() / getProgramId("devnet") resolves and that PDA
-    // derivation + tx targeting use. Neither abandoned id is in the env-override allowlist;
-    // pin @percolatorct/sdk@7.0.0 to talk to GnwdeQr…. ALL-FRESH relaunch (decided 2026-09-30):
-    // matcher, stake/vault and nft ALSO move to brand-new devnet addresses (EDKKgRaV…, VmpVUArR…,
-    // EMYT15LZ…), so the old GnwdeQr world (matcher 4seJWjv3…, stake GCHhcgw…, nft CNGBPZR…)
-    // stays untouched. Pin @percolatorct/sdk@7.0.0 for any of the old addresses.
-    percolator: "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
-    matcher: "EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX"
+    // v2.1 fresh-ID deploy (SDK 9.0.0, decided 2026-10-05, "mode ii"): the devnet wrapper and
+    // matcher move to BRAND-NEW program addresses (5NGgnU2j… / DfTxJUT5…), and stake/nft move
+    // with them (see PROGRAM_IDS_V17). This is the ACTIVE devnet set that getProgramId() /
+    // getProgramId("devnet") resolves and that PDA derivation + tx targeting use. The previous
+    // ETDLAdi… world (SDK 8.x) stays LIVE as "v1 / close-only" so users can exit: its four ids
+    // are exported as PROGRAM_IDS_DEVNET_V1 — pass them explicitly to read/close v1 markets.
+    // Older abandoned wrappers (GnwdeQr…, DhSkE7u…) remain outside every allowlist.
+    percolator: "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
+    matcher: "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam"
   },
   mainnet: {
     percolator: "ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv",
@@ -3137,27 +3134,41 @@ Object.freeze(PROGRAM_IDS.devnet);
 Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 var PROGRAM_IDS_V17 = {
-  /** ACTIVE devnet wrapper (ETDLAdi…) — v18.3 fresh-ID cutover (SDK 8.0.0) from the
-   *  abandoned GnwdeQr… (v18.0–v18.2) and DhSkE7u… (v17) wrappers. Kept in this "v17"-named object as a single source of truth with
-   *  PROGRAM_IDS.devnet.percolator; @deprecated alias, prefer PROGRAM_IDS.devnet. */
-  percolator: "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
-  /** Relaunch matcher (P2 4a0f696) — fresh devnet address (all-fresh relaunch, 8.0.0). */
-  matcher: "EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX",
-  /** Relaunch nft (v18.3 7c50d01) — fresh devnet address (all-fresh relaunch, 8.0.0). */
-  nft: "EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ",
-  /** Relaunch stake/vault (F-9, fresh-ID e0d72bd) — fresh devnet address (all-fresh relaunch, 8.0.0). */
-  vault: "VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w"
+  /** ACTIVE devnet wrapper (5NGgnU2j…) — v2.1 fresh-ID deploy (SDK 9.0.0). Single source of
+   *  truth with PROGRAM_IDS.devnet.percolator; @deprecated alias, prefer PROGRAM_IDS.devnet. */
+  percolator: "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
+  /** v2.1 matcher — fresh devnet address (SDK 9.0.0). */
+  matcher: "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam",
+  /** v2.1 nft — fresh devnet address (SDK 9.0.0). */
+  nft: "DWUNq2iYh6Sdgdv3qv7aWJNJGhoK25FqyQrqDUrDD9zs",
+  /** v2.1 stake/vault — fresh devnet address (SDK 9.0.0); the wrapper's pinned STAKE_PROGRAM_ID. */
+  vault: "A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE"
 };
 Object.freeze(PROGRAM_IDS_V17);
+var PROGRAM_IDS_DEVNET_V1 = {
+  /** v1 (close-only) devnet wrapper. */
+  percolator: "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
+  /** v1 (close-only) devnet matcher — the v1 wrapper's canonical vault-LP matcher. */
+  matcher: "EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX",
+  /** v1 (close-only) devnet nft program. */
+  nft: "EMYT15LZWaP7Mmmm245kQPbrTyVjG16yZiU9kfNTF3GZ",
+  /** v1 (close-only) devnet stake/vault program — the v1 wrapper's pinned STAKE_PROGRAM_ID. */
+  vault: "VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w"
+};
+Object.freeze(PROGRAM_IDS_DEVNET_V1);
 var PROGRAM_ID_V17 = new PublicKey3(PROGRAM_IDS_V17.percolator);
 var KNOWN_PROGRAM_IDS = /* @__PURE__ */ new Set([
   PROGRAM_IDS.devnet.percolator,
   PROGRAM_IDS.mainnet.percolator,
-  PROGRAM_IDS_V17.percolator
+  PROGRAM_IDS_V17.percolator,
+  PROGRAM_IDS_DEVNET_V1.percolator
+  // v1 / close-only devnet wrapper (still live)
 ]);
 var KNOWN_MATCHER_IDS = /* @__PURE__ */ new Set([
   PROGRAM_IDS.devnet.matcher,
-  PROGRAM_IDS.mainnet.matcher
+  PROGRAM_IDS.mainnet.matcher,
+  PROGRAM_IDS_DEVNET_V1.matcher
+  // v1 / close-only devnet matcher (still live)
 ]);
 function programOverrideOptIn() {
   return safeEnv("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") === "1";
@@ -3213,8 +3224,10 @@ function getCurrentNetwork() {
 var KNOWN_NFT_PROGRAM_IDS = /* @__PURE__ */ new Set([
   "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS",
   // mainnet
-  PROGRAM_IDS_V17.nft
-  // v17 devnet — the default below
+  PROGRAM_IDS_V17.nft,
+  // devnet v2.1 — the default below
+  PROGRAM_IDS_DEVNET_V1.nft
+  // devnet v1 / close-only (still live)
 ]);
 var NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");
 if (NFT_PROGRAM_OVERRIDE !== void 0 && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM_OVERRIDE)) {
@@ -3769,7 +3782,7 @@ var IX_TAG_P3 = Object.freeze({
 var VAULT_LP_JUNIOR_FLOOR_BPS_RANGE_P3 = Object.freeze({ min: 1e3, max: 1e4 });
 var VAULT_LP_MAX_LEV_BPS_P3 = 5e4;
 var VAULT_LP_DEFAULT_MAX_LEV_BPS_P3 = 1e4;
-var CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3 = "EDKKgRaVHna6FCxiY1kgMzegD9rpaN1nwJNSzAzeBUBX";
+var CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3 = "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam";
 var VAULT_LP_PIN_P3 = Object.freeze({
   MATCHER_KIND: 1,
   // vAMM
@@ -8954,11 +8967,15 @@ function isStandardToken(tokenProgramId) {
 import { PublicKey as PublicKey14, SystemProgram as SystemProgram2, SYSVAR_RENT_PUBKEY as SYSVAR_RENT_PUBKEY2, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4, TOKEN_2022_PROGRAM_ID as TOKEN_2022_PROGRAM_ID2 } from "@solana/spl-token";
 var STAKE_PROGRAM_IDS = {
-  devnet: "VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w",
+  devnet: "A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE",
   mainnet: "DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F"
 };
 Object.freeze(STAKE_PROGRAM_IDS);
-var KNOWN_STAKE_PROGRAM_IDS = new Set(Object.values(STAKE_PROGRAM_IDS));
+var KNOWN_STAKE_PROGRAM_IDS = /* @__PURE__ */ new Set([
+  ...Object.values(STAKE_PROGRAM_IDS),
+  PROGRAM_IDS_DEVNET_V1.vault
+  // v1 / close-only devnet stake program (still live)
+]);
 function getStakeProgramId(network) {
   if (!network) {
     const override = safeEnv("STAKE_PROGRAM_ID");
@@ -12838,6 +12855,7 @@ export {
   POSITION_NFT_STATE_LEN,
   POS_SCALE_P3,
   PROGRAM_IDS,
+  PROGRAM_IDS_DEVNET_V1,
   PROGRAM_IDS_V17,
   PROGRAM_ID_V17,
   PUBLIC_B_CHUNK_ATOMS_UNLIMITED,

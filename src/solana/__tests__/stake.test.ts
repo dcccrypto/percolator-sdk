@@ -69,8 +69,8 @@ const slab = Keypair.generate().publicKey;
 const user = Keypair.generate().publicKey;
 
 describe('STAKE_PROGRAM_ID', () => {
-  it('is a valid public key pointing at the relaunch devnet stake program (VmpVUArR..., all-fresh), matching PROGRAM_IDS_V17.vault', () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe('VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w');
+  it('is a valid public key pointing at the v2.1 devnet stake program (A6DVNubv..., fresh-ID), matching PROGRAM_IDS_V17.vault', () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe('A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE');
   });
 
   it('does NOT point at the OLD superseded stake/vault address (51CeUNpb...)', () => {

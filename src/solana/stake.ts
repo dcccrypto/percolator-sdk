@@ -3,9 +3,10 @@
  * Percolator Insurance LP Staking program — instruction encoders, PDA derivation, and account specs.
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
- * Deployed devnet:  VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w (fresh v17 triple,
- *   deployed 2026-07-17, hash-verified — see PROGRAM_IDS_V17.vault in
- *   `src/config/program-ids.ts`)
+ * Devnet (v2.1, SDK 9.0.0): A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE — the v2.1 fresh-ID
+ *   set, see PROGRAM_IDS_V17.vault in `src/config/program-ids.ts`. The v1 / close-only
+ *   ETDLAdi… world's stake program VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w is exported as
+ *   PROGRAM_IDS_DEVNET_V1.vault and stays accepted by the STAKE_PROGRAM_ID env allowlist.
  * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F (unverified — no confirmed
  *   mainnet deployment of any stake/vault lineage found in the v17 planning docs as of
  *   this writing; treat as a placeholder until DevOps confirms)
@@ -22,7 +23,7 @@
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 export { TOKEN_2022_PROGRAM_ID };
-import { safeEnv } from '../config/program-ids.js';
+import { safeEnv, PROGRAM_IDS_DEVNET_V1 } from '../config/program-ids.js';
 import { concatBytes } from '../abi/encode.js';
 
 // ═══════════════════════════════════════════════════════════════
@@ -31,6 +32,11 @@ import { concatBytes } from '../abi/encode.js';
 
 /**
  * Known stake program addresses per network.
+ *
+ * devnet (SDK 9.0.0): the v2.1 fresh-ID stake program `A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE`
+ * (= PROGRAM_IDS_V17.vault; pinned as STAKE_PROGRAM_ID by the v2.1 wrapper). The previous
+ * default `VmpVUArR…` belongs to the v1 / close-only ETDLAdi… world — see PROGRAM_IDS_DEVNET_V1.
+ * The history below is kept as a record.
  *
  * devnet: UPDATED from the SUPERSEDED `51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ`
  * (the old `percolator-vault@eb3ebe8` deployment) to the FRESH v17 devnet triple's
@@ -54,13 +60,16 @@ import { concatBytes } from '../abi/encode.js';
  * a real, executing mainnet program rather than failing safe.
  */
 export const STAKE_PROGRAM_IDS = {
-  devnet: 'VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w',
+  devnet: 'A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE',
   mainnet: 'DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F',
 } as const;
 Object.freeze(STAKE_PROGRAM_IDS);
 
-/** Allowlist of legitimate stake program addresses (devnet + mainnet). */
-const KNOWN_STAKE_PROGRAM_IDS = new Set<string>(Object.values(STAKE_PROGRAM_IDS));
+/** Allowlist of legitimate stake program addresses (devnet v2.1 + devnet v1 close-only + mainnet). */
+const KNOWN_STAKE_PROGRAM_IDS = new Set<string>([
+  ...Object.values(STAKE_PROGRAM_IDS),
+  PROGRAM_IDS_DEVNET_V1.vault, // v1 / close-only devnet stake program (still live)
+]);
 
 /**
  * Resolve the stake program ID for the given network.
@@ -1781,7 +1790,7 @@ export const STAKE_POOL_SIZE_V3 = 392;
  * `percolator-prog` `v16_program.rs` pins `STAKE_POOL_LEN = 408` and
  * `STAKE_POOL_VERSION = 4`.
  *
- * NOT YET DEPLOYED (as account DATA): devnet
+ * NOT YET DEPLOYED (as account DATA): devnet (v1 world)
  * `VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w` last checked with 25 pools,
  * all 392 bytes / version 3 — a program code upgrade doesn't resize existing
  * account data, only a fresh re-seed does. This is the layout `STAKE_POOL_SIZE`

@@ -300,7 +300,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   55: {
     name: "StakePoolOwnerMismatch",
-    hint: "The supplied stake-pool account is not owned by the wrapper's pinned STAKE_PROGRAM_ID. THIS IS THE FORGERY GATE — it is checked before any byte of the account is read. Pass the pool PDA ['stake_pool', market] derived under the canonical stake program (devnet VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w).",
+    hint: "The supplied stake-pool account is not owned by the wrapper's pinned STAKE_PROGRAM_ID. THIS IS THE FORGERY GATE — it is checked before any byte of the account is read. Pass the pool PDA ['stake_pool', market] derived under the canonical stake program (devnet v2.1 A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE; v1 close-only wrapper ETDLAdi… pins VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w).",
   },
   56: {
     name: "StakePoolAuthorityMismatch",

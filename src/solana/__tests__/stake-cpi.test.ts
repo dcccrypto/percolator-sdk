@@ -734,6 +734,6 @@ describe('fee-split CPI proxies (stake tags 25-28)', () => {
   // A mismatch here is exactly what wrapper Custom(55) StakePoolOwnerMismatch
   // reports, so the SDK constant must match the pinned value.
   it('devnet stake program id matches the wrapper pin used by tag 87', () => {
-    expect(STAKE_PROGRAM_IDS.devnet).toBe('VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w');
+    expect(STAKE_PROGRAM_IDS.devnet).toBe('A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE'); // v2.1 wrapper pin (percolator-prog 431f6807)
   });
 });
