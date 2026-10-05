@@ -25,6 +25,10 @@ import {
   simulateV1,
   v1TransactionSignature,
   walletSupportsV1,
+  MAX_PRIORITY_FEE_LAMPORTS,
+  V1RpcError,
+  v1ConfigFromBudget,
+  wrapperV1Budget,
 } from "../src/runtime/txv1.js";
 
 const BH = "GHtXQBpHnMXhoLGsryeDY7i6bGqTC2LGqS11Kf3rKmFS";
@@ -225,24 +229,33 @@ describe("feature detection", () => {
   });
 });
 
-describe("format-rejection classifier", () => {
-  it("flags decode / size / version rejections", () => {
-    for (const m of [
-      "RPC sendTransaction failed: -32602 invalid transaction: Transaction failed to sanitize accounts offsets correctly",
-      "RPC sendTransaction failed: -32602 decoded solana_transaction::versioned::VersionedTransaction too large: 4097 bytes (max: 4096 bytes)",
-      "Transaction version (1) is not supported by the requesting client",
-      "failed to deserialize transaction: unsupported transaction version",
-    ]) expect(isTxV1FormatRejection(new Error(m))).toBe(true);
+describe("format-rejection classifier (by JSON-RPC code, never by text)", () => {
+  const rpc = (code: number, m = "x") => new V1RpcError("sendTransaction", code, m);
+  it("flags exactly the format codes: -32602 (invalid params) and -32015 (version unsupported)", () => {
+    expect(isTxV1FormatRejection(rpc(-32602, "invalid transaction: Transaction failed to sanitize accounts offsets correctly"))).toBe(true);
+    expect(isTxV1FormatRejection(rpc(-32602, "decoded VersionedTransaction too large: 4097 bytes (max: 4096 bytes)"))).toBe(true);
+    expect(isTxV1FormatRejection(rpc(-32015, "Transaction version (1) is not supported by the requesting client"))).toBe(true);
+    // web3.js SolanaJSONRPCError carries the node code on `.code`
+    expect(isTxV1FormatRejection(Object.assign(new Error("failed to send transaction: invalid transaction"), { code: -32602 }))).toBe(true);
+    // a wrapped cause
+    expect(isTxV1FormatRejection(Object.assign(new Error("wrapped"), { cause: rpc(-32602) }))).toBe(true);
   });
-  it("does NOT flag on-chain failures (a program error must never trigger a resend)", () => {
-    for (const m of [
-      '{"InstructionError":[0,{"Custom":21}]}',
-      "Transaction simulation failed: custom program error: 0x15",
-      "Program X failed: custom program error",
-      "BlockhashNotFound",
-      "insufficient funds for fee",
-      "AccountNotFound",
-    ]) expect(isTxV1FormatRejection(m)).toBe(false);
+  it("does NOT flag on-chain / preflight / node-health codes (a program error must never trigger a resend)", () => {
+    expect(isTxV1FormatRejection(rpc(-32002, 'Transaction simulation failed: {"InstructionError":[0,{"Custom":21}]}'))).toBe(false);
+    expect(isTxV1FormatRejection(rpc(-32003, "Transaction signature verification failure"))).toBe(false);
+    expect(isTxV1FormatRejection(rpc(-32005, "Node is unhealthy"))).toBe(false);
+    expect(isTxV1FormatRejection(rpc(-32429, "rate limited"))).toBe(false);
+  });
+  it("negative control: transport errors and arbitrary text that merely MENTIONS a format problem are never format rejections", () => {
+    for (const e of [
+      new Error("fetch failed: payload too large"),
+      new Error("request not supported by proxy"),
+      new Error("ECONNRESET while sending: invalid transaction: Transaction failed to sanitize"),
+      "RPC sendTransaction failed: -32602 invalid transaction", // a bare string is not a typed error
+      new Error("-32602 in a message"),
+      null,
+      undefined,
+    ]) expect(isTxV1FormatRejection(e)).toBe(false);
   });
 });
 
@@ -404,7 +417,7 @@ describe("sendGroupsAdaptive", () => {
     let n = 0;
     const sender = vi.fn(async (w: Uint8Array) => {
       n++;
-      if (w[0] === 0x81) throw new Error("RPC sendTransaction failed: -32602 invalid transaction: Transaction failed to sanitize accounts offsets correctly");
+      if (w[0] === 0x81) throw new V1RpcError("sendTransaction", -32602, "invalid transaction: Transaction failed to sanitize accounts offsets correctly");
       return "L" + n;
     });
     const out = await sendGroupsAdaptive<number>({ ...base, mode: "auto", clusterSupportsV1: true, sender });
@@ -423,7 +436,7 @@ describe("sendGroupsAdaptive", () => {
   });
 
   it("TX_V1=on fails closed: no silent downgrade on rejection, and throws when the cluster does not support v1", async () => {
-    const sender = vi.fn(async () => { throw new Error("-32602 invalid transaction: Transaction failed to sanitize accounts offsets correctly"); });
+    const sender = vi.fn(async () => { throw new V1RpcError("sendTransaction", -32602, "invalid transaction: Transaction failed to sanitize accounts offsets correctly"); });
     const out = await sendGroupsAdaptive<number>({ ...base, mode: "on", clusterSupportsV1: true, sender });
     expect(out.fellBack).toBe(false);
     expect(out.results.every((r) => r.format === "v1" && r.error)).toBe(true);
@@ -434,5 +447,79 @@ describe("sendGroupsAdaptive", () => {
     const sender = vi.fn(async () => { throw new Error("BlockhashNotFound"); });
     const out = await sendGroupsAdaptive<number>({ ...base, mode: "auto", clusterSupportsV1: true, sender, stopOnError: true, maxGroups: 3 });
     expect(out.txCount).toBe(1);
+  });
+});
+
+
+describe("SDK-1: priority-fee ceiling (a v1 fee is a TOTAL; a unit mix-up must not drain a hot wallet)", () => {
+  const base = { payer, recentBlockhash: BH };
+  const one = [ix(1, 1)];
+  it("accepts the ceiling and refuses one lamport above it", () => {
+    expect(() => compileV1Message({ ...base, instructions: one, config: { computeUnitLimit: 1000, priorityFeeLamports: MAX_PRIORITY_FEE_LAMPORTS } })).not.toThrow();
+    expect(() => compileV1Message({ ...base, instructions: one, config: { computeUnitLimit: 1000, priorityFeeLamports: MAX_PRIORITY_FEE_LAMPORTS + 1n } })).toThrow(/exceeds the ceiling/);
+  });
+  it("refuses a micro-lamports-per-CU style number passed as lamports, and u64::MAX", () => {
+    expect(() => compileV1Message({ ...base, instructions: one, config: { computeUnitLimit: 1000, priorityFeeLamports: 100_000_000_000n } })).toThrow(/ceiling/);
+    expect(() => compileV1Message({ ...base, instructions: one, config: { computeUnitLimit: 1000, priorityFeeLamports: 0xffff_ffff_ffff_ffffn } })).toThrow(/ceiling/);
+  });
+  it("an explicit maxPriorityFeeLamports override is the only way past it", () => {
+    const cfg = { computeUnitLimit: 1000, priorityFeeLamports: 50_000_000n, maxPriorityFeeLamports: 100_000_000n };
+    expect(decodeV1(signV1Message(compileV1Message({ ...base, instructions: one, config: cfg }), [payerKp])).cfg.priorityFee).toBe(50_000_000n);
+    expect(() => compileV1Message({ ...base, instructions: one, config: { ...cfg, priorityFeeLamports: 100_000_001n } })).toThrow(/ceiling/);
+  });
+  it("the cap also bites through the budget path (v1ConfigFromBudget) and NaN/fractional prices are refused, not treated as 0", () => {
+    // 5,000,000 uL/CU x 1.4M CU = 7,000,000 lamports: under the ceiling; 8,000,000 uL/CU = 11.2M lamports: over
+    expect(() => compileV1Message({ ...base, instructions: one, config: v1ConfigFromBudget({ computeUnitLimit: 1_400_000, priorityMicroLamportsPerCu: 5_000_000 }) })).not.toThrow();
+    expect(() => compileV1Message({ ...base, instructions: one, config: v1ConfigFromBudget({ computeUnitLimit: 1_400_000, priorityMicroLamportsPerCu: 8_000_000 }) })).toThrow(/ceiling/);
+    expect(() => v1ConfigFromBudget({ computeUnitLimit: 1000, priorityMicroLamportsPerCu: Number.NaN })).toThrow(/finite integer/);
+    expect(() => v1ConfigFromBudget({ computeUnitLimit: 1000, priorityMicroLamportsPerCu: 1.5 })).toThrow(/finite integer/);
+    expect(() => v1ConfigFromBudget({ computeUnitLimit: 1000, priorityMicroLamportsPerCu: -1 })).toThrow(/finite integer/);
+    expect(() => compileV1Message({ ...base, instructions: one, config: { computeUnitLimit: 1000, priorityFeeLamports: Number.NaN } })).toThrow(/finite integer/);
+    expect(v1ConfigFromBudget({ computeUnitLimit: 1_400_000, priorityMicroLamportsPerCu: 8_000_000, maxPriorityFeeLamports: 20_000_000 }).maxPriorityFeeLamports).toBe(20_000_000);
+  });
+});
+
+describe("SDK-2: program ids", () => {
+  const base = { payer, recentBlockhash: BH, config: { computeUnitLimit: 1000 } };
+  it("refuses a program id equal to the fee payer, and a program id also used as a writable or signer account", () => {
+    expect(() => compileV1Message({ ...base, instructions: [new TransactionInstruction({ programId: payer, keys: [], data: Buffer.alloc(0) })] })).toThrow(/fee payer/);
+    const asAccount = new TransactionInstruction({ programId: PROG, keys: [{ pubkey: PROG, isSigner: false, isWritable: true }], data: Buffer.alloc(0) });
+    expect(() => compileV1Message({ ...base, instructions: [asAccount] })).toThrow(/writable or signer/);
+    const asReadonly = new TransactionInstruction({ programId: PROG, keys: [{ pubkey: PROG, isSigner: false, isWritable: false }], data: Buffer.alloc(0) });
+    expect(() => compileV1Message({ ...base, instructions: [asReadonly] })).not.toThrow();
+  });
+});
+
+describe("SDK-4: the heap bit is explicit", () => {
+  it("wrapperV1Budget requests the 128 KiB wrapper heap and compileV1Message does not add one by itself", () => {
+    expect(wrapperV1Budget({}).heapBytes).toBe(HEAP);
+    const cfg = v1ConfigFromBudget({ ...wrapperV1Budget({}), computeUnitLimit: 1000 });
+    expect(cfg.heapSizeBytes).toBe(HEAP);
+    const none = decodeV1(signV1Message(compileV1Message({ payer, instructions: [ix(1, 1)], recentBlockhash: BH, config: { computeUnitLimit: 1000 } }), [payerKp]));
+    expect(none.cfg.heap).toBeUndefined();
+  });
+});
+
+describe("SDK-5: send/simulate go through the caller's Connection", () => {
+  const c = compileV1Message({ payer, instructions: [ix(1, 1)], recentBlockhash: BH, config: { computeUnitLimit: 1000 } });
+  const wire = signV1Message(c, [payerKp]);
+  it("sendV1 uses connection.sendRawTransaction (so a dry-run / send guard on the Connection applies)", async () => {
+    const sendRawTransaction = vi.fn().mockResolvedValue("SIG");
+    const guarded = { rpcEndpoint: "http://never-called.test", sendRawTransaction } as unknown as Connection;
+    expect(await sendV1(guarded, wire, { skipPreflight: true, maxRetries: 0 })).toBe("SIG");
+    expect(sendRawTransaction).toHaveBeenCalledTimes(1);
+    expect(sendRawTransaction.mock.calls[0]![0]).toBe(wire);
+    expect(sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: true, maxRetries: 0 });
+    // a guard that refuses to send is respected (no raw-fetch bypass)
+    const refusing = { rpcEndpoint: "http://never-called.test", sendRawTransaction: vi.fn().mockRejectedValue(new Error("DRY_RUN: send blocked")) } as unknown as Connection;
+    await expect(sendV1(refusing, wire)).rejects.toThrow(/DRY_RUN/);
+  });
+  it("simulateV1 uses the Connection's own JSON-RPC transport when it has one (custom headers/middleware apply)", async () => {
+    const _rpcRequest = vi.fn().mockResolvedValue({ result: { value: { err: null, logs: ["ok"], unitsConsumed: 5 } } });
+    const conn = { rpcEndpoint: "http://never-called.test", _rpcRequest } as unknown as Connection;
+    expect(await simulateV1(conn, wire)).toMatchObject({ err: null, unitsConsumed: 5 });
+    expect(_rpcRequest.mock.calls[0]![0]).toBe("simulateTransaction");
+    const failing = { rpcEndpoint: "x", _rpcRequest: vi.fn().mockResolvedValue({ error: { code: -32602, message: "bad" } }) } as unknown as Connection;
+    await expect(simulateV1(failing, wire)).rejects.toSatisfy((e: Error) => e instanceof V1RpcError && e.code === -32602 && isTxV1FormatRejection(e));
   });
 });

@@ -13,7 +13,8 @@ Additive. New `src/runtime/txv1.ts` (exported from the package root):
 - `compileV1Message` / `signV1Message` / `v1TransactionSignature`: v1 encoder (web3.js 1.x can only deserialize v1; its `MessageV1.serialize()` throws). Budget goes in the config mask (CU, loaded-accounts-data-size, heap, TOTAL-lamports priority fee); ComputeBudget ixs are rejected because v1 ignores them. Cross-checked against web3.js 1.99 and @solana/kit 8.4 decoders and Agave `simulateTransaction` on devnet and mainnet.
 - `packInstructionGroups` (exact-size, order-preserving, 4,096 B / 64 accounts / 64 ix / CU aware), `measureTxBytes` (legacy / v0 / v1).
 - `detectTxV1Support` (feature-gate account, cached, read-only), `parseTxV1Mode` (`TX_V1=auto|on|off`), `resolveTxFormat`, `isTxV1FormatRejection`, `sendGroupsAdaptive` (v1 when supported, repack + fall back on a FORMAT rejection only; `on` fails closed).
-- `simulateV1` / `sendV1` raw JSON-RPC helpers, `walletSupportsV1`, `priorityFeeLamportsFromMicroPerCu`.
+- `simulateV1` / `sendV1` (via the Connection's own transport / `sendRawTransaction`), `walletSupportsV1`, `priorityFeeLamportsFromMicroPerCu`.
+- Security review hardening: `MAX_PRIORITY_FEE_LAMPORTS` (0.01 SOL) ceiling in the encoder with explicit `maxPriorityFeeLamports` override, NaN/fractional price refused; programs may not be the payer or a writable/signer account; `isTxV1FormatRejection` classifies by JSON-RPC code only (`V1RpcError.code`, -32602 / -32015), never by message text; `wrapperV1Budget` (the heap bit is explicit, doc corrected).
 
 Changed: `@solana/web3.js` `^1.99.0` (first 1.x that can DECODE v1; 1.98.4 `getTransaction` throws on a v1 tx even with `maxSupportedTransactionVersion: 1`) and `simulateOrSend` reads with `maxSupportedTransactionVersion: 1`. Adds `@noble/curves` (already a web3.js dependency) for ed25519 signing.
 

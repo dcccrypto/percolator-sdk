@@ -23,6 +23,12 @@ export declare const TX_V1_MAX_HEAP_BYTES: number;
  * `Some(activation_slot)` once active (verified on devnet and mainnet-beta, 2026-10-05).
  */
 export declare const TX_V1_FEATURE_ID: PublicKey;
+/**
+ * Hard ceiling for the v1 priority fee, in TOTAL lamports (0.01 SOL). The fee is a total, not a per-CU price, so
+ * a caller that passes a micro-lamports/CU price as lamports overpays by up to 6 orders of magnitude. The encoder
+ * refuses anything above this unless the caller passes an explicit `maxPriorityFeeLamports`.
+ */
+export declare const MAX_PRIORITY_FEE_LAMPORTS = 10000000n;
 /** Transaction wire formats the helper can emit. */
 export type TxFormat = "v1" | "v0" | "legacy";
 /**
@@ -43,6 +49,11 @@ export interface V1Config {
      * See {@link priorityFeeLamportsFromMicroPerCu}.
      */
     priorityFeeLamports?: bigint | number;
+    /**
+     * Ceiling for `priorityFeeLamports`. Default {@link MAX_PRIORITY_FEE_LAMPORTS}. Pass a higher value only
+     * deliberately (an explicit, reviewed override); it is itself bounded by u64.
+     */
+    maxPriorityFeeLamports?: bigint | number;
     /**
      * Heap size in bytes (multiple of 1024 in [32768, 262144]). Omit for the 32 KiB default.
      * Every Percolator wrapper transaction needs 131072 ({@link V17_WRAPPER_HEAP_FRAME_BYTES}).
@@ -121,7 +132,19 @@ export interface BudgetParams {
     heapBytes?: number;
     /** v1 only: loaded accounts data size limit. */
     loadedAccountsDataSizeLimit?: number;
+    /** v1 only: override of {@link MAX_PRIORITY_FEE_LAMPORTS}. Leave unset unless a higher fee is deliberate. */
+    maxPriorityFeeLamports?: bigint | number;
 }
+/**
+ * Budget for a transaction that touches the Percolator wrapper: the 128 KiB heap is always requested
+ * ({@link V17_WRAPPER_HEAP_FRAME_BYTES}, #176). Everything else is passed through.
+ *
+ * @param b - Budget without the heap.
+ * @returns Budget with `heapBytes` set to the wrapper's heap.
+ * @example
+ * packInstructionGroups(groups, { format: "v1", payer, budget: wrapperV1Budget({}) });
+ */
+export declare function wrapperV1Budget(b?: Omit<BudgetParams, "computeUnitLimit" | "heapBytes">): Omit<BudgetParams, "computeUnitLimit">;
 /** v1 config derived from format-neutral budget params. */
 export declare function v1ConfigFromBudget(b: BudgetParams): V1Config;
 /** Legacy / v0 ComputeBudget prelude equivalent to a budget. */
@@ -245,12 +268,25 @@ export declare function detectTxV1Support(connection: V1DetectConnection, ttlMs?
  * @returns The format. In `on` mode with an unsupporting cluster this throws instead of silently downgrading.
  */
 export declare function resolveTxFormat(mode: TxV1Mode, clusterSupportsV1: boolean, fallback?: Exclude<TxFormat, "v1">): TxFormat;
+/** A JSON-RPC level error from {@link sendV1} / {@link simulateV1}, carrying the node's error code. */
+export declare class V1RpcError extends Error {
+    /** JSON-RPC error code (e.g. -32602 invalid params, -32015 unsupported version, -32002 simulation failed). */
+    readonly code: number;
+    /** RPC method that failed. */
+    readonly method: string;
+    constructor(method: string, code: number, message: string);
+}
 /**
- * Classify an RPC send/simulate error as "the node/cluster rejected the v1 FORMAT" (as opposed to the
- * transaction failing on-chain). Only these should trigger a repack-and-retry as v0/legacy; a program
- * error must never cause a resend.
+ * Classify an error from a v1 send/simulate as "the node/cluster rejected the v1 FORMAT" (as opposed to the
+ * transaction failing on-chain, or the transport failing). Only these may trigger a repack-and-retry as
+ * v0/legacy; a program error or a network error must never cause a resend.
  *
- * @param err - Thrown error, JSON-RPC error object or message string.
+ * Classification is by the JSON-RPC error CODE (`V1RpcError.code`, or the `.code` of a web3.js
+ * `SolanaJSONRPCError`): only {@link FORMAT_REJECTION_CODES}. Arbitrary message text is never enough, so a
+ * transport error whose text merely mentions "too large" or "not supported" after the node may already have
+ * accepted the tx cannot cause a double send.
+ *
+ * @param err - Thrown error.
  * @returns true if the failure is a format rejection.
  */
 export declare function isTxV1FormatRejection(err: unknown): boolean;
@@ -272,9 +308,9 @@ export interface RawRpcOptions {
  * Simulate v1 wire bytes (read-only). `sigVerify` is off so an unsigned/partially signed message can be
  * simulated, and the blockhash is replaced so a stale one does not mask the real result.
  *
- * @param connection - Connection whose `rpcEndpoint` is used.
+ * @param connection - Connection; its own JSON-RPC transport is used when it exposes one, else a raw fetch of `rpcEndpoint`.
  * @param wire - Serialized v1 transaction.
- * @param o - Raw RPC options.
+ * @param o - Raw RPC options (passing `fetchImpl`/`headers` forces the raw fetch path).
  * @returns Simulation outcome.
  * @throws On JSON-RPC level errors (decode/sanitize failures), which {@link isTxV1FormatRejection} classifies.
  */
@@ -282,7 +318,7 @@ export declare function simulateV1(connection: Connection, wire: Uint8Array, o?:
 /**
  * Send v1 wire bytes. Returns the signature string reported by the node.
  *
- * @param connection - Connection whose `rpcEndpoint` is used.
+ * @param connection - Connection; sent through `connection.sendRawTransaction` (its transport and send guards apply).
  * @param wire - Serialized, fully signed v1 transaction.
  * @param opts - `skipPreflight` / `maxRetries` plus raw RPC options.
  * @returns Transaction signature.

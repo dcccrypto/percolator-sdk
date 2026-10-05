@@ -12019,12 +12019,16 @@ var TX_MAX_LOADED_ACCOUNTS_DATA_BYTES = 64 * 1024 * 1024;
 var TX_V1_MIN_HEAP_BYTES = 32 * 1024;
 var TX_V1_MAX_HEAP_BYTES = 256 * 1024;
 var TX_V1_FEATURE_ID = new PublicKey21("txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL");
+var MAX_PRIORITY_FEE_LAMPORTS = 10000000n;
 var SIG_LEN = 64;
 var CFG_PRIORITY_FEE = 3;
 var CFG_COMPUTE_UNIT_LIMIT = 4;
 var CFG_LOADED_ACCOUNTS_DATA_SIZE = 8;
 var CFG_HEAP_SIZE = 16;
 function priorityFeeLamportsFromMicroPerCu(microLamportsPerCu, computeUnitLimit) {
+  for (const [n, v] of [["price", microLamportsPerCu], ["compute unit limit", computeUnitLimit]]) {
+    if (typeof v === "number" && (!Number.isFinite(v) || !Number.isInteger(v))) throw new Error(`${n} must be a finite integer`);
+  }
   const price = BigInt(microLamportsPerCu);
   const cu = BigInt(computeUnitLimit);
   if (price < 0n || cu < 0n) throw new Error("price and compute unit limit must be non-negative");
@@ -12039,8 +12043,18 @@ function validateConfig(cfg) {
   if (!Number.isInteger(loaded) || loaded < 1 || loaded > TX_MAX_LOADED_ACCOUNTS_DATA_BYTES) {
     throw new Error(`loadedAccountsDataSizeLimit must be an integer in [1, ${TX_MAX_LOADED_ACCOUNTS_DATA_BYTES}]`);
   }
+  for (const [n, v] of [["priorityFeeLamports", cfg.priorityFeeLamports], ["maxPriorityFeeLamports", cfg.maxPriorityFeeLamports]]) {
+    if (typeof v === "number" && (!Number.isFinite(v) || !Number.isInteger(v))) throw new Error(`${n} must be a finite integer`);
+  }
   const fee = BigInt(cfg.priorityFeeLamports ?? 0);
   if (fee < 0n || fee > 0xffffffffffffffffn) throw new Error("priorityFeeLamports must fit u64");
+  const feeCap = BigInt(cfg.maxPriorityFeeLamports ?? MAX_PRIORITY_FEE_LAMPORTS);
+  if (feeCap < 0n || feeCap > 0xffffffffffffffffn) throw new Error("maxPriorityFeeLamports must fit u64");
+  if (fee > feeCap) {
+    throw new Error(
+      `priorityFeeLamports ${fee} exceeds the ceiling ${feeCap} lamports (the v1 fee is a TOTAL, not a per-CU price); pass an explicit maxPriorityFeeLamports if this is intended`
+    );
+  }
   let heap = null;
   if (cfg.heapSizeBytes !== void 0 && cfg.heapSizeBytes !== 0) {
     const h = cfg.heapSizeBytes;
@@ -12090,6 +12104,11 @@ function compileV1Message(params) {
     for (const m of ix2.keys) upsert(m.pubkey, m.isSigner, m.isWritable);
   }
   for (const ix2 of instructions) upsert(ix2.programId, false, false);
+  for (const ix2 of instructions) {
+    const m = metas.get(ix2.programId.toBase58());
+    if (ix2.programId.equals(payer)) throw new Error("v1: a program id may not be the fee payer");
+    if (m.isWritable || m.isSigner) throw new Error(`v1: program id ${ix2.programId.toBase58()} is also used as a writable or signer account`);
+  }
   const all = [...metas.values()];
   const payerKey = payer.toBase58();
   const rest = all.filter((m) => m.pubkey.toBase58() !== payerKey);
@@ -12175,12 +12194,20 @@ function encodeBase58(bytes) {
   }
   return s;
 }
+function wrapperV1Budget(b = {}) {
+  return { ...b, heapBytes: V17_WRAPPER_HEAP_FRAME_BYTES };
+}
 var MEASURE_BLOCKHASH = "11111111111111111111111111111111";
 function v1ConfigFromBudget(b) {
-  const fee = b.priorityMicroLamportsPerCu ? priorityFeeLamportsFromMicroPerCu(b.priorityMicroLamportsPerCu, b.computeUnitLimit) : 0n;
+  const price = b.priorityMicroLamportsPerCu;
+  if (price !== void 0 && (!Number.isFinite(price) || !Number.isInteger(price) || price < 0)) {
+    throw new Error("priorityMicroLamportsPerCu must be a non-negative finite integer (NaN/fractions are refused, not treated as 0)");
+  }
+  const fee = price ? priorityFeeLamportsFromMicroPerCu(price, b.computeUnitLimit) : 0n;
   return {
     computeUnitLimit: b.computeUnitLimit,
     priorityFeeLamports: fee,
+    ...b.maxPriorityFeeLamports !== void 0 ? { maxPriorityFeeLamports: b.maxPriorityFeeLamports } : {},
     heapSizeBytes: b.heapBytes ? b.heapBytes : void 0,
     loadedAccountsDataSizeLimit: b.loadedAccountsDataSizeLimit
   };
@@ -12306,9 +12333,36 @@ function resolveTxFormat(mode, clusterSupportsV1, fallback = "legacy") {
   if (mode === "on") throw new Error("TX_V1=on but the cluster does not report Transaction v1 as active");
   return fallback;
 }
+var V1RpcError = class extends Error {
+  /** JSON-RPC error code (e.g. -32602 invalid params, -32015 unsupported version, -32002 simulation failed). */
+  code;
+  /** RPC method that failed. */
+  method;
+  constructor(method, code, message) {
+    super(`RPC ${method} failed: ${code} ${message}`);
+    this.name = "V1RpcError";
+    this.method = method;
+    this.code = code;
+  }
+};
+var FORMAT_REJECTION_CODES = /* @__PURE__ */ new Set([
+  -32602,
+  // invalid params: undecodable / too large / failed to sanitize / bad signature size
+  -32015
+  // transaction version not supported by the requesting client / node
+]);
+function rpcErrorCode(err) {
+  if (typeof err === "object" && err !== null) {
+    const c = err.code;
+    if (typeof c === "number") return c;
+    const cause = err.cause;
+    if (cause !== void 0 && cause !== err) return rpcErrorCode(cause);
+  }
+  return void 0;
+}
 function isTxV1FormatRejection(err) {
-  const msg = typeof err === "string" ? err : err instanceof Error ? err.message : JSON.stringify(err ?? "");
-  return /(-32602|invalid transaction: transaction failed to sanitize|too large|unsupported transaction version|transaction version \(1\) is not supported|failed to deserialize|invalid base64|wire format|bincode|SanitizeFailure|not supported)/i.test(msg) && !/InstructionError|custom program error|Program .* failed|insufficient funds|BlockhashNotFound|AccountNotFound/i.test(msg);
+  const code = rpcErrorCode(err);
+  return code !== void 0 && FORMAT_REJECTION_CODES.has(code);
 }
 function toBase64(bytes) {
   let bin = "";
@@ -12316,14 +12370,20 @@ function toBase64(bytes) {
   return btoa(bin);
 }
 async function rawRpc(connection, method, params, o) {
-  const f = o.fetchImpl ?? fetch;
-  const res = await f(connection.rpcEndpoint, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...o.headers ?? {} },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
-  });
-  const json = await res.json();
-  if (json.error) throw new Error(`RPC ${method} failed: ${json.error.code} ${json.error.message}`);
+  let json;
+  const transport = connection._rpcRequest;
+  if (typeof transport === "function" && o.fetchImpl === void 0 && o.headers === void 0) {
+    json = await transport.call(connection, method, params);
+  } else {
+    const f = o.fetchImpl ?? fetch;
+    const res = await f(connection.rpcEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...o.headers ?? {} },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+    });
+    json = await res.json();
+  }
+  if (json.error) throw new V1RpcError(method, json.error.code, json.error.message);
   return json.result;
 }
 async function simulateV1(connection, wire, o = {}) {
@@ -12331,6 +12391,13 @@ async function simulateV1(connection, wire, o = {}) {
   return { err: r.value.err, logs: r.value.logs ?? [], unitsConsumed: r.value.unitsConsumed, loadedAccountsDataSize: r.value.loadedAccountsDataSize };
 }
 async function sendV1(connection, wire, opts = {}) {
+  if (opts.fetchImpl === void 0 && opts.headers === void 0) {
+    return connection.sendRawTransaction(wire, {
+      skipPreflight: opts.skipPreflight ?? false,
+      preflightCommitment: opts.preflightCommitment ?? "confirmed",
+      ...opts.maxRetries !== void 0 ? { maxRetries: opts.maxRetries } : {}
+    });
+  }
   return await rawRpc(
     connection,
     "sendTransaction",
@@ -13249,6 +13316,7 @@ export {
   MAX_INSURANCE_WITHDRAW_COOLDOWN_SLOTS,
   MAX_LP_EXPOSURE_K_BPS_P1,
   MAX_OI_SIDE_Q_P1,
+  MAX_PRIORITY_FEE_LAMPORTS,
   MAX_REQUESTED_FEE_BPS_P1,
   METEORA_DLMM_PROGRAM_ID,
   NFT_IX_TAG,
@@ -13364,6 +13432,7 @@ export {
   V17_WRAPPER_CONFIG_LEN,
   V17_WRAPPER_HEAP_FRAME_BYTES,
   V18_KIND_VAULT_LP_STATE_P3,
+  V1RpcError,
   VAMM_MAGIC,
   VAULT_LP_DEFAULT_MAX_LEV_BPS_P3,
   VAULT_LP_EXT_ACCOUNT_LEN_P2B,
@@ -13899,6 +13968,7 @@ export {
   withNftHolderAuth,
   withRetry,
   withdrawAccounts,
+  wrapperV1Budget,
   zeroMatcherV2Config
 };
 //# sourceMappingURL=index.js.map
