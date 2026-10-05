@@ -14,3 +14,4 @@ export { TOKEN_2022_PROGRAM_ID } from "./token-program.js";
 export * from "./market-lifecycle.js";
 export * from "./p3-vault-lp.js";
 export * from "./stake-wind-down.js";
+export * from "./p2b-earn.js";

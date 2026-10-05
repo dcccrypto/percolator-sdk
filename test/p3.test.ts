@@ -124,7 +124,7 @@ describe("P3 errors 72-89 (and P1 66-71) by name from the final enum", () => {
     for (const [name, code] of Object.entries(FX.errors)) expect(PERCOLATOR_ERRORS[code]?.name, `code ${code}`).toBe(name);
     expect(Object.keys(FX.errors)).toHaveLength(24); // P3 name list in the parity oracle (90 is checked by wrapper-errors.test.ts)
     expect(PERCOLATOR_ERRORS[91]?.name).toBe("LpVaultTargetPotImpaired"); // NAV floor 7a3ac04c
-    expect(PERCOLATOR_ERRORS[100]).toBeUndefined(); // 92-99 = growth-v19
+    expect(PERCOLATOR_ERRORS[104]).toBeUndefined(); // 92-99 = growth-v19, 100-103 = P2b Earn
   });
 });
 

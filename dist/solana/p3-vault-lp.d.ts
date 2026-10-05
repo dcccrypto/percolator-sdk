@@ -72,6 +72,11 @@ export declare const ASSET_VAULT_LP_FIELD_OFF_P3: Readonly<{
     readonly approvedMatcherProgram: 96;
 }>;
 /**
+ * Record offset of `AssetVaultLpV18::p2b_flags` (P2b, percolator-prog #526: was the zero `_reserved0`,
+ * which is why {@link ASSET_VAULT_LP_FIELD_OFF_P3} still names byte 91 `reserved0` to stay equal to the P3 fixture).
+ */
+export declare const ASSET_VAULT_LP_P2B_FLAGS_OFF_P3 = 91;
+/**
  * Account offset of asset `i`'s `AssetVaultLpV18` record in a market account:
  * `MARKET_GROUP_OFF + MARKET_GROUP_LEN + i·MARKET_ASSET_SLOT_LEN + 896` (= 2246 + 2325·i).
  *
@@ -201,6 +206,13 @@ export interface AssetVaultLpP3 {
     levMaxImrBps: number;
     flags: number;
     bound: boolean;
+    /**
+     * P2b `p2b_flags` (record byte 91, formerly a zero `_reserved0`). Bit 0: creator fees are not
+     * vested (the G6 junior cushion is below its target), so tag 90 returns 102 while Live.
+     */
+    p2bFlags: number;
+    /** `p2bFlags` bit 0: creator discretionary fees are locked until the cushion reaches its target. */
+    creatorFeeVesting: boolean;
     /** Raw stored value; 0 means the 1x default. */
     vaultLpMaxLevBps: number;
     /** null = no matcher approved yet. */
@@ -211,7 +223,7 @@ export interface AssetVaultLpP3 {
  *
  * @param rec  The 128 bytes.
  * @returns Decoded record.
- * @throws On unknown flag bits, non-zero reserved byte, out-of-range caps, or bound ≠ (portfolio ≠ 0).
+ * @throws On unknown flag bits (`flags` other than bound; `p2b_flags` other than bit 0), out-of-range caps, or bound ≠ (portfolio ≠ 0).
  * @example
  * ```ts
  * const r = decodeAssetVaultLpRecordP3(bytes);
@@ -276,6 +288,15 @@ export interface VaultLpMarketP3 {
     registryDomain: number;
     /** The vault-owned LP portfolio. */
     lpPortfolio: PublicKey;
+    /**
+     * P2b (percolator-prog #526): the market's `VaultLpExtV19` PDA (`["vault_lp_ext", market]`,
+     * {@link deriveVaultLpExtP2b}). Set it once the registry's ext flag is raised
+     * ({@link isLpVaultRegistryExtP2b}); from then on tags 98 (`[8]`) and 97 (`[11]`) REQUIRE it and
+     * bound 78 requires `[7]` ext + `[8]` LP (fail closed). Leave unset on a pre-P2b program or before
+     * any tag 103 / dials call created the ext: an extra account there is harmless but a missing
+     * one fails.
+     */
+    vaultLpExt?: PublicKey;
 }
 /** Matcher context size a tag-94 auto-pin needs (`MATCHER_CONTEXT_LEN`). */
 export declare const VAULT_LP_MATCHER_CTX_LEN_P3 = 320;
@@ -469,12 +490,21 @@ export interface BoundVaultLpTailOptsP3 {
      * Ignored for tag 78 (no LP in its tail).
      */
     lpReadOnly?: boolean;
+    /**
+     * P2b (percolator-prog #526): the market's `VaultLpExtV19` ({@link deriveVaultLpExtP2b}). For tag 78
+     * on a market whose registry ext flag is set, the tail becomes `[6] vault_lp_state, [7] ext (w),
+     * [8] vault LP portfolio (w)`; without it a pre-P2b keeper's 78 fails (fail closed) and bound 77
+     * needs a prior harvest, so every redemption would break. The program reads `[8]` only while the
+     * G6 cushion is on and the market is Live; sending it always is harmless. Ignored for 75 / 77
+     * (the ext does not govern them).
+     */
+    vaultLpExt?: PublicKey;
 }
 /**
  * Append the REQUIRED bound-vault tail to an Earn instruction (fail closed on a bound vault):
  * 75 DepositToLpVault → [11] vault_lp_state (w), [12] vault LP portfolio (w);
  * 77 ExecuteRedemption → [13] vault_lp_state (w), [14] vault LP portfolio (w);
- * 78 LpVaultCrankFees → [6] vault_lp_state (w).
+ * 78 LpVaultCrankFees → [6] vault_lp_state (w) (+ [7] ext (w), [8] vault LP (w) once the P2b ext exists, see {@link BoundVaultLpTailOptsP3.vaultLpExt}).
  * The pot-ledger slots ({@link BOUND_VAULT_LP_LEDGER_SLOTS_P3}) are forced writable.
  *
  * P3 senior draw FINAL (`d119eebd`): the vault LP is WRITABLE by default so a Live 75/77 can run
@@ -519,13 +549,18 @@ export declare function withBoundVaultLpTailP3(base: TransactionInstruction, vau
  * @param redeemerDest  Redeemer's collateral token account (must be owned by the redeemer).
  * @param vaultToken    Market collateral vault token account.
  * @param sourceDomain  Pot to redeem from (the program tops it up from the sibling when short).
+ * @param opts          `redeemerSigns`: mark `[12]` a signer. NOT required on a bound vault (the program
+ *                      only demands it on a Live NON-bound one, see {@link buildExecuteRedemptionIxNonBoundP2b});
+ *                      default false.
  * @returns Instruction.
  * @example
  * ```ts
  * const ix = buildExecuteRedemptionIxP3(m, keeper, senior, seniorAta, vaultAta, m.registryDomain);
  * ```
  */
-export declare function buildExecuteRedemptionIxP3(m: VaultLpMarketP3, cranker: PublicKey, redeemer: PublicKey, redeemerDest: PublicKey, vaultToken: PublicKey, sourceDomain: number): TransactionInstruction;
+export declare function buildExecuteRedemptionIxP3(m: VaultLpMarketP3, cranker: PublicKey, redeemer: PublicKey, redeemerDest: PublicKey, vaultToken: PublicKey, sourceDomain: number, opts?: {
+    redeemerSigns?: boolean;
+}): TransactionInstruction;
 /** Inputs for {@link buildVaultLpRefreshCrankIxP3}. */
 export interface VaultLpRefreshCrankArgsP3 {
     programId: PublicKey;

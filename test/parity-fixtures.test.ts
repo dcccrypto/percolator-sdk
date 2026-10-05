@@ -17,6 +17,10 @@ import {
   CTX_RETURN_OFFSET,
 } from "../src/abi/instructions.js";
 import { POSITION_NFT_STATE_LEN } from "../src/abi/nft.js";
+import { IX_TAG_P1 } from "../src/abi/risk-limits-p1.js";
+import { IX_TAG_P3 } from "../src/abi/p3.js";
+import { IX_TAG_P2B } from "../src/abi/p2b-lock-exits.js";
+import { IX_TAG_P2B_EARN } from "../src/abi/p2b-earn.js";
 import { STAKE_IX, STAKE_POOL_SIZE_V3, STAKE_POOL_SIZE_V4 } from "../src/solana/stake.js";
 
 function loadJson<T>(filename: string): T {
@@ -120,6 +124,22 @@ describe("Rust parity fixtures", () => {
       WithdrawCreatorFee: IX_TAG.WithdrawCreatorFee,
       RebalanceLpVaultBacking: IX_TAG.RebalanceLpVaultBacking,
       UpdateInsuranceWithdrawPolicy: IX_TAG.UpdateInsuranceWithdrawPolicy,
+      // 93-105: P1 / P3 / P2b live tags. The committed spec stopped at 92, so the Parity Gate never
+      // looked at them (regenerated at percolator-prog #526 d9e3e2d7). IX_TAG's own 93..102 entries
+      // are the deprecated v12.x names (they collide), so the live meanings come from their modules.
+      SetAssetRiskLimits: IX_TAG_P1.SetAssetRiskLimits,
+      InitVaultLp: IX_TAG_P3.InitVaultLp,
+      VaultLpSetMatcher: IX_TAG_P3.VaultLpSetMatcher,
+      DepositJuniorTranche: IX_TAG_P3.DepositJuniorTranche,
+      WithdrawJuniorTranche: IX_TAG_P3.WithdrawJuniorTranche,
+      VaultLpRecall: IX_TAG_P3.VaultLpRecall,
+      SetVaultLpRisk: IX_TAG_P3.SetVaultLpRisk,
+      VaultLpConvertPnl: IX_TAG_P3.VaultLpConvertPnl,
+      VaultLpSettleResolved: IX_TAG_P3.VaultLpSettleResolved,
+      VaultLpReleaseSurplus: IX_TAG_P3.VaultLpReleaseSurplus,
+      VaultLpAllocate: IX_TAG_P2B_EARN.VaultLpAllocate,
+      AdlWindDown: IX_TAG_P2B.AdlWindDown,
+      SetAdlWindDownMaxSlots: IX_TAG_P2B.SetAdlWindDownMaxSlots,
     };
 
     for (const entry of fixture.tags) {

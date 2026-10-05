@@ -7,6 +7,36 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — P2b Earn as counterparty (DRAFT, stacked on growth-v19 + P2b lock exits; do not publish)
+
+Client support for wrapper `dcccrypto/percolator-prog#526` (`d9e3e2d7`, stacked on #525 `a642a20b` and
+the `integration/p2b-merged` chain `48d9d4ac`), engine `feat/p2b-lock-exits` (`1c053113`). Every offset
+and encoder is round-tripped through the REAL crate (`scripts/p2b-parity/`, fixture
+`test/fixtures/p2b-parity.json`). New `src/abi/p2b-earn.ts` and `src/solana/p2b-earn.ts`:
+
+- Tag 103 `VaultLpAllocate {amount u128}` (`encodeVaultLpAllocateP2b`, `buildVaultLpAllocateIxP2b`; 9 accounts;
+  pass `U128_MAX_P2B` and the program clamps). Tag 99 dials trailer (`encodeSetVaultLpRiskV19P2b`, 81 B;
+  `buildSetVaultLpRiskV19IxP2b`, 6 accounts, upgrade authority WRITABLE).
+- `VaultLpExtV19` decoder (`decodeVaultLpExtV19`, 128 B body, kind 10, PDA `["vault_lp_ext", market]`
+  `deriveVaultLpExtP2b`, `fetchVaultLpExtP2b`, `isLpVaultRegistryExtP2b` = registry byte 161).
+- Ext account lists: tag 98 `[8]`, tag 97 `[11]`, bound tag 78 `[7]` ext + `[8]` LP. `VaultLpMarketP3.vaultLpExt`
+  (builders 97/98 and `planResolvedVaultLpExitP3`), `BoundVaultLpTailOptsP3.vaultLpExt`, `withCrankFeesBoundTailP2b`.
+- Tag 77 on a Live NON-bound vault needs `[12]` = the redeemer as a SIGNER: `buildExecuteRedemptionIxNonBoundP2b`
+  (signer by default); `buildExecuteRedemptionIxP3` gains `{ redeemerSigns }` (bound exits do not need it).
+- Errors 100 `VaultLpAllocateRefused`, 101 `VaultLpCapacityLocked`, 102 `VaultLpCreatorFeeVesting`,
+  103 `VaultLpSeniorCapitalHalt` ("This side is paused while the market's first-loss capital is rebuilt; closing is
+  always allowed"). `test/fixtures/wrapper-errors.json` REGENERATED with `scripts/wrapper-errors/gen.py` (107 variants, prog `d9e3e2d7`).
+- Q2 senior floor: `p2b_senior_floor_code` at `AssetRiskLimitsV17` record bytes 42..44 (`decodeSeniorFloorRecordP2b`,
+  `seniorFloorDecodeP2b` / `seniorFloorEncodeP2b`, `seniorCapitalHaltP2b`). `AssetVaultLpP3` gains `p2bFlags` /
+  `creatorFeeVesting` (record byte 91). **Fix:** `decodeAssetVaultLpRecordP3` used to THROW on a record whose
+  `p2b_flags` is non-zero, i.e. on every market in a cushion-below-target state.
+- Pricing: entry at PAR, exit at E3 (`nonboundVaultPricingP2b`, `entryVsExitP2b`, `potPhysicalNetAtomsP2b`,
+  `nonboundPotAvailableE3P2b`, `nonboundPotEntryAvailableP2b`, `lpSharesForDepositP2b`, `lpAtomsForRedemptionP2b`); `parMinusE3Atoms`
+  is the R3-M1 quantity to alert on. Ports of `vault_lp_v18` allocation / cushion rules (`vaultLpAllocLimitP2b`, ...).
+- `specs/wrapper-tags.json` regenerated from `sdk_parity_fixtures` (it stopped at tag 92): tags 93..105 are now gated.
+
+Deploy coupling (wrapper review I-3): the program, SDK and keeper ship together, at the v2.1 re-seed only.
+
 ## [Unreleased] — growth-v19 support (DRAFT; needs a version-bump decision, probably 9.0.0; do not publish)
 
 Additive client support for wrapper `dcccrypto/percolator-prog#524` (`e8e5f399`) and matcher

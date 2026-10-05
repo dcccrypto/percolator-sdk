@@ -1,0 +1,1354 @@
+{
+ "p2bSha": "d9e3e2d72c8734ecc9d99905f3cebbb090b61154",
+ "vectors": {
+  "allocate_max": {
+   "hex": "67ffffffffffffffffffffffffffffffff",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "VaultLpAllocate",
+     "tag": 103,
+     "amount": "340282366920938463463374607431768211455"
+    }
+   },
+   "rustReencodedHex": "67ffffffffffffffffffffffffffffffff"
+  },
+  "allocate_max__short": {
+   "hex": "67ffffffffffffffffffffffffffffff",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "allocate_max__long": {
+   "hex": "67ffffffffffffffffffffffffffffffff00",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "allocate_one": {
+   "hex": "6701000000000000000000000000000000",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "VaultLpAllocate",
+     "tag": 103,
+     "amount": "1"
+    }
+   },
+   "rustReencodedHex": "6701000000000000000000000000000000"
+  },
+  "allocate_one__short": {
+   "hex": "67010000000000000000000000000000",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "allocate_one__long": {
+   "hex": "670100000000000000000000000000000000",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "allocate_mid": {
+   "hex": "67100f0e0d0c0b0a090807060504030201",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "VaultLpAllocate",
+     "tag": 103,
+     "amount": "1339673755198158349044581307228491536"
+    }
+   },
+   "rustReencodedHex": "67100f0e0d0c0b0a090807060504030201"
+  },
+  "allocate_mid__short": {
+   "hex": "67100f0e0d0c0b0a0908070605040302",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "allocate_mid__long": {
+   "hex": "67100f0e0d0c0b0a09080706050403020100",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setRiskLegacy": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "SetVaultLpRisk",
+     "tag": 99,
+     "assetIndex": "3",
+     "skewSlopeE9": "2000",
+     "skewMaxE9": "900",
+     "levCapQ": "40000000000",
+     "levMaxImrBps": "5000",
+     "vaultLpMaxLevBps": "20000",
+     "approvedMatcherProgramHex": "398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782"
+    }
+   },
+   "rustReencodedHex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782"
+  },
+  "setRiskLegacy__short": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b7",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setRiskLegacy__long": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b78200",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setRiskV19_defaults": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b7828813b80b00000000",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "SetVaultLpRiskV19",
+     "tag": 99,
+     "assetIndex": "3",
+     "skewSlopeE9": "2000",
+     "skewMaxE9": "900",
+     "levCapQ": "40000000000",
+     "levMaxImrBps": "5000",
+     "vaultLpMaxLevBps": "20000",
+     "approvedMatcherProgramHex": "398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782",
+     "allocAlphaBps": "5000",
+     "allocBufferBps": "3000",
+     "cushionTargetBps": "0",
+     "cushionShareBps": "0"
+    }
+   },
+   "rustReencodedHex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b7828813b80b00000000"
+  },
+  "setRiskV19_defaults__short": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b7828813b80b000000",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setRiskV19_defaults__long": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b7828813b80b0000000000",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setRiskV19_cushion": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782e110ac0de8038813",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "SetVaultLpRiskV19",
+     "tag": 99,
+     "assetIndex": "3",
+     "skewSlopeE9": "2000",
+     "skewMaxE9": "900",
+     "levCapQ": "40000000000",
+     "levMaxImrBps": "5000",
+     "vaultLpMaxLevBps": "20000",
+     "approvedMatcherProgramHex": "398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782",
+     "allocAlphaBps": "4321",
+     "allocBufferBps": "3500",
+     "cushionTargetBps": "1000",
+     "cushionShareBps": "5000"
+    }
+   },
+   "rustReencodedHex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782e110ac0de8038813"
+  },
+  "setRiskV19_cushion__short": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782e110ac0de80388",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setRiskV19_cushion__long": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782e110ac0de803881300",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setRiskV19_zeroAlpha": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b7820000102710271027",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "SetVaultLpRiskV19",
+     "tag": 99,
+     "assetIndex": "3",
+     "skewSlopeE9": "2000",
+     "skewMaxE9": "900",
+     "levCapQ": "40000000000",
+     "levMaxImrBps": "5000",
+     "vaultLpMaxLevBps": "20000",
+     "approvedMatcherProgramHex": "398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782",
+     "allocAlphaBps": "0",
+     "allocBufferBps": "10000",
+     "cushionTargetBps": "10000",
+     "cushionShareBps": "10000"
+    }
+   },
+   "rustReencodedHex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b7820000102710271027"
+  },
+  "setRiskV19_zeroAlpha__short": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b78200001027102710",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setRiskV19_zeroAlpha__long": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782000010271027102700",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "adlWindDown": {
+   "hex": "68a0c83c1e00000000000088776655443322110900000000000000",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "AdlWindDown",
+     "tag": 104,
+     "nowSlot": "507300000",
+     "assetIndex": "0",
+     "portfolioId": "1234605616436508552",
+     "positionEpoch": "9"
+    }
+   },
+   "rustReencodedHex": "68a0c83c1e00000000000088776655443322110900000000000000"
+  },
+  "adlWindDown__short": {
+   "hex": "68a0c83c1e000000000000887766554433221109000000000000",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "adlWindDown__long": {
+   "hex": "68a0c83c1e0000000000008877665544332211090000000000000000",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setAdlMax_default": {
+   "hex": "69000028230000",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "SetAdlWindDownMaxSlots",
+     "tag": 105,
+     "assetIndex": "0",
+     "maxEpisodeSlots": "9000"
+    }
+   },
+   "rustReencodedHex": "69000028230000"
+  },
+  "setAdlMax_default__short": {
+   "hex": "690000282300",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setAdlMax_default__long": {
+   "hex": "6900002823000000",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setAdlMax_tight": {
+   "hex": "6902002c010000",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "SetAdlWindDownMaxSlots",
+     "tag": 105,
+     "assetIndex": "2",
+     "maxEpisodeSlots": "300"
+    }
+   },
+   "rustReencodedHex": "6902002c010000"
+  },
+  "setAdlMax_tight__short": {
+   "hex": "6902002c0100",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setAdlMax_tight__long": {
+   "hex": "6902002c01000000",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "initVaultLpV19": {
+   "hex": "5ed0072602",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "InitVaultLpV19",
+     "tag": 94,
+     "juniorFloorBps": "2000",
+     "lLaunchX100": "550"
+    }
+   },
+   "rustReencodedHex": "5ed0072602"
+  },
+  "initVaultLpV19__short": {
+   "hex": "5ed00726",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "initVaultLpV19__long": {
+   "hex": "5ed007260200",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setAssetRiskLimitsV19_6B": {
+   "hex": "5d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000102700008813",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "SetAssetRiskLimitsV19",
+     "tag": 93,
+     "limits": {
+      "assetIndex": "0",
+      "execBandBps": "0",
+      "lpExposureKBps": "0",
+      "lpFloorAtoms": "0",
+      "sideOiCapQ": "0",
+      "matcherExtMode": "0",
+      "maxRequestedFeeBps": "0"
+     },
+     "lambdaBps": "10000",
+     "kinkBps": "5000",
+     "utilFeeMaxBps": "0"
+    }
+   },
+   "rustReencodedHex": "5d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000102700008813"
+  },
+  "setAssetRiskLimitsV19_6B__short": {
+   "hex": "5d000000000000000000000000000000000000000000000000000000000000000000000000000000000000001027000088",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setAssetRiskLimitsV19_6B__long": {
+   "hex": "5d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000010270000881300",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setAssetRiskLimitsV19_8B": {
+   "hex": "5d010000000000000000000000000000000000000000000000000000000000000000000000000000000000004c1d0000a00f2003",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "SetAssetRiskLimitsV19",
+     "tag": 93,
+     "limits": {
+      "assetIndex": "1",
+      "execBandBps": "0",
+      "lpExposureKBps": "0",
+      "lpFloorAtoms": "0",
+      "sideOiCapQ": "0",
+      "matcherExtMode": "0",
+      "maxRequestedFeeBps": "0"
+     },
+     "lambdaBps": "7500",
+     "kinkBps": "4000",
+     "utilFeeMaxBps": "800"
+    }
+   },
+   "rustReencodedHex": "5d010000000000000000000000000000000000000000000000000000000000000000000000000000000000004c1d0000a00f2003"
+  },
+  "setAssetRiskLimitsV19_8B__short": {
+   "hex": "5d010000000000000000000000000000000000000000000000000000000000000000000000000000000000004c1d0000a00f20",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setAssetRiskLimitsV19_8B__long": {
+   "hex": "5d010000000000000000000000000000000000000000000000000000000000000000000000000000000000004c1d0000a00f200300",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "initMarketLegacy": {
+   "hex": "0001000a00000000000000640000000000000040420f00000000000a00000000000000000000000000000014000000000000000000000000000000f401000000000000e80300000000000064000000000000000a00000000000000320000000000000040420f000000000000000000000000006400000000000000000000000000000004000000000000006400000000000000e80300000000000000000000000000000a000000000000000a00000000000000f40100000000000040420f0000000000000000000000000000000000000000000000000000000000",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "InitMarket",
+     "tag": 0,
+     "maintenanceMarginBps": "500",
+     "liquidationFeeBps": "50",
+     "maxPriceMoveBpsPerSlot": "4",
+     "maxAbsFundingE9PerSlot": "1000",
+     "maxPortfolioAssets": "1"
+    }
+   },
+   "rustReencodedHex": "0001000a00000000000000640000000000000040420f00000000000a00000000000000000000000000000014000000000000000000000000000000f401000000000000e80300000000000064000000000000000a00000000000000320000000000000040420f000000000000000000000000006400000000000000000000000000000004000000000000006400000000000000e80300000000000000000000000000000a000000000000000a00000000000000f40100000000000040420f0000000000000000000000000000000000000000000000000000000000"
+  },
+  "initMarketLegacy__short": {
+   "hex": "0001000a00000000000000640000000000000040420f00000000000a00000000000000000000000000000014000000000000000000000000000000f401000000000000e80300000000000064000000000000000a00000000000000320000000000000040420f000000000000000000000000006400000000000000000000000000000004000000000000006400000000000000e80300000000000000000000000000000a000000000000000a00000000000000f40100000000000040420f00000000000000000000000000000000000000000000000000000000",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "initMarketLegacy__long": {
+   "hex": "0001000a00000000000000640000000000000040420f00000000000a00000000000000000000000000000014000000000000000000000000000000f401000000000000e80300000000000064000000000000000a00000000000000320000000000000040420f000000000000000000000000006400000000000000000000000000000004000000000000006400000000000000e80300000000000000000000000000000a000000000000000a00000000000000f40100000000000040420f000000000000000000000000000000000000000000000000000000000000",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "initMarketV19": {
+   "hex": "0001000a00000000000000640000000000000040420f00000000000a00000000000000000000000000000014000000000000000000000000000000f401000000000000e80300000000000064000000000000000a00000000000000320000000000000040420f000000000000000000000000006400000000000000000000000000000004000000000000006400000000000000e80300000000000000000000000000000a000000000000000a00000000000000f40100000000000040420f000000000000000000000000000000000000000000000000000000000090012602",
+   "rust": {
+    "ok": true,
+    "decoded": {
+     "variant": "InitMarketV19",
+     "tag": 0,
+     "market": {
+      "maintenanceMarginBps": "500",
+      "liquidationFeeBps": "50",
+      "maxPriceMoveBpsPerSlot": "4",
+      "maxAbsFundingE9PerSlot": "1000",
+      "maxPortfolioAssets": "1"
+     },
+     "rGapBps": "400",
+     "lLaunchX100": "550"
+    }
+   },
+   "rustReencodedHex": "0001000a00000000000000640000000000000040420f00000000000a00000000000000000000000000000014000000000000000000000000000000f401000000000000e80300000000000064000000000000000a00000000000000320000000000000040420f000000000000000000000000006400000000000000000000000000000004000000000000006400000000000000e80300000000000000000000000000000a000000000000000a00000000000000f40100000000000040420f000000000000000000000000000000000000000000000000000000000090012602"
+  },
+  "initMarketV19__short": {
+   "hex": "0001000a00000000000000640000000000000040420f00000000000a00000000000000000000000000000014000000000000000000000000000000f401000000000000e80300000000000064000000000000000a00000000000000320000000000000040420f000000000000000000000000006400000000000000000000000000000004000000000000006400000000000000e80300000000000000000000000000000a000000000000000a00000000000000f40100000000000040420f0000000000000000000000000000000000000000000000000000000000900126",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "initMarketV19__long": {
+   "hex": "0001000a00000000000000640000000000000040420f00000000000a00000000000000000000000000000014000000000000000000000000000000f401000000000000e80300000000000064000000000000000a00000000000000320000000000000040420f000000000000000000000000006400000000000000000000000000000004000000000000006400000000000000e80300000000000000000000000000000a000000000000000a00000000000000f40100000000000040420f00000000000000000000000000000000000000000000000000000000009001260200",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setRiskV19__trailer2": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b7828813",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  },
+  "setRiskV19__trailer6": {
+   "hex": "630300d007000000000000840300000000000000902f500900000000000000000000008813204e0000398c4757463cc6686879813af4095e925e36e96c1f540a27fe24ac956ea6b782881388138813",
+   "rust": {
+    "ok": false,
+    "err": "InvalidInstructionData"
+   },
+   "rustReencodedHex": ""
+  }
+ },
+ "errors": {
+  "VaultLpAllocateRefused": 100,
+  "VaultLpCapacityLocked": 101,
+  "VaultLpCreatorFeeVesting": 102,
+  "VaultLpSeniorCapitalHalt": 103,
+  "EngineAdlReduceOnly": 120,
+  "EngineLossStale": 121,
+  "EarnExitWouldUnderBackClaims": 122,
+  "GrowthUtilisationFeeRequiresTradeCpi": 99
+ },
+ "layout": {
+  "headerLen": 16,
+  "vaultLpExtBodyLen": 128,
+  "vaultLpExtAccountLen": 144,
+  "kindVaultLpExt": 10,
+  "vaultLpExtVersion": 1,
+  "vaultLpExtSeed": "vault_lp_ext",
+  "registryExtFlagAccountOff": 161,
+  "registryBoundFlagAccountOff": 160,
+  "assetRiskLimitsOff": 608,
+  "assetRiskLimitsLen": 64,
+  "p2bSeniorFloorSlotOff": 650,
+  "p2bSeniorFloorLen": 2,
+  "adlEpisodeSlotOff": 652,
+  "assetVaultLpSlotOff": 896,
+  "assetVaultLpLen": 128,
+  "p2bFlagsRecordOff": 91,
+  "p2bCreatorFeeVestingBit": 1,
+  "assetGrowthSlotOff": 672,
+  "assetGrowthLen": 120,
+  "vaultLpExtFieldOff": {
+   "marketGroup": 0,
+   "allocatedAtoms": 32,
+   "cushionAccruedAtoms": 48,
+   "allocatedTotalAtoms": 64,
+   "deallocatedTotalAtoms": 80,
+   "allocAlphaBps": 96,
+   "allocBufferBps": 98,
+   "cushionTargetBps": 100,
+   "cushionShareBps": 102,
+   "version": 104,
+   "bump": 105,
+   "padding": 106,
+   "reserved": 112
+  },
+  "assetRiskLimitsFieldOff": {
+   "sideOiCapQ": 0,
+   "lpFloorAtoms": 16,
+   "lpExposureKBps": 32,
+   "execBandBps": 36,
+   "matcherExtMode": 38,
+   "reserved0": 39,
+   "maxRequestedFeeBps": 40,
+   "p2bSeniorFloorCode": 42,
+   "adlMaxEpisodeSlots": 44,
+   "adlEpisodeSinceSlot": 48,
+   "adlEpisodeEpochLong": 56,
+   "adlEpisodeEpochShort": 60
+  },
+  "assetGrowthFieldOff": {
+   "cLaunchAtoms": 0,
+   "ceilSlot": 8,
+   "lambdaBps": 16,
+   "lLaunchX100": 20,
+   "lTierX100": 22,
+   "ceilX100": 24,
+   "kinkBps": 26,
+   "rGapBps": 28,
+   "allocAlphaBps": 30,
+   "allocBufferBps": 32,
+   "cushionTargetBps": 34,
+   "cushionShareBps": 36,
+   "version": 38,
+   "flags": 39,
+   "utilFeeMaxBps": 40
+  }
+ },
+ "constants": {
+  "allocAlphaDefaultBps": 5000,
+  "allocAlphaMaxBps": 5000,
+  "allocBufferDefaultBps": 3000,
+  "allocBufferMinBps": 3000,
+  "allocMinJuniorBps": 500,
+  "adlWindDownDefaultMaxEpisodeSlots": 9000,
+  "adlWindDownMaxMarkAgeSlots": 150,
+  "boundScale": "1000000000000"
+ },
+ "pdas": [
+  {
+   "program": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+   "market": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+   "pda": "Bw6ZHEwTS1Jwq8f91zk3jmRi73A7v8Bg8odWQTj2JJyW",
+   "bump": 254
+  },
+  {
+   "program": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+   "market": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+   "pda": "73ZdRa2CJUvHrnzC39en8c4qy6qKKh6dDYwvRfksecog",
+   "bump": 253
+  },
+  {
+   "program": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+   "market": "EWn7dE93GeQJu72WEkEmC5MZpm5FhiJzkcJEf1xpRdWP",
+   "pda": "61aCzjGeuHpsHNbV35VQBkC1nGBedFqETrtspS49NwPs",
+   "bump": 255
+  }
+ ],
+ "vaultLpExt": {
+  "default": {
+   "hex": "003631564352455012000a00000000000909090909090909090909090909090909090909090909090909090909090909000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008813b80b0000000001fd00000000000000000000000000000000000000000000",
+   "programReadsSame": true
+  },
+  "custom": {
+   "hex": "003631564352455012000a0000000000abababababababababababababababababababababababababababababababab356c362f819f4eb106000000000000000000909dceda823700000000000000002df580f33804758a35000000000000000b000000000000000000000000000000e110ac0de803881301fa00000000000000000000000000000000000000000000",
+   "programReadsSame": true
+  },
+  "badAlpha": {
+   "hex": "003631564352455012000a00000000000909090909090909090909090909090909090909090909090909090909090909000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008913b80b00000000010100000000000000000000000000000000000000000000",
+   "programReadsSame": false
+  }
+ },
+ "records": {
+  "riskLimitsHex": "00863ba101000000000000000000000080b2e60e00000000000000000000000050c300002c010100640034122c0100001bc93c1e00000000efbeadde0df0ad0b",
+  "riskLimitsValidates": true,
+  "vaultLpHex": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1fbffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000101204e00005a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+ },
+ "seniorFloorEncode": [
+  {
+   "v": "0",
+   "code": 0,
+   "decoded": "0"
+  },
+  {
+   "v": "1",
+   "code": 1,
+   "decoded": "1"
+  },
+  {
+   "v": "1023",
+   "code": 1023,
+   "decoded": "1023"
+  },
+  {
+   "v": "1024",
+   "code": 1536,
+   "decoded": "1024"
+  },
+  {
+   "v": "1025",
+   "code": 1537,
+   "decoded": "1026"
+  },
+  {
+   "v": "2047",
+   "code": 2560,
+   "decoded": "2048"
+  },
+  {
+   "v": "2048",
+   "code": 2560,
+   "decoded": "2048"
+  },
+  {
+   "v": "999999",
+   "code": 11217,
+   "decoded": "1000448"
+  },
+  {
+   "v": "5000000000",
+   "code": 24149,
+   "decoded": "5007998976"
+  },
+  {
+   "v": "18446744073709551615",
+   "code": 56832,
+   "decoded": "18446744073709551616"
+  },
+  {
+   "v": "9435509593702435651584",
+   "code": 65535,
+   "decoded": "9435509593702435651584"
+  },
+  {
+   "v": "9435509593702435651585",
+   "code": 65535,
+   "decoded": "9435509593702435651584"
+  },
+  {
+   "v": "1329227995784915872903807060280344576",
+   "code": 65535,
+   "decoded": "9435509593702435651584"
+  },
+  {
+   "v": "340282366920938463463374607431768211455",
+   "code": 65535,
+   "decoded": "9435509593702435651584"
+  }
+ ],
+ "seniorFloorDecode": [
+  {
+   "code": 0,
+   "floor": "0"
+  },
+  {
+   "code": 1,
+   "floor": "1"
+  },
+  {
+   "code": 1023,
+   "floor": "1023"
+  },
+  {
+   "code": 1024,
+   "floor": "0"
+  },
+  {
+   "code": 1025,
+   "floor": "2"
+  },
+  {
+   "code": 4660,
+   "floor": "9024"
+  },
+  {
+   "code": 64512,
+   "floor": "0"
+  },
+  {
+   "code": 65535,
+   "floor": "9435509593702435651584"
+  }
+ ],
+ "allocLimit": [
+  {
+   "cEff": "1000",
+   "allocated": "0",
+   "drawable": "1000",
+   "alpha": 5000,
+   "buffer": 3000,
+   "limit": "500"
+  },
+  {
+   "cEff": "1000",
+   "allocated": "500",
+   "drawable": "500",
+   "alpha": 5000,
+   "buffer": 3000,
+   "limit": "0"
+  },
+  {
+   "cEff": "1000",
+   "allocated": "0",
+   "drawable": "600",
+   "alpha": 5000,
+   "buffer": 3000,
+   "limit": "300"
+  },
+  {
+   "cEff": "1000",
+   "allocated": "0",
+   "drawable": "300",
+   "alpha": 5000,
+   "buffer": 3000,
+   "limit": "0"
+  },
+  {
+   "cEff": "10000",
+   "allocated": "4999",
+   "drawable": "99999",
+   "alpha": 5000,
+   "buffer": 3001,
+   "limit": "1"
+  },
+  {
+   "cEff": "1000",
+   "allocated": "0",
+   "drawable": "1000",
+   "alpha": 5001,
+   "buffer": 3000,
+   "limit": null
+  },
+  {
+   "cEff": "1000",
+   "allocated": "0",
+   "drawable": "1000",
+   "alpha": 5000,
+   "buffer": 2999,
+   "limit": null
+  },
+  {
+   "cEff": "1000",
+   "allocated": "0",
+   "drawable": "1000",
+   "alpha": 5000,
+   "buffer": 10001,
+   "limit": null
+  },
+  {
+   "cEff": "7",
+   "allocated": "0",
+   "drawable": "100",
+   "alpha": 3333,
+   "buffer": 3000,
+   "limit": "2"
+  }
+ ],
+ "allocAdmitted": [
+  {
+   "outstanding": "0",
+   "pending": false,
+   "v": "1000",
+   "cEff": "1000",
+   "lpEquity": "0",
+   "admitted": true
+  },
+  {
+   "outstanding": "1",
+   "pending": false,
+   "v": "1000",
+   "cEff": "1000",
+   "lpEquity": "0",
+   "admitted": false
+  },
+  {
+   "outstanding": "0",
+   "pending": true,
+   "v": "1000",
+   "cEff": "1000",
+   "lpEquity": "0",
+   "admitted": false
+  },
+  {
+   "outstanding": "0",
+   "pending": false,
+   "v": "999",
+   "cEff": "1000",
+   "lpEquity": "0",
+   "admitted": false
+  },
+  {
+   "outstanding": "0",
+   "pending": false,
+   "v": "1000",
+   "cEff": "1000",
+   "lpEquity": "-1",
+   "admitted": false
+  },
+  {
+   "outstanding": "0",
+   "pending": false,
+   "v": "1001",
+   "cEff": "1000",
+   "lpEquity": "5",
+   "admitted": true
+  }
+ ],
+ "allocJuniorOk": [
+  {
+   "v": "10500",
+   "cEff": "10000",
+   "ok": true
+  },
+  {
+   "v": "10499",
+   "cEff": "10000",
+   "ok": false
+  },
+  {
+   "v": "0",
+   "cEff": "0",
+   "ok": true
+  },
+  {
+   "v": "1000",
+   "cEff": "0",
+   "ok": true
+  },
+  {
+   "v": "500",
+   "cEff": "10000",
+   "ok": false
+  },
+  {
+   "v": "10000",
+   "cEff": "10000",
+   "ok": false
+  },
+  {
+   "v": "10001",
+   "cEff": "10001",
+   "ok": false
+  }
+ ],
+ "allocWrittenDown": [
+  {
+   "allocated": "5000",
+   "lpValue": "6500",
+   "writtenDown": "5000"
+  },
+  {
+   "allocated": "5000",
+   "lpValue": "0",
+   "writtenDown": "0"
+  },
+  {
+   "allocated": "0",
+   "lpValue": "5",
+   "writtenDown": "0"
+  },
+  {
+   "allocated": "5000",
+   "lpValue": "5000",
+   "writtenDown": "5000"
+  },
+  {
+   "allocated": "340282366920938463463374607431768211455",
+   "lpValue": "1",
+   "writtenDown": "1"
+  }
+ ],
+ "dealloc": [
+  {
+   "allocated": "500",
+   "recalled": "700",
+   "after": "0"
+  },
+  {
+   "allocated": "500",
+   "recalled": "200",
+   "after": "300"
+  },
+  {
+   "allocated": "0",
+   "recalled": "1",
+   "after": "0"
+  },
+  {
+   "allocated": "340282366920938463463374607431768211455",
+   "recalled": "340282366920938463463374607431768211455",
+   "after": "0"
+  },
+  {
+   "allocated": "10",
+   "recalled": "0",
+   "after": "10"
+  }
+ ],
+ "allocSplit": [
+  {
+   "moved": "100",
+   "dEven": "300",
+   "dOdd": "100",
+   "split": [
+    "75",
+    "25"
+   ]
+  },
+  {
+   "moved": "0",
+   "dEven": "5",
+   "dOdd": "5",
+   "split": [
+    "0",
+    "0"
+   ]
+  },
+  {
+   "moved": "400",
+   "dEven": "300",
+   "dOdd": "100",
+   "split": [
+    "300",
+    "100"
+   ]
+  },
+  {
+   "moved": "401",
+   "dEven": "300",
+   "dOdd": "100",
+   "split": null
+  },
+  {
+   "moved": "7",
+   "dEven": "3",
+   "dOdd": "3",
+   "split": null
+  },
+  {
+   "moved": "1",
+   "dEven": "0",
+   "dOdd": "5",
+   "split": [
+    "0",
+    "1"
+   ]
+  },
+  {
+   "moved": "5",
+   "dEven": "0",
+   "dOdd": "5",
+   "split": [
+    "0",
+    "5"
+   ]
+  },
+  {
+   "moved": "6",
+   "dEven": "0",
+   "dOdd": "5",
+   "split": null
+  },
+  {
+   "moved": "999",
+   "dEven": "1000000",
+   "dOdd": "1",
+   "split": [
+    "999",
+    "0"
+   ]
+  }
+ ],
+ "a4": [
+  {
+   "before": "10",
+   "after": "5",
+   "lpEffAbs": "5",
+   "ok": true
+  },
+  {
+   "before": "10",
+   "after": "5",
+   "lpEffAbs": "6",
+   "ok": false
+  },
+  {
+   "before": "10",
+   "after": "10",
+   "lpEffAbs": "99",
+   "ok": true
+  },
+  {
+   "before": "10",
+   "after": "11",
+   "lpEffAbs": "0",
+   "ok": true
+  },
+  {
+   "before": "0",
+   "after": "0",
+   "lpEffAbs": "0",
+   "ok": true
+  }
+ ],
+ "liveBoundPrincipal": [
+  {
+   "out": "900",
+   "available": "5000",
+   "principal": "900"
+  },
+  {
+   "out": "7000",
+   "available": "5000",
+   "principal": "5000"
+  },
+  {
+   "out": "5000",
+   "available": "5000",
+   "principal": "5000"
+  },
+  {
+   "out": "0",
+   "available": "0",
+   "principal": "0"
+  }
+ ],
+ "potPhysicalNet": [
+  {
+   "fresh": "1000",
+   "valid": "0",
+   "claims": "0",
+   "insCover": "0",
+   "scale": "1",
+   "net": "1000"
+  },
+  {
+   "fresh": "1180",
+   "valid": "0",
+   "claims": "180",
+   "insCover": "0",
+   "scale": "1",
+   "net": "1000"
+  },
+  {
+   "fresh": "1000",
+   "valid": "0",
+   "claims": "180",
+   "insCover": "180",
+   "scale": "1",
+   "net": "1000"
+  },
+  {
+   "fresh": "1999",
+   "valid": "0",
+   "claims": "1",
+   "insCover": "0",
+   "scale": "1000",
+   "net": "0"
+  },
+  {
+   "fresh": "3000000000000",
+   "valid": "500000000000",
+   "claims": "1500000000001",
+   "insCover": "0",
+   "scale": "1000000000000",
+   "net": "1"
+  },
+  {
+   "fresh": "5",
+   "valid": "5",
+   "claims": "99",
+   "insCover": "0",
+   "scale": "0",
+   "net": "0"
+  },
+  {
+   "fresh": "100",
+   "valid": "100",
+   "claims": "50",
+   "insCover": "80",
+   "scale": "1",
+   "net": "200"
+  },
+  {
+   "fresh": "1000",
+   "valid": "0",
+   "claims": "5000",
+   "insCover": "0",
+   "scale": "1",
+   "net": "0"
+  }
+ ],
+ "nonboundPot": [
+  {
+   "principal": "1000",
+   "physicalNet": "1000",
+   "exit": "1000",
+   "entry": "1000"
+  },
+  {
+   "principal": "1000",
+   "physicalNet": "820",
+   "exit": "820",
+   "entry": "1000"
+  },
+  {
+   "principal": "1000",
+   "physicalNet": "1100",
+   "exit": "1000",
+   "entry": "1000"
+  },
+  {
+   "principal": "0",
+   "physicalNet": "5",
+   "exit": "0",
+   "entry": "0"
+  },
+  {
+   "principal": "5",
+   "physicalNet": "0",
+   "exit": "0",
+   "entry": "5"
+  }
+ ],
+ "cushionSplit": [
+  {
+   "available": "1000",
+   "share": 5000,
+   "target": 1000,
+   "cEff": "10000",
+   "juniorLevel": "900",
+   "split": [
+    "900",
+    "100"
+   ]
+  },
+  {
+   "available": "1000",
+   "share": 5000,
+   "target": 1000,
+   "cEff": "10000",
+   "juniorLevel": "1000",
+   "split": [
+    "1000",
+    "0"
+   ]
+  },
+  {
+   "available": "1000",
+   "share": 0,
+   "target": 1000,
+   "cEff": "10000",
+   "juniorLevel": "0",
+   "split": [
+    "1000",
+    "0"
+   ]
+  },
+  {
+   "available": "1000",
+   "share": 5000,
+   "target": 0,
+   "cEff": "10000",
+   "juniorLevel": "0",
+   "split": [
+    "1000",
+    "0"
+   ]
+  },
+  {
+   "available": "7",
+   "share": 10000,
+   "target": 10000,
+   "cEff": "3",
+   "juniorLevel": "0",
+   "split": [
+    "4",
+    "3"
+   ]
+  },
+  {
+   "available": "1000",
+   "share": 9999,
+   "target": 3,
+   "cEff": "777",
+   "juniorLevel": "1",
+   "split": [
+    "1000",
+    "0"
+   ]
+  }
+ ],
+ "cushionLocked": [
+  {
+   "accrued": "5000",
+   "cEff": "10000",
+   "target": 1000,
+   "locked": "1000"
+  },
+  {
+   "accrued": "500",
+   "cEff": "10000",
+   "target": 1000,
+   "locked": "500"
+  },
+  {
+   "accrued": "0",
+   "cEff": "10000",
+   "target": 1000,
+   "locked": "0"
+  },
+  {
+   "accrued": "5000",
+   "cEff": "10000",
+   "target": 0,
+   "locked": "0"
+  },
+  {
+   "accrued": "5000",
+   "cEff": "3",
+   "target": 3,
+   "locked": "1"
+  }
+ ],
+ "creatorFeeVested": [
+  {
+   "juniorLevel": "999",
+   "cEff": "10000",
+   "share": 5000,
+   "target": 1000,
+   "vested": false
+  },
+  {
+   "juniorLevel": "1000",
+   "cEff": "10000",
+   "share": 5000,
+   "target": 1000,
+   "vested": true
+  },
+  {
+   "juniorLevel": "0",
+   "cEff": "10000",
+   "share": 0,
+   "target": 1000,
+   "vested": true
+  },
+  {
+   "juniorLevel": "0",
+   "cEff": "10000",
+   "share": 5000,
+   "target": 0,
+   "vested": true
+  },
+  {
+   "juniorLevel": "1",
+   "cEff": "3",
+   "share": 1,
+   "target": 1,
+   "vested": true
+  }
+ ],
+ "seniorCapitalHalt": [
+  {
+   "equity": "99",
+   "floor": "100",
+   "halt": true
+  },
+  {
+   "equity": "100",
+   "floor": "100",
+   "halt": false
+  },
+  {
+   "equity": "0",
+   "floor": "0",
+   "halt": false
+  },
+  {
+   "equity": "0",
+   "floor": "1",
+   "halt": true
+  },
+  {
+   "equity": "5",
+   "floor": "4",
+   "halt": false
+  }
+ ]
+}

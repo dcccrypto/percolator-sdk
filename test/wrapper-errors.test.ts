@@ -13,14 +13,14 @@ const FX = JSON.parse(readFileSync(new URL("./fixtures/wrapper-errors.json", imp
 
 describe("wrapper error map is generated from the program (rustc discriminants)", () => {
   it("fixture is from the pinned relaunch wrapper", () => {
-    expect(FX.prog).toBe("e673b4ac0011e93b3c49fa89a1246fbc9321418d"); // P2b wrapper (#525) on growth-v19 9cc6d281
+    expect(FX.prog).toBe("d9e3e2d72c8734ecc9d99905f3cebbb090b61154"); // P2b Earn allocation (#526) on #525 lock exits (48d9d4ac) on growth-v19
     expect(Object.keys(FX.errors)).toHaveLength(FX.count);
   });
   it("every program code decodes to the program's variant name", () => {
     for (const [code, name] of Object.entries(FX.errors)) expect(decodeError(Number(code))?.name, `code ${code}`).toBe(name);
   });
   it("7a3ac04c appends exactly one code, 91 LpVaultTargetPotImpaired (no existing code shifted)", () => {
-    expect(FX.count).toBe(103); // 0..99 + the P2b reserved block 120..122
+    expect(FX.count).toBe(107); // 0..103 + the P2b lock-exit block 120..122
     expect(FX.errors["90"]).toBe("VaultLpBindRequiresFlatAsset");
     expect(FX.errors["91"]).toBe("LpVaultTargetPotImpaired");
     expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
@@ -41,7 +41,6 @@ describe("wrapper error map is generated from the program (rustc discriminants)"
     expect(FX.errors["97"]).toBe("GrowthRequiresBoundVaultLp");
     expect(FX.errors["98"]).toBe("GrowthUtilisationFeeNotCovered");
     expect(FX.errors["99"]).toBe("GrowthUtilisationFeeRequiresTradeCpi");
-    expect(FX.errors["100"]).toBeUndefined();
     expect(decodeError(97)?.hint).toMatch(/^This market is not open for new positions\. Reducing or closing is always allowed\./);
     expect(decodeError(96)?.hint).toMatch(/^Split this order into batches of at most 10 markets\./);
   });
@@ -49,8 +48,17 @@ describe("wrapper error map is generated from the program (rustc discriminants)"
     expect(FX.errors["120"]).toBe("EngineAdlReduceOnly");
     expect(FX.errors["121"]).toBe("EngineLossStale");
     expect(FX.errors["122"]).toBe("EarnExitWouldUnderBackClaims");
-    for (const c of ["100", "101", "102", "119", "123"]) expect(FX.errors[c]).toBeUndefined();
+    for (const c of ["104", "119", "123"]) expect(FX.errors[c]).toBeUndefined();
     expect(decodeError(120)?.hint).toMatch(/^This market is close-only while it rebalances/);
+  });
+  it("P2b Earn allocation (#526) adds exactly the explicit block 100 VaultLpAllocateRefused, 101 VaultLpCapacityLocked, 102 VaultLpCreatorFeeVesting, 103 VaultLpSeniorCapitalHalt", () => {
+    expect(FX.errors["100"]).toBe("VaultLpAllocateRefused");
+    expect(FX.errors["101"]).toBe("VaultLpCapacityLocked");
+    expect(FX.errors["102"]).toBe("VaultLpCreatorFeeVesting");
+    expect(FX.errors["103"]).toBe("VaultLpSeniorCapitalHalt");
+    // the copy for 103 is pinned verbatim as its first sentence (app surfaces it)
+    expect(decodeError(103)?.hint).toMatch(/^This side is paused while the market's first-loss capital is rebuilt; closing is always allowed\./);
+    expect(decodeError(100)?.hint).toMatch(/skip/);
   });
   it("the SDK defines no code the program does not have", () => {
     for (const code of Object.keys(PERCOLATOR_ERRORS)) expect(FX.errors[code], `sdk code ${code}`).toBeDefined();
