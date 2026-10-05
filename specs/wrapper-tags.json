@@ -95,7 +95,20 @@
     { "name": "ExpireBackingBucket", "tag": 89 },
     { "name": "WithdrawCreatorFee", "tag": 90 },
     { "name": "RebalanceLpVaultBacking", "tag": 91 },
-    { "name": "UpdateInsuranceWithdrawPolicy", "tag": 92 }
+    { "name": "UpdateInsuranceWithdrawPolicy", "tag": 92 },
+    { "name": "SetAssetRiskLimits", "tag": 93 },
+    { "name": "InitVaultLp", "tag": 94 },
+    { "name": "VaultLpSetMatcher", "tag": 95 },
+    { "name": "DepositJuniorTranche", "tag": 96 },
+    { "name": "WithdrawJuniorTranche", "tag": 97 },
+    { "name": "VaultLpRecall", "tag": 98 },
+    { "name": "SetVaultLpRisk", "tag": 99 },
+    { "name": "VaultLpConvertPnl", "tag": 100 },
+    { "name": "VaultLpSettleResolved", "tag": 101 },
+    { "name": "VaultLpReleaseSurplus", "tag": 102 },
+    { "name": "VaultLpAllocate", "tag": 103 },
+    { "name": "AdlWindDown", "tag": 104 },
+    { "name": "SetAdlWindDownMaxSlots", "tag": 105 }
   ],
   "version": "v17"
 }

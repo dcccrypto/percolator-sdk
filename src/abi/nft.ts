@@ -22,7 +22,7 @@
  */
 
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_IDS_V17 } from "../config/program-ids.js";
+import { PROGRAM_IDS_V17, PROGRAM_IDS_DEVNET_V1 } from "../config/program-ids.js";
 import { safeEnv } from "../config/program-ids.js";
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,8 @@ import { safeEnv } from "../config/program-ids.js";
 /** Allowlist of known NFT program addresses. */
 const KNOWN_NFT_PROGRAM_IDS = new Set([
   "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS", // mainnet
-  PROGRAM_IDS_V17.nft, // v17 devnet — the default below
+  PROGRAM_IDS_V17.nft, // devnet v2.1 — the default below
+  PROGRAM_IDS_DEVNET_V1.nft, // devnet v1 / close-only (still live)
 ]);
 
 const NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");

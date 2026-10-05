@@ -735,8 +735,8 @@ describe("parseEngineLight — V12_19 uses layout-driven offsets (not stale isV2
 // ===========================================================================
 
 describe("STAKE_PROGRAM_ID — address constants", () => {
-  it("STAKE_PROGRAM_ID exports the fresh devnet address VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w (matches PROGRAM_IDS_V17.vault)", () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe("VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w");
+  it("STAKE_PROGRAM_ID exports the v2.1 devnet address A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE (matches PROGRAM_IDS_V17.vault)", () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe("A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE");
   });
 
   it("STAKE_PROGRAM_ID does NOT export the OLD superseded address 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ", () => {
@@ -759,12 +759,12 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     }
   });
 
-  it("getStakeProgramId('devnet') returns VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w", () => {
+  it("getStakeProgramId('devnet') returns A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE", () => {
     const saved = process.env.STAKE_PROGRAM_ID;
     delete process.env.STAKE_PROGRAM_ID;
     try {
       const pk = getStakeProgramId("devnet");
-      expect(pk.toBase58()).toBe("VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w");
+      expect(pk.toBase58()).toBe("A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE");
     } finally {
       if (saved !== undefined) process.env.STAKE_PROGRAM_ID = saved;
     }
@@ -781,10 +781,10 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     }
   });
 
-  it("STAKE_PROGRAM_IDS.devnet constant is VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w", () => {
-    // This is the deployed vault per the deployment ledger (deployed commit 474079f).
-    // The pre-reconcile SDK line carried 6aJb1F..., which did NOT match it.
-    expect(STAKE_PROGRAM_IDS.devnet).toBe("VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w");
+  it("STAKE_PROGRAM_IDS.devnet constant is A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE", () => {
+    // v2.1 fresh-ID stake program (SDK 9.0.0) — the v2.1 wrapper's STAKE_PROGRAM_ID pin.
+    // VmpVUArR… is the v1 / close-only world (PROGRAM_IDS_DEVNET_V1.vault).
+    expect(STAKE_PROGRAM_IDS.devnet).toBe("A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE");
   });
 
   it("getStakeProgramId() with no args, no env, in a browser context THROWS rather than guessing", () => {

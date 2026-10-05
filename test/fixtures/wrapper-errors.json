@@ -1,6 +1,6 @@
 {
-  "prog": "e673b4ac0011e93b3c49fa89a1246fbc9321418d",
-  "count": 103,
+  "prog": "d9e3e2d72c8734ecc9d99905f3cebbb090b61154",
+  "count": 107,
   "errors": {
     "0": "InvalidMagic",
     "1": "InvalidVersion",
@@ -102,6 +102,10 @@
     "97": "GrowthRequiresBoundVaultLp",
     "98": "GrowthUtilisationFeeNotCovered",
     "99": "GrowthUtilisationFeeRequiresTradeCpi",
+    "100": "VaultLpAllocateRefused",
+    "101": "VaultLpCapacityLocked",
+    "102": "VaultLpCreatorFeeVesting",
+    "103": "VaultLpSeniorCapitalHalt",
     "120": "EngineAdlReduceOnly",
     "121": "EngineLossStale",
     "122": "EarnExitWouldUnderBackClaims"

@@ -97,6 +97,12 @@ export const ASSET_VAULT_LP_FIELD_OFF_P3 = Object.freeze({
 } as const);
 
 /**
+ * Record offset of `AssetVaultLpV18::p2b_flags` (P2b, percolator-prog #526: was the zero `_reserved0`,
+ * which is why {@link ASSET_VAULT_LP_FIELD_OFF_P3} still names byte 91 `reserved0` to stay equal to the P3 fixture).
+ */
+export const ASSET_VAULT_LP_P2B_FLAGS_OFF_P3 = 91;
+
+/**
  * Account offset of asset `i`'s `AssetVaultLpV18` record in a market account:
  * `MARKET_GROUP_OFF + MARKET_GROUP_LEN + i·MARKET_ASSET_SLOT_LEN + 896` (= 2246 + 2325·i).
  *
@@ -292,6 +298,13 @@ export interface AssetVaultLpP3 {
   levMaxImrBps: number;
   flags: number;
   bound: boolean;
+  /**
+   * P2b `p2b_flags` (record byte 91, formerly a zero `_reserved0`). Bit 0: creator fees are not
+   * vested (the G6 junior cushion is below its target), so tag 90 returns 102 while Live.
+   */
+  p2bFlags: number;
+  /** `p2bFlags` bit 0: creator discretionary fees are locked until the cushion reaches its target. */
+  creatorFeeVesting: boolean;
   /** Raw stored value; 0 means the 1x default. */
   vaultLpMaxLevBps: number;
   /** null = no matcher approved yet. */
@@ -303,7 +316,7 @@ export interface AssetVaultLpP3 {
  *
  * @param rec  The 128 bytes.
  * @returns Decoded record.
- * @throws On unknown flag bits, non-zero reserved byte, out-of-range caps, or bound ≠ (portfolio ≠ 0).
+ * @throws On unknown flag bits (`flags` other than bound; `p2b_flags` other than bit 0), out-of-range caps, or bound ≠ (portfolio ≠ 0).
  * @example
  * ```ts
  * const r = decodeAssetVaultLpRecordP3(bytes);
@@ -321,10 +334,11 @@ export function decodeAssetVaultLpRecordP3(rec: Uint8Array): AssetVaultLpP3 {
     lpNetQ: i128(v, F.lpNetQ), levCapQ: u128(v, F.levCapQ), lpNetSlot: v.getBigUint64(F.lpNetSlot, true),
     skewSlopeE9: v.getBigUint64(F.skewSlopeE9, true), skewMaxE9: v.getBigUint64(F.skewMaxE9, true),
     levMaxImrBps: v.getUint16(F.levMaxImrBps, true), flags, bound,
+    p2bFlags: rec[ASSET_VAULT_LP_P2B_FLAGS_OFF_P3], creatorFeeVesting: (rec[ASSET_VAULT_LP_P2B_FLAGS_OFF_P3] & 1) !== 0,
     vaultLpMaxLevBps: v.getUint32(F.vaultLpMaxLevBps, true),
     approvedMatcherProgram: zero32(F.approvedMatcherProgram) ? null : key(rec, F.approvedMatcherProgram),
   };
-  if ((flags & ~ASSET_VAULT_LP_FLAG_BOUND_P3) !== 0 || rec[F.reserved0] !== 0 || out.vaultLpMaxLevBps > 50_000 ||
+  if ((flags & ~ASSET_VAULT_LP_FLAG_BOUND_P3) !== 0 || (rec[ASSET_VAULT_LP_P2B_FLAGS_OFF_P3] & ~1) !== 0 || out.vaultLpMaxLevBps > 50_000 ||
     out.levMaxImrBps > 10_000 || bound !== (out.vaultLpPortfolio !== null)) {
     throw new Error("AssetVaultLpV18: invalid record — the program would reject it too");
   }
@@ -427,6 +441,15 @@ export interface VaultLpMarketP3 {
   registryDomain: number;
   /** The vault-owned LP portfolio. */
   lpPortfolio: PublicKey;
+  /**
+   * P2b (percolator-prog #526): the market's `VaultLpExtV19` PDA (`["vault_lp_ext", market]`,
+   * {@link deriveVaultLpExtP2b}). Set it once the registry's ext flag is raised
+   * ({@link isLpVaultRegistryExtP2b}); from then on tags 98 (`[8]`) and 97 (`[11]`) REQUIRE it and
+   * bound 78 requires `[7]` ext + `[8]` LP (fail closed). Leave unset on a pre-P2b program or before
+   * any tag 103 / dials call created the ext: an extra account there is harmless but a missing
+   * one fails.
+   */
+  vaultLpExt?: PublicKey;
 }
 
 /** Matcher context size a tag-94 auto-pin needs (`MATCHER_CONTEXT_LEN`). */
@@ -440,7 +463,7 @@ export const VAULT_LP_MATCHER_CTX_LEN_P3 = 320;
  * @param payer           Funds the rent.
  * @param matcherCtx      New account address (fresh keypair's public key).
  * @param lamports        Rent-exempt minimum for 320 bytes (`getMinimumBalanceForRentExemption(320)`).
- * @param matcherProgram  Owner (default: the devnet canonical matcher EDKKgRaV…, all-fresh relaunch).
+ * @param matcherProgram  Owner (default: the devnet v2.1 canonical matcher DfTxJUT5…; pass PROGRAM_IDS_DEVNET_V1.matcher for a v1 market).
  * @returns SystemProgram createAccount instruction.
  * @example
  * ```ts
@@ -468,7 +491,7 @@ export function buildCreateVaultLpMatcherCtxIxP3(
  * @param marketauth      The market's marketauth (signer; becomes the junior owner).
  * @param juniorFloorBps  1000..=10000.
  * @param matcherCtx      Pre-created 320-byte ctx owned by the matcher program (writable).
- * @param matcherProgram  Must be the canonical matcher (default: devnet EDKKgRaV…, all-fresh relaunch).
+ * @param matcherProgram  Must be the canonical matcher (default: devnet v2.1 DfTxJUT5…; PROGRAM_IDS_DEVNET_V1.matcher for a v1 market).
  * @returns Instruction (11 accounts).
  * @example
  * ```ts
@@ -556,7 +579,7 @@ export function buildWithdrawJuniorTrancheIxP3(m: VaultLpMarketP3, juniorOwner: 
     vaultLpState: deriveVaultLpStateP3(m.programId, m.market)[0], lpPortfolio: m.lpPortfolio,
     ...ledgers(m.programId, m.market, m.registryDomain), destToken, vaultToken,
     vaultAuthority: deriveVaultAuthority(m.programId, m.market)[0], tokenProgram: TOKEN_PROGRAM_ID,
-  }, encodeWithdrawJuniorTrancheP3(amount));
+  }, encodeWithdrawJuniorTrancheP3(amount), m.vaultLpExt ? [{ pubkey: m.vaultLpExt, isSigner: false, isWritable: true }] : []);
 }
 
 /**
@@ -581,7 +604,7 @@ export function buildVaultLpRecallIxP3(m: VaultLpMarketP3, cranker: PublicKey, a
     cranker, market: m.market, registry: deriveLpVaultRegistry(m.programId, m.market)[0],
     vaultLpState: deriveVaultLpStateP3(m.programId, m.market)[0], lpPortfolio: m.lpPortfolio,
     ...ledgers(m.programId, m.market, m.registryDomain), systemProgram: SystemProgram.programId,
-  }, encodeVaultLpRecallP3(amount, targetDomain));
+  }, encodeVaultLpRecallP3(amount, targetDomain), m.vaultLpExt ? [{ pubkey: m.vaultLpExt, isSigner: false, isWritable: true }] : []);
 }
 
 /**
@@ -703,13 +726,22 @@ export interface BoundVaultLpTailOptsP3 {
    * Ignored for tag 78 (no LP in its tail).
    */
   lpReadOnly?: boolean;
+  /**
+   * P2b (percolator-prog #526): the market's `VaultLpExtV19` ({@link deriveVaultLpExtP2b}). For tag 78
+   * on a market whose registry ext flag is set, the tail becomes `[6] vault_lp_state, [7] ext (w),
+   * [8] vault LP portfolio (w)`; without it a pre-P2b keeper's 78 fails (fail closed) and bound 77
+   * needs a prior harvest, so every redemption would break. The program reads `[8]` only while the
+   * G6 cushion is on and the market is Live; sending it always is harmless. Ignored for 75 / 77
+   * (the ext does not govern them).
+   */
+  vaultLpExt?: PublicKey;
 }
 
 /**
  * Append the REQUIRED bound-vault tail to an Earn instruction (fail closed on a bound vault):
  * 75 DepositToLpVault → [11] vault_lp_state (w), [12] vault LP portfolio (w);
  * 77 ExecuteRedemption → [13] vault_lp_state (w), [14] vault LP portfolio (w);
- * 78 LpVaultCrankFees → [6] vault_lp_state (w).
+ * 78 LpVaultCrankFees → [6] vault_lp_state (w) (+ [7] ext (w), [8] vault LP (w) once the P2b ext exists, see {@link BoundVaultLpTailOptsP3.vaultLpExt}).
  * The pot-ledger slots ({@link BOUND_VAULT_LP_LEDGER_SLOTS_P3}) are forced writable.
  *
  * P3 senior draw FINAL (`d119eebd`): the vault LP is WRITABLE by default so a Live 75/77 can run
@@ -747,6 +779,10 @@ export function withBoundVaultLpTailP3(
   const keys: AccountMeta[] = base.keys.map((k, i) => (ledgerSlots.includes(i) ? { ...k, isWritable: true } : k));
   keys.push({ pubkey: vaultLpState, isSigner: false, isWritable: true });
   if (tag !== 78) keys.push({ pubkey: lpPortfolio, isSigner: false, isWritable: opts.lpReadOnly !== true });
+  else if (opts.vaultLpExt) {
+    keys.push({ pubkey: opts.vaultLpExt, isSigner: false, isWritable: true });
+    keys.push({ pubkey: lpPortfolio, isSigner: false, isWritable: true });
+  }
   return new TransactionInstruction({ programId: base.programId, keys, data: base.data });
 }
 
@@ -769,6 +805,9 @@ export function withBoundVaultLpTailP3(
  * @param redeemerDest  Redeemer's collateral token account (must be owned by the redeemer).
  * @param vaultToken    Market collateral vault token account.
  * @param sourceDomain  Pot to redeem from (the program tops it up from the sibling when short).
+ * @param opts          `redeemerSigns`: mark `[12]` a signer. NOT required on a bound vault (the program
+ *                      only demands it on a Live NON-bound one, see {@link buildExecuteRedemptionIxNonBoundP2b});
+ *                      default false.
  * @returns Instruction.
  * @example
  * ```ts
@@ -777,6 +816,7 @@ export function withBoundVaultLpTailP3(
  */
 export function buildExecuteRedemptionIxP3(
   m: VaultLpMarketP3, cranker: PublicKey, redeemer: PublicKey, redeemerDest: PublicKey, vaultToken: PublicKey, sourceDomain: number,
+  opts: { redeemerSigns?: boolean } = {},
 ): TransactionInstruction {
   const [registry] = deriveLpVaultRegistry(m.programId, m.market);
   const { ledger, siblingLedger } = ledgers(m.programId, m.market, m.registryDomain);
@@ -789,7 +829,7 @@ export function buildExecuteRedemptionIxP3(
       w(cranker, true), w(m.market), w(registry), w(deriveLpRedemption(m.programId, registry, redeemer)[0]),
       w(deriveInsuranceLpMint(m.programId, m.market)[0]), w(deriveLpEscrow(m.programId, m.market)[0]), w(vaultToken),
       r(deriveVaultAuthority(m.programId, m.market)[0]), w(ledger), w(redeemerDest), r(TOKEN_PROGRAM_ID),
-      w(siblingLedger), w(redeemer),
+      w(siblingLedger), w(redeemer, opts.redeemerSigns === true),
     ],
   });
   return withBoundVaultLpTailP3(base, deriveVaultLpStateP3(m.programId, m.market)[0], m.lpPortfolio);
@@ -1138,7 +1178,7 @@ export function planResolvedVaultLpExitP3(a: ResolvedVaultLpExitArgsP3): {
   junior: TransactionInstruction | null;
 } {
   const [vaultLpState] = deriveVaultLpStateP3(a.market.programId, a.market.market);
-  const crank = withBoundVaultLpTailP3(a.crankFeesIx, vaultLpState, a.market.lpPortfolio);
+  const crank = withBoundVaultLpTailP3(a.crankFeesIx, vaultLpState, a.market.lpPortfolio, { vaultLpExt: a.market.vaultLpExt });
   const perSeniorTxs = a.seniorRedemptionIxs.map((r) => [crank, withBoundVaultLpTailP3(r, vaultLpState, a.market.lpPortfolio)]);
   const junior = a.junior
     ? buildVaultLpReleaseSurplusIxP3(a.market, a.junior.juniorOwner, a.junior.amount, a.junior.sourceDomain, {

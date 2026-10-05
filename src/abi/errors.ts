@@ -300,7 +300,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   55: {
     name: "StakePoolOwnerMismatch",
-    hint: "The supplied stake-pool account is not owned by the wrapper's pinned STAKE_PROGRAM_ID. THIS IS THE FORGERY GATE — it is checked before any byte of the account is read. Pass the pool PDA ['stake_pool', market] derived under the canonical stake program (devnet VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w).",
+    hint: "The supplied stake-pool account is not owned by the wrapper's pinned STAKE_PROGRAM_ID. THIS IS THE FORGERY GATE — it is checked before any byte of the account is read. Pass the pool PDA ['stake_pool', market] derived under the canonical stake program (devnet v2.1 A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE; v1 close-only wrapper ETDLAdi… pins VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w).",
   },
   56: {
     name: "StakePoolAuthorityMismatch",
@@ -505,6 +505,23 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   99: {
     name: "GrowthUtilisationFeeRequiresTradeCpi",
     hint: "Place this order on its own (not in a batch). growth-v19 N-2: a batch leg that opens into a side above its utilisation kink owes a utilisation fee only a single TradeCpi can pay. Closes and opens below the kink can still be batched.",
+  },
+  // P2b Earn allocation (percolator-prog #526): explicit discriminants 100..=103.
+  100: {
+    name: "VaultLpAllocateRefused",
+    hint: "Nothing to allocate right now. Tag 103 VaultLpAllocate was refused: a senior draw is outstanding or pending, the vault is impaired (V < C_eff), the vault LP is insolvent, the junior is below 5% of C_eff, the market is not Live, the requested amount is 0, or the alpha / buffer room is 0. Nothing moved. A keeper treats this as 'skip this crank' and retries next cycle.",
+  },
+  101: {
+    name: "VaultLpCapacityLocked",
+    hint: "Capital is backing open positions; try again once the market's LP has closed them. Lowering the vault LP's capital (junior withdraw 97, recall 98) would leave its growth capacity N_cap below its open inventory (A4 lock).",
+  },
+  102: {
+    name: "VaultLpCreatorFeeVesting",
+    hint: "Creator fees unlock when the market's first-loss cushion reaches its target. Tag 90 is refused while the G6 junior cushion is below its target (AssetVaultLpP3.creatorFeeVesting).",
+  },
+  103: {
+    name: "VaultLpSeniorCapitalHalt",
+    hint: "This side is paused while the market's first-loss capital is rebuilt; closing is always allowed. The junior is exhausted (V < C_eff), so the vault LP is trading senior capital and its risk-increasing fills are halted (Q2); reductions, closes and thin-side opens are not. Compare the LP's conservative equity with seniorFloorDecodeP2b(p2b_senior_floor_code).",
   },
   // P2b E7 (percolator-prog #525, engine #276): explicit discriminants 120..=122; each was Custom(21).
   120: {

@@ -1114,7 +1114,7 @@ describe("Error codes — v17 NFT/LP-vault boundary parsing in discovery/fallbac
     expect(decodeError(90)?.name).toBe("VaultLpBindRequiresFlatAsset");
     expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
     expect(decodeError(92)?.name).toBe("GrowthLeverageExceeded");
-    expect(decodeError(100)).toBeUndefined();
+    expect(decodeError(104)).toBeUndefined();
   });
 });
 

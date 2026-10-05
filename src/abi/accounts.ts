@@ -1698,7 +1698,9 @@ export const ACCOUNTS_WITHDRAW_CREATOR_FEE: readonly AccountSpec[] = [
 // STATUS (SDK 8.0.0): the HARD STOP below is LIFTED for the devnet wrapper this
 // SDK targets. `ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB` runs percolator-prog
 // `6377376a` (deploy/v18.2-wrapper), which contains #497 `3262608b` and its
-// `require_signer_for_escrowed_terminal_payout` gate. The block below is kept
+// `require_signer_for_escrowed_terminal_payout` gate. SDK 9.0.0: ETDLAdi… is now the
+// v1 / close-only world; the v2.1 devnet wrapper `5NGgnU2j…` (percolator-prog
+// release/v21-fresh-ids `431f6807`) also descends from `3262608b`. The block below is kept
 // as the historical record for the v18.0 GnwdeQr… wrapper (SDK <= 7.x).
 //
 // ============================================================================

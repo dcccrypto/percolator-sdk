@@ -222,7 +222,7 @@ export declare function validateMatcherSetParams(p: MatcherSetParams): void;
 export declare function encodeMatcherSetParams(p: MatcherSetParams): Uint8Array;
 /** Owner-proof fields for tag 5 auth mode 1. */
 export interface MatcherOwnerProof {
-    /** Wrapper program that derived `ctx.lp_pda` (devnet ETDLAdi…). */
+    /** Wrapper program that derived `ctx.lp_pda` (devnet v2.1 5NGgnU2j…; v1 close-only ETDLAdi…). */
     wrapperProgramId: PublicKey;
     market: PublicKey;
     lpPortfolio: PublicKey;

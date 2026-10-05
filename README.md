@@ -4,6 +4,13 @@ TypeScript SDK for building clients, bots, and UIs on top of the [Percolator](ht
 
 > **EXPERIMENTAL. NOT AUDITED.** `2.0.5`. v12.19 single-target. 792 tests passing. Do NOT use with real funds.
 
+## 9.0.0 (v2.1) devnet program IDs
+
+Devnet defaults point at the v2.1 fresh-ID set: wrapper `5NGgnU2j…`, stake `A6DVNubv…`, nft `DWUNq2iY…`,
+matcher `DfTxJUT5…`. The 8.x ETDLAdi world stays live as "v1 / close-only"; its four ids are exported as
+`PROGRAM_IDS_DEVNET_V1` and must be passed explicitly to read or close v1 markets. Mainnet ids are unchanged.
+See `CHANGELOG.md`.
+
 ## 8.0.0 relaunch targets
 
 - **Wrapper:** percolator-prog P1 + P3 head `58e379f1` (engine `35ddd692`) at the fresh devnet
