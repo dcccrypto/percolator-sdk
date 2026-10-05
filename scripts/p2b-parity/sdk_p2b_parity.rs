@@ -275,5 +275,14 @@ fn main() {
     }
     out.push(format!("\"seniorCapitalHalt\":[{}]", rows.join(",")));
 
+    // ── P2b lock exits (#525): episode key and dust bound, by the program's own functions ──
+    let mut rows = Vec::new();
+    for (mid, el, es) in [(0u64, 0u64, 0u64), (1, 0, 0), (0xDEAD_BEEF_0000_0001, 5, 7), (u64::MAX, u64::MAX, u64::MAX), (0x1_0000_0000, 3, 4), (42, 0x1_0000_0001, 0xFFFF_FFFF_0000_0002)] {
+        let (kl, ks) = percolator_prog::processor::adl_episode_key(mid, el, es);
+        rows.push(format!("{{\"marketId\":\"{mid}\",\"epochLong\":\"{el}\",\"epochShort\":\"{es}\",\"keyLong\":{kl},\"keyShort\":{ks}}}"));
+    }
+    out.push(format!("\"adlEpisodeKey\":[{}]", rows.join(",")));
+    out.push(format!("\"adlDust\":[{}]", [0u8, 1, 6, 9, 18, 30, 31, 200].iter().map(|d| format!("{{\"decimals\":{d},\"dust\":\"{}\"}}", state::adl_wind_down_dust_notional_atoms(*d))).collect::<Vec<_>>().join(",")));
+
     println!("{{\"p2bSha\":\"d9e3e2d72c8734ecc9d99905f3cebbb090b61154\",{}}}", out.join(","));
 }

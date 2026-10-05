@@ -24,7 +24,8 @@ import {
   nonboundVaultPricingP2b, potPhysicalNetAtomsP2b, seniorCapitalHaltP2b, seniorFloorDecodeP2b, seniorFloorEncodeP2b, vaultLpAllocAdmittedP2b,
   vaultLpAllocLimitP2b, vaultLpAllocSplitP2b, vaultLpDeallocP2b,
 } from "../src/abi/p2b-earn.js";
-import { decodeAdlEpisodeRecord } from "../src/abi/p2b-lock-exits.js";
+import { ADL_WIND_DOWN_DEFAULT_MAX_EPISODE_SLOTS, ADL_WIND_DOWN_MAX_MARK_AGE_SLOTS, adlEpisodeKey, adlWindDownDustNotionalAtoms, decodeAdlEpisodeRecord } from "../src/abi/p2b-lock-exits.js";
+import { ASSET_GROWTH_FIELD_OFF, ASSET_GROWTH_LEN, ASSET_GROWTH_SLOT_OFF } from "../src/abi/growth-v19.js";
 import { decodeAssetRiskLimitsRecordP1 } from "../src/abi/risk-limits-p1.js";
 import { decodeError } from "../src/abi/errors.js";
 import {
@@ -178,10 +179,19 @@ describe("layout: SDK offsets equal rustc offset_of on the real structs", () => 
     expect(L.p2bFlagsRecordOff).toBe(ASSET_VAULT_LP_P2B_FLAGS_OFF_P3);
     expect(L.p2bCreatorFeeVestingBit).toBe(1);
   });
-  it("growth record offsets (re-verified against this head)", () => {
-    expect(L.assetGrowthSlotOff).toBe(672);
-    expect(L.assetGrowthLen).toBe(120);
-    expect(L.assetGrowthFieldOff).toMatchObject({ version: 38, utilFeeMaxBps: 40, rGapBps: 28, lambdaBps: 16 });
+  it("growth record offsets (#524 re-verified against this head): every named field", () => {
+    expect(L.assetGrowthSlotOff).toBe(ASSET_GROWTH_SLOT_OFF);
+    expect(L.assetGrowthLen).toBe(ASSET_GROWTH_LEN);
+    const { reserved: _reserved, ...named } = ASSET_GROWTH_FIELD_OFF;
+    expect(L.assetGrowthFieldOff).toEqual({ ...named });
+  });
+  it("P2b lock exits (#525) re-verified against this head: episode key mix and the dust bound", () => {
+    for (const r of FX.adlEpisodeKey as { marketId: string; epochLong: string; epochShort: string; keyLong: number; keyShort: number }[]) {
+      expect(adlEpisodeKey(BigInt(r.marketId), BigInt(r.epochLong), BigInt(r.epochShort)), JSON.stringify(r)).toEqual([r.keyLong, r.keyShort]);
+    }
+    for (const r of FX.adlDust as { decimals: number; dust: string }[]) expect(adlWindDownDustNotionalAtoms(r.decimals), `decimals ${r.decimals}`).toBe(BigInt(r.dust));
+    expect(FX.constants.adlWindDownDefaultMaxEpisodeSlots).toBe(ADL_WIND_DOWN_DEFAULT_MAX_EPISODE_SLOTS);
+    expect(FX.constants.adlWindDownMaxMarkAgeSlots).toBe(ADL_WIND_DOWN_MAX_MARK_AGE_SLOTS);
   });
   it("constants", () => {
     const c = FX.constants;

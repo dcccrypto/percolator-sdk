@@ -1350,5 +1350,83 @@
    "floor": "4",
    "halt": false
   }
+ ],
+ "adlEpisodeKey": [
+  {
+   "marketId": "0",
+   "epochLong": "0",
+   "epochShort": "0",
+   "keyLong": 0,
+   "keyShort": 0
+  },
+  {
+   "marketId": "1",
+   "epochLong": "0",
+   "epochShort": "0",
+   "keyLong": 2654435761,
+   "keyShort": 2041683511
+  },
+  {
+   "marketId": "16045690981097406465",
+   "epochLong": "5",
+   "epochShort": "7",
+   "keyLong": 4269899915,
+   "keyShort": 2156854918
+  },
+  {
+   "marketId": "18446744073709551615",
+   "epochLong": "18446744073709551615",
+   "epochShort": "18446744073709551615",
+   "keyLong": 4294967295,
+   "keyShort": 4294967295
+  },
+  {
+   "marketId": "4294967296",
+   "epochLong": "3",
+   "epochShort": "4",
+   "keyLong": 2654435762,
+   "keyShort": 2041683507
+  },
+  {
+   "marketId": "42",
+   "epochLong": "4294967297",
+   "epochShort": "18446744069414584322",
+   "keyLong": 4112119563,
+   "keyShort": 4144690459
+  }
+ ],
+ "adlDust": [
+  {
+   "decimals": 0,
+   "dust": "1"
+  },
+  {
+   "decimals": 1,
+   "dust": "10"
+  },
+  {
+   "decimals": 6,
+   "dust": "1000000"
+  },
+  {
+   "decimals": 9,
+   "dust": "1000000000"
+  },
+  {
+   "decimals": 18,
+   "dust": "1000000000000000000"
+  },
+  {
+   "decimals": 30,
+   "dust": "1000000000000000000000000000000"
+  },
+  {
+   "decimals": 31,
+   "dust": "1000000000000000000000000000000"
+  },
+  {
+   "decimals": 200,
+   "dust": "1000000000000000000000000000000"
+  }
  ]
 }
