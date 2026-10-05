@@ -1022,12 +1022,12 @@ async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
   if (!Number.isInteger(shardId) || shardId < 0 || shardId > 65535) {
     throw new Error(`derivePythPriceUpdateAccount: shardId must be a u16, got ${shardId}`);
   }
-  const { PublicKey: PublicKey22 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey23 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey22.findProgramAddressSync(
+  const [pda] = PublicKey23.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey22(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey23(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -11765,7 +11765,7 @@ async function simulateOrSend(params) {
     );
     const txInfo = await connection.getTransaction(signature, {
       commitment: txFinality,
-      maxSupportedTransactionVersion: 0
+      maxSupportedTransactionVersion: 1
     });
     const logs = txInfo?.meta?.logMessages ?? [];
     let err = null;
@@ -11795,7 +11795,7 @@ async function simulateOrSend(params) {
       if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
         const txInfo = await connection.getTransaction(signature, {
           commitment: txFinality,
-          maxSupportedTransactionVersion: 0
+          maxSupportedTransactionVersion: 1
         });
         const logs = txInfo?.meta?.logMessages ?? [];
         let err = null;
@@ -11999,6 +11999,418 @@ function extractErrorMessage(error) {
   }
 }
 
+// src/runtime/txv1.ts
+import { ed25519 } from "@noble/curves/ed25519";
+import {
+  ComputeBudgetProgram as ComputeBudgetProgram2,
+  PublicKey as PublicKey21,
+  TransactionMessage,
+  VersionedTransaction,
+  Transaction as Transaction3
+} from "@solana/web3.js";
+var TX_V1_VERSION_BYTE = 129;
+var TX_V1_MAX_BYTES = 4096;
+var TX_LEGACY_MAX_BYTES = 1232;
+var TX_V1_MAX_ADDRESSES = 64;
+var TX_V1_MAX_INSTRUCTIONS = 64;
+var TX_V1_MAX_SIGNATURES = 12;
+var TX_MAX_COMPUTE_UNITS = 14e5;
+var TX_MAX_LOADED_ACCOUNTS_DATA_BYTES = 64 * 1024 * 1024;
+var TX_V1_MIN_HEAP_BYTES = 32 * 1024;
+var TX_V1_MAX_HEAP_BYTES = 256 * 1024;
+var TX_V1_FEATURE_ID = new PublicKey21("txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL");
+var SIG_LEN = 64;
+var CFG_PRIORITY_FEE = 3;
+var CFG_COMPUTE_UNIT_LIMIT = 4;
+var CFG_LOADED_ACCOUNTS_DATA_SIZE = 8;
+var CFG_HEAP_SIZE = 16;
+function priorityFeeLamportsFromMicroPerCu(microLamportsPerCu, computeUnitLimit) {
+  const price = BigInt(microLamportsPerCu);
+  const cu = BigInt(computeUnitLimit);
+  if (price < 0n || cu < 0n) throw new Error("price and compute unit limit must be non-negative");
+  return (price * cu + 999999n) / 1000000n;
+}
+function validateConfig(cfg) {
+  const cu = cfg.computeUnitLimit;
+  if (!Number.isInteger(cu) || cu < 1 || cu > TX_MAX_COMPUTE_UNITS) {
+    throw new Error(`computeUnitLimit must be an integer in [1, ${TX_MAX_COMPUTE_UNITS}]`);
+  }
+  const loaded = cfg.loadedAccountsDataSizeLimit ?? TX_MAX_LOADED_ACCOUNTS_DATA_BYTES;
+  if (!Number.isInteger(loaded) || loaded < 1 || loaded > TX_MAX_LOADED_ACCOUNTS_DATA_BYTES) {
+    throw new Error(`loadedAccountsDataSizeLimit must be an integer in [1, ${TX_MAX_LOADED_ACCOUNTS_DATA_BYTES}]`);
+  }
+  const fee = BigInt(cfg.priorityFeeLamports ?? 0);
+  if (fee < 0n || fee > 0xffffffffffffffffn) throw new Error("priorityFeeLamports must fit u64");
+  let heap = null;
+  if (cfg.heapSizeBytes !== void 0 && cfg.heapSizeBytes !== 0) {
+    const h = cfg.heapSizeBytes;
+    if (!Number.isInteger(h) || h % 1024 !== 0 || h < TX_V1_MIN_HEAP_BYTES || h > TX_V1_MAX_HEAP_BYTES) {
+      throw new Error(`heapSizeBytes must be a multiple of 1024 in [${TX_V1_MIN_HEAP_BYTES}, ${TX_V1_MAX_HEAP_BYTES}]`);
+    }
+    heap = h;
+  }
+  return {
+    computeUnitLimit: cu,
+    loadedAccountsDataSizeLimit: loaded,
+    priorityFeeLamports: fee,
+    heapSizeBytes: heap
+  };
+}
+function writeU32(out, n) {
+  out.push(n & 255, n >>> 8 & 255, n >>> 16 & 255, n >>> 24 & 255);
+}
+function writeU64(out, n) {
+  for (let i = 0n; i < 8n; i++) out.push(Number(n >> 8n * i & 0xffn));
+}
+function compileV1Message(params) {
+  const { payer, instructions, recentBlockhash } = params;
+  const cfg = validateConfig(params.config);
+  if (instructions.length === 0) throw new Error("v1: at least one instruction is required");
+  if (instructions.length > TX_V1_MAX_INSTRUCTIONS) {
+    throw new Error(`v1: ${instructions.length} instructions exceeds the limit of ${TX_V1_MAX_INSTRUCTIONS}`);
+  }
+  for (const ix2 of instructions) {
+    if (ix2.programId.equals(ComputeBudgetProgram2.programId)) {
+      throw new Error("v1: ComputeBudget instructions are ignored by v1; pass the budget in `config` instead");
+    }
+  }
+  const metas = /* @__PURE__ */ new Map();
+  const upsert = (pubkey, isSigner, isWritable) => {
+    const k = pubkey.toBase58();
+    const prev = metas.get(k);
+    if (prev) {
+      prev.isSigner ||= isSigner;
+      prev.isWritable ||= isWritable;
+    } else {
+      metas.set(k, { pubkey, isSigner, isWritable });
+    }
+  };
+  upsert(payer, true, true);
+  for (const ix2 of instructions) {
+    for (const m of ix2.keys) upsert(m.pubkey, m.isSigner, m.isWritable);
+  }
+  for (const ix2 of instructions) upsert(ix2.programId, false, false);
+  const all = [...metas.values()];
+  const payerKey = payer.toBase58();
+  const rest = all.filter((m) => m.pubkey.toBase58() !== payerKey);
+  const wSigners = [metas.get(payerKey), ...rest.filter((m) => m.isSigner && m.isWritable)];
+  const rSigners = rest.filter((m) => m.isSigner && !m.isWritable);
+  const wNon = rest.filter((m) => !m.isSigner && m.isWritable);
+  const rNon = rest.filter((m) => !m.isSigner && !m.isWritable);
+  const ordered = [...wSigners, ...rSigners, ...wNon, ...rNon];
+  if (ordered.length > TX_V1_MAX_ADDRESSES) {
+    throw new Error(`v1: ${ordered.length} accounts exceeds the limit of ${TX_V1_MAX_ADDRESSES}`);
+  }
+  const numRequiredSignatures = wSigners.length + rSigners.length;
+  if (numRequiredSignatures > TX_V1_MAX_SIGNATURES) {
+    throw new Error(`v1: ${numRequiredSignatures} signatures exceeds the limit of ${TX_V1_MAX_SIGNATURES}`);
+  }
+  const index = new Map(ordered.map((m, i) => [m.pubkey.toBase58(), i]));
+  const out = [];
+  out.push(TX_V1_VERSION_BYTE, numRequiredSignatures, rSigners.length, rNon.length);
+  let mask = CFG_COMPUTE_UNIT_LIMIT | CFG_LOADED_ACCOUNTS_DATA_SIZE;
+  if (cfg.priorityFeeLamports > 0n) mask |= CFG_PRIORITY_FEE;
+  if (cfg.heapSizeBytes !== null) mask |= CFG_HEAP_SIZE;
+  writeU32(out, mask);
+  out.push(...new PublicKey21(recentBlockhash).toBytes());
+  out.push(instructions.length, ordered.length);
+  for (const m of ordered) out.push(...m.pubkey.toBytes());
+  if (cfg.priorityFeeLamports > 0n) writeU64(out, cfg.priorityFeeLamports);
+  writeU32(out, cfg.computeUnitLimit);
+  writeU32(out, cfg.loadedAccountsDataSizeLimit);
+  if (cfg.heapSizeBytes !== null) writeU32(out, cfg.heapSizeBytes);
+  const payloads = [];
+  for (const ix2 of instructions) {
+    if (ix2.keys.length > 255) throw new Error("v1: an instruction has more than 255 accounts");
+    if (ix2.data.length > 65535) throw new Error("v1: instruction data exceeds 65535 bytes");
+    out.push(index.get(ix2.programId.toBase58()), ix2.keys.length, ix2.data.length & 255, ix2.data.length >>> 8);
+    for (const m of ix2.keys) payloads.push(index.get(m.pubkey.toBase58()));
+    for (const b of ix2.data) payloads.push(b);
+  }
+  const message = new Uint8Array(out.length + payloads.length);
+  message.set(out, 0);
+  message.set(payloads, out.length);
+  const txBytes = message.length + numRequiredSignatures * SIG_LEN;
+  if (txBytes > TX_V1_MAX_BYTES) {
+    throw new Error(`v1: transaction is ${txBytes} bytes, exceeding the ${TX_V1_MAX_BYTES}-byte limit`);
+  }
+  return {
+    message,
+    accountKeys: ordered.map((m) => m.pubkey),
+    numRequiredSignatures,
+    numReadonlySigned: rSigners.length,
+    numReadonlyUnsigned: rNon.length,
+    txBytes
+  };
+}
+function signV1Message(compiled, signers) {
+  const sigs = new Uint8Array(compiled.numRequiredSignatures * SIG_LEN);
+  for (const kp of signers) {
+    const slot = compiled.accountKeys.findIndex((k, i) => i < compiled.numRequiredSignatures && k.equals(kp.publicKey));
+    if (slot < 0) throw new Error(`signer ${kp.publicKey.toBase58()} is not a required signer of this transaction`);
+    sigs.set(ed25519.sign(compiled.message, kp.secretKey.slice(0, 32)), slot * SIG_LEN);
+  }
+  const wire = new Uint8Array(compiled.message.length + sigs.length);
+  wire.set(compiled.message, 0);
+  wire.set(sigs, compiled.message.length);
+  return wire;
+}
+function v1TransactionSignature(wire) {
+  const nSigs = wire[1];
+  const start = wire.length - nSigs * SIG_LEN;
+  return encodeBase58(wire.subarray(start, start + SIG_LEN));
+}
+var B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function encodeBase58(bytes) {
+  let n = 0n;
+  for (const b of bytes) n = n << 8n | BigInt(b);
+  let s = "";
+  while (n > 0n) {
+    s = B58[Number(n % 58n)] + s;
+    n /= 58n;
+  }
+  for (const b of bytes) {
+    if (b === 0) s = "1" + s;
+    else break;
+  }
+  return s;
+}
+var MEASURE_BLOCKHASH = "11111111111111111111111111111111";
+function v1ConfigFromBudget(b) {
+  const fee = b.priorityMicroLamportsPerCu ? priorityFeeLamportsFromMicroPerCu(b.priorityMicroLamportsPerCu, b.computeUnitLimit) : 0n;
+  return {
+    computeUnitLimit: b.computeUnitLimit,
+    priorityFeeLamports: fee,
+    heapSizeBytes: b.heapBytes ? b.heapBytes : void 0,
+    loadedAccountsDataSizeLimit: b.loadedAccountsDataSizeLimit
+  };
+}
+function computeBudgetInstructions(b) {
+  const out = [];
+  if (b.heapBytes) out.push(ComputeBudgetProgram2.requestHeapFrame({ bytes: b.heapBytes }));
+  out.push(ComputeBudgetProgram2.setComputeUnitLimit({ units: b.computeUnitLimit }));
+  if (b.priorityMicroLamportsPerCu) {
+    out.push(ComputeBudgetProgram2.setComputeUnitPrice({ microLamports: b.priorityMicroLamportsPerCu }));
+  }
+  return out;
+}
+function measureTxBytes(format, payer, instructions, budget) {
+  if (format === "v1") {
+    return compileV1Unbounded(payer, instructions, v1ConfigFromBudget(budget)).txBytes;
+  }
+  const ixs = [...computeBudgetInstructions(budget), ...instructions];
+  if (format === "legacy") {
+    const tx = new Transaction3();
+    tx.add(...ixs);
+    tx.feePayer = payer;
+    tx.recentBlockhash = MEASURE_BLOCKHASH;
+    const msg2 = tx.compileMessage();
+    return msg2.serialize().length + 1 + msg2.header.numRequiredSignatures * SIG_LEN;
+  }
+  const msg = new TransactionMessage({ payerKey: payer, recentBlockhash: MEASURE_BLOCKHASH, instructions: ixs }).compileToV0Message();
+  return new VersionedTransaction(msg).serialize().length;
+}
+function compileV1Unbounded(payer, ixs, cfg) {
+  try {
+    return compileV1Message({ payer, instructions: ixs, recentBlockhash: MEASURE_BLOCKHASH, config: cfg });
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    const hit = /transaction is (\d+) bytes/.exec(m);
+    if (hit) {
+      return { message: new Uint8Array(0), accountKeys: [], numRequiredSignatures: 0, numReadonlySigned: 0, numReadonlyUnsigned: 0, txBytes: Number(hit[1]) };
+    }
+    throw e;
+  }
+}
+function packInstructionGroups(groups, opts) {
+  const maxBytes = (opts.maxBytes ?? (opts.format === "v1" ? TX_V1_MAX_BYTES : TX_LEGACY_MAX_BYTES)) - (opts.byteMargin ?? 0);
+  const maxCu = opts.maxComputeUnits ?? TX_MAX_COMPUTE_UNITS;
+  const headroom = opts.cuHeadroom ?? 1;
+  const budgetFor = (cu) => ({
+    ...opts.budget ?? {},
+    computeUnitLimit: Math.min(TX_MAX_COMPUTE_UNITS, Math.max(1, Math.ceil(cu * headroom)))
+  });
+  const fits = (gs, cu) => {
+    const ixs = gs.flatMap((g) => g.instructions);
+    const keys = /* @__PURE__ */ new Set([opts.payer.toBase58()]);
+    for (const ix2 of ixs) {
+      keys.add(ix2.programId.toBase58());
+      for (const m of ix2.keys) keys.add(m.pubkey.toBase58());
+    }
+    const accountCap = TX_V1_MAX_ADDRESSES;
+    if (keys.size > accountCap) return null;
+    if (opts.format === "v1" && ixs.length > TX_V1_MAX_INSTRUCTIONS) return null;
+    if (cu > maxCu) return null;
+    if (opts.maxGroups !== void 0 && gs.length > opts.maxGroups) return null;
+    let bytes;
+    try {
+      bytes = measureTxBytes(opts.format, opts.payer, ixs, budgetFor(cu));
+    } catch {
+      return null;
+    }
+    if (bytes > maxBytes) return null;
+    return { bytes, accounts: keys.size, ixs };
+  };
+  const plan = [];
+  let cur = [];
+  let curCu = 0;
+  for (const g of groups) {
+    const tryCu = curCu + g.computeUnits;
+    if (cur.length > 0 && fits([...cur, g], tryCu)) {
+      cur.push(g);
+      curCu = tryCu;
+      continue;
+    }
+    if (cur.length > 0) {
+      const f = fits(cur, curCu);
+      plan.push({ groups: cur, instructions: f.ixs, computeUnits: curCu, bytes: f.bytes, accounts: f.accounts });
+    }
+    cur = [g];
+    curCu = g.computeUnits;
+    if (!fits(cur, curCu)) {
+      throw new Error("packInstructionGroups: a single group does not fit within the limits of the selected format");
+    }
+  }
+  if (cur.length > 0) {
+    const f = fits(cur, curCu);
+    plan.push({ groups: cur, instructions: f.ixs, computeUnits: curCu, bytes: f.bytes, accounts: f.accounts });
+  }
+  return plan;
+}
+function parseTxV1Mode(raw, fallback = "auto") {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "auto" || v === "on" || v === "off") return v;
+  if (v === "1" || v === "true") return "on";
+  if (v === "0" || v === "false") return "off";
+  return fallback;
+}
+function isFeatureAccountActive(data) {
+  return !!data && data.length >= 9 && data[0] === 1;
+}
+var detectCache = /* @__PURE__ */ new WeakMap();
+async function detectTxV1Support(connection, ttlMs = 10 * 6e4) {
+  const hit = detectCache.get(connection);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.ok;
+  try {
+    const info = await connection.getAccountInfo(TX_V1_FEATURE_ID);
+    const ok = isFeatureAccountActive(info?.data);
+    detectCache.set(connection, { at: Date.now(), ok });
+    return ok;
+  } catch {
+    return false;
+  }
+}
+function resolveTxFormat(mode, clusterSupportsV1, fallback = "legacy") {
+  if (mode === "off") return fallback;
+  if (clusterSupportsV1) return "v1";
+  if (mode === "on") throw new Error("TX_V1=on but the cluster does not report Transaction v1 as active");
+  return fallback;
+}
+function isTxV1FormatRejection(err) {
+  const msg = typeof err === "string" ? err : err instanceof Error ? err.message : JSON.stringify(err ?? "");
+  return /(-32602|invalid transaction: transaction failed to sanitize|too large|unsupported transaction version|transaction version \(1\) is not supported|failed to deserialize|invalid base64|wire format|bincode|SanitizeFailure|not supported)/i.test(msg) && !/InstructionError|custom program error|Program .* failed|insufficient funds|BlockhashNotFound|AccountNotFound/i.test(msg);
+}
+function toBase64(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 32768) bin += String.fromCharCode(...bytes.subarray(i, i + 32768));
+  return btoa(bin);
+}
+async function rawRpc(connection, method, params, o) {
+  const f = o.fetchImpl ?? fetch;
+  const res = await f(connection.rpcEndpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...o.headers ?? {} },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+  });
+  const json = await res.json();
+  if (json.error) throw new Error(`RPC ${method} failed: ${json.error.code} ${json.error.message}`);
+  return json.result;
+}
+async function simulateV1(connection, wire, o = {}) {
+  const r = await rawRpc(connection, "simulateTransaction", [toBase64(wire), { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed" }], o);
+  return { err: r.value.err, logs: r.value.logs ?? [], unitsConsumed: r.value.unitsConsumed, loadedAccountsDataSize: r.value.loadedAccountsDataSize };
+}
+async function sendV1(connection, wire, opts = {}) {
+  return await rawRpc(
+    connection,
+    "sendTransaction",
+    [toBase64(wire), { encoding: "base64", skipPreflight: opts.skipPreflight ?? false, preflightCommitment: opts.preflightCommitment ?? "confirmed", ...opts.maxRetries !== void 0 ? { maxRetries: opts.maxRetries } : {} }],
+    opts
+  );
+}
+function walletSupportsV1(wallet) {
+  const s = wallet?.supportedTransactionVersions;
+  return !!s && s.has(1);
+}
+async function sendGroupsAdaptive(p) {
+  const payerKp = p.signers[0];
+  if (!payerKp) throw new Error("sendGroupsAdaptive: at least one signer is required");
+  const payer = payerKp.publicKey;
+  const fallback = p.fallbackFormat ?? "legacy";
+  const cuHeadroom = p.cuHeadroom ?? 1.2;
+  const supports = p.mode === "off" ? false : p.clusterSupportsV1 ?? await detectTxV1Support(p.connection);
+  const initial = resolveTxFormat(p.mode, supports, fallback);
+  const pack = (gs, format2) => packInstructionGroups(gs, { format: format2, payer, budget: p.budget, cuHeadroom, maxGroups: p.maxGroups });
+  const baselineTxCount = initial === "v1" ? pack(p.groups, fallback).length : pack(p.groups, initial).length;
+  const send = p.sender ?? (async (wire, format2) => {
+    if (format2 === "v1") return sendV1(p.connection, wire);
+    return p.connection.sendRawTransaction(wire, { skipPreflight: false, preflightCommitment: "confirmed" });
+  });
+  const results = [];
+  let format = initial;
+  let fellBack = false;
+  let remaining = p.groups;
+  let plan = pack(remaining, format);
+  let i = 0;
+  while (i < plan.length) {
+    const tx = plan[i];
+    const { blockhash } = await p.connection.getLatestBlockhash("confirmed");
+    const cu = Math.min(TX_MAX_COMPUTE_UNITS, Math.max(1, Math.ceil(tx.computeUnits * cuHeadroom)));
+    const budget = { ...p.budget ?? {}, computeUnitLimit: cu };
+    let wire;
+    if (format === "v1") {
+      wire = signV1Message(compileV1Message({ payer, instructions: tx.instructions, recentBlockhash: blockhash, config: v1ConfigFromBudget(budget) }), p.signers);
+    } else {
+      const ixs = [...computeBudgetInstructions(budget), ...tx.instructions];
+      if (format === "legacy") {
+        const t = new Transaction3();
+        t.add(...ixs);
+        t.feePayer = payer;
+        t.recentBlockhash = blockhash;
+        t.sign(...p.signers);
+        wire = t.serialize();
+      } else {
+        const vt = new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: blockhash, instructions: ixs }).compileToV0Message());
+        vt.sign([...p.signers]);
+        wire = vt.serialize();
+      }
+    }
+    try {
+      const signature = await send(wire, format);
+      const r = { format, tags: tx.groups.map((g) => g.tag), bytes: wire.length, signature, afterFallback: fellBack };
+      results.push(r);
+      p.onTx?.(r);
+      i++;
+    } catch (e) {
+      if (format === "v1" && isTxV1FormatRejection(e) && p.mode !== "on") {
+        fellBack = true;
+        format = fallback;
+        remaining = plan.slice(i).flatMap((t) => t.groups);
+        plan = pack(remaining, format);
+        i = 0;
+        continue;
+      }
+      const message = e instanceof Error ? e.message : String(e);
+      const r = { format, tags: tx.groups.map((g) => g.tag), bytes: wire.length, error: message, afterFallback: fellBack };
+      results.push(r);
+      p.onTx?.(r);
+      if (p.stopOnError) break;
+      i++;
+    }
+  }
+  return { results, txCount: results.length, initialFormat: initial, fellBack, baselineTxCount };
+}
+
 // src/math/trading.ts
 function computeMarkPnl(positionSize, entryPrice, oraclePrice) {
   if (positionSize === 0n || oraclePrice === 0n) return 0n;
@@ -12138,7 +12550,7 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey21 } from "@solana/web3.js";
+import { PublicKey as PublicKey22 } from "@solana/web3.js";
 var U16_MAX3 = 65535;
 var U64_MAX3 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
@@ -12179,7 +12591,7 @@ function safeBigInt(val, caller) {
 }
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey21(value);
+    return new PublicKey22(value);
   } catch {
     throw new ValidationError(
       field,
@@ -12907,6 +13319,17 @@ export {
   STAKE_PROGRAM_ID,
   STAKE_PROGRAM_IDS,
   TOKEN_2022_PROGRAM_ID,
+  TX_LEGACY_MAX_BYTES,
+  TX_MAX_COMPUTE_UNITS,
+  TX_MAX_LOADED_ACCOUNTS_DATA_BYTES,
+  TX_V1_FEATURE_ID,
+  TX_V1_MAX_ADDRESSES,
+  TX_V1_MAX_BYTES,
+  TX_V1_MAX_HEAP_BYTES,
+  TX_V1_MAX_INSTRUCTIONS,
+  TX_V1_MAX_SIGNATURES,
+  TX_V1_MIN_HEAP_BYTES,
+  TX_V1_VERSION_BYTE,
   U128_MAX_P2B,
   UNRESOLVE_CONFIRMATION,
   V17_ASSET_CONTROL_SEQUENCES_LEN,
@@ -13021,6 +13444,8 @@ export {
   checkRpcHealth,
   classifyLighthouseError,
   clearStaticMarkets,
+  compileV1Message,
+  computeBudgetInstructions,
   computeDexSpotPriceE6,
   computeDynamicFeeBps,
   computeDynamicTradingFee,
@@ -13104,6 +13529,7 @@ export {
   detectLayout,
   detectSlabLayout,
   detectTokenProgram,
+  detectTxV1Support,
   discoverMarkets,
   discoverMarketsViaApi,
   discoverMarketsViaStaticBundle,
@@ -13342,6 +13768,7 @@ export {
   isBackingBucketExpirable,
   isBankruptcyHlockActive,
   isClosedMarketTombstone,
+  isFeatureAccountActive,
   isLighthouseError,
   isLighthouseFailureInLogs,
   isLighthouseInstruction,
@@ -13350,6 +13777,7 @@ export {
   isMatcherCtxV2,
   isStandardToken,
   isToken2022,
+  isTxV1FormatRejection,
   isV17Account,
   isV17MarketAccount,
   isValidChainlinkOracle,
@@ -13363,6 +13791,7 @@ export {
   markExtV3TakerReducing,
   matcherConfigureOwnerProofAccounts,
   maxAccountIndex,
+  measureTxBytes,
   nCapQ,
   nonboundPotAvailableE3P2b,
   nonboundPotEntryAvailableP2b,
@@ -13370,6 +13799,7 @@ export {
   nonboundVaultPricingFromAccountsP2b,
   nonboundVaultPricingP2b,
   openingPartQ,
+  packInstructionGroups,
   packOiCap,
   parseAccount,
   parseAdlEvent,
@@ -13391,6 +13821,7 @@ export {
   parsePortfolioV17,
   parsePositionNftAccount,
   parseProtocolFeeAuthorityEpoch,
+  parseTxV1Mode,
   parseUsedIndices,
   parseWrapperConfigV17,
   pinnedMatcherCapsP3,
@@ -13401,6 +13832,7 @@ export {
   planStakeWindDown,
   potPhysicalNetAtomsP2b,
   previewGrowthOpenFee,
+  priorityFeeLamportsFromMicroPerCu,
   quoteMaxLeverage,
   rGapFloorBps,
   rankAdlPositions,
@@ -13413,14 +13845,19 @@ export {
   registerStaticMarkets,
   requireDecimalUIntString,
   resolvePrice,
+  resolveTxFormat,
   rotateInsuranceAccounts,
   safeBigInt,
   safeEnv,
   selectAdlTarget,
+  sendGroupsAdaptive,
+  sendV1,
   seniorCapitalHaltP2b,
   seniorFloorDecodeP2b,
   seniorFloorEncodeP2b,
+  signV1Message,
   simulateOrSend,
+  simulateV1,
   slabDataSize,
   slabDataSizeV1,
   stakeGroupAProxyAccounts,
@@ -13433,6 +13870,8 @@ export {
   utilisationFeeBps,
   utilizationBps,
   v17MarketAccountLen,
+  v1ConfigFromBudget,
+  v1TransactionSignature,
   validateAmount,
   validateBps,
   validateFeeSplit,
@@ -13453,6 +13892,7 @@ export {
   vaultLpSeniorPricingClaimP3,
   vaultPhysicalIdleBackingAtomsP3,
   vaultPotHeldAtomsP3,
+  walletSupportsV1,
   withBoundVaultLpTailP3,
   withCrankFeesBoundTailP2b,
   withNftEscrowProof,

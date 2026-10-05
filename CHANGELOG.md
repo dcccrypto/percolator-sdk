@@ -7,6 +7,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — Solana v1 transactions (SIMD-0385 / SIMD-0296) — DRAFT, stacked on #400; do not publish
+
+Additive. New `src/runtime/txv1.ts` (exported from the package root):
+- `compileV1Message` / `signV1Message` / `v1TransactionSignature`: v1 encoder (web3.js 1.x can only deserialize v1; its `MessageV1.serialize()` throws). Budget goes in the config mask (CU, loaded-accounts-data-size, heap, TOTAL-lamports priority fee); ComputeBudget ixs are rejected because v1 ignores them. Cross-checked against web3.js 1.99 and @solana/kit 8.4 decoders and Agave `simulateTransaction` on devnet and mainnet.
+- `packInstructionGroups` (exact-size, order-preserving, 4,096 B / 64 accounts / 64 ix / CU aware), `measureTxBytes` (legacy / v0 / v1).
+- `detectTxV1Support` (feature-gate account, cached, read-only), `parseTxV1Mode` (`TX_V1=auto|on|off`), `resolveTxFormat`, `isTxV1FormatRejection`, `sendGroupsAdaptive` (v1 when supported, repack + fall back on a FORMAT rejection only; `on` fails closed).
+- `simulateV1` / `sendV1` raw JSON-RPC helpers, `walletSupportsV1`, `priorityFeeLamportsFromMicroPerCu`.
+
+Changed: `@solana/web3.js` `^1.99.0` (first 1.x that can DECODE v1; 1.98.4 `getTransaction` throws on a v1 tx even with `maxSupportedTransactionVersion: 1`) and `simulateOrSend` reads with `maxSupportedTransactionVersion: 1`. Adds `@noble/curves` (already a web3.js dependency) for ed25519 signing.
+
+---
+
 ## [Unreleased] — P2b Earn as counterparty (DRAFT, stacked on growth-v19 + P2b lock exits; do not publish)
 
 Client support for wrapper `dcccrypto/percolator-prog#526` (`d9e3e2d7`, stacked on #525 `a642a20b` and

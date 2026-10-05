@@ -280,7 +280,7 @@ export async function simulateOrSend(
 
     const txInfo = await connection.getTransaction(signature, {
       commitment: txFinality,
-      maxSupportedTransactionVersion: 0,
+      maxSupportedTransactionVersion: 1,
     });
 
     const logs = txInfo?.meta?.logMessages ?? [];
@@ -327,7 +327,7 @@ export async function simulateOrSend(
       if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
         const txInfo = await connection.getTransaction(signature, {
           commitment: txFinality,
-          maxSupportedTransactionVersion: 0,
+          maxSupportedTransactionVersion: 1,
         });
         const logs = txInfo?.meta?.logMessages ?? [];
         let err: string | null = null;
