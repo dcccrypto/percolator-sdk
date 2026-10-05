@@ -506,6 +506,19 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "GrowthUtilisationFeeRequiresTradeCpi",
     hint: "Place this order on its own (not in a batch). growth-v19 N-2: a batch leg that opens into a side above its utilisation kink owes a utilisation fee only a single TradeCpi can pay. Closes and opens below the kink can still be batched.",
   },
+  // P2b E7 (percolator-prog #525, engine #276): explicit discriminants 120..=122; each was Custom(21).
+  120: {
+    name: "EngineAdlReduceOnly",
+    hint: "This market is close-only while it rebalances after an auto-deleverage. You can reduce or close; new positions reopen once it resets.",
+  },
+  121: {
+    name: "EngineLossStale",
+    hint: "Positions are being refreshed after a price move. Opening is paused until the refresh lands; closing still works. Retry shortly.",
+  },
+  122: {
+    name: "EarnExitWouldUnderBackClaims",
+    hint: "This withdrawal would leave open winning positions under-backed. Try a smaller amount, or retry after those positions close or settle.",
+  },
 };
 for (const v of Object.values(PERCOLATOR_ERRORS)) Object.freeze(v);
 Object.freeze(PERCOLATOR_ERRORS);

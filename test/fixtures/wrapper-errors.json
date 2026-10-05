@@ -1,6 +1,6 @@
 {
-  "prog": "9cc6d281df0101f2c545faad674946779e433275",
-  "count": 100,
+  "prog": "e673b4ac0011e93b3c49fa89a1246fbc9321418d",
+  "count": 103,
   "errors": {
     "0": "InvalidMagic",
     "1": "InvalidVersion",
@@ -101,6 +101,9 @@
     "96": "GrowthBatchTooManyLegs",
     "97": "GrowthRequiresBoundVaultLp",
     "98": "GrowthUtilisationFeeNotCovered",
-    "99": "GrowthUtilisationFeeRequiresTradeCpi"
+    "99": "GrowthUtilisationFeeRequiresTradeCpi",
+    "120": "EngineAdlReduceOnly",
+    "121": "EngineLossStale",
+    "122": "EarnExitWouldUnderBackClaims"
   }
 }

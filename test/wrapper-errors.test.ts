@@ -13,14 +13,14 @@ const FX = JSON.parse(readFileSync(new URL("./fixtures/wrapper-errors.json", imp
 
 describe("wrapper error map is generated from the program (rustc discriminants)", () => {
   it("fixture is from the pinned relaunch wrapper", () => {
-    expect(FX.prog).toBe("9cc6d281df0101f2c545faad674946779e433275");
+    expect(FX.prog).toBe("e673b4ac0011e93b3c49fa89a1246fbc9321418d"); // P2b wrapper (#525) on growth-v19 9cc6d281
     expect(Object.keys(FX.errors)).toHaveLength(FX.count);
   });
   it("every program code decodes to the program's variant name", () => {
     for (const [code, name] of Object.entries(FX.errors)) expect(decodeError(Number(code))?.name, `code ${code}`).toBe(name);
   });
   it("7a3ac04c appends exactly one code, 91 LpVaultTargetPotImpaired (no existing code shifted)", () => {
-    expect(FX.count).toBe(100); // 0..99 since growth-v19 98/99 (round 3, N-2)
+    expect(FX.count).toBe(103); // 0..99 + the P2b reserved block 120..122
     expect(FX.errors["90"]).toBe("VaultLpBindRequiresFlatAsset");
     expect(FX.errors["91"]).toBe("LpVaultTargetPotImpaired");
     expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
@@ -44,6 +44,13 @@ describe("wrapper error map is generated from the program (rustc discriminants)"
     expect(FX.errors["100"]).toBeUndefined();
     expect(decodeError(97)?.hint).toMatch(/^This market is not open for new positions\. Reducing or closing is always allowed\./);
     expect(decodeError(96)?.hint).toMatch(/^Split this order into batches of at most 10 markets\./);
+  });
+  it("P2b E7 (#525) adds exactly the explicit block 120 EngineAdlReduceOnly, 121 EngineLossStale, 122 EarnExitWouldUnderBackClaims", () => {
+    expect(FX.errors["120"]).toBe("EngineAdlReduceOnly");
+    expect(FX.errors["121"]).toBe("EngineLossStale");
+    expect(FX.errors["122"]).toBe("EarnExitWouldUnderBackClaims");
+    for (const c of ["100", "101", "102", "119", "123"]) expect(FX.errors[c]).toBeUndefined();
+    expect(decodeError(120)?.hint).toMatch(/^This market is close-only while it rebalances/);
   });
   it("the SDK defines no code the program does not have", () => {
     for (const code of Object.keys(PERCOLATOR_ERRORS)) expect(FX.errors[code], `sdk code ${code}`).toBeDefined();
