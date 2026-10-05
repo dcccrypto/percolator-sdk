@@ -26,11 +26,16 @@ import {
 } from "../src/abi/p2b-earn.js";
 import { ADL_WIND_DOWN_DEFAULT_MAX_EPISODE_SLOTS, ADL_WIND_DOWN_MAX_MARK_AGE_SLOTS, adlEpisodeKey, adlWindDownDustNotionalAtoms, decodeAdlEpisodeRecord } from "../src/abi/p2b-lock-exits.js";
 import { ASSET_GROWTH_FIELD_OFF, ASSET_GROWTH_LEN, ASSET_GROWTH_SLOT_OFF } from "../src/abi/growth-v19.js";
+import {
+  BACKING_BUCKET_FIELD_OFF_P2B, BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B, BACKING_DOMAIN_LEDGER_BODY_LEN_P2B, BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B,
+  KIND_BACKING_DOMAIN_LEDGER_P2B, SOURCE_CREDIT_FIELD_OFF_P2B, SOURCE_CREDIT_LEN_P2B, SOURCE_CREDIT_REL_P2B,
+} from "../src/abi/p2b-earn.js";
 import { decodeAssetRiskLimitsRecordP1 } from "../src/abi/risk-limits-p1.js";
 import { decodeError } from "../src/abi/errors.js";
 import {
-  buildExecuteRedemptionIxNonBoundP2b, buildSetVaultLpRiskV19IxP2b, buildVaultLpAllocateIxP2b, decodeVaultLpExtV19, deriveVaultLpExtP2b,
-  fetchVaultLpExtP2b, isLpVaultRegistryExtP2b, withCrankFeesBoundTailP2b,
+  buildExecuteRedemptionIxNonBoundP2b, buildSetVaultLpRiskV19IxP2b, buildVaultLpAllocateIxP2b, decodeBackingDomainLedgerP2b, decodeVaultLpExtV19,
+  deriveVaultLpExtP2b, fetchVaultLpExtP2b, isLpVaultRegistryExtP2b, nonboundPotFromRecordsP2b, nonboundVaultPricingFromAccountsP2b,
+  readPotEngineRecordsP2b, withCrankFeesBoundTailP2b,
 } from "../src/solana/p2b-earn.js";
 import {
   ASSET_VAULT_LP_P2B_FLAGS_OFF_P3, buildExecuteRedemptionIxP3, buildVaultLpRecallIxP3, buildWithdrawJuniorTrancheIxP3, decodeAssetVaultLpRecordP3,
@@ -408,6 +413,99 @@ describe("non-bound Earn pricing: entry at par, exit at E3", () => {
     expect(lpAtomsForRedemptionP2b(1_000n, 10_000n, 9_999n)).toBe(999n);
     expect(lpAtomsForRedemptionP2b(1n, 0n, 1n)).toBeNull();
     expect(lpAtomsForRedemptionP2b(11n, 10n, 1n)).toBeNull();
+  });
+});
+
+describe("raw records behind the non-bound pricing (R3-M1 monitor input)", () => {
+  const PL = FX.potLayout as Record<string, number & Record<string, number> & { asset: number; sourceCreditLong: number; sourceCreditShort: number; backingLong: number; backingShort: number }[]>;
+  const sc = unhex((FX.potRecords as { sourceCreditHex: string }).sourceCreditHex);
+  const bk = unhex((FX.potRecords as { bucketHex: string }).bucketHex);
+  const ledgerHex = FX.ledgerAccountHex as string;
+  it("layout constants equal rustc offset_of on the real structs", () => {
+    expect(PL.kindLedger).toBe(KIND_BACKING_DOMAIN_LEDGER_P2B);
+    expect(PL.ledgerAccountLen).toBe(BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B);
+    expect(PL.ledgerBodyLen).toBe(BACKING_DOMAIN_LEDGER_BODY_LEN_P2B);
+    expect(PL.ledgerFieldOff).toEqual({ ...BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B });
+    expect(PL.sourceCreditFieldOff).toEqual({ ...SOURCE_CREDIT_FIELD_OFF_P2B });
+    expect(PL.bucketFieldOff).toEqual({ ...BACKING_BUCKET_FIELD_OFF_P2B });
+    expect(PL.sourceCreditLen).toBe(SOURCE_CREDIT_LEN_P2B);
+    expect(PL.bucketLen).toBe(97);
+  });
+  it("the SDK's slot formula lands on the rustc absolute offsets for every asset (source credit AND bucket, both sides)", () => {
+    for (const r of PL.assetOffsets) {
+      const base = PL.marketGroupOff + PL.marketGroupHeaderLen + r.asset * PL.assetSlotLen + PL.engineOffInSlot;
+      expect(base + SOURCE_CREDIT_REL_P2B.long).toBe(r.sourceCreditLong);
+      expect(base + SOURCE_CREDIT_REL_P2B.short).toBe(r.sourceCreditShort);
+      expect(base + 963).toBe(r.backingLong);
+      expect(base + 1060).toBe(r.backingShort);
+    }
+  });
+  it("decodes a ledger the program wrote (u128 fields beyond u64 survive) and rejects what the program rejects", () => {
+    const l = decodeBackingDomainLedgerP2b(unhex(ledgerHex));
+    expect(l.totalPrincipalAtoms).toBe(123_456_789_012_345_678_901n);
+    expect(l.totalEarningsAtoms).toBe(777_000_000_000_000_000_000n);
+    expect(l.lastObservedBucketEarningsAtoms).toBe(700_000_000_000_000_000_000n);
+    expect([l.domain, l.marketId, l.cumulativeLossAtoms, l.cumulativeRecoveryAtoms]).toEqual([3, 9_876_543_210n, 42n, 7n]);
+    expect(l.marketGroup.toBytes()).toEqual(new Uint8Array(32).fill(3));
+    expect(() => decodeBackingDomainLedgerP2b(unhex(ledgerHex).subarray(0, 239))).toThrow(/exactly 240/);
+    const kind = unhex(ledgerHex); kind[10] = 9;
+    expect(() => decodeBackingDomainLedgerP2b(kind)).toThrow(/kind 9/);
+    const pad = unhex(ledgerHex); pad[16 + 210] = 1;
+    expect(() => decodeBackingDomainLedgerP2b(pad)).toThrow(/invalid record/);
+    const zeroMg = unhex(ledgerHex); zeroMg.fill(0, 16, 48);
+    expect(() => decodeBackingDomainLedgerP2b(zeroMg)).toThrow(/invalid record/);
+  });
+  // plant the program-written records at the RUSTC offsets of asset 1, long (domain 2) and short (domain 3)
+  const plant = (): Uint8Array => {
+    const m = new Uint8Array(PL.marketGroupOff + PL.marketGroupHeaderLen + 2 * PL.assetSlotLen);
+    m[10] = 1;
+    const a = PL.assetOffsets[1];
+    m.set(sc, a.sourceCreditLong); m.set(bk, a.backingLong);
+    return m;
+  };
+  it("reads the planted records back through the SDK formula", () => {
+    const r = readPotEngineRecordsP2b(plant(), 2);
+    expect(r.positiveClaimBoundNum).toBe(180_000_000_000_000n);
+    expect(r.insuranceCreditReservedNum).toBe(30_000_000_000_000n);
+    expect(r.validLienedInsuranceNum).toBe(1_000_000_000_000n);
+    expect(r.impairedLienedInsuranceNum).toBe(2_000_000_000_000n);
+    expect(r.freshUnlienedBackingNum).toBe(1_180_000_000_000_000n);
+    expect(r.validLienedBackingNum).toBe(5_000_000_000_000n);
+    expect(r.utilizationFeeEarnings).toBe(900_000_000_000_000_000_000n);
+    // the short pot (domain 3) was not planted: all zero (negative control for the long / short selection)
+    expect(readPotEngineRecordsP2b(plant(), 3).positiveClaimBoundNum).toBe(0n);
+    expect(() => readPotEngineRecordsP2b(plant(), 40)).toThrow(/too short/);
+    expect(() => readPotEngineRecordsP2b(new Uint8Array(4000), 2)).toThrow(/not a market/);
+  });
+  it("end to end: par vs E3 for a pot owing a winner's claim", () => {
+    // held 1185 atoms, claims 180e12 less insurance cover (30e12 - 3e12) -> owes ceil(153e12 / 1e12) = 153 -> physical net 1032
+    const l = unhex(ledgerHex);
+    const own = l.slice(); // principal 1,100 atoms (little-endian u128 at account offset 16 + 64); earnings watermark == bucket so the earnings delta is 0
+    own.fill(0, 16 + 64, 16 + 80); own[16 + 64] = 0x4c; own[16 + 65] = 0x04; // 0x044c = 1100
+    new DataView(own.buffer).setBigUint64(16 + 144, 900_000_000_000_000_000_000n & ((1n << 64n) - 1n), true);
+    new DataView(own.buffer).setBigUint64(16 + 152, 900_000_000_000_000_000_000n >> 64n, true);
+    const ledger = decodeBackingDomainLedgerP2b(own);
+    expect(ledger.totalPrincipalAtoms).toBe(1_100n);
+    const pot = nonboundPotFromRecordsP2b(readPotEngineRecordsP2b(plant(), 2), ledger);
+    expect(pot.physicalNetAtoms).toBe(1_032n);
+    expect(pot.totalEarningsAtoms).toBe(777_000_000_000_000_000_000n); // watermark == bucket earnings: nothing to sync
+    const p = nonboundVaultPricingFromAccountsP2b({ marketData: plant(), registryDomain: 2, feeShareBps: 0, ownLedgerData: own, siblingLedgerData: null });
+    expect(p.entryNavAtoms).toBe(1_100n);
+    expect(p.exitNavAtoms).toBe(1_032n);
+    expect(p.parMinusE3Atoms).toBe(68n);
+    expect(p.parMinusE3Bps).toBe(618); // floor(68 * 10000 / 1100)
+    // a vault with no ledger yet prices at zero on both readings
+    const empty = nonboundVaultPricingFromAccountsP2b({ marketData: new Uint8Array(plant().length).fill(0, 0).map((_, i) => (i === 10 ? 1 : 0)), registryDomain: 2, feeShareBps: 5_000, ownLedgerData: null, siblingLedgerData: new Uint8Array(0) });
+    expect([empty.entryNavAtoms, empty.exitNavAtoms, empty.parMinusE3Atoms]).toEqual([0n, 0n, 0n]);
+  });
+  it("earnings sync: the ledger earns the bucket's delta before NAV is read (same on entry and exit)", () => {
+    const l = decodeBackingDomainLedgerP2b(unhex(ledgerHex)); // watermark 700e18, bucket 900e18 -> +200e18
+    const pot = nonboundPotFromRecordsP2b(readPotEngineRecordsP2b(plant(), 2), l);
+    expect(pot.totalEarningsAtoms).toBe(777_000_000_000_000_000_000n + 200_000_000_000_000_000_000n);
+    const lowerBucket = { ...readPotEngineRecordsP2b(plant(), 2), utilizationFeeEarnings: 100n };
+    expect(nonboundPotFromRecordsP2b(lowerBucket, l).totalEarningsAtoms).toBe(777_000_000_000_000_000_000n); // bucket below the watermark: no add
+    // no ledger: the watermark is the bucket itself, so nothing is earned
+    expect(nonboundPotFromRecordsP2b(readPotEngineRecordsP2b(plant(), 2), null).totalEarningsAtoms).toBe(0n);
   });
 });
 

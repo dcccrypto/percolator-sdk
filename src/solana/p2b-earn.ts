@@ -29,14 +29,26 @@ import {
   VAULT_LP_EXT_VERSION_P2B,
   ALLOC_ALPHA_MAX_BPS_P2B,
   ALLOC_BUFFER_MIN_BPS_P2B,
+  BACKING_BUCKET_FIELD_OFF_P2B,
+  BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B,
+  BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B,
+  BOUND_SCALE_P2B,
+  KIND_BACKING_DOMAIN_LEDGER_P2B,
+  SOURCE_CREDIT_FIELD_OFF_P2B,
+  SOURCE_CREDIT_LEN_P2B,
+  SOURCE_CREDIT_REL_P2B,
   encodeSetVaultLpRiskV19P2b,
   encodeVaultLpAllocateP2b,
+  insuranceCoverNumP2b,
+  nonboundVaultPricingP2b,
+  potPhysicalNetAtomsP2b,
 } from "../abi/p2b-earn.js";
-import type { SetVaultLpRiskV19ArgsP2b } from "../abi/p2b-earn.js";
+import type { NonboundPotP2b, NonboundVaultPricingP2b, SetVaultLpRiskV19ArgsP2b } from "../abi/p2b-earn.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveVaultAuthority } from "./pda.js";
 import { deriveProgramDataAddressP3, deriveVaultLpStateP3, withBoundVaultLpTailP3 } from "./p3-vault-lp.js";
 import type { VaultLpMarketP3 } from "./p3-vault-lp.js";
-import { V17_EXPECTED_VERSION, V17_KIND_OFF, V17_MAGIC } from "./slab.js";
+import { V17_EXPECTED_VERSION, V17_KIND_OFF, V17_MAGIC, V17_MARKET_ASSET_SLOT_LEN, V17_MARKET_GROUP_LEN, V17_MARKET_GROUP_OFF } from "./slab.js";
+import { V17_ASSET_SLOT_WRAPPER_LEN, V17_ENGINE_BACKING_LONG_REL, V17_ENGINE_BACKING_SHORT_REL } from "./backing-bucket.js";
 
 /**
  * Derive the per-market `VaultLpExtV19` PDA: `["vault_lp_ext", market]`.
@@ -283,4 +295,172 @@ export function buildExecuteRedemptionIxNonBoundP2b(
       w(redeemer, opts.redeemerSigns !== false),
     ],
   });
+}
+
+// ============================================================================
+// Non-bound Earn: ledger + per-pot engine records -> entry / exit pricing (R3-M1 monitor)
+// ============================================================================
+
+/** Decoded `BackingDomainLedgerAccountV16` (`["lp_backing_ledger", market, domain]`). */
+export interface BackingDomainLedgerP2b {
+  marketGroup: PublicKey;
+  authority: PublicKey;
+  totalPrincipalAtoms: bigint;
+  totalDepositedAtoms: bigint;
+  totalPrincipalWithdrawnAtoms: bigint;
+  totalEarningsAtoms: bigint;
+  totalEarningsWithdrawnAtoms: bigint;
+  lastObservedBucketEarningsAtoms: bigint;
+  cumulativeLossAtoms: bigint;
+  cumulativeRecoveryAtoms: bigint;
+  lastObservedUnavailablePrincipalAtoms: bigint;
+  domain: number;
+  /** The asset generation the counters belong to (0 = an unstamped legacy record). */
+  marketId: bigint;
+}
+
+/**
+ * Decode a `BackingDomainLedgerAccountV16` account: EXACTLY 240 bytes, kind 3, non-zero market group
+ * and authority, zero padding (`read_backing_domain_ledger` / `validate_backing_domain_ledger`).
+ *
+ * @param data  Raw account bytes.
+ * @returns Decoded ledger.
+ * @throws If the program's own reader would reject the account.
+ * @example
+ * ```ts
+ * const own = decodeBackingDomainLedgerP2b(info.data);
+ * ```
+ */
+export function decodeBackingDomainLedgerP2b(data: Uint8Array): BackingDomainLedgerP2b {
+  if (data.length !== BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B) throw new Error(`BackingDomainLedger: need exactly ${BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B} bytes, got ${data.length}`);
+  const v = dv(data);
+  if (v.getBigUint64(0, true) !== V17_MAGIC) throw new Error("BackingDomainLedger: invalid v17 magic");
+  if (v.getUint16(8, true) !== V17_EXPECTED_VERSION) throw new Error(`BackingDomainLedger: invalid v17 version ${v.getUint16(8, true)}`);
+  if (data[V17_KIND_OFF] !== KIND_BACKING_DOMAIN_LEDGER_P2B) throw new Error(`BackingDomainLedger: kind ${data[V17_KIND_OFF]} != ${KIND_BACKING_DOMAIN_LEDGER_P2B}`);
+  const B = 16;
+  const F = BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B;
+  const marketGroup = new PublicKey(data.subarray(B + F.marketGroup, B + F.marketGroup + 32));
+  const authority = new PublicKey(data.subarray(B + F.authority, B + F.authority + 32));
+  if (marketGroup.equals(PublicKey.default) || authority.equals(PublicKey.default) || !data.subarray(B + F.padding, B + F.padding + 6).every((b) => b === 0)) {
+    throw new Error("BackingDomainLedger: invalid record — the program would reject it too");
+  }
+  return {
+    marketGroup, authority,
+    totalPrincipalAtoms: u128At(v, B + F.totalPrincipalAtoms), totalDepositedAtoms: u128At(v, B + F.totalDepositedAtoms),
+    totalPrincipalWithdrawnAtoms: u128At(v, B + F.totalPrincipalWithdrawnAtoms), totalEarningsAtoms: u128At(v, B + F.totalEarningsAtoms),
+    totalEarningsWithdrawnAtoms: u128At(v, B + F.totalEarningsWithdrawnAtoms), lastObservedBucketEarningsAtoms: u128At(v, B + F.lastObservedBucketEarningsAtoms),
+    cumulativeLossAtoms: u128At(v, B + F.cumulativeLossAtoms), cumulativeRecoveryAtoms: u128At(v, B + F.cumulativeRecoveryAtoms),
+    lastObservedUnavailablePrincipalAtoms: u128At(v, B + F.lastObservedUnavailablePrincipalAtoms),
+    domain: v.getUint16(B + F.domain, true), marketId: v.getBigUint64(B + F.marketId, true),
+  };
+}
+
+/** The slice of one pot's engine records the non-bound pricing reads (all `_num` fields in 1e-12 atoms). */
+export interface PotEngineRecordsP2b {
+  freshUnlienedBackingNum: bigint;
+  validLienedBackingNum: bigint;
+  /** Winners' registered claims on this pot (`source.positive_claim_bound_num`). */
+  positiveClaimBoundNum: bigint;
+  insuranceCreditReservedNum: bigint;
+  validLienedInsuranceNum: bigint;
+  impairedLienedInsuranceNum: bigint;
+  /** `bucket.utilization_fee_earnings` (atoms): what the ledger's earnings sync watches. */
+  utilizationFeeEarnings: bigint;
+}
+
+/**
+ * Read one pot's source-credit state and backing bucket out of a raw market account.
+ *
+ * @param marketData  Raw market account bytes (kind 1).
+ * @param domain      Backing domain (`asset * 2 + side`; even = long).
+ * @returns The fields `nonbound_pot_physical_parts` reads.
+ * @throws If the account is not a market or too short.
+ * @example
+ * ```ts
+ * const rec = readPotEngineRecordsP2b(market.data, registry.domain);
+ * ```
+ */
+export function readPotEngineRecordsP2b(marketData: Uint8Array, domain: number): PotEngineRecordsP2b {
+  if (marketData[V17_KIND_OFF] !== 1) throw new Error(`not a market account (kind ${marketData[V17_KIND_OFF]})`);
+  if (!Number.isInteger(domain) || domain < 0) throw new Error(`bad domain ${domain}`);
+  const asset = domain >> 1;
+  const short = (domain & 1) === 1;
+  const engineBase = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + asset * V17_MARKET_ASSET_SLOT_LEN + V17_ASSET_SLOT_WRAPPER_LEN;
+  const scOff = engineBase + (short ? SOURCE_CREDIT_REL_P2B.short : SOURCE_CREDIT_REL_P2B.long);
+  const bkOff = engineBase + (short ? V17_ENGINE_BACKING_SHORT_REL : V17_ENGINE_BACKING_LONG_REL);
+  if (marketData.length < bkOff + 97 || marketData.length < scOff + SOURCE_CREDIT_LEN_P2B) throw new Error(`market account too short for domain ${domain}`);
+  const v = dv(marketData);
+  const S = SOURCE_CREDIT_FIELD_OFF_P2B;
+  const K = BACKING_BUCKET_FIELD_OFF_P2B;
+  return {
+    freshUnlienedBackingNum: u128At(v, bkOff + K.freshUnlienedBackingNum),
+    validLienedBackingNum: u128At(v, bkOff + K.validLienedBackingNum),
+    utilizationFeeEarnings: u128At(v, bkOff + K.utilizationFeeEarnings),
+    positiveClaimBoundNum: u128At(v, scOff + S.positiveClaimBoundNum),
+    insuranceCreditReservedNum: u128At(v, scOff + S.insuranceCreditReservedNum),
+    validLienedInsuranceNum: u128At(v, scOff + S.validLienedInsuranceNum),
+    impairedLienedInsuranceNum: u128At(v, scOff + S.impairedLienedInsuranceNum),
+  };
+}
+
+/**
+ * One non-bound pot's pricing inputs, exactly as `lp_vault_domain_nav_atoms` sees them: the ledger is
+ * SYNCED to the bucket first (`sync_backing_domain_ledger`: earnings grow by the bucket's delta), a pot
+ * whose ledger account does not exist yet contributes zero principal and zero earnings.
+ *
+ * @param rec     {@link readPotEngineRecordsP2b} of the pot.
+ * @param ledger  The pot's decoded ledger, or null when the ledger account does not exist.
+ * @returns {@link NonboundPotP2b}.
+ * @example
+ * ```ts
+ * const pot = nonboundPotFromRecordsP2b(readPotEngineRecordsP2b(m, domain), ledgerInfo ? decodeBackingDomainLedgerP2b(ledgerInfo.data) : null);
+ * ```
+ */
+export function nonboundPotFromRecordsP2b(rec: PotEngineRecordsP2b, ledger: BackingDomainLedgerP2b | null): NonboundPotP2b {
+  const principal = ledger?.totalPrincipalAtoms ?? 0n;
+  let earnings = ledger?.totalEarningsAtoms ?? 0n;
+  const watermark = ledger?.lastObservedBucketEarningsAtoms ?? rec.utilizationFeeEarnings;
+  if (rec.utilizationFeeEarnings >= watermark) earnings += rec.utilizationFeeEarnings - watermark;
+  return {
+    totalPrincipalAtoms: principal,
+    totalEarningsAtoms: earnings,
+    totalEarningsWithdrawnAtoms: ledger?.totalEarningsWithdrawnAtoms ?? 0n,
+    physicalNetAtoms: potPhysicalNetAtomsP2b(
+      rec.freshUnlienedBackingNum, rec.validLienedBackingNum, rec.positiveClaimBoundNum,
+      insuranceCoverNumP2b(rec.insuranceCreditReservedNum, rec.validLienedInsuranceNum, rec.impairedLienedInsuranceNum), BOUND_SCALE_P2B,
+    ),
+  };
+}
+
+/** Inputs for {@link nonboundVaultPricingFromAccountsP2b}: raw account bytes straight from `getAccountInfo`. */
+export interface NonboundVaultAccountsP2b {
+  /** Raw market account. */
+  marketData: Uint8Array;
+  /** `registry.domain` (the vault's own pot; the sibling is `domain ^ 1`). */
+  registryDomain: number;
+  /** `registry.fee_share_bps`. */
+  feeShareBps: number;
+  /** Own-domain ledger account bytes, or null if it does not exist. */
+  ownLedgerData: Uint8Array | null;
+  /** Sibling-domain ledger account bytes, or null if it does not exist. */
+  siblingLedgerData: Uint8Array | null;
+}
+
+/**
+ * Entry NAV, exit NAV and the par - E3 gap of a NON-bound Earn vault from raw accounts. This is the
+ * quantity the R3-M1 mitigation monitors (the exit-side touch-order skim is at most
+ * `redeemer share * parMinusE3Atoms`): alert when it is large and keep touching every open portfolio.
+ *
+ * @param a  Raw accounts.
+ * @returns {@link NonboundVaultPricingP2b}.
+ * @example
+ * ```ts
+ * const p = nonboundVaultPricingFromAccountsP2b({ marketData, registryDomain: reg.domain, feeShareBps: reg.feeShareBps, ownLedgerData, siblingLedgerData });
+ * health.parMinusE3Bps = p.parMinusE3Bps;
+ * ```
+ */
+export function nonboundVaultPricingFromAccountsP2b(a: NonboundVaultAccountsP2b): NonboundVaultPricingP2b {
+  const pot = (domain: number, ledgerData: Uint8Array | null): NonboundPotP2b =>
+    nonboundPotFromRecordsP2b(readPotEngineRecordsP2b(a.marketData, domain), ledgerData && ledgerData.length > 0 ? decodeBackingDomainLedgerP2b(ledgerData) : null);
+  return nonboundVaultPricingP2b(pot(a.registryDomain, a.ownLedgerData), pot(a.registryDomain ^ 1, a.siblingLedgerData), a.feeShareBps);
 }

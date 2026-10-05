@@ -14,7 +14,7 @@
  */
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import type { Connection } from "@solana/web3.js";
-import type { SetVaultLpRiskV19ArgsP2b } from "../abi/p2b-earn.js";
+import type { NonboundPotP2b, NonboundVaultPricingP2b, SetVaultLpRiskV19ArgsP2b } from "../abi/p2b-earn.js";
 import type { VaultLpMarketP3 } from "./p3-vault-lp.js";
 /**
  * Derive the per-market `VaultLpExtV19` PDA: `["vault_lp_ext", market]`.
@@ -164,3 +164,99 @@ export declare function withCrankFeesBoundTailP2b(base: TransactionInstruction, 
 export declare function buildExecuteRedemptionIxNonBoundP2b(m: Pick<VaultLpMarketP3, "programId" | "market" | "registryDomain">, cranker: PublicKey, redeemer: PublicKey, redeemerDest: PublicKey, vaultToken: PublicKey, sourceDomain: number, opts?: {
     redeemerSigns?: boolean;
 }): TransactionInstruction;
+/** Decoded `BackingDomainLedgerAccountV16` (`["lp_backing_ledger", market, domain]`). */
+export interface BackingDomainLedgerP2b {
+    marketGroup: PublicKey;
+    authority: PublicKey;
+    totalPrincipalAtoms: bigint;
+    totalDepositedAtoms: bigint;
+    totalPrincipalWithdrawnAtoms: bigint;
+    totalEarningsAtoms: bigint;
+    totalEarningsWithdrawnAtoms: bigint;
+    lastObservedBucketEarningsAtoms: bigint;
+    cumulativeLossAtoms: bigint;
+    cumulativeRecoveryAtoms: bigint;
+    lastObservedUnavailablePrincipalAtoms: bigint;
+    domain: number;
+    /** The asset generation the counters belong to (0 = an unstamped legacy record). */
+    marketId: bigint;
+}
+/**
+ * Decode a `BackingDomainLedgerAccountV16` account: EXACTLY 240 bytes, kind 3, non-zero market group
+ * and authority, zero padding (`read_backing_domain_ledger` / `validate_backing_domain_ledger`).
+ *
+ * @param data  Raw account bytes.
+ * @returns Decoded ledger.
+ * @throws If the program's own reader would reject the account.
+ * @example
+ * ```ts
+ * const own = decodeBackingDomainLedgerP2b(info.data);
+ * ```
+ */
+export declare function decodeBackingDomainLedgerP2b(data: Uint8Array): BackingDomainLedgerP2b;
+/** The slice of one pot's engine records the non-bound pricing reads (all `_num` fields in 1e-12 atoms). */
+export interface PotEngineRecordsP2b {
+    freshUnlienedBackingNum: bigint;
+    validLienedBackingNum: bigint;
+    /** Winners' registered claims on this pot (`source.positive_claim_bound_num`). */
+    positiveClaimBoundNum: bigint;
+    insuranceCreditReservedNum: bigint;
+    validLienedInsuranceNum: bigint;
+    impairedLienedInsuranceNum: bigint;
+    /** `bucket.utilization_fee_earnings` (atoms): what the ledger's earnings sync watches. */
+    utilizationFeeEarnings: bigint;
+}
+/**
+ * Read one pot's source-credit state and backing bucket out of a raw market account.
+ *
+ * @param marketData  Raw market account bytes (kind 1).
+ * @param domain      Backing domain (`asset * 2 + side`; even = long).
+ * @returns The fields `nonbound_pot_physical_parts` reads.
+ * @throws If the account is not a market or too short.
+ * @example
+ * ```ts
+ * const rec = readPotEngineRecordsP2b(market.data, registry.domain);
+ * ```
+ */
+export declare function readPotEngineRecordsP2b(marketData: Uint8Array, domain: number): PotEngineRecordsP2b;
+/**
+ * One non-bound pot's pricing inputs, exactly as `lp_vault_domain_nav_atoms` sees them: the ledger is
+ * SYNCED to the bucket first (`sync_backing_domain_ledger`: earnings grow by the bucket's delta), a pot
+ * whose ledger account does not exist yet contributes zero principal and zero earnings.
+ *
+ * @param rec     {@link readPotEngineRecordsP2b} of the pot.
+ * @param ledger  The pot's decoded ledger, or null when the ledger account does not exist.
+ * @returns {@link NonboundPotP2b}.
+ * @example
+ * ```ts
+ * const pot = nonboundPotFromRecordsP2b(readPotEngineRecordsP2b(m, domain), ledgerInfo ? decodeBackingDomainLedgerP2b(ledgerInfo.data) : null);
+ * ```
+ */
+export declare function nonboundPotFromRecordsP2b(rec: PotEngineRecordsP2b, ledger: BackingDomainLedgerP2b | null): NonboundPotP2b;
+/** Inputs for {@link nonboundVaultPricingFromAccountsP2b}: raw account bytes straight from `getAccountInfo`. */
+export interface NonboundVaultAccountsP2b {
+    /** Raw market account. */
+    marketData: Uint8Array;
+    /** `registry.domain` (the vault's own pot; the sibling is `domain ^ 1`). */
+    registryDomain: number;
+    /** `registry.fee_share_bps`. */
+    feeShareBps: number;
+    /** Own-domain ledger account bytes, or null if it does not exist. */
+    ownLedgerData: Uint8Array | null;
+    /** Sibling-domain ledger account bytes, or null if it does not exist. */
+    siblingLedgerData: Uint8Array | null;
+}
+/**
+ * Entry NAV, exit NAV and the par - E3 gap of a NON-bound Earn vault from raw accounts. This is the
+ * quantity the R3-M1 mitigation monitors (the exit-side touch-order skim is at most
+ * `redeemer share * parMinusE3Atoms`): alert when it is large and keep touching every open portfolio.
+ *
+ * @param a  Raw accounts.
+ * @returns {@link NonboundVaultPricingP2b}.
+ * @example
+ * ```ts
+ * const p = nonboundVaultPricingFromAccountsP2b({ marketData, registryDomain: reg.domain, feeShareBps: reg.feeShareBps, ownLedgerData, siblingLedgerData });
+ * health.parMinusE3Bps = p.parMinusE3Bps;
+ * ```
+ */
+export declare function nonboundVaultPricingFromAccountsP2b(a: NonboundVaultAccountsP2b): NonboundVaultPricingP2b;

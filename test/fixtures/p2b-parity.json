@@ -1428,5 +1428,91 @@
    "decimals": 200,
    "dust": "1000000000000000000000000000000"
   }
- ]
+ ],
+ "potLayout": {
+  "kindLedger": 3,
+  "ledgerAccountLen": 240,
+  "ledgerBodyLen": 224,
+  "marketGroupOff": 592,
+  "marketGroupHeaderLen": 758,
+  "assetSlotLen": 2325,
+  "engineOffInSlot": 1024,
+  "sourceCreditLen": 184,
+  "bucketLen": 97,
+  "ledgerFieldOff": {
+   "marketGroup": 0,
+   "authority": 32,
+   "totalPrincipalAtoms": 64,
+   "totalDepositedAtoms": 80,
+   "totalPrincipalWithdrawnAtoms": 96,
+   "totalEarningsAtoms": 112,
+   "totalEarningsWithdrawnAtoms": 128,
+   "lastObservedBucketEarningsAtoms": 144,
+   "cumulativeLossAtoms": 160,
+   "cumulativeRecoveryAtoms": 176,
+   "lastObservedUnavailablePrincipalAtoms": 192,
+   "domain": 208,
+   "padding": 210,
+   "marketId": 216
+  },
+  "sourceCreditFieldOff": {
+   "positiveClaimBoundNum": 0,
+   "exactPositiveClaimNum": 16,
+   "freshReservedBackingNum": 32,
+   "spentBackingNum": 48,
+   "providerReceivableNum": 64,
+   "validLienedBackingNum": 80,
+   "impairedLienedBackingNum": 96,
+   "insuranceCreditReservedNum": 112,
+   "validLienedInsuranceNum": 128,
+   "impairedLienedInsuranceNum": 144,
+   "creditRateNum": 160,
+   "creditEpoch": 176
+  },
+  "bucketFieldOff": {
+   "marketId": 0,
+   "freshUnlienedBackingNum": 8,
+   "validLienedBackingNum": 24,
+   "consumedLienedBackingNum": 40,
+   "impairedLienedBackingNum": 56,
+   "utilizationFeeEarnings": 72,
+   "expirySlot": 88,
+   "status": 96
+  },
+  "assetOffsets": [
+   {
+    "asset": 0,
+    "sourceCreditLong": 2969,
+    "sourceCreditShort": 3153,
+    "backingLong": 3337,
+    "backingShort": 3434
+   },
+   {
+    "asset": 1,
+    "sourceCreditLong": 5294,
+    "sourceCreditShort": 5478,
+    "backingLong": 5662,
+    "backingShort": 5759
+   },
+   {
+    "asset": 2,
+    "sourceCreditLong": 7619,
+    "sourceCreditShort": 7803,
+    "backingLong": 7987,
+    "backingShort": 8084
+   },
+   {
+    "asset": 3,
+    "sourceCreditLong": 9944,
+    "sourceCreditShort": 10128,
+    "backingLong": 10312,
+    "backingShort": 10409
+   }
+  ]
+ },
+ "ledgerAccountHex": "0036315643524550120003000000000003030303030303030303030303030303030303030303030303030303030303030404040404040404040404040404040404040404040404040404040404040404356c362f819f4eb10600000000000000000020c65abc8ed70a00000000000000050000000000000000000000000000000000840e47870a1f2a000000000000000b000000000000000000000000000000000070b53d9373f225000000000000002a00000000000000000000000000000007000000000000000000000000000000230000000000000000000000000000000300000000000000ea16b04c02000000",
+ "potRecords": {
+  "sourceCreditHex": "00400f84b5a30000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e057eb481b000000000000000000000010a5d4e8000000000000000000000000204aa9d101000000000000000000000010a5d4e800000000000000000000000000000000000000",
+  "bucketHex": "4d0000000000000000c0d528343104000000000000000000005039278c040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000907b984f02ca3000000000000000000000000000000000"
+ }
 }

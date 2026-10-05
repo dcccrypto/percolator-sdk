@@ -284,5 +284,64 @@ fn main() {
     out.push(format!("\"adlEpisodeKey\":[{}]", rows.join(",")));
     out.push(format!("\"adlDust\":[{}]", [0u8, 1, 6, 9, 18, 30, 31, 200].iter().map(|d| format!("{{\"decimals\":{d},\"dust\":\"{}\"}}", state::adl_wind_down_dust_notional_atoms(*d))).collect::<Vec<_>>().join(",")));
 
+    // ── backing-domain ledger + the per-pot engine records the non-bound pricing reads ──
+    {
+        use percolator::{BackingBucketV16Account as BK, EngineAssetSlotV16Account as ES, SourceCreditStateV16Account as SC};
+        type Mk = percolator::Market<state::AssetOracleStorageV16>;
+        let led = state::BackingDomainLedgerAccountV16::default();
+        let _ = &led;
+        let lf = [
+            ("marketGroup", offset_of!(state::BackingDomainLedgerAccountV16, market_group)), ("authority", offset_of!(state::BackingDomainLedgerAccountV16, authority)),
+            ("totalPrincipalAtoms", offset_of!(state::BackingDomainLedgerAccountV16, total_principal_atoms)), ("totalDepositedAtoms", offset_of!(state::BackingDomainLedgerAccountV16, total_deposited_atoms)),
+            ("totalPrincipalWithdrawnAtoms", offset_of!(state::BackingDomainLedgerAccountV16, total_principal_withdrawn_atoms)), ("totalEarningsAtoms", offset_of!(state::BackingDomainLedgerAccountV16, total_earnings_atoms)),
+            ("totalEarningsWithdrawnAtoms", offset_of!(state::BackingDomainLedgerAccountV16, total_earnings_withdrawn_atoms)), ("lastObservedBucketEarningsAtoms", offset_of!(state::BackingDomainLedgerAccountV16, last_observed_bucket_earnings_atoms)),
+            ("cumulativeLossAtoms", offset_of!(state::BackingDomainLedgerAccountV16, cumulative_loss_atoms)), ("cumulativeRecoveryAtoms", offset_of!(state::BackingDomainLedgerAccountV16, cumulative_recovery_atoms)),
+            ("lastObservedUnavailablePrincipalAtoms", offset_of!(state::BackingDomainLedgerAccountV16, last_observed_unavailable_principal_atoms)), ("domain", offset_of!(state::BackingDomainLedgerAccountV16, domain)),
+            ("padding", offset_of!(state::BackingDomainLedgerAccountV16, _padding)), ("marketId", offset_of!(state::BackingDomainLedgerAccountV16, market_id)),
+        ];
+        let sf = [
+            ("positiveClaimBoundNum", offset_of!(SC, positive_claim_bound_num)), ("exactPositiveClaimNum", offset_of!(SC, exact_positive_claim_num)),
+            ("freshReservedBackingNum", offset_of!(SC, fresh_reserved_backing_num)), ("spentBackingNum", offset_of!(SC, spent_backing_num)),
+            ("providerReceivableNum", offset_of!(SC, provider_receivable_num)), ("validLienedBackingNum", offset_of!(SC, valid_liened_backing_num)),
+            ("impairedLienedBackingNum", offset_of!(SC, impaired_liened_backing_num)), ("insuranceCreditReservedNum", offset_of!(SC, insurance_credit_reserved_num)),
+            ("validLienedInsuranceNum", offset_of!(SC, valid_liened_insurance_num)), ("impairedLienedInsuranceNum", offset_of!(SC, impaired_liened_insurance_num)),
+            ("creditRateNum", offset_of!(SC, credit_rate_num)), ("creditEpoch", offset_of!(SC, credit_epoch)),
+        ];
+        let bf = [
+            ("marketId", offset_of!(BK, market_id)), ("freshUnlienedBackingNum", offset_of!(BK, fresh_unliened_backing_num)), ("validLienedBackingNum", offset_of!(BK, valid_liened_backing_num)),
+            ("consumedLienedBackingNum", offset_of!(BK, consumed_liened_backing_num)), ("impairedLienedBackingNum", offset_of!(BK, impaired_liened_backing_num)),
+            ("utilizationFeeEarnings", offset_of!(BK, utilization_fee_earnings)), ("expirySlot", offset_of!(BK, expiry_slot)), ("status", offset_of!(BK, status)),
+        ];
+        // absolute offsets of asset i's records in a market account, straight from rustc
+        let abs = |i: usize, rel: usize| c::MARKET_GROUP_OFF + size_of::<percolator::MarketGroupV16HeaderAccount>() + i * size_of::<Mk>() + offset_of!(Mk, engine) + rel;
+        let rows: Vec<String> = (0..4usize).map(|i| format!("{{\"asset\":{i},\"sourceCreditLong\":{},\"sourceCreditShort\":{},\"backingLong\":{},\"backingShort\":{}}}",
+            abs(i, offset_of!(ES, source_credit_long)), abs(i, offset_of!(ES, source_credit_short)), abs(i, offset_of!(ES, backing_long)), abs(i, offset_of!(ES, backing_short)))).collect();
+        out.push(format!(
+            "\"potLayout\":{{\"kindLedger\":{},\"ledgerAccountLen\":{},\"ledgerBodyLen\":{},\"marketGroupOff\":{},\"marketGroupHeaderLen\":{},\"assetSlotLen\":{},\"engineOffInSlot\":{},\"sourceCreditLen\":{},\"bucketLen\":{},\"ledgerFieldOff\":{{{}}},\"sourceCreditFieldOff\":{{{}}},\"bucketFieldOff\":{{{}}},\"assetOffsets\":[{}]}}",
+            c::KIND_BACKING_DOMAIN_LEDGER, state::backing_domain_ledger_account_len(), size_of::<state::BackingDomainLedgerAccountV16>(), c::MARKET_GROUP_OFF,
+            size_of::<percolator::MarketGroupV16HeaderAccount>(), size_of::<Mk>(), offset_of!(Mk, engine), size_of::<SC>(), size_of::<BK>(), j(&lf), j(&sf), j(&bf), rows.join(",")));
+        // a ledger the program wrote itself
+        let l = state::BackingDomainLedgerAccountV16 {
+            market_group: [3; 32], authority: [4; 32], total_principal_atoms: 123_456_789_012_345_678_901u128, total_deposited_atoms: 200_000_000_000_000_000_000u128,
+            total_principal_withdrawn_atoms: 5, total_earnings_atoms: 777_000_000_000_000_000_000u128, total_earnings_withdrawn_atoms: 11, last_observed_bucket_earnings_atoms: 700_000_000_000_000_000_000u128,
+            cumulative_loss_atoms: 42, cumulative_recovery_atoms: 7, last_observed_unavailable_principal_atoms: 35, domain: 3, _padding: [0; 6], market_id: 9_876_543_210,
+        };
+        let mut acct = vec![0u8; state::backing_domain_ledger_account_len()];
+        state::init_backing_domain_ledger(&mut acct, &l).unwrap();
+        out.push(format!("\"ledgerAccountHex\":\"{}\"", hex(&acct)));
+        // source credit / bucket records as the engine lays them out (planted by the SDK-side test at the rustc offsets)
+        let mut sc = SC::from_runtime(&percolator::SourceCreditStateV16::EMPTY);
+        sc.positive_claim_bound_num = percolator::V16PodU128::new(180_000_000_000_000u128);
+        sc.insurance_credit_reserved_num = percolator::V16PodU128::new(30_000_000_000_000u128);
+        sc.valid_liened_insurance_num = percolator::V16PodU128::new(1_000_000_000_000u128);
+        sc.impaired_liened_insurance_num = percolator::V16PodU128::new(2_000_000_000_000u128);
+        let mut bk = BK::from_runtime(&percolator::BackingBucketV16::default());
+        bk.fresh_unliened_backing_num = percolator::V16PodU128::new(1_180_000_000_000_000u128);
+        bk.valid_liened_backing_num = percolator::V16PodU128::new(5_000_000_000_000u128);
+        bk.utilization_fee_earnings = percolator::V16PodU128::new(900_000_000_000_000_000_000u128);
+        bk.market_id = percolator::V16PodU64::new(77);
+        out.push(format!("\"potRecords\":{{\"sourceCreditHex\":\"{}\",\"bucketHex\":\"{}\"}}", hex(bytemuck::bytes_of(&sc)), hex(bytemuck::bytes_of(&bk))));
+    }
+
     println!("{{\"p2bSha\":\"d9e3e2d72c8734ecc9d99905f3cebbb090b61154\",{}}}", out.join(","));
 }

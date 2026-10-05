@@ -507,6 +507,37 @@ export function creatorFeeVestedP2b(juniorLevel: bigint, cEff: bigint, cushionSh
 }
 
 // ============================================================================
+// Raw records the non-bound pricing reads (rustc offsets; pinned by the parity fixture)
+// ============================================================================
+
+/** `KIND_BACKING_DOMAIN_LEDGER`: header kind of an `["lp_backing_ledger", market, domain]` account. */
+export const KIND_BACKING_DOMAIN_LEDGER_P2B = 3;
+/** `size_of::<BackingDomainLedgerAccountV16>()`; the account is `16 + 224 = 240` bytes (the program requires EXACTLY this length). */
+export const BACKING_DOMAIN_LEDGER_BODY_LEN_P2B = 224;
+export const BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B = 16 + BACKING_DOMAIN_LEDGER_BODY_LEN_P2B;
+/** Field offsets inside the 224-byte ledger body (add 16 for the account). */
+export const BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B = Object.freeze({
+  marketGroup: 0, authority: 32, totalPrincipalAtoms: 64, totalDepositedAtoms: 80, totalPrincipalWithdrawnAtoms: 96,
+  totalEarningsAtoms: 112, totalEarningsWithdrawnAtoms: 128, lastObservedBucketEarningsAtoms: 144, cumulativeLossAtoms: 160,
+  cumulativeRecoveryAtoms: 176, lastObservedUnavailablePrincipalAtoms: 192, domain: 208, padding: 210, marketId: 216,
+} as const);
+/** `EngineAssetSlotV16Account::source_credit_long` / `_short`, relative to the engine slot start (the backing buckets follow at 963 / 1060). */
+export const SOURCE_CREDIT_REL_P2B = Object.freeze({ long: 595, short: 779 } as const);
+/** `size_of::<SourceCreditStateV16Account>()`. */
+export const SOURCE_CREDIT_LEN_P2B = 184;
+/** Field offsets inside one `SourceCreditStateV16Account` (the `_num` fields are u128 in 1e-12 atoms). */
+export const SOURCE_CREDIT_FIELD_OFF_P2B = Object.freeze({
+  positiveClaimBoundNum: 0, exactPositiveClaimNum: 16, freshReservedBackingNum: 32, spentBackingNum: 48, providerReceivableNum: 64,
+  validLienedBackingNum: 80, impairedLienedBackingNum: 96, insuranceCreditReservedNum: 112, validLienedInsuranceNum: 128,
+  impairedLienedInsuranceNum: 144, creditRateNum: 160, creditEpoch: 176,
+} as const);
+/** Field offsets inside one `BackingBucketV16Account` (97 bytes); the bucket starts at engine-slot `963` (long) / `1060` (short). */
+export const BACKING_BUCKET_FIELD_OFF_P2B = Object.freeze({
+  marketId: 0, freshUnlienedBackingNum: 8, validLienedBackingNum: 24, consumedLienedBackingNum: 40, impairedLienedBackingNum: 56,
+  utilizationFeeEarnings: 72, expirySlot: 88, status: 96,
+} as const);
+
+// ============================================================================
 // Non-bound Earn pricing: entry at PAR, exit at E3
 // ============================================================================
 

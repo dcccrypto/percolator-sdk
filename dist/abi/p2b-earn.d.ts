@@ -330,6 +330,61 @@ export declare function cushionLockedP2b(cushionAccrued: bigint, cEff: bigint, c
  * ```
  */
 export declare function creatorFeeVestedP2b(juniorLevel: bigint, cEff: bigint, cushionShareBps: number, cushionTargetBps: number): boolean;
+/** `KIND_BACKING_DOMAIN_LEDGER`: header kind of an `["lp_backing_ledger", market, domain]` account. */
+export declare const KIND_BACKING_DOMAIN_LEDGER_P2B = 3;
+/** `size_of::<BackingDomainLedgerAccountV16>()`; the account is `16 + 224 = 240` bytes (the program requires EXACTLY this length). */
+export declare const BACKING_DOMAIN_LEDGER_BODY_LEN_P2B = 224;
+export declare const BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B: number;
+/** Field offsets inside the 224-byte ledger body (add 16 for the account). */
+export declare const BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B: Readonly<{
+    readonly marketGroup: 0;
+    readonly authority: 32;
+    readonly totalPrincipalAtoms: 64;
+    readonly totalDepositedAtoms: 80;
+    readonly totalPrincipalWithdrawnAtoms: 96;
+    readonly totalEarningsAtoms: 112;
+    readonly totalEarningsWithdrawnAtoms: 128;
+    readonly lastObservedBucketEarningsAtoms: 144;
+    readonly cumulativeLossAtoms: 160;
+    readonly cumulativeRecoveryAtoms: 176;
+    readonly lastObservedUnavailablePrincipalAtoms: 192;
+    readonly domain: 208;
+    readonly padding: 210;
+    readonly marketId: 216;
+}>;
+/** `EngineAssetSlotV16Account::source_credit_long` / `_short`, relative to the engine slot start (the backing buckets follow at 963 / 1060). */
+export declare const SOURCE_CREDIT_REL_P2B: Readonly<{
+    readonly long: 595;
+    readonly short: 779;
+}>;
+/** `size_of::<SourceCreditStateV16Account>()`. */
+export declare const SOURCE_CREDIT_LEN_P2B = 184;
+/** Field offsets inside one `SourceCreditStateV16Account` (the `_num` fields are u128 in 1e-12 atoms). */
+export declare const SOURCE_CREDIT_FIELD_OFF_P2B: Readonly<{
+    readonly positiveClaimBoundNum: 0;
+    readonly exactPositiveClaimNum: 16;
+    readonly freshReservedBackingNum: 32;
+    readonly spentBackingNum: 48;
+    readonly providerReceivableNum: 64;
+    readonly validLienedBackingNum: 80;
+    readonly impairedLienedBackingNum: 96;
+    readonly insuranceCreditReservedNum: 112;
+    readonly validLienedInsuranceNum: 128;
+    readonly impairedLienedInsuranceNum: 144;
+    readonly creditRateNum: 160;
+    readonly creditEpoch: 176;
+}>;
+/** Field offsets inside one `BackingBucketV16Account` (97 bytes); the bucket starts at engine-slot `963` (long) / `1060` (short). */
+export declare const BACKING_BUCKET_FIELD_OFF_P2B: Readonly<{
+    readonly marketId: 0;
+    readonly freshUnlienedBackingNum: 8;
+    readonly validLienedBackingNum: 24;
+    readonly consumedLienedBackingNum: 40;
+    readonly impairedLienedBackingNum: 56;
+    readonly utilizationFeeEarnings: 72;
+    readonly expirySlot: 88;
+    readonly status: 96;
+}>;
 /**
  * `vault_lp_v18::pot_physical_net_atoms`: a pot's physical backing net of the claims it owes,
  * `floor((fresh_unliened + valid_liened) / scale) - ceil(max(0, claims - insuranceCover) / scale)`,

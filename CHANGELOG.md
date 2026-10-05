@@ -33,6 +33,7 @@ and encoder is round-tripped through the REAL crate (`scripts/p2b-parity/`, fixt
 - Pricing: entry at PAR, exit at E3 (`nonboundVaultPricingP2b`, `entryVsExitP2b`, `potPhysicalNetAtomsP2b`,
   `nonboundPotAvailableE3P2b`, `nonboundPotEntryAvailableP2b`, `lpSharesForDepositP2b`, `lpAtomsForRedemptionP2b`); `parMinusE3Atoms`
   is the R3-M1 quantity to alert on. Ports of `vault_lp_v18` allocation / cushion rules (`vaultLpAllocLimitP2b`, ...).
+- R3-M1 monitor input: `decodeBackingDomainLedgerP2b`, `readPotEngineRecordsP2b` (source credit + bucket of one pot), `nonboundVaultPricingFromAccountsP2b` (raw accounts -> entry NAV, exit NAV, par - E3 gap), rustc-pinned offsets.
 - `specs/wrapper-tags.json` regenerated from `sdk_parity_fixtures` (it stopped at tag 92): tags 93..105 are now gated.
 
 Deploy coupling (wrapper review I-3): the program, SDK and keeper ship together, at the v2.1 re-seed only.

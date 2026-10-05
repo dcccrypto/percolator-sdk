@@ -4697,6 +4697,51 @@ function creatorFeeVestedP2b(juniorLevel, cEff, cushionShareBps, cushionTargetBp
   if (cushionShareBps === 0 || cushionTargetBps === 0) return true;
   return juniorLevel >= bpsCeil(cEff, cushionTargetBps);
 }
+var KIND_BACKING_DOMAIN_LEDGER_P2B = 3;
+var BACKING_DOMAIN_LEDGER_BODY_LEN_P2B = 224;
+var BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B = 16 + BACKING_DOMAIN_LEDGER_BODY_LEN_P2B;
+var BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B = Object.freeze({
+  marketGroup: 0,
+  authority: 32,
+  totalPrincipalAtoms: 64,
+  totalDepositedAtoms: 80,
+  totalPrincipalWithdrawnAtoms: 96,
+  totalEarningsAtoms: 112,
+  totalEarningsWithdrawnAtoms: 128,
+  lastObservedBucketEarningsAtoms: 144,
+  cumulativeLossAtoms: 160,
+  cumulativeRecoveryAtoms: 176,
+  lastObservedUnavailablePrincipalAtoms: 192,
+  domain: 208,
+  padding: 210,
+  marketId: 216
+});
+var SOURCE_CREDIT_REL_P2B = Object.freeze({ long: 595, short: 779 });
+var SOURCE_CREDIT_LEN_P2B = 184;
+var SOURCE_CREDIT_FIELD_OFF_P2B = Object.freeze({
+  positiveClaimBoundNum: 0,
+  exactPositiveClaimNum: 16,
+  freshReservedBackingNum: 32,
+  spentBackingNum: 48,
+  providerReceivableNum: 64,
+  validLienedBackingNum: 80,
+  impairedLienedBackingNum: 96,
+  insuranceCreditReservedNum: 112,
+  validLienedInsuranceNum: 128,
+  impairedLienedInsuranceNum: 144,
+  creditRateNum: 160,
+  creditEpoch: 176
+});
+var BACKING_BUCKET_FIELD_OFF_P2B = Object.freeze({
+  marketId: 0,
+  freshUnlienedBackingNum: 8,
+  validLienedBackingNum: 24,
+  consumedLienedBackingNum: 40,
+  impairedLienedBackingNum: 56,
+  utilizationFeeEarnings: 72,
+  expirySlot: 88,
+  status: 96
+});
 function potPhysicalNetAtomsP2b(freshUnlienedNum, validLienedNum, claimBoundNum, insuranceCoverNum, scale = BOUND_SCALE_P2B) {
   if (scale === 0n) return 0n;
   const held = (freshUnlienedNum + validLienedNum) / scale;
@@ -11477,6 +11522,79 @@ function buildExecuteRedemptionIxNonBoundP2b(m, cranker, redeemer, redeemerDest,
     ]
   });
 }
+function decodeBackingDomainLedgerP2b(data) {
+  if (data.length !== BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B) throw new Error(`BackingDomainLedger: need exactly ${BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B} bytes, got ${data.length}`);
+  const v = dv3(data);
+  if (v.getBigUint64(0, true) !== V17_MAGIC) throw new Error("BackingDomainLedger: invalid v17 magic");
+  if (v.getUint16(8, true) !== V17_EXPECTED_VERSION) throw new Error(`BackingDomainLedger: invalid v17 version ${v.getUint16(8, true)}`);
+  if (data[V17_KIND_OFF] !== KIND_BACKING_DOMAIN_LEDGER_P2B) throw new Error(`BackingDomainLedger: kind ${data[V17_KIND_OFF]} != ${KIND_BACKING_DOMAIN_LEDGER_P2B}`);
+  const B = 16;
+  const F = BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B;
+  const marketGroup = new PublicKey18(data.subarray(B + F.marketGroup, B + F.marketGroup + 32));
+  const authority = new PublicKey18(data.subarray(B + F.authority, B + F.authority + 32));
+  if (marketGroup.equals(PublicKey18.default) || authority.equals(PublicKey18.default) || !data.subarray(B + F.padding, B + F.padding + 6).every((b) => b === 0)) {
+    throw new Error("BackingDomainLedger: invalid record \u2014 the program would reject it too");
+  }
+  return {
+    marketGroup,
+    authority,
+    totalPrincipalAtoms: u128At(v, B + F.totalPrincipalAtoms),
+    totalDepositedAtoms: u128At(v, B + F.totalDepositedAtoms),
+    totalPrincipalWithdrawnAtoms: u128At(v, B + F.totalPrincipalWithdrawnAtoms),
+    totalEarningsAtoms: u128At(v, B + F.totalEarningsAtoms),
+    totalEarningsWithdrawnAtoms: u128At(v, B + F.totalEarningsWithdrawnAtoms),
+    lastObservedBucketEarningsAtoms: u128At(v, B + F.lastObservedBucketEarningsAtoms),
+    cumulativeLossAtoms: u128At(v, B + F.cumulativeLossAtoms),
+    cumulativeRecoveryAtoms: u128At(v, B + F.cumulativeRecoveryAtoms),
+    lastObservedUnavailablePrincipalAtoms: u128At(v, B + F.lastObservedUnavailablePrincipalAtoms),
+    domain: v.getUint16(B + F.domain, true),
+    marketId: v.getBigUint64(B + F.marketId, true)
+  };
+}
+function readPotEngineRecordsP2b(marketData, domain) {
+  if (marketData[V17_KIND_OFF] !== 1) throw new Error(`not a market account (kind ${marketData[V17_KIND_OFF]})`);
+  if (!Number.isInteger(domain) || domain < 0) throw new Error(`bad domain ${domain}`);
+  const asset = domain >> 1;
+  const short = (domain & 1) === 1;
+  const engineBase = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + asset * V17_MARKET_ASSET_SLOT_LEN + V17_ASSET_SLOT_WRAPPER_LEN;
+  const scOff = engineBase + (short ? SOURCE_CREDIT_REL_P2B.short : SOURCE_CREDIT_REL_P2B.long);
+  const bkOff = engineBase + (short ? V17_ENGINE_BACKING_SHORT_REL : V17_ENGINE_BACKING_LONG_REL);
+  if (marketData.length < bkOff + 97 || marketData.length < scOff + SOURCE_CREDIT_LEN_P2B) throw new Error(`market account too short for domain ${domain}`);
+  const v = dv3(marketData);
+  const S = SOURCE_CREDIT_FIELD_OFF_P2B;
+  const K = BACKING_BUCKET_FIELD_OFF_P2B;
+  return {
+    freshUnlienedBackingNum: u128At(v, bkOff + K.freshUnlienedBackingNum),
+    validLienedBackingNum: u128At(v, bkOff + K.validLienedBackingNum),
+    utilizationFeeEarnings: u128At(v, bkOff + K.utilizationFeeEarnings),
+    positiveClaimBoundNum: u128At(v, scOff + S.positiveClaimBoundNum),
+    insuranceCreditReservedNum: u128At(v, scOff + S.insuranceCreditReservedNum),
+    validLienedInsuranceNum: u128At(v, scOff + S.validLienedInsuranceNum),
+    impairedLienedInsuranceNum: u128At(v, scOff + S.impairedLienedInsuranceNum)
+  };
+}
+function nonboundPotFromRecordsP2b(rec, ledger) {
+  const principal = ledger?.totalPrincipalAtoms ?? 0n;
+  let earnings = ledger?.totalEarningsAtoms ?? 0n;
+  const watermark = ledger?.lastObservedBucketEarningsAtoms ?? rec.utilizationFeeEarnings;
+  if (rec.utilizationFeeEarnings >= watermark) earnings += rec.utilizationFeeEarnings - watermark;
+  return {
+    totalPrincipalAtoms: principal,
+    totalEarningsAtoms: earnings,
+    totalEarningsWithdrawnAtoms: ledger?.totalEarningsWithdrawnAtoms ?? 0n,
+    physicalNetAtoms: potPhysicalNetAtomsP2b(
+      rec.freshUnlienedBackingNum,
+      rec.validLienedBackingNum,
+      rec.positiveClaimBoundNum,
+      insuranceCoverNumP2b(rec.insuranceCreditReservedNum, rec.validLienedInsuranceNum, rec.impairedLienedInsuranceNum),
+      BOUND_SCALE_P2B
+    )
+  };
+}
+function nonboundVaultPricingFromAccountsP2b(a) {
+  const pot = (domain, ledgerData) => nonboundPotFromRecordsP2b(readPotEngineRecordsP2b(a.marketData, domain), ledgerData && ledgerData.length > 0 ? decodeBackingDomainLedgerP2b(ledgerData) : null);
+  return nonboundVaultPricingP2b(pot(a.registryDomain, a.ownLedgerData), pot(a.registryDomain ^ 1, a.siblingLedgerData), a.feeShareBps);
+}
 
 // src/runtime/tx.ts
 import {
@@ -12585,6 +12703,10 @@ export {
   ASSET_WRAPPER_SLOT_LEN,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   AccountKind,
+  BACKING_BUCKET_FIELD_OFF_P2B,
+  BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B,
+  BACKING_DOMAIN_LEDGER_BODY_LEN_P2B,
+  BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B,
   BOUND_SCALE_P2B,
   BOUND_VAULT_LP_LEDGER_SLOTS_P3,
   BOUND_VAULT_LP_TAIL_INDEX_P3,
@@ -12635,6 +12757,7 @@ export {
   IX_TAG_P2B,
   IX_TAG_P2B_EARN,
   IX_TAG_P3,
+  KIND_BACKING_DOMAIN_LEDGER_P2B,
   KIND_VAULT_LP_EXT_P2B,
   LIGHTHOUSE_CONSTRAINT_ADDRESS,
   LIGHTHOUSE_ERROR_CODES,
@@ -12748,6 +12871,9 @@ export {
   SLAB_TIERS_V_ADL,
   SLAB_TIERS_V_ADL_DISCOVERY,
   SLAB_TIERS_V_SETDEXPOOL,
+  SOURCE_CREDIT_FIELD_OFF_P2B,
+  SOURCE_CREDIT_LEN_P2B,
+  SOURCE_CREDIT_REL_P2B,
   SPL_MINT_DECIMALS_OFFSET,
   STAKE_DEPOSIT_DISCRIMINATOR,
   STAKE_DEPOSIT_SIZE,
@@ -12913,6 +13039,7 @@ export {
   decodeAssetVaultLpDrawP3,
   decodeAssetVaultLpP3,
   decodeAssetVaultLpRecordP3,
+  decodeBackingDomainLedgerP2b,
   decodeBankruptcyHlock,
   decodeDepositPda,
   decodeError,
@@ -13221,6 +13348,8 @@ export {
   nCapQ,
   nonboundPotAvailableE3P2b,
   nonboundPotEntryAvailableP2b,
+  nonboundPotFromRecordsP2b,
+  nonboundVaultPricingFromAccountsP2b,
   nonboundVaultPricingP2b,
   openingPartQ,
   packOiCap,
@@ -13260,6 +13389,7 @@ export {
   readAssetPricesP3,
   readLastThrUpdateSlot,
   readNonce,
+  readPotEngineRecordsP2b,
   recoverFlushedInsuranceAccounts,
   recoverTerminalInsuranceAccounts,
   registerStaticMarkets,
