@@ -48,6 +48,7 @@ export default defineConfig({
       "test/growth-v19.test.ts",
       "test/p2b-lock-exits.test.ts",
       "test/p2b-earn.test.ts",
+      "test/tx-v1.test.ts",
     ],
   },
 });
