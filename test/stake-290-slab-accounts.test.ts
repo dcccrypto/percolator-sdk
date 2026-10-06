@@ -126,6 +126,17 @@ const WITHDRAW_DOC = parseAccounts(docBlock(FIXTURE, 2, "Withdraw"));
 const ACCRUE_DOC = parseAccounts(docBlock(FIXTURE, 12, "AccrueFees"));
 const JUNIOR_BLOCK = docBlock(FIXTURE, 16, "DepositJunior");
 
+/**
+ * Doc erratum: instruction.rs documents Deposit account 0 as `[signer]`, but
+ * process_deposit / process_deposit_junior pass `user` as the PAYER of
+ * create_or_adopt_pda on a first deposit (system create_account / transfer
+ * debit it), so the user must also be writable. The builders follow the
+ * processor; everything else is still checked against the doc verbatim.
+ */
+const DEPOSIT_EXPECTED: DocAccount[] = DEPOSIT_DOC.map((d, i) =>
+  i === 0 ? { ...d, writable: true } : d,
+);
+
 const depositArgs = {
   user: keys.user,
   pool: keys.pool,
@@ -153,11 +164,24 @@ describe("stake #290: pool.slab trailing account (v18.2)", () => {
   });
 
   it("depositAccounts matches instruction.rs Deposit, index by index", () => {
-    assertMatchesDoc(depositAccounts(depositArgs), DEPOSIT_DOC);
+    assertMatchesDoc(depositAccounts(depositArgs), DEPOSIT_EXPECTED);
   });
 
   it("depositJuniorAccounts matches instruction.rs DepositJunior (= Deposit)", () => {
-    assertMatchesDoc(depositJuniorAccounts(depositArgs), DEPOSIT_DOC);
+    assertMatchesDoc(depositJuniorAccounts(depositArgs), DEPOSIT_EXPECTED);
+  });
+
+  it("Deposit/DepositJunior: the user pays the deposit-PDA rent, so it is signer AND writable", () => {
+    // The doc still says `[signer]` only; when it is corrected this flips and
+    // DEPOSIT_EXPECTED can go back to DEPOSIT_DOC.
+    expect(DEPOSIT_DOC[0]).toMatchObject({ signer: true, writable: false });
+    for (const metas of [depositAccounts(depositArgs), depositJuniorAccounts(depositArgs)]) {
+      expect(metas[0].pubkey.equals(keys.user)).toBe(true);
+      expect(metas[0].isSigner).toBe(true);
+      expect(metas[0].isWritable).toBe(true);
+    }
+    // Withdraw creates nothing, so its user stays read-only.
+    expect(withdrawAccounts(withdrawArgs)[0].isWritable).toBe(false);
   });
 
   it("withdrawAccounts matches instruction.rs Withdraw, index by index", () => {
@@ -182,10 +206,10 @@ describe("stake #290: pool.slab trailing account (v18.2)", () => {
 
   it("negative control: the pre-#290 11-account Deposit shape is rejected by the doc check", () => {
     const legacy = depositAccounts(depositArgs).slice(0, 11);
-    expect(() => assertMatchesDoc(legacy, DEPOSIT_DOC)).toThrow();
+    expect(() => assertMatchesDoc(legacy, DEPOSIT_EXPECTED)).toThrow();
     const swapped = depositAccounts(depositArgs);
     [swapped[10], swapped[11]] = [swapped[11], swapped[10]];
-    expect(() => assertMatchesDoc(swapped, DEPOSIT_DOC)).toThrow();
+    expect(() => assertMatchesDoc(swapped, DEPOSIT_EXPECTED)).toThrow();
   });
 });
 
@@ -198,6 +222,17 @@ describe.skipIf(!STAKE_SRC)("stake #290 fixture vs live percolator-stake source"
     const live = read("src/instruction.rs");
     for (const [tag, v] of [[1, "Deposit"], [2, "Withdraw"], [12, "AccrueFees"], [16, "DepositJunior"]] as const) {
       expect(docBlock(live, tag, v)).toBe(docBlock(FIXTURE, tag, v));
+    }
+  });
+
+  it("processor.rs makes the Deposit/DepositJunior user the deposit-PDA rent payer", () => {
+    const proc = read("src/processor.rs");
+    for (const fn of ["process_deposit(", "process_deposit_junior("]) {
+      const at = proc.indexOf(`fn ${fn}`);
+      expect(at, fn).toBeGreaterThanOrEqual(0);
+      const body = proc.slice(at, proc.indexOf("\nfn ", at + 1));
+      expect(body, fn).toMatch(/let user = next_account_info\(accounts_iter\)\?;/);
+      expect(body, fn).toMatch(/create_or_adopt_pda\(\s*deposit_pda,\s*user,/);
     }
   });
 
