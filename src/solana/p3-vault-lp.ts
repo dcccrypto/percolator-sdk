@@ -45,14 +45,9 @@ import {
 } from "../abi/p3.js";
 import type { SetVaultLpRiskArgsP3, VaultLpSetMatcherArgsP3 } from "../abi/p3.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveMatcherDelegate, deriveNftRegistry, deriveVaultAuthority } from "./pda.js";
-import {
-  V17_HEADER_LEN,
-  V17_KIND_OFF,
-  V17_MARKET_ASSET_SLOT_LEN,
-  V17_MARKET_GROUP_LEN,
-  V17_MARKET_GROUP_OFF,
-  V17_PORTFOLIO_ACCOUNT_LEN,
-} from "./slab.js";
+import { V17_HEADER_LEN } from "./slab.js";
+import { LAYOUT_V21, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
+import type { LayoutTable } from "../abi/layout.js";
 
 // ============================================================================
 // Layout constants (verified against P3 rustc layout)
@@ -107,15 +102,16 @@ export const ASSET_VAULT_LP_P2B_FLAGS_OFF_P3 = 91;
  * `MARKET_GROUP_OFF + MARKET_GROUP_LEN + i·MARKET_ASSET_SLOT_LEN + 896` (= 2246 + 2325·i).
  *
  * @param assetIndex  Asset slot index.
+ * @param layout      Layout table of the account's VERSION (default {@link LAYOUT_V21}; pass `LAYOUT_V22` for v2.2).
  * @returns Byte offset.
  * @example
  * ```ts
  * assetVaultLpAccountOffsetP3(0); // 2246
  * ```
  */
-export function assetVaultLpAccountOffsetP3(assetIndex: number): number {
+export function assetVaultLpAccountOffsetP3(assetIndex: number, layout: LayoutTable = LAYOUT_V21): number {
   if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`assetIndex must be a non-negative integer, got ${assetIndex}`);
-  return V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + assetIndex * V17_MARKET_ASSET_SLOT_LEN + ASSET_VAULT_LP_SLOT_OFF_P3;
+  return layout.marketGroupOff + layout.marketGroupLen + assetIndex * layout.assetSlotStride + layout.wrapperSlot.vaultLp;
 }
 
 /**
@@ -157,12 +153,13 @@ const ASSET_SLOT_WRAPPER_LEN_P3 = 1024;
  */
 export function readAssetPricesP3(marketData: Uint8Array, assetIndex: number): { effectivePriceE6: bigint; rawOracleTargetPriceE6: bigint } {
   if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`assetIndex must be a non-negative integer, got ${assetIndex}`);
-  const base = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + assetIndex * V17_MARKET_ASSET_SLOT_LEN + ASSET_SLOT_WRAPPER_LEN_P3;
-  if (marketData.length < base + ASSET_STATE_EFFECTIVE_PRICE_OFF_P3 + 8) throw new Error(`market data too short for asset ${assetIndex}`);
+  const g = resolveMarketGeometry(marketData, { parser: "readAssetPricesP3", strictLength: false });
+  const base = g.engineOff(assetIndex);
+  if (marketData.length < base + g.layout.assetState.effectivePrice + 8) throw new Error(`market data too short for asset ${assetIndex}`);
   const v = new DataView(marketData.buffer, marketData.byteOffset, marketData.byteLength);
   return {
-    rawOracleTargetPriceE6: v.getBigUint64(base + ASSET_STATE_RAW_ORACLE_TARGET_PRICE_OFF_P3, true),
-    effectivePriceE6: v.getBigUint64(base + ASSET_STATE_EFFECTIVE_PRICE_OFF_P3, true),
+    rawOracleTargetPriceE6: v.getBigUint64(base + g.layout.assetState.rawOracleTargetPrice, true),
+    effectivePriceE6: v.getBigUint64(base + g.layout.assetState.effectivePrice, true),
   };
 }
 
@@ -224,7 +221,7 @@ function key(d: Uint8Array, o: number): PublicKey {
  */
 export function decodeVaultLpStateP3(data: Uint8Array): VaultLpStateP3 {
   if (data.length < VAULT_LP_STATE_ACCOUNT_LEN_P3) throw new Error(`VaultLpStateV18: need ${VAULT_LP_STATE_ACCOUNT_LEN_P3} bytes, got ${data.length}`);
-  if (data[V17_KIND_OFF] !== V18_KIND_VAULT_LP_STATE_P3) throw new Error(`VaultLpStateV18: kind ${data[V17_KIND_OFF]} != 9`);
+  resolveLayout(data, { parser: "decodeVaultLpStateP3", kind: V18_KIND_VAULT_LP_STATE_P3 });
   const v = view(data);
   const O = VAULT_LP_STATE_OFF_P3;
   const st: VaultLpStateP3 = {
@@ -275,7 +272,8 @@ export interface AssetVaultLpDrawP3 {
  * ```
  */
 export function decodeAssetVaultLpDrawP3(marketData: Uint8Array, assetIndex: number): AssetVaultLpDrawP3 {
-  const off = assetVaultLpAccountOffsetP3(assetIndex) - ASSET_VAULT_LP_DRAW_LEN_P3;
+  const g = resolveMarketGeometry(marketData, { parser: "decodeAssetVaultLpDrawP3", strictLength: false });
+  const off = assetVaultLpAccountOffsetP3(assetIndex, g.layout) - ASSET_VAULT_LP_DRAW_LEN_P3;
   if (marketData.length < off + ASSET_VAULT_LP_DRAW_LEN_P3) throw new Error(`AssetVaultLpDrawV18: market data too short for asset ${assetIndex}`);
   const v = view(marketData);
   const r = {
@@ -358,8 +356,8 @@ export function decodeAssetVaultLpRecordP3(rec: Uint8Array): AssetVaultLpP3 {
  * ```
  */
 export function decodeAssetVaultLpP3(marketData: Uint8Array, assetIndex: number): AssetVaultLpP3 {
-  if (marketData[V17_KIND_OFF] !== 1) throw new Error(`not a market account (kind ${marketData[V17_KIND_OFF]})`);
-  const off = assetVaultLpAccountOffsetP3(assetIndex);
+  const g = resolveMarketGeometry(marketData, { parser: "decodeAssetVaultLpP3", strictLength: false });
+  const off = assetVaultLpAccountOffsetP3(assetIndex, g.layout);
   if (marketData.length < off + ASSET_VAULT_LP_LEN_P3) throw new Error(`market account too short for asset ${assetIndex}`);
   return decodeAssetVaultLpRecordP3(marketData.subarray(off, off + ASSET_VAULT_LP_LEN_P3));
 }
@@ -1221,7 +1219,8 @@ export interface ResolvedPayoutReceiptP3 {
  * ```
  */
 export function decodeResolvedPayoutReceiptP3(portfolioData: Uint8Array): ResolvedPayoutReceiptP3 {
-  const o = RESOLVED_RECEIPT_ACCOUNT_OFF_P3;
+  const L = resolvePortfolioLayout(portfolioData, { parser: "decodeResolvedPayoutReceiptP3" });
+  const o = L.portfolio.resolvedPayoutReceiptOff;
   if (portfolioData.length < o + RESOLVED_RECEIPT_LEN_P3) throw new Error(`portfolio data too short for the resolved receipt (${portfolioData.length} B)`);
   const v = new DataView(portfolioData.buffer, portfolioData.byteOffset, portfolioData.byteLength);
   const present = portfolioData[o + 64] !== 0;
@@ -1283,10 +1282,10 @@ export interface OpenResolvedReceiptP3 {
  * const open = await listOpenResolvedReceiptsP3(conn, W, market);
  * ```
  */
-export async function listOpenResolvedReceiptsP3(conn: Pick<Connection, "getProgramAccounts">, programId: PublicKey, market: PublicKey): Promise<OpenResolvedReceiptP3[]> {
+export async function listOpenResolvedReceiptsP3(conn: Pick<Connection, "getProgramAccounts">, programId: PublicKey, market: PublicKey, layout: LayoutTable = LAYOUT_V21): Promise<OpenResolvedReceiptP3[]> {
   const accs = await conn.getProgramAccounts(programId, {
     commitment: "confirmed",
-    filters: [{ dataSize: V17_PORTFOLIO_ACCOUNT_LEN }, { memcmp: { offset: 16, bytes: market.toBase58() } }],
+    filters: [{ dataSize: layout.portfolio.accountLen }, { memcmp: { offset: 16, bytes: market.toBase58() } }],
   });
   const [registry] = deriveLpVaultRegistry(programId, market);
   const out: OpenResolvedReceiptP3[] = [];

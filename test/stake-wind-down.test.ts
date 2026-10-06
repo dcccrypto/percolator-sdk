@@ -26,6 +26,7 @@ import {
 import { V17_MARKET_GROUP_OFF, V17_MARKET_GROUP_LEN, V17_MARKET_ASSET_SLOT_LEN } from "../src/solana/slab.js";
 import { deriveVaultAuthority } from "../src/solana/pda.js";
 import * as root from "../src/index.js";
+import { stampMarket, stampPortfolio } from "./helpers/stamp.js";
 
 const pk = (): PublicKey => Keypair.generate().publicKey;
 const W = new PublicKey("ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB");
@@ -92,7 +93,7 @@ function put128(d: Uint8Array, o: number, v: bigint): void {
 }
 function synth(p: { mode: number; vault: bigint; insurance: bigint; srcReserved: bigint; bL: bigint; sL: bigint; bS: bigint; sS: bigint; rL?: bigint; rS?: bigint }): Uint8Array {
   const d = new Uint8Array(H + V17_MARKET_GROUP_LEN + V17_MARKET_ASSET_SLOT_LEN);
-  d[10] = 1;
+  stampMarket(d);
   const O = MARKET_GROUP_HEADER_OFF_V18, E = ENGINE_ASSET_SLOT_OFF_V18;
   put128(d, H + O.vault, p.vault);
   put128(d, H + O.insurance, p.insurance);

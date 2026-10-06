@@ -50,7 +50,7 @@ describe("PERCOLATOR_ERRORS table", () => {
     }
   });
 
-  it("error code 63 is LpVaultBackingBucketNotEmpty, 64-103 are defined (v18.2 64-65, P1 66-71, P3 72-90, NAV floor 91, growth-v19 92-99, P2b Earn 100-103) and 104+ are not (120-122 are the P2b lock-exit block)", () => {
+  it("error code 63 is LpVaultBackingBucketNotEmpty, 64-103 are defined (v18.2 64-65, P1 66-71, P3 72-90, NAV floor 91, growth-v19 92-99, P2b Earn 100-103) and the v2.2 Phase 4 block 104-119 / 123-124 is defined too (120-122 are the P2b lock-exit block); 125+ is not", () => {
     // Boundary moved 62 -> 63 by the LP-vault reachability guard, DEPLOYED to devnet
     // 2026-08-29 (wrapper 02326f4f, sha c9827970bf02098b, slot 490057417). The PROPERTY
     // this test encodes is unchanged — the tail is pinned so an accidental insertion or
@@ -87,9 +87,10 @@ describe("PERCOLATOR_ERRORS table", () => {
     expect(PERCOLATOR_ERRORS[101]?.name).toBe("VaultLpCapacityLocked");
     expect(PERCOLATOR_ERRORS[102]?.name).toBe("VaultLpCreatorFeeVesting");
     expect(PERCOLATOR_ERRORS[103]?.name).toBe("VaultLpSeniorCapitalHalt");
-    expect(PERCOLATOR_ERRORS[104]).toBeUndefined();
-    expect(PERCOLATOR_ERRORS[119]).toBeUndefined();
-    expect(PERCOLATOR_ERRORS[123]).toBeUndefined();
+    expect(PERCOLATOR_ERRORS[104]?.name).toBe("PriceBandPinned");
+    expect(PERCOLATOR_ERRORS[119]?.name).toBe("LotConfigInvalid");
+    expect(PERCOLATOR_ERRORS[123]?.name).toBe("BondDepositAboveCap");
+    expect(PERCOLATOR_ERRORS[125]).toBeUndefined();
   });
 
   // Ordinal 61 is the current tail. It is wire-visible and was appended after
@@ -264,7 +265,7 @@ describe("decodeError", () => {
     expect(decodeError(61)!.name).toBe("AssetSlotAlreadyConfigured");
   });
 
-  it("decodes 63 as LpVaultBackingBucketNotEmpty and returns undefined for 104 (beyond current table)", () => {
+  it("decodes 63 as LpVaultBackingBucketNotEmpty and returns undefined for 125 (beyond current table)", () => {
     expect(decodeError(62)!.name).toBe("CreatorFeeOverClaim");
     expect(decodeError(63)?.name).toBe("LpVaultBackingBucketNotEmpty");
     expect(decodeError(64)?.name).toBe("RentExemptRequired");
@@ -273,7 +274,7 @@ describe("decodeError", () => {
     expect(decodeError(90)?.name).toBe("VaultLpBindRequiresFlatAsset");
     expect(decodeError(91)?.name).toBe("LpVaultTargetPotImpaired");
     expect(decodeError(92)?.name).toBe("GrowthLeverageExceeded");
-    expect(decodeError(104)).toBeUndefined();
+    expect(decodeError(125)).toBeUndefined();
   });
 
   it("returns undefined for unknown code 10_000", () => {
@@ -328,7 +329,7 @@ describe("getErrorName", () => {
     expect(getErrorName(99)).toBe("GrowthUtilisationFeeRequiresTradeCpi");
     expect(getErrorName(999)).toBe("Unknown(999)");
     expect(getErrorName(103)).toBe("VaultLpSeniorCapitalHalt");
-    expect(getErrorName(104)).toBe("Unknown(104)");
+    expect(getErrorName(125)).toBe("Unknown(125)");
   });
 });
 

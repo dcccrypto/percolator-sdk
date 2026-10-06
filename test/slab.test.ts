@@ -942,6 +942,9 @@ console.log("\n✅ All slab tests passed!");
 
   const portfolio = Buffer.alloc(196);
   writeV17Header(portfolio, 2);
+  // VERSION / discriminator guard: the engine provenance header carries version 1 and the layout discriminator (18 = v2.1).
+  portfolio.writeUInt16LE(1, 112);
+  portfolio.writeUInt16LE(18, 114);
   assert(parsePortfolioV17(portfolio).capital === 0n, "parsePortfolioV17 accepts valid v17 portfolio header");
 
   // Short buffers (shorter than the matcher-config trailer) must default
@@ -961,6 +964,8 @@ console.log("\n✅ All slab tests passed!");
   // matcher-config region is anchored at (V17_PORTFOLIO_ACCOUNT_LEN - 104 - 24).
   const fullPortfolio = Buffer.alloc(V17_PORTFOLIO_ACCOUNT_LEN);
   writeV17Header(fullPortfolio, 2);
+  fullPortfolio.writeUInt16LE(1, 112); // provenance version
+  fullPortfolio.writeUInt16LE(18, 114); // engine layout discriminator (v2.1)
   const matcherProgramKey = PublicKey.unique();
   const matcherContextKey = PublicKey.unique();
   const matcherDelegateKey = PublicKey.unique();

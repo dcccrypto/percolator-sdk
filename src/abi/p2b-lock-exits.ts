@@ -12,6 +12,7 @@ import { concatBytes, encU8, encU16, encU32, encU64 } from "./encode.js";
 import type { AccountSpec } from "./accounts.js";
 import { buildAccountMetas } from "./accounts.js";
 import { assetRiskLimitsAccountOffsetP1, ASSET_RISK_LIMITS_LEN_P1 } from "./risk-limits-p1.js";
+import { resolveMarketGeometry } from "./layout.js";
 
 /** P2b tag table. 103 is VaultLpAllocate (Earn allocation), not P2b. */
 export const IX_TAG_P2B = Object.freeze({ AdlWindDown: 104, SetAdlWindDownMaxSlots: 105 } as const);
@@ -157,7 +158,8 @@ export function decodeAdlEpisodeRecord(rec: Uint8Array): AdlEpisode {
 
 /** Decode asset `i`'s episode from a raw market account. */
 export function decodeAdlEpisode(marketData: Uint8Array, assetIndex: number): AdlEpisode {
-  const off = assetRiskLimitsAccountOffsetP1(assetIndex);
+  const g = resolveMarketGeometry(marketData, { parser: "decodeAdlEpisode", strictLength: false });
+  const off = assetRiskLimitsAccountOffsetP1(assetIndex, g.layout);
   if (marketData.length < off + ASSET_RISK_LIMITS_LEN_P1) throw new Error(`market account too short for asset ${assetIndex}`);
   return decodeAdlEpisodeRecord(marketData.subarray(off, off + ASSET_RISK_LIMITS_LEN_P1));
 }

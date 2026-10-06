@@ -1203,6 +1203,14 @@ export interface PortfolioLegV17 {
     bEpochSnap: bigint;
     bStale: boolean;
     stale: boolean;
+    /** v2.2 only (wrapper VERSION 19): band certification epoch snapshot. */
+    bandEpochSnap?: bigint;
+    /** v2.2 only: the leg is queued for liquidation under the band. */
+    bandLiqPending?: boolean;
+    /** v2.2 only: holding-rent index snapshot. */
+    rentSnap?: bigint;
+    /** v2.2 only: rent remainder carried across settlements. */
+    rentCarry?: bigint;
 }
 /** Per source-domain slot returned by parsePortfolioV17. */
 export interface PortfolioSourceDomainV17 {

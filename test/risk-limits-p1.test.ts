@@ -17,6 +17,7 @@ import {
   IX_TAG_P1,
 } from "../src/abi/risk-limits-p1.js";
 import { V17_MARKET_GROUP_OFF, V17_MARKET_GROUP_LEN, V17_MARKET_ASSET_SLOT_LEN } from "../src/solana/slab.js";
+import { stampMarket } from "./helpers/stamp.js";
 
 // rustc layout of AssetRiskLimitsV17 { side_oi_cap_q: 7e9, lp_floor_atoms: 2.5e8, lp_exposure_k_bps: 50000,
 // exec_band_bps: 300, matcher_ext_mode: 1, max_requested_fee_bps: 40 } (limits-UI lane, layouts.rs)
@@ -72,7 +73,7 @@ describe("AssetRiskLimitsV17 decoder", () => {
     }
     expect(assetRiskLimitsAccountOffsetP1(0)).toBe(1958);
     const m = new Uint8Array(V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + 2 * V17_MARKET_ASSET_SLOT_LEN);
-    m[10] = 1;
+    stampMarket(m);
     m.set(Buffer.from(RUST_RL_HEX, "hex"), 1958 + 2325);
     expect(decodeAssetRiskLimitsP1(m, 1).maxRequestedFeeBps).toBe(40);
     expect(decodeAssetRiskLimitsP1(m, 0).maxRequestedFeeBps).toBe(0);

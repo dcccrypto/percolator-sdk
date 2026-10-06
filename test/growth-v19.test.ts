@@ -13,6 +13,7 @@ import {
   GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS, rGapFloorBps, usersSideOiQ, utilisationFeeBps, utilFeeMaxEffectiveBps, openingPartQ, previewGrowthOpenFee, GROWTH_UTIL_FEE_DEFAULT_BPS, assertGrowthBatchLegs, GROWTH_BATCH_MAX_LEGS, markExtV3TakerReducing,
 } from "../src/index.js";
 import type { AssetGrowthV19, InitMarketV17Args } from "../src/index.js";
+import { stampMarket } from "./helpers/stamp.js";
 
 const hex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
 
@@ -100,7 +101,7 @@ describe("AssetGrowthV19 decoder", () => {
   it("account offset = AssetRiskLimits offset - 608 + 672 (same slot base)", () => {
     for (const i of [0, 1, 7]) expect(assetGrowthAccountOffsetV19(i)).toBe(assetRiskLimitsAccountOffsetP1(i) - 608 + 672);
     expect(assetGrowthAccountOffsetV19(0)).toBe(2022);
-    const mkt = new Uint8Array(2022 + 2325 + 120 + 8); mkt[10] = 1;
+    const mkt = new Uint8Array(2022 + 2325 + 120 + 8); stampMarket(mkt);
     mkt.set(growthRecord({ lambda: 777 }), assetGrowthAccountOffsetV19(1));
     expect(decodeAssetGrowthV19(mkt, 1)?.lambdaBps).toBe(777);
     expect(decodeAssetGrowthV19(mkt, 0)).toBeNull();

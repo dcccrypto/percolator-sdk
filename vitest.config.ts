@@ -49,6 +49,9 @@ export default defineConfig({
       "test/p2b-lock-exits.test.ts",
       "test/p2b-earn.test.ts",
       "test/tx-v1.test.ts",
+      "test/v22-parity.test.ts",
+      "test/layout-guard.test.ts",
+      "test/v22-builders.test.ts",
     ],
   },
 });

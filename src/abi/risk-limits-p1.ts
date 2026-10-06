@@ -8,6 +8,8 @@
  *
  * @module risk-limits-p1
  */
+import { LAYOUT_V21, resolveMarketGeometry } from "./layout.js";
+import type { LayoutTable } from "./layout.js";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { concatBytes, encU8, encU16, encU32, encU128 } from "./encode.js";
 import type { AccountSpec } from "./accounts.js";
@@ -134,15 +136,16 @@ export const ASSET_RISK_LIMITS_SLOT_OFF_P1 = 608;
 /**
  * Account offset of asset `i`'s record: 592 + 758 + 2325·i + 608 = 1958 + 2325·i.
  * @param assetIndex  Asset slot.
+ * @param layout      Layout table of the account's VERSION (default LAYOUT_V21; LAYOUT_V22 for v2.2).
  * @returns Byte offset.
  * @example
  * ```ts
  * assetRiskLimitsAccountOffsetP1(0); // 1958
  * ```
  */
-export function assetRiskLimitsAccountOffsetP1(assetIndex: number): number {
+export function assetRiskLimitsAccountOffsetP1(assetIndex: number, layout: LayoutTable = LAYOUT_V21): number {
   if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`bad assetIndex ${assetIndex}`);
-  return 592 + 758 + 2325 * assetIndex + ASSET_RISK_LIMITS_SLOT_OFF_P1;
+  return layout.marketGroupOff + layout.marketGroupLen + layout.assetSlotStride * assetIndex + layout.wrapperSlot.riskLimits;
 }
 
 /** Decoded `AssetRiskLimitsV17` (raw stored values; 0 = protocol default). */
@@ -188,8 +191,8 @@ export function decodeAssetRiskLimitsRecordP1(rec: Uint8Array): AssetRiskLimitsP
  * ```
  */
 export function decodeAssetRiskLimitsP1(marketData: Uint8Array, assetIndex: number): AssetRiskLimitsP1 {
-  if (marketData[10] !== 1) throw new Error(`not a market account (kind ${marketData[10]})`);
-  const off = assetRiskLimitsAccountOffsetP1(assetIndex);
+  const g = resolveMarketGeometry(marketData, { parser: "decodeAssetRiskLimitsP1", strictLength: false });
+  const off = assetRiskLimitsAccountOffsetP1(assetIndex, g.layout);
   if (marketData.length < off + ASSET_RISK_LIMITS_LEN_P1) throw new Error(`market account too short for asset ${assetIndex}`);
   return decodeAssetRiskLimitsRecordP1(marketData.subarray(off, off + ASSET_RISK_LIMITS_LEN_P1));
 }

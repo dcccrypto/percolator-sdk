@@ -62,6 +62,7 @@ import {
 import { PERCOLATOR_ERRORS } from "../src/abi/errors.js";
 import { IX_TAG } from "../src/abi/instructions.js";
 import { deriveLpBackingLedger, deriveLpVaultRegistry, deriveMatcherDelegate } from "../src/solana/pda.js";
+import { stampMarket } from "./helpers/stamp.js";
 
 interface Fixture {
   p3Sha: string;
@@ -124,7 +125,7 @@ describe("P3 errors 72-89 (and P1 66-71) by name from the final enum", () => {
     for (const [name, code] of Object.entries(FX.errors)) expect(PERCOLATOR_ERRORS[code]?.name, `code ${code}`).toBe(name);
     expect(Object.keys(FX.errors)).toHaveLength(24); // P3 name list in the parity oracle (90 is checked by wrapper-errors.test.ts)
     expect(PERCOLATOR_ERRORS[91]?.name).toBe("LpVaultTargetPotImpaired"); // NAV floor 7a3ac04c
-    expect(PERCOLATOR_ERRORS[104]).toBeUndefined(); // 92-99 = growth-v19, 100-103 = P2b Earn
+    expect(PERCOLATOR_ERRORS[125]).toBeUndefined(); // 92-99 = growth-v19, 100-103 = P2b Earn, 104-124 = v2.2
   });
 });
 
@@ -178,12 +179,12 @@ describe("P3 decoders", () => {
   it("decodeAssetVaultLpDrawP3 reads the 64-byte AssetVaultLpDrawV18 just before the vault-LP record", () => {
     const off0 = assetVaultLpAccountOffsetP3(0) - ASSET_VAULT_LP_DRAW_LEN_P3;
     expect(off0).toBe(2246 - 64);
-    const d = new Uint8Array(assetVaultLpAccountOffsetP3(1) + 128);
+    const d = stampMarket(new Uint8Array(assetVaultLpAccountOffsetP3(1) + 128));
     const w = (o: number, x: bigint) => { const v = new DataView(d.buffer); v.setBigUint64(o, x & 0xffffffffffffffffn, true); v.setBigUint64(o + 8, x >> 64n, true); };
     expect(decodeAssetVaultLpDrawP3(d, 0).hasPendingDraw).toBe(false);
     w(off0, 5n); w(off0 + 16, 7n); w(off0 + 32, 1n << 70n); w(off0 + 48, 12n);
     expect(decodeAssetVaultLpDrawP3(d, 0)).toEqual({ pendingOutEvenAtoms: 5n, pendingOutOddAtoms: 7n, outstandingMirrorAtoms: 1n << 70n, pendingMovedAtoms: 12n, hasPendingDraw: true });
-    const onlyMirror = new Uint8Array(d.length); new DataView(onlyMirror.buffer).setBigUint64(off0 + 32, 3n, true);
+    const onlyMirror = stampMarket(new Uint8Array(d.length)); new DataView(onlyMirror.buffer).setBigUint64(off0 + 32, 3n, true);
     expect(decodeAssetVaultLpDrawP3(onlyMirror, 0).hasPendingDraw).toBe(false); // outstanding alone is not a pending draw
     expect(ASSET_VAULT_LP_DRAW_SLOT_OFF_P3 + ASSET_VAULT_LP_DRAW_LEN_P3).toBe(ASSET_VAULT_LP_SLOT_OFF_P3);
     expect(() => decodeAssetVaultLpDrawP3(new Uint8Array(100), 0)).toThrow(/too short/);
@@ -197,7 +198,7 @@ describe("P3 decoders", () => {
     expect([rec.levCapQ, rec.lpNetSlot, rec.skewSlopeE9, rec.skewMaxE9]).toEqual([40_000_000_000n, 505_580_402n, 2_000n, 900n]);
     expect([rec.levMaxImrBps, rec.vaultLpMaxLevBps]).toEqual([5_000, 20_000]);
     const market = new Uint8Array(FX.assetVaultLpOffsets.marketLenCap4);
-    market[10] = 1;
+    stampMarket(market);
     market.set(Buffer.from(row.recordHex, "hex"), row.sdkOffset);
     expect(decodeAssetVaultLpP3(market, 2).lpNetQ).toBe(-1_234_567_890_125n);
     expect(decodeAssetVaultLpP3(market, 1).bound).toBe(false);
