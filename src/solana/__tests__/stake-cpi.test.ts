@@ -197,10 +197,11 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       expect(keys[11].pubkey.equals(slab.publicKey)).toBe(true);
       expect(keys[11].isWritable).toBe(false);
 
-      // Account 0: user — signer (signs the transfer)
+      // Account 0: user — signer (signs the transfer) and writable (pays the
+      // deposit-PDA rent on a first deposit via create_or_adopt_pda)
       expect(keys[0].pubkey.equals(user.publicKey)).toBe(true);
       expect(keys[0].isSigner).toBe(true);
-      expect(keys[0].isWritable).toBe(false);
+      expect(keys[0].isWritable).toBe(true);
 
       // Account 1: pool — writable (updates total_deposited)
       expect(keys[1].pubkey.equals(pool)).toBe(true);

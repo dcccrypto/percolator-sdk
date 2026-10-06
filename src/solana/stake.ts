@@ -2198,7 +2198,10 @@ export function depositAccounts(
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
   return [
-    { pubkey: a.user, isSigner: true, isWritable: false },
+    // Writable: on a first deposit the program creates the deposit PDA with
+    // `user` as the payer (create_or_adopt_pda -> system create_account /
+    // transfer), which debits it. instruction.rs documents only `[signer]`.
+    { pubkey: a.user, isSigner: true, isWritable: true },
     { pubkey: a.pool, isSigner: false, isWritable: true },
     { pubkey: a.userCollateralAta, isSigner: false, isWritable: true },
     { pubkey: a.vault, isSigner: false, isWritable: true },
