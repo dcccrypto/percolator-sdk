@@ -3531,10 +3531,13 @@ export function encodeInitMatcherCtx(args: InitMatcherCtxArgs): Uint8Array {
   const data = concatBytes(
     encU8(83),                           // IX_TAG.InitMatcherCtx = 83
     encU8(args.kind),
-    new Uint8Array(new Uint32Array([args.tradingFeeBps]).buffer),   // u32 LE
-    new Uint8Array(new Uint32Array([args.baseSpreadBps]).buffer),   // u32 LE
-    new Uint8Array(new Uint32Array([args.maxTotalBps]).buffer),     // u32 LE
-    new Uint8Array(new Uint32Array([args.impactKBps]).buffer),      // u32 LE
+    // encU32, not `new Uint32Array([x])`: a typed-array store applies ToUint32,
+    // so -1, 2**32, NaN or 30.9 would silently encode as 4294967295, 0, 0 or 30
+    // instead of throwing like every other field in this payload.
+    encU32(args.tradingFeeBps),          // u32 LE
+    encU32(args.baseSpreadBps),          // u32 LE
+    encU32(args.maxTotalBps),            // u32 LE
+    encU32(args.impactKBps),             // u32 LE
     encU128(args.liquidityNotionalE6),   // u128 LE
     encU128(args.maxFillAbs),            // u128 LE
     encU128(args.maxInventoryAbs),       // u128 LE
