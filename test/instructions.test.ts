@@ -17,6 +17,7 @@ import {
   encodeAdvanceEpoch,
   encodeResolveMarket, encodeWithdrawInsurance,
   IX_TAG,
+  encodeInitMatcherCtx,
   PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
 } from "../src/abi/instructions.js";
 
@@ -512,4 +513,49 @@ describe("truncated instruction payloads", () => {
       assertTruncatedPayloadThrowsOnSequentialRead(encode());
     },
   );
+});
+
+describe("encodeInitMatcherCtx — u32 fields are range-checked, not wrapped", () => {
+  // The wrapper decodes tag 83 as kind(u8) then four read_u32 fields
+  // (trading_fee_bps, base_spread_bps, max_total_bps, impact_k_bps).
+  const valid = {
+    kind: 1,
+    tradingFeeBps: 10,
+    baseSpreadBps: 10,
+    maxTotalBps: 100,
+    impactKBps: 50,
+    liquidityNotionalE6: 250_000_000_000n,
+    maxFillAbs: 5_000_000_000n,
+    maxInventoryAbs: 25_000_000_000n,
+    feeToInsuranceBps: 0,
+    skewSpreadMultBps: 0,
+  };
+  const U32_FIELDS = ["tradingFeeBps", "baseSpreadBps", "maxTotalBps", "impactKBps"] as const;
+
+  it("encodes the four u32 fields little-endian at bytes 2..18", () => {
+    const data = encodeInitMatcherCtx({ ...valid, tradingFeeBps: 0xdeadbeef });
+    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    expect(data.length).toBe(70);
+    expect(data[0]).toBe(83);
+    expect(data[1]).toBe(1);
+    expect(dv.getUint32(2, true)).toBe(0xdeadbeef);
+    expect(dv.getUint32(6, true)).toBe(10);
+    expect(dv.getUint32(10, true)).toBe(100);
+    expect(dv.getUint32(14, true)).toBe(50);
+  });
+
+  it("accepts the u32 bounds 0 and 4294967295", () => {
+    for (const f of U32_FIELDS) {
+      expect(() => encodeInitMatcherCtx({ ...valid, [f]: 0 })).not.toThrow();
+      expect(() => encodeInitMatcherCtx({ ...valid, [f]: 0xffffffff })).not.toThrow();
+    }
+  });
+
+  // Each of these used to encode silently: -1 -> 4294967295, 2**32 -> 0,
+  // NaN -> 0, 30.9 -> 30 (typed-array ToUint32 conversion).
+  it.each([-1, 2 ** 32, Number.NaN, 30.9, Infinity])("rejects %s in every u32 field", (bad) => {
+    for (const f of U32_FIELDS) {
+      expect(() => encodeInitMatcherCtx({ ...valid, [f]: bad }), f).toThrow(/encU32/);
+    }
+  });
 });
