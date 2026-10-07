@@ -495,6 +495,20 @@ export declare const V17_MAGIC = 5784119745589622272n;
  * value changed.
  */
 export declare const V17_EXPECTED_VERSION = 18;
+/** Every wrapper VERSION this SDK can decode, ascending. Prefer this over {@link V17_EXPECTED_VERSION} (the v2.1 value). */
+export declare function knownWrapperVersions(): number[];
+/**
+ * Loud classification of a v17-magic MARKET account whose VERSION is unknown (for discovery): returns the VERSION when
+ * the buffer is a market of an UNKNOWN version, else `null`.
+ *
+ * @param data  Raw account bytes.
+ * @returns The unknown VERSION or `null`.
+ * @example
+ * ```ts
+ * const v = unknownMarketVersion(data); if (v !== null) console.warn(`skipping VERSION ${v}`);
+ * ```
+ */
+export declare function unknownMarketVersion(data: Uint8Array): number | null;
 /**
  * v17 account-kind byte (offset 10 of the 16-byte header).
  *
@@ -1081,7 +1095,7 @@ export declare function parseAssetOracleProfileV17(data: Uint8Array, profileOff:
  * Check if a raw account buffer contains a v17 percolator account.
  *
  * @param data Raw account bytes.
- * @returns true if magic == V17_MAGIC and version == V17_EXPECTED_VERSION.
+ * @returns true if magic == V17_MAGIC and the VERSION is one the layout table knows (see {@link LAYOUTS_BY_VERSION}).
  */
 export declare function isV17Account(data: Uint8Array): boolean;
 /**

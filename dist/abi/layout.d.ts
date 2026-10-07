@@ -10,17 +10,16 @@
  * account carries one (portfolios), and anything else is refused with a typed
  * {@link UnknownLayoutError}.
  *
- * There are exactly two live tables:
+ * Tables:
  *
- * - {@link LAYOUT_V21}: wrapper VERSION 18, engine discriminator 18. FROZEN. Every value equals the
- *   constant the v2.1 decoders have always used (pinned by `test/layout-guard.test.ts`).
- * - {@link LAYOUT_V22}: wrapper VERSION 19, engine discriminator 19. **PROVISIONAL.** The numbers are
- *   the stage-A values of the combined v2.2 release candidate (percolator-prog `release/v22-wrapper`
- *   `b4390fe0` on engine `release/v22-engine` `73ef2c32`), measured with rustc `offset_of!` and
- *   pinned against the real crate by `test/fixtures/v22-parity.json`. The FINAL values depend on which
- *   stacked PRs land (the per-leg K/F remainders branch adds 32 B per leg and a slot tail). When the
- *   combined build is final, edit THIS table only (and regenerate the fixture); no decoder holds a
- *   layout number of its own.
+ * - {@link LAYOUT_V21}: wrapper VERSION 18, engine discriminator 18. FROZEN. Every value equals the constant the v2.1
+ *   decoders have always used (pinned by `test/layout-guard.test.ts`).
+ * - {@link LAYOUT_V22_VARIANT_B}: wrapper VERSION 19, the v2.2 LAUNCH CANDIDATE (`release/v22-wrapper-rem` c8501d15 on
+ *   `release/v22-engine-rem`: per-leg K/F remainders + the 32 B slot tail): leg 217, portfolio 10,603, slot 2,629.
+ *   **PROVISIONAL**, pinned against the real crate by `test/fixtures/v22-parity.json` (rustc `offset_of!`).
+ * - {@link LAYOUT_V22_STAGE_A}: the earlier stage-A numbers (leg 185, portfolio 10,091, slot 2,597), kept as a named row.
+ * - {@link LAYOUT_V22} is the alias every default uses (variant B). Another stacked engine fix may still move numbers:
+ *   edit the rows in this file only (and regenerate the fixture); no decoder holds a layout number of its own.
  *
  * @module layout
  */
@@ -153,6 +152,45 @@ export interface StandaloneAccountLens {
     g9FeedAllowlistBody: number;
     g9FeedAllowlistCap: number;
 }
+/**
+ * Band / holding-rent state words (v2.2 only; null on v2.1). Config offsets are relative to the CONFIG start
+ * (marketGroupOff + group.config), asset-state offsets to the ENGINE slot start, growth / vaultLp offsets to the
+ * record start (slot + wrapperSlot.growth / slot + wrapperSlot.vaultLp).
+ */
+export interface BandRentOffsets {
+    configLen: number;
+    config: {
+        maxAccrualDtSlots: number;
+        maxPriceMoveBpsPerSlot: number;
+        bandBps: number;
+        bandMaxEpochSlots: number;
+        bandMaxPinSlots: number;
+        rentMaxE9PerSlot: number;
+        bandMaxPositionsPerSide: number;
+        bandMinLegNotional: number;
+    };
+    assetState: {
+        bandAnchorPrice: number;
+        bandAnchorSlot: number;
+        bandEpoch: number;
+        bandUncertifiedLong: number;
+        bandUncertifiedShort: number;
+        bandLiqPendingLong: number;
+        bandLiqPendingShort: number;
+        bandPinSinceSlot: number;
+        rentIndexLongNum: number;
+        rentIndexShortNum: number;
+        rentUnroutedAtoms: number;
+    };
+    growth: {
+        rentKinkBps: number;
+        rentNCapQ: number;
+    };
+    vaultLp: {
+        lpNetQ: number;
+        flags: number;
+    };
+}
 /** One complete layout. */
 export interface LayoutTable {
     /** Human name. */
@@ -185,6 +223,8 @@ export interface LayoutTable {
     readonly wrapperSlot: WrapperSlotOffsets;
     readonly portfolio: PortfolioGeometry;
     readonly accounts: StandaloneAccountLens;
+    /** Band / rent state offsets; `null` on v2.1. */
+    readonly bandRent: BandRentOffsets | null;
 }
 /**
  * Wrapper VERSION 18 (v2.1; also the `ETDLAdi`-lineage v17/v18 market layout this SDK always read).

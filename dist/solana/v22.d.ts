@@ -427,13 +427,30 @@ export declare class LaunchBundleTooLargeError extends Error {
     readonly limit: number;
     constructor(bytes: number | null, limit: number);
 }
+/** One Earn seed deposit (tag 75) placed after the tranche exists. */
+export interface EarnSeedV22 {
+    /** Depositor (signer). */
+    depositor: PublicKey;
+    /** Depositor's collateral token account. */
+    sourceToken: PublicKey;
+    /** Market collateral vault token account. */
+    vaultToken: PublicKey;
+    /** Collateral atoms (u128 on the wire). */
+    amount: bigint;
+    /** Pot the deposit is routed to (default 0). */
+    domain?: number;
+    /** Depositor's LP-share ATA (default: the associated token account of the LP mint). */
+    depositorLpAta?: PublicKey;
+}
 /** Inputs of {@link buildLaunchBundleV22}. */
 export interface LaunchBundleInputV22 {
     /** Fee payer. */
     payer: PublicKey;
+    /** Market context (`lpPortfolio` required: tag 75 on a BOUND vault takes `[11] vault_lp_state`, `[12]` the vault LP). */
+    market: MarketV22;
     /**
-     * `SystemProgram.createAccount` instructions the bundle needs first (the matcher context, 320 B; the vault-LP portfolio,
-     * `LAYOUT_V22.portfolio.accountLen` B). They sign with their new keypairs, so the transaction needs those signatures.
+     * `SystemProgram.createAccount` instructions (the matcher context, 320 B; the vault-LP portfolio at EXACTLY
+     * `portfolio.accountLen`), placed between 74 and 94 (the order the real wrapper accepts). They sign with their new keypairs.
      */
     createAccounts: readonly TransactionInstruction[];
     /** Tag 74 CreateLpVault. */
@@ -442,6 +459,8 @@ export interface LaunchBundleInputV22 {
     initVaultLp: TransactionInstruction;
     /** Tag 107 InitBondTranche. */
     initBondTranche: TransactionInstruction;
+    /** Earn seed deposits (tag 75), AFTER 107, each with its LP ATA created idempotently first. */
+    earnSeeds?: readonly EarnSeedV22[];
     /** Cluster supports v1 transactions (`detectTxV1Support`). */
     supportsV1: boolean;
     /** Compute-unit limit (default {@link COMPUTE_PRESETS_V22} `launchBundle`). */
@@ -462,21 +481,35 @@ export interface LaunchBundlePlanV22 {
     budget: BudgetParams;
 }
 /**
- * Plan the launch bundle as ONE transaction, in order `[createAccount...] 74, 94, 107`. Prefers a v1 transaction
- * (4,096 B) when the cluster supports it; otherwise a legacy transaction that must fit in 1,232 B. NEVER splits: the
- * Wave C security review (N-2) showed that any split lets a minimum-size Earn deposit slip in and refuses tag 107
- * forever. A Squads launch must wrap the whole bundle in ONE vault transaction.
+ * Tag 75 DepositToLpVault on a BOUND vault, fully assembled: the 11 base accounts plus the REQUIRED tail `[11] vault_lp_state (w)`
+ * and `[12]` the vault LP portfolio (w); both pot ledgers writable.
  *
- * NOTE: the wave docs call the first instruction "69 CreateLpVault"; the wrapper's `TAG_CREATE_LP_VAULT` is 74 (69 is
- * RestartAssetOracle). This builder checks for 74, 94, 107.
+ * @param m          Market context (`lpPortfolio` required).
+ * @param depositor  Signer.
+ * @param lpAta      Depositor's LP-share token account.
+ * @param sourceToken  Depositor's collateral token account.
+ * @param vaultToken   Market collateral vault token account.
+ * @param amount     Atoms.
+ * @param domain     Pot (default 0).
+ * @returns Instruction (13 accounts).
+ * @example
+ * ```ts
+ * const ix = buildDepositToLpVaultIxBoundV22(m, user, lpAta, userAta, vaultAta, 1_000_000n);
+ * ```
+ */
+export declare function buildDepositToLpVaultIxBoundV22(m: MarketV22, depositor: PublicKey, lpAta: PublicKey, sourceToken: PublicKey, vaultToken: PublicKey, amount: bigint, domain?: number): TransactionInstruction;
+/**
+ * Plan the FULL bond launch as ONE transaction, in the order proven against the real variant-B wrapper:
+ * `74 CreateLpVault, createAccounts..., 94 InitVaultLp, 107 InitBondTranche, then for each seed [create LP ATA (idempotent), 75 with the bound tail]`.
+ * Prefers a v1 transaction (4,096 B) when supported, else legacy (1,232 B). NEVER splits: a minimum-size Earn deposit between
+ * steps makes 107 refuse forever (N-2). A Squads launch must wrap the whole bundle in ONE vault transaction.
  *
  * @param i  See {@link LaunchBundleInputV22}.
  * @returns The plan.
- * @throws {@link LaunchBundleTooLargeError} when it does not fit even in the best available format; a plain `Error`
- *   when an instruction is not the expected tag.
+ * @throws {@link LaunchBundleTooLargeError} when it does not fit; a plain `Error` on a wrong tag or order.
  * @example
  * ```ts
- * const plan = buildLaunchBundleV22({ payer, createAccounts: [ctxIx, lpPortfolioIx], createVaultLp, initVaultLp, initBondTranche, supportsV1: false });
+ * const plan = buildLaunchBundleV22({ payer, market, createAccounts: [ctxIx, lpPortfolioIx], createVaultLp, initVaultLp, initBondTranche, earnSeeds: [seed], supportsV1: false });
  * ```
  */
 export declare function buildLaunchBundleV22(i: LaunchBundleInputV22): LaunchBundlePlanV22;
@@ -524,3 +557,113 @@ export declare function buildCreatePortfolioAccountIxV22(payer: PublicKey, portf
  * ```
  */
 export declare function portfolioAccountLenV22(layout?: LayoutTable): number;
+/**
+ * EVERY account tail the v2.2 programs read on an existing tag, in one table (index = position in the account list).
+ * `bond` columns apply once the registry's bond flag is set (REQUIRED then, fail closed); `ext` once the vault-LP ext exists.
+ *
+ * | tag | base | bound-vault tail | ext | bond tranche | units |
+ * |---|---|---|---|---|---|
+ * | 75 DepositToLpVault | 11 | `[11]` vault_lp_state w, `[12]` vault LP w | - | - | - |
+ * | 77 ExecuteRedemption | 13 | bound: `[13]` state w, `[14]` LP w; NON-bound: `[13..13+n]` refresh w, then oracles | - | - | - |
+ * | 78 LpVaultCrankFees | 6 | `[6]` vault_lp_state w | `[7]` ext w, `[8]` vault LP **w** | `[9]` tranche w | - |
+ * | 97 WithdrawJuniorTranche | 11 | - | `[11]` ext w | `[12]` tranche | - |
+ * | 98 VaultLpRecall | 8 | - | `[8]` ext w | - | - |
+ * | 102 VaultLpReleaseSurplus (Resolved) | 7 + 4 | - | - | `[11]` tranche | - |
+ * | 103 VaultLpAllocate | 9 | - | `[7]` ext (base) | `[9]` tranche | - |
+ * | 9, 56 top-ups | 5 (+ optional ledger `[5]`) | - | - | - | units LAST |
+ * | 57, 41 withdraws | 6 | - | - | - | units LAST |
+ * | 101 VaultLpSettleResolved | 12 | - | - | - | units LAST |
+ * | 111 InsuranceBackstopDraw | 7 | - | - | - | units in `[7..]` (+ G9 legs / allowlist) |
+ * | 112 RescueDeposit | 11 | `[11]` state w, `[12]` LP w | - | - | - |
+ *
+ * The same numbers are enforced by {@link withBondTailV22}, {@link withInsuranceUnitsTailV22} and
+ * `withBoundVaultLpTailP3`; `test/v22-builders.test.ts` pins the table.
+ */
+export declare const ACCOUNT_TAILS_V22: Readonly<{
+    readonly 75: {
+        readonly base: 11;
+        readonly boundState: 11;
+        readonly boundLp: 12;
+    };
+    readonly 77: {
+        readonly base: 13;
+        readonly boundState: 13;
+        readonly boundLp: 14;
+        readonly refreshStart: 13;
+    };
+    readonly 78: {
+        readonly base: 6;
+        readonly boundState: 6;
+        readonly ext: 7;
+        readonly boundLp: 8;
+        readonly bondTranche: 9;
+    };
+    readonly 97: {
+        readonly base: 11;
+        readonly ext: 11;
+        readonly bondTranche: 12;
+    };
+    readonly 98: {
+        readonly base: 8;
+        readonly ext: 8;
+    };
+    readonly 102: {
+        readonly base: 7;
+        readonly resolvedBase: 11;
+        readonly bondTranche: 11;
+    };
+    readonly 103: {
+        readonly base: 9;
+        readonly ext: 7;
+        readonly bondTranche: 9;
+    };
+    readonly 112: {
+        readonly base: 11;
+        readonly boundState: 11;
+        readonly boundLp: 12;
+    };
+    readonly units: {
+        readonly 9: 5;
+        readonly 56: 5;
+        readonly 57: 6;
+        readonly 41: 6;
+        readonly 101: 12;
+    };
+}>;
+/**
+ * LpVaultCrankFees (tag 78) on a BOUND vault, fully assembled: 6 base accounts, `[6]` vault_lp_state, and, when the ext
+ * exists (`m.vaultLpExt`), `[7]` ext, `[8]` the vault LP portfolio (WRITABLE) and, on a bond market (`bond: true`), `[9]` the
+ * bond tranche. Bundle a vault-LP refresh crank before it on a bond market (78 re-certifies the LP before valuing the bonds).
+ *
+ * @param m        Market context (`lpPortfolio` required; `vaultLpExt` once the ext exists).
+ * @param cranker  Signer.
+ * @param domain   Pot receiving the fees.
+ * @param opts     `bond`: the registry's bond flag is set.
+ * @returns Instruction.
+ * @example
+ * ```ts
+ * const ix = buildLpVaultCrankFeesIxBoundV22(m, keeper, 0, { bond: true });
+ * ```
+ */
+export declare function buildLpVaultCrankFeesIxBoundV22(m: MarketV22, cranker: PublicKey, domain: number, opts?: {
+    bond?: boolean;
+}): TransactionInstruction;
+/**
+ * WithdrawJuniorTranche (tag 97), fully assembled: 11 base accounts, `[11]` ext when it exists, and on a bond market `[12]` the
+ * bond tranche (the junior can never withdraw bond value).
+ *
+ * @param m            Market context (`lpPortfolio` required; `vaultLpExt` once the ext exists, required with `bond`).
+ * @param juniorOwner  Signer.
+ * @param destToken    Junior's collateral token account.
+ * @param vaultToken   Market collateral vault token account.
+ * @param amount       Atoms.
+ * @param opts         `bond`: the registry's bond flag is set.
+ * @returns Instruction.
+ * @example
+ * ```ts
+ * const ix = buildWithdrawJuniorTrancheIxV22(m, junior, juniorAta, vaultAta, 1_000n, { bond: true });
+ * ```
+ */
+export declare function buildWithdrawJuniorTrancheIxV22(m: MarketV22, juniorOwner: PublicKey, destToken: PublicKey, vaultToken: PublicKey, amount: bigint, opts?: {
+    bond?: boolean;
+}): TransactionInstruction;

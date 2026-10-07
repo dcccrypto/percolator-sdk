@@ -52,6 +52,7 @@ export default defineConfig({
       "test/v22-parity.test.ts",
       "test/layout-guard.test.ts",
       "test/v22-builders.test.ts",
+      "test/v22-band.test.ts",
     ],
   },
 });

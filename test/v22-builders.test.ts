@@ -11,7 +11,7 @@ import { PERCOLATOR_ERRORS } from "../src/abi/errors.js";
 import { ACCOUNTS_CREATE_LP_VAULT, buildAccountMetas } from "../src/abi/accounts.js";
 import { encodeCreateLpVaultV17 } from "../src/abi/instructions.js";
 import { CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3 } from "../src/abi/p3.js";
-import { buildInitVaultLpIxP3 } from "../src/solana/p3-vault-lp.js";
+import { buildInitVaultLpIxP3, deriveVaultLpStateP3 } from "../src/solana/p3-vault-lp.js";
 import { deriveInsuranceLpMint, deriveLpVaultRegistry } from "../src/solana/pda.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
@@ -149,22 +149,62 @@ describe("atomic launch bundle 74 + 94 + 107", () => {
       initBondTranche: B.buildInitBondTrancheIxV22(m, payer, payer, { couponBps: 800, utilBonusBps: 0, cooldownSlots: 9000, capBps: 5000 }),
     };
   };
-  it("orders [createAccount x2, 74, 94, 107] in ONE transaction; legacy fits 1,232 B, v1 when supported", () => {
-    const plan = B.buildLaunchBundleV22({ payer, ...real(), supportsV1: false });
-    expect(plan.format).toBe("legacy");
-    expect(plan.instructions).toHaveLength(5);
-    expect(plan.instructions.slice(2).map((i) => i.data[0])).toEqual([74, 94, 107]);
-    expect(plan.bytes).toBeLessThanOrEqual(1232);
-    const v1 = B.buildLaunchBundleV22({ payer, ...real(), supportsV1: true });
-    expect(v1.format).toBe("v1");
-    expect(v1.bytes).toBeLessThanOrEqual(4096);
+  it("proven order: 74, createAccounts, 94, 107, then per seed [LP ATA create, 75 with the bound tail]; ONE transaction", () => {
+    const seed = { depositor: payer, sourceToken: pk(), vaultToken: pk(), amount: 1_000_000_000n };
+    const plan = B.buildLaunchBundleV22({ payer, market: m, ...real(), earnSeeds: [seed, { ...seed, amount: 2_000_000_000n }], supportsV1: true });
+    const tags = plan.instructions.map((i) => (i.programId.equals(P) ? i.data[0] : "x"));
+    expect(tags).toEqual([74, "x", "x", 94, 107, "x", 75, "x", 75]);
+    const seeds = plan.instructions.filter((i) => i.programId.equals(P) && i.data[0] === 75);
+    for (const x of seeds) {
+      expect(x.keys).toHaveLength(13);
+      expect(x.keys[11].pubkey.equals(deriveVaultLpStateP3(P, MARKET)[0])).toBe(true);
+      expect(x.keys[12].pubkey.equals(LP)).toBe(true);
+      expect(x.keys[11].isWritable && x.keys[12].isWritable).toBe(true);
+    }
+    expect(plan.format).toBe("v1");
+    const noSeeds = B.buildLaunchBundleV22({ payer, market: m, ...real(), supportsV1: false });
+    expect(noSeeds.format).toBe("legacy");
+    expect(noSeeds.instructions.filter((i) => i.programId.equals(P)).map((i) => i.data[0])).toEqual([74, 94, 107]);
+    expect(noSeeds.bytes).toBeLessThanOrEqual(1232);
   });
-  it("never splits: an oversized bundle is a typed error; wrong tags are refused", () => {
+  it("never splits: an oversized bundle is a typed error; wrong tags refused; 75 needs the vault LP", () => {
     const r = real();
     const extra = Array.from({ length: 30 }, () => ({ pubkey: pk(), isSigner: false, isWritable: true }));
     r.initBondTranche = new TransactionInstruction({ programId: P, data: r.initBondTranche.data, keys: [...r.initBondTranche.keys, ...extra] });
-    expect(() => B.buildLaunchBundleV22({ payer, ...r, supportsV1: false })).toThrow(B.LaunchBundleTooLargeError);
-    expect(() => B.buildLaunchBundleV22({ payer, ...real(), createVaultLp: B.buildSweepBandDustLegIxV22(m, payer, payer, 0), supportsV1: false })).toThrow(/tag 74/);
+    expect(() => B.buildLaunchBundleV22({ payer, market: m, ...r, supportsV1: false })).toThrow(B.LaunchBundleTooLargeError);
+    expect(() => B.buildLaunchBundleV22({ payer, market: m, ...real(), createVaultLp: B.buildSweepBandDustLegIxV22(m, payer, payer, 0), supportsV1: false })).toThrow(/tag 74/);
+    expect(() => B.buildLaunchBundleV22({ payer, market: { ...m, lpPortfolio: undefined }, ...real(), earnSeeds: [{ depositor: payer, sourceToken: pk(), vaultToken: pk(), amount: 1n }], supportsV1: true })).toThrow(/vault LP portfolio/);
+  });
+});
+
+describe("tails table and the 78 / 97 builders", () => {
+  it("78 bound with ext + bond: [6] state, [7] ext, [8] LP (writable), [9] tranche (writable)", () => {
+    const ix = B.buildLpVaultCrankFeesIxBoundV22(m, pk(), 0, { bond: true });
+    expect(ix.keys).toHaveLength(10);
+    const T = B.ACCOUNT_TAILS_V22[78];
+    expect(ix.keys[T.boundState].pubkey.equals(deriveVaultLpStateP3(P, MARKET)[0])).toBe(true);
+    expect(ix.keys[T.ext].pubkey.equals(EXT)).toBe(true);
+    expect(ix.keys[T.boundLp]).toMatchObject({ isWritable: true });
+    expect(ix.keys[T.boundLp].pubkey.equals(LP)).toBe(true);
+    expect(ix.keys[T.bondTranche]).toMatchObject({ isWritable: true });
+    expect(ix.keys[T.bondTranche].pubkey.equals(W.deriveBondTrancheV22(P, MARKET)[0])).toBe(true);
+    expect(B.buildLpVaultCrankFeesIxBoundV22(m, pk(), 0).keys).toHaveLength(9);
+    expect(B.buildLpVaultCrankFeesIxBoundV22({ ...m, vaultLpExt: undefined }, pk(), 0).keys).toHaveLength(7);
+    expect(() => B.buildLpVaultCrankFeesIxBoundV22({ ...m, vaultLpExt: undefined }, pk(), 0, { bond: true })).toThrow();
+  });
+  it("97: [11] ext, [12] tranche", () => {
+    const ix = B.buildWithdrawJuniorTrancheIxV22(m, pk(), pk(), pk(), 5n, { bond: true });
+    const T = B.ACCOUNT_TAILS_V22[97];
+    expect(ix.keys).toHaveLength(13);
+    expect(ix.keys[T.ext].pubkey.equals(EXT)).toBe(true);
+    expect(ix.keys[T.bondTranche].pubkey.equals(W.deriveBondTrancheV22(P, MARKET)[0])).toBe(true);
+    expect(B.buildWithdrawJuniorTrancheIxV22(m, pk(), pk(), pk(), 5n).keys).toHaveLength(12);
+  });
+  it("table agrees with the tail helpers", () => {
+    expect(W.BOND_TAIL_INDEX_V22).toEqual({ 78: B.ACCOUNT_TAILS_V22[78].bondTranche, 97: B.ACCOUNT_TAILS_V22[97].bondTranche, 102: B.ACCOUNT_TAILS_V22[102].bondTranche, 103: B.ACCOUNT_TAILS_V22[103].bondTranche });
+    expect(W.INSURANCE_UNITS_TAIL_FROM_V22).toEqual(B.ACCOUNT_TAILS_V22.units);
+    const d = B.buildDepositToLpVaultIxBoundV22(m, pk(), pk(), pk(), pk(), 1n);
+    expect([d.keys.length, d.keys[B.ACCOUNT_TAILS_V22[75].boundState].pubkey.equals(deriveVaultLpStateP3(P, MARKET)[0]), d.keys[B.ACCOUNT_TAILS_V22[75].boundLp].pubkey.equals(LP)]).toEqual([13, true, true]);
   });
 });
 

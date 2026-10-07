@@ -1,6 +1,7 @@
 ## 9.0.0-candidate (v2.2 SDK layer, draft)
 
 - Added (additive; v1 and v2.1 paths unchanged): `abi/layout` (VERSION-keyed `LAYOUT_V21` / `LAYOUT_V22` rows, VERSION + engine-discriminator guard, typed `UnknownLayoutError`), `abi/v22-wire` (tags 0 merged trailer, 76, 77, 106-112, 116-119 encoders, account lists, tails), `abi/v22-state` (BondTranche, BondPosition, InsuranceUnits 192 B, G9 allowlist, 112/128 B redemption), `abi/v22-math` (bond / rescue / G9 / band / lot / redemption math), `abi/v22-stake` (stake v5 wire, StakePool v5, errors 33-45), `solana/v22` (builders, compute presets, Earn exit planner, atomic launch bundle, exact-length portfolio createAccount).
+- Added (follow-up): `abi/v22-band` (band / rent state decoders, rent-rate math, favourable-close rule with the floor-stuck exemption), `abi/v22-lot` (one lot conversion, sizes never round up), full ordered launch bundle (74, creates, 94, 107, Earn seeds with the bound tail), `ACCOUNT_TAILS_V22`, 78 / 97 builders; discovery and `isV17Account` / `isV17MarketAccount` accept every known VERSION and skip unknown ones with a warning.
 - Changed: market and portfolio decoders now refuse unknown VERSIONs / discriminators with `UnknownLayoutError`; error table gains 104-119, 123, 124.
 
 # Changelog

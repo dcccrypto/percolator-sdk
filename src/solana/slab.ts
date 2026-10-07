@@ -1,5 +1,5 @@
 import { Connection, PublicKey } from "@solana/web3.js";
-import { ACCOUNT_KIND, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
+import { ACCOUNT_KIND, LAYOUTS_BY_VERSION, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
 import type { LayoutTable } from "../abi/layout.js";
 
 // =============================================================================
@@ -3723,6 +3723,26 @@ export const V17_MAGIC = 0x5045_5243_5631_3600n;
  * value changed.
  */
 export const V17_EXPECTED_VERSION = 18;
+/** Every wrapper VERSION this SDK can decode, ascending. Prefer this over {@link V17_EXPECTED_VERSION} (the v2.1 value). */
+export function knownWrapperVersions(): number[] {
+  return [...LAYOUTS_BY_VERSION.keys()].sort((a, b) => a - b);
+}
+/**
+ * Loud classification of a v17-magic MARKET account whose VERSION is unknown (for discovery): returns the VERSION when
+ * the buffer is a market of an UNKNOWN version, else `null`.
+ *
+ * @param data  Raw account bytes.
+ * @returns The unknown VERSION or `null`.
+ * @example
+ * ```ts
+ * const v = unknownMarketVersion(data); if (v !== null) console.warn(`skipping VERSION ${v}`);
+ * ```
+ */
+export function unknownMarketVersion(data: Uint8Array): number | null {
+  if (data.length < V17_KIND_OFF + 1 || readU64LE(data, 0) !== V17_MAGIC || data[V17_KIND_OFF] !== 1) return null;
+  const v = readU16LE(data, 8);
+  return LAYOUTS_BY_VERSION.has(v) ? null : v;
+}
 
 /**
  * v17 account-kind byte (offset 10 of the 16-byte header).
@@ -4597,13 +4617,14 @@ export function parseAssetOracleProfileV17(data: Uint8Array, profileOff: number)
  * Check if a raw account buffer contains a v17 percolator account.
  *
  * @param data Raw account bytes.
- * @returns true if magic == V17_MAGIC and version == V17_EXPECTED_VERSION.
+ * @returns true if magic == V17_MAGIC and the VERSION is one the layout table knows (see {@link LAYOUTS_BY_VERSION}).
  */
 export function isV17Account(data: Uint8Array): boolean {
   if (data.length < 10) return false;
   const magic = readU64LE(data, 0);
   const version = readU16LE(data, 8);
-  return magic === V17_MAGIC && version === V17_EXPECTED_VERSION;
+  // VERSION-keyed: every wrapper VERSION the layout table knows (18 = v2.1, 19 = v2.2).
+  return magic === V17_MAGIC && LAYOUTS_BY_VERSION.has(version);
 }
 
 /**
