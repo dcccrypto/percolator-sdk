@@ -28,7 +28,7 @@ describe("LAYOUT_V21 is frozen to the legacy constants", () => {
 
 describe("guard", () => {
   it("refuses unknown versions with a typed error (never by length)", () => {
-    const m = stampMarket(new Uint8Array(1398 + 2629), 20);
+    const m = stampMarket(new Uint8Array(1398 + 2661), 20);
     expect(code(() => parseMarketGroupV17OI(m))).toBe("UNKNOWN_VERSION");
     expect(code(() => resolveLayout(m, { parser: "t" }))).toBe("UNKNOWN_VERSION");
     const v17 = stampMarket(new Uint8Array(1350 + 2325), 17);
@@ -69,7 +69,7 @@ describe("guard", () => {
     expect(code(() => resolveMarketGeometry(d, { parser: "t" }))).toBe("BAD_LENGTH");
   });
   it("other market decoders are guarded too", () => {
-    const bad = stampMarket(new Uint8Array(1398 + 2629), 20);
+    const bad = stampMarket(new Uint8Array(1398 + 2661), 20);
     expect(code(() => decodeAssetGrowthV19(bad, 0))).toBe("UNKNOWN_VERSION");
     expect(code(() => readAssetPricesP3(bad, 0))).toBe("UNKNOWN_VERSION");
     expect(code(() => parseBackingBucketsV17(bad))).toBe("UNKNOWN_VERSION");
@@ -146,7 +146,7 @@ describe("portfolio createAccount at EXACTLY PORTFOLIO_ACCOUNT_LEN (the program 
 });
 
 describe("layout-v22.json from the combination (when present)", () => {
-  const path = `${homedir()}/percolator-ops/artifacts/v22-combination-2026-10-06/layout-v22.json`;
+  const path = `${homedir()}/percolator-ops/artifacts/v22-combination-2026-10-08/layout-v22.json`;
   it.skipIf(!existsSync(path))("every number in the file matches the default row", () => {
     const j = JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
     const flat = JSON.stringify(j);

@@ -140,7 +140,7 @@ describe("atomic launch bundle 74 + 94 + 107", () => {
     const ctx = pk();
     const create = new TransactionInstruction({
       programId: P, data: Buffer.from(encodeCreateLpVaultV17({ feeShareBps: 5000, redemptionCooldownSlots: 1n, oiReservationThresholdBps: 8000, domain: 0 })),
-      keys: buildAccountMetas(ACCOUNTS_CREATE_LP_VAULT, { admin: payer, market: MARKET, registry, lpMint: deriveInsuranceLpMint(P, MARKET)[0], systemProgram: SystemProgram.programId, tokenProgram: TOKEN_PROGRAM_ID }),
+      keys: buildAccountMetas(ACCOUNTS_CREATE_LP_VAULT, { admin: payer, market: MARKET, registry, lpMint: deriveInsuranceLpMint(P, MARKET)[0], systemProgram: SystemProgram.programId, tokenProgram: TOKEN_PROGRAM_ID, collateralMint: pk() }),
     });
     return {
       createAccounts: [SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: ctx, lamports: 1, space: 320, programId: new PublicKey(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3) }), B.buildCreatePortfolioAccountIxV22(payer, LP, 1, P)],

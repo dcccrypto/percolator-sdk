@@ -76,7 +76,7 @@ describe("decoders and the wrapper's favourable-close rule", () => {
   });
   it("v2.1 / unknown VERSION is a typed error, never a misread", () => {
     expect(() => Band.decodeBandConfigV22(stampMarket(new Uint8Array(1350 + 2325), 18))).toThrow(UnknownLayoutError);
-    expect(() => Band.decodeBandConfigV22(stampMarket(new Uint8Array(1398 + 2629), 20))).toThrow(UnknownLayoutError);
+    expect(() => Band.decodeBandConfigV22(stampMarket(new Uint8Array(1398 + 2661), 20))).toThrow(UnknownLayoutError);
     expect(Band.tryReadBandRentViewV22(stampMarket(new Uint8Array(1350 + 2325), 18))).toBeNull();
     expect(Band.readBandRentViewV22(market({}))).toBeNull();
   });
@@ -138,18 +138,18 @@ describe("lot helpers: one conversion, sizes never round up", () => {
     }
   });
   it("lot exponent is read VERSION-keyed", () => {
-    const d = stampMarket(new Uint8Array(1398 + 2629), 19);
+    const d = stampMarket(new Uint8Array(1398 + 2661), 19);
     d[LAYOUT_V22.marketGroupOff + LAYOUT_V22.marketGroupLen + LAYOUT_V22.wrapperSlot.profileLotExp] = 4;
     expect(Lot.lotExpOfMarketV22(d)).toBe(4);
     expect(Lot.lotExpOfMarketV22(stampMarket(new Uint8Array(1350 + 2325), 18))).toBe(0);
-    expect(() => Lot.lotExpOfMarketV22(stampMarket(new Uint8Array(1398 + 2629), 20))).toThrow(UnknownLayoutError);
+    expect(() => Lot.lotExpOfMarketV22(stampMarket(new Uint8Array(1398 + 2661), 20))).toThrow(UnknownLayoutError);
     d[LAYOUT_V22.marketGroupOff + LAYOUT_V22.marketGroupLen + LAYOUT_V22.wrapperSlot.profileLotExp] = 16;
     expect(() => Lot.lotExpOfMarketV22(d)).toThrow(RangeError);
   });
 });
 
 describe("version-keyed predicates and discovery", () => {
-  const v19 = () => stampMarket(new Uint8Array(1398 + 2629), 19);
+  const v19 = () => stampMarket(new Uint8Array(1398 + 2661), 19);
   it("predicates accept every known VERSION, refuse the rest", () => {
     expect(knownWrapperVersions()).toEqual([18, 19]);
     for (const v of [18, 19]) { expect(isV17Account(stampMarket(new Uint8Array(1500), v))).toBe(true); expect(isV17MarketAccount(stampMarket(new Uint8Array(1500), v))).toBe(true); }

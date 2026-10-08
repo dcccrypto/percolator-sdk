@@ -51,6 +51,9 @@ fn decoded(ix: &I) -> Option<String> {
         I::InsuranceBackstopDraw { mode, max_amount } => format!("{{\"variant\":\"InsuranceBackstopDraw\",\"tag\":111,\"mode\":\"{mode}\",\"maxAmount\":\"{max_amount}\"}}"),
         I::RescueDeposit { tranche, amount, min_shares } => format!("{{\"variant\":\"RescueDeposit\",\"tag\":112,\"tranche\":\"{tranche}\",\"amount\":\"{amount}\",\"minShares\":\"{min_shares}\"}}"),
         I::InitInsuranceUnits => "{\"variant\":\"InitInsuranceUnits\",\"tag\":116}".to_string(),
+        I::ProposeG9FeedAllowlist { entries } => format!("{{\"variant\":\"ProposeG9FeedAllowlist\",\"tag\":120,\"count\":\"{}\",\"pairsHex\":\"{}\"}}", entries.len(), entries.iter().map(|(k, o)| format!("{}{}", hex(k), hex(o))).collect::<Vec<_>>().join(",")),
+        I::CommitG9FeedAllowlist => "{\"variant\":\"CommitG9FeedAllowlist\",\"tag\":121}".to_string(),
+        I::InitLpShareMetadata { ticker_len, ticker } => format!("{{\"variant\":\"InitLpShareMetadata\",\"tag\":122,\"tickerLen\":\"{}\",\"tickerHex\":\"{}\"}}", ticker_len, hex(&ticker[..*ticker_len as usize])),
         I::SetG9FeedAllowlist { keys } => format!("{{\"variant\":\"SetG9FeedAllowlist\",\"tag\":117,\"count\":\"{}\",\"keysHex\":\"{}\"}}", keys.len(), keys.iter().map(|k| hex(k)).collect::<Vec<_>>().join(",")),
         _ => return None,
     })

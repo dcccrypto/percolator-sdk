@@ -756,7 +756,7 @@ describe("Pre-audit account count fixes", () => {
     expect(ACCOUNTS_RESOLVE_PERMISSIONLESS).toHaveLength(3);
     expect(ACCOUNTS_FORCE_CLOSE_RESOLVED).toHaveLength(7);
     // v17 BREAKING: CreateLpVault 8→6 (admin+market+registry+lpMint+systemProgram+tokenProgram)
-    expect(ACCOUNTS_CREATE_LP_VAULT).toHaveLength(6);
+    expect(ACCOUNTS_CREATE_LP_VAULT).toHaveLength(7);
     // v17 BREAKING: LpVaultDeposit 9→10 (ledger PDA added at [7]; systemProgram added at [9])
     // v17 DUAL-DOMAIN: 10→11 (siblingLedger at [10]; NAV spans both pots)
     expect(ACCOUNTS_LP_VAULT_DEPOSIT).toHaveLength(11);

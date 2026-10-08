@@ -25,7 +25,7 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const unhex = (s: string) => Uint8Array.from(Buffer.from(s, "hex"));
 
 describe("pinned oracle", () => {
-  it("is variant B", () => expect(FX.prog).toBe("c8501d153ed1a7bd9b1bc3343b89f47096838ead"));
+  it("is variant B", () => expect(FX.prog).toBe("8fac24e8fd67476727a5b79ec631125d57f02a5b"));
 });
 
 describe("instruction golden vectors (encoder == real decoder; real re-encode == SDK bytes)", () => {
@@ -189,6 +189,7 @@ describe("account decoders vs the program's own writes", () => {
     const g = S.decodeG9FeedAllowlistV22(unhex(A.g9Allowlist.hex));
     expect([g.count, g.bump, g.keys.length]).toEqual([2, 254, 2]);
     expect(g.keys[1].toBytes()[0]).toBe(2);
+    expect([g.owners[0].toBytes()[0], g.owners[1].toBytes()[0], g.pendingCount, g.pendingSlot]).toEqual([9, 8, 0, 0n]);
     expect(() => S.decodeG9FeedAllowlistV22(unhex(A.g9AllowlistUnlistedSet.hex))).toThrow(UnknownLayoutError);
   });
   it("redemption request, 112 and 128 bytes", () => {

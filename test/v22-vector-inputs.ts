@@ -8,7 +8,7 @@ import { encodeTradeCpi } from "../src/abi/instructions.js";
 import {
   encodeBondDepositV22, encodeBondExecuteWithdrawV22, encodeBondRequestWithdrawV22, encodeEvictAndTradeCpiV22, encodeExecuteRedemptionV22,
   encodeInitBondTrancheV22, encodeInitInsuranceUnitsV22, encodeInitMarketV22, encodeInsuranceBackstopDrawV22, encodeRequestRedeemLpSharesV22,
-  encodeRescueDepositV22, encodeSetG9FeedAllowlistV22, encodeSettleHoldingRentV22, encodeSweepBandDustLegV22,
+  encodeRescueDepositV22, encodeSetG9FeedAllowlistV22, encodeProposeG9FeedAllowlistV22, encodeCommitG9FeedAllowlistV22, encodeInitLpShareMetadataV22, encodeSettleHoldingRentV22, encodeSweepBandDustLegV22,
 } from "../src/abi/v22-wire.js";
 import { P2B_INIT_MARKET_ARGS } from "./p2b-vector-inputs.js";
 
@@ -44,6 +44,10 @@ export const V22_VECTORS: Record<string, V22Vector> = {
   execute77FloorOnly: { tag: 77, variant: "ExecuteRedemptionV22", build: () => encodeExecuteRedemptionV22({ domain: 1, minPayoutAtoms: 7n, nRefresh: 0 }), fields: { domain: "1", minPayoutAtoms: "7", nRefresh: "0" } },
   execute77RefreshOnly: { tag: 77, variant: "ExecuteRedemptionV22", build: () => encodeExecuteRedemptionV22({ domain: 2, minPayoutAtoms: 0n, nRefresh: 8 }), fields: { domain: "2", minPayoutAtoms: "0", nRefresh: "8" } },
   settleRent106: { tag: 106, variant: "SettleHoldingRent", build: () => encodeSettleHoldingRentV22(0x0102, U64), fields: { assetIndex: "258", nowSlot: U64.toString() } },
+  proposeG9_120: { tag: 120, variant: "ProposeG9FeedAllowlist", build: () => encodeProposeG9FeedAllowlistV22([{ feed: new PublicKey(new Uint8Array(32).fill(1)), owner: new PublicKey(new Uint8Array(32).fill(9)) }, { feed: new PublicKey(new Uint8Array(32).fill(2)), owner: new PublicKey(new Uint8Array(32).fill(8)) }]), fields: { count: "2" } },
+  commitG9_121: { tag: 121, variant: "CommitG9FeedAllowlist", build: () => encodeCommitG9FeedAllowlistV22(), fields: {} },
+  lpShareMeta122Generic: { tag: 122, variant: "InitLpShareMetadata", build: () => encodeInitLpShareMetadataV22(""), fields: { tickerLen: "0", tickerHex: "" } },
+  lpShareMeta122Ticker: { tag: 122, variant: "InitLpShareMetadata", build: () => encodeInitLpShareMetadataV22("SOLUSD"), fields: { tickerLen: "6", tickerHex: "534f4c555344" } },
   sweep118: { tag: 118, variant: "SweepBandDustLeg", build: () => encodeSweepBandDustLegV22(0x0304), fields: { assetIndex: "772" } },
   evict119: { tag: 119, variant: "EvictAndTradeCpi", build: () => encodeEvictAndTradeCpiV22(encodeTradeCpi(TRADE)), fields: { accountAPortfolioId: "11", accountBPortfolioId: "33", assetIndex: "258", marketId: "66", sizeQ: "-77", feeBps: "8", limitPrice: "99", backingFeeCapBps: "1234" } },
   initBond107: { tag: 107, variant: "InitBondTranche", build: () => encodeInitBondTrancheV22({ couponBps: 801, utilBonusBps: 0, cooldownSlots: 9_001, capBps: 4_999 }), fields: { couponBps: "801", utilBonusBps: "0", cooldownSlots: "9001", capBps: "4999" } },
