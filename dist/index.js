@@ -2254,7 +2254,21 @@ var ACCOUNTS_CREATE_LP_VAULT = [
   { name: "registry", signer: false, writable: true },
   { name: "lpMint", signer: false, writable: true },
   { name: "systemProgram", signer: false, writable: false },
-  { name: "tokenProgram", signer: false, writable: false }
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "collateralMint", signer: false, writable: false }
+];
+var ACCOUNTS_INIT_LP_SHARE_METADATA = [
+  { name: "payer", signer: true, writable: true },
+  { name: "registry", signer: false, writable: false },
+  { name: "lpMint", signer: false, writable: false },
+  { name: "metadata", signer: false, writable: true },
+  { name: "metaplexProgram", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "feePayerPda", signer: false, writable: true }
+];
+var ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL = [
+  { name: "market", signer: false, writable: false },
+  { name: "marketauth", signer: true, writable: false }
 ];
 var ACCOUNTS_LP_VAULT_DEPOSIT = [
   { name: "depositor", signer: true, writable: true },
@@ -3811,7 +3825,7 @@ function isMatcherCtxV2(ctxAccountData) {
 }
 var MATCHER_BATCH_HEADER_LEN = 18;
 var MATCHER_BATCH_LEG_LEN = 26;
-var WRAPPER_BATCH_MAX_LEGS = 11;
+var WRAPPER_BATCH_MAX_LEGS = 4;
 function encodeWrapperMatcherCallExt(mode, markSlot, lpHeadroomQ, execBandBps, takerReducing, acceptsFeeRequest) {
   if (mode !== 1) return new Uint8Array(MATCHER_CALL_EXT_LEN);
   const headroom = lpHeadroomQ > (1n << 64n) - 1n ? (1n << 64n) - 1n : lpHeadroomQ;
@@ -4113,7 +4127,7 @@ var STANDALONE_V22 = Object.freeze({
   bondTrancheBody: 128,
   bondPositionBody: 96,
   insuranceUnitsBody: 192,
-  g9FeedAllowlistBody: 520,
+  g9FeedAllowlistBody: 2064,
   g9FeedAllowlistCap: 16
 });
 var LAYOUT_V21 = Object.freeze({
@@ -4292,8 +4306,8 @@ var LAYOUT_V22_STAGE_A = v22Row({
 var LAYOUT_V22_VARIANT_B = v22Row({
   name: "v2.2 variant B (PROVISIONAL, launch candidate)",
   source: "percolator-prog release/v22-wrapper-rem on engine release/v22-engine-rem; numbers from the coordinator table",
-  slotStride: 2629,
-  engineSlotLen: 1605,
+  slotStride: 2661,
+  engineSlotLen: 1637,
   portfolioLen: 10603,
   legStride: 217,
   receiptOff: 10409,
@@ -5289,7 +5303,13 @@ var IX_TAG_V22 = Object.freeze({
   /** Wave B, permissionless dust sweep (renumbered 111 -> 118). */
   SweepBandDustLeg: 118,
   /** Wave B, evict-and-trade (`TradeCpi` body behind tag 119). */
-  EvictAndTradeCpi: 119
+  EvictAndTradeCpi: 119,
+  /** Wave D mainnet #539 (R-10): upgrade-authority, timelocked propose of the G9 feed allowlist ({feed, owner} pairs). */
+  ProposeG9FeedAllowlist: 120,
+  /** Wave D mainnet #539 (R-10): commit the open proposal after G9_ALLOWLIST_TIMELOCK_SLOTS (216,000). */
+  CommitG9FeedAllowlist: 121,
+  /** #545: LP share mint name / symbol / uri (Metaplex), generic or ticker form. */
+  InitLpShareMetadata: 122
 });
 var IX_TAG_EXTENDED_V22 = Object.freeze({
   InitMarket: 0,
@@ -5648,6 +5668,18 @@ function deriveInsuranceUnitsV22(programId, market) {
 function deriveG9FeedAllowlistV22(programId) {
   return PublicKey8.findProgramAddressSync([Buffer.from(SEEDS_V22.g9Feeds)], programId);
 }
+function encodeProposeG9FeedAllowlistV22(entries) {
+  if (entries.length > G9_FEED_ALLOWLIST_CAP_V22) throw new Error(`at most ${G9_FEED_ALLOWLIST_CAP_V22} entries`);
+  return concatBytes(encU8(IX_TAG_V22.ProposeG9FeedAllowlist), encU8(entries.length), ...entries.flatMap((e) => [e.feed.toBytes(), e.owner.toBytes()]));
+}
+function encodeCommitG9FeedAllowlistV22() {
+  return encU8(IX_TAG_V22.CommitG9FeedAllowlist);
+}
+function encodeInitLpShareMetadataV22(ticker = "") {
+  const t = new TextEncoder().encode(ticker);
+  if (t.length > 8) throw new Error("ticker is at most 8 bytes");
+  return concatBytes(encU8(IX_TAG_V22.InitLpShareMetadata), encU8(t.length), t);
+}
 
 // src/abi/v22-state.ts
 import { PublicKey as PublicKey9 } from "@solana/web3.js";
@@ -5793,23 +5825,42 @@ function decodeG9FeedAllowlistV22(data, table = LAYOUT_V22) {
   const count = data[b];
   const version = data[b + 1];
   const bump = data[b + 2];
+  const pendingCount = data[b + 3];
   const cap = table.accounts.g9FeedAllowlistCap;
-  if (version !== 1 || count > cap || !isZero(data.subarray(b + 3, b + 8))) throw bad(parser, "allowlist header invalid", ACCOUNT_KIND.G9FeedAllowlist);
-  const slot = (i) => data.subarray(b + 8 + 32 * i, b + 8 + 32 * (i + 1));
-  const seen = /* @__PURE__ */ new Set();
-  const keys = [];
-  for (let i = 0; i < cap; i++) {
-    const k = slot(i);
-    if (i < count) {
-      const h = Buffer.from(k).toString("hex");
-      if (isZero(k) || seen.has(h)) throw bad(parser, `listed key ${i} is zero or duplicated`, ACCOUNT_KIND.G9FeedAllowlist);
-      seen.add(h);
-      keys.push(new PublicKey9(k));
-    } else if (!isZero(k)) {
-      throw bad(parser, `unlisted slot ${i} is not zero`, ACCOUNT_KIND.G9FeedAllowlist);
-    }
+  if (version !== 1 || count > cap || pendingCount > cap || !isZero(data.subarray(b + 4, b + 8))) {
+    throw bad(parser, "allowlist header invalid", ACCOUNT_KIND.G9FeedAllowlist);
   }
-  return { count, version, bump, keys };
+  const pendingSlot = new DataView(data.buffer, data.byteOffset + b + 8, 8).getBigUint64(0, true);
+  const base = b + 16;
+  const arr = (idx, n, listed, name) => {
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (let i = 0; i < cap; i++) {
+      const k = data.subarray(base + 32 * (idx * cap + i), base + 32 * (idx * cap + i + 1));
+      if (i < n) {
+        if (listed) {
+          const h = Buffer.from(k).toString("hex");
+          if (isZero(k) || seen.has(h)) throw bad(parser, `listed ${name} ${i} is zero or duplicated`, ACCOUNT_KIND.G9FeedAllowlist);
+          seen.add(h);
+        }
+        out.push(new PublicKey9(k));
+      } else if (!isZero(k)) {
+        throw bad(parser, `unlisted ${name} slot ${i} is not zero`, ACCOUNT_KIND.G9FeedAllowlist);
+      }
+    }
+    return out;
+  };
+  return {
+    count,
+    version,
+    bump,
+    keys: arr(0, count, true, "key"),
+    owners: arr(1, count, false, "owner"),
+    pendingCount,
+    pendingSlot,
+    pendingKeys: arr(2, pendingCount, false, "pending key"),
+    pendingOwners: arr(3, pendingCount, false, "pending owner")
+  };
 }
 function decodeLpRedemptionV22(data, table = LAYOUT_V22) {
   const parser = "decodeLpRedemptionV22";
@@ -15219,6 +15270,8 @@ export {
   ACCOUNTS_INIT_BOND_TRANCHE_V22,
   ACCOUNTS_INIT_INSURANCE_UNITS_V22,
   ACCOUNTS_INIT_LP,
+  ACCOUNTS_INIT_LP_SHARE_METADATA,
+  ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL,
   ACCOUNTS_INIT_MARKET,
   ACCOUNTS_INIT_MATCHER_CTX,
   ACCOUNTS_INIT_USER,
@@ -15931,6 +15984,7 @@ export {
   encodeCloseOrphanSlab,
   encodeCloseSlab,
   encodeCloseStaleSlabs,
+  encodeCommitG9FeedAllowlistV22,
   encodeConfigureAuthMark,
   encodeConfigureEwmaMark,
   encodeConfigureHybridOracle,
@@ -15957,6 +16011,7 @@ export {
   encodeInitBondTrancheV22,
   encodeInitInsuranceUnitsV22,
   encodeInitLP,
+  encodeInitLpShareMetadataV22,
   encodeInitMarket,
   encodeInitMarketTrailerV22,
   encodeInitMarketV19,
@@ -15990,6 +16045,7 @@ export {
   encodeNftSettleFunding,
   encodePauseMarket,
   encodePermissionlessCrank,
+  encodeProposeG9FeedAllowlistV22,
   encodePushAuthMark,
   encodePushEwmaMark,
   encodeQueueWithdrawal,

@@ -155,26 +155,33 @@ export declare const INSURANCE_UNITS_FIELD_OFF_V22: Readonly<{
  * ```
  */
 export declare function decodeInsuranceUnitsV20(data: Uint8Array, table?: LayoutTable): InsuranceUnitsV20;
-/** Decoded `G9FeedAllowlistV22` (`v16_program.rs:7149..7200`). */
+/** Decoded `G9FeedAllowlistV22` (`v16_program.rs`, #539: owner-pinned entries plus one timelocked pending proposal). */
 export interface G9FeedAllowlistV22 {
     count: number;
     version: number;
     bump: number;
-    /** The first `count` keys. */
+    /** The first `count` listed feeds. */
     keys: PublicKey[];
+    /** The owner pinned for each listed feed (same order as `keys`). */
+    owners: PublicKey[];
+    /** Entries of the open proposal (0 = none). */
+    pendingCount: number;
+    /** Slot of the open proposal (0 = none); a commit needs `now >= pendingSlot + G9_ALLOWLIST_TIMELOCK_SLOTS` (216,000). */
+    pendingSlot: bigint;
+    pendingKeys: PublicKey[];
+    pendingOwners: PublicKey[];
 }
 /**
- * Decode the G9 Switchboard feed allowlist.
+ * Decode the G9 feed allowlist (feed + pinned owner per entry, plus the pending proposal).
  *
- * @param data   Raw account bytes (`16 + 520`).
+ * Body (2,064 B, align 1): count u8, version u8, bump u8, pending_count u8, pad[4], pending_slot u64 LE, keys[16][32],
+ * owners[16][32], pending_keys[16][32], pending_owners[16][32].
+ *
+ * @param data   Raw account bytes (`16 + 2064`).
  * @param table  Layout table (default {@link LAYOUT_V22}).
  * @returns The allowlist.
- * @throws {@link UnknownLayoutError} on a wrong header, short data, `count > 16`, a zero or duplicate listed
- *   key, a non-zero unlisted slot or non-zero padding.
- * @example
- * ```ts
- * const list = decodeG9FeedAllowlistV22(info.data);
- * ```
+ * @throws {@link UnknownLayoutError} on a wrong header, short data, `count`/`pending_count` > 16, non-zero padding, a
+ *   zero or duplicate listed key, or a non-zero unlisted slot (keys or owners).
  */
 export declare function decodeG9FeedAllowlistV22(data: Uint8Array, table?: LayoutTable): G9FeedAllowlistV22;
 /** Decoded redemption request, both account lengths. */

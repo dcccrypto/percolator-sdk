@@ -42,6 +42,12 @@ export declare const IX_TAG_V22: Readonly<{
     readonly SweepBandDustLeg: 118;
     /** Wave B, evict-and-trade (`TradeCpi` body behind tag 119). */
     readonly EvictAndTradeCpi: 119;
+    /** Wave D mainnet #539 (R-10): upgrade-authority, timelocked propose of the G9 feed allowlist ({feed, owner} pairs). */
+    readonly ProposeG9FeedAllowlist: 120;
+    /** Wave D mainnet #539 (R-10): commit the open proposal after G9_ALLOWLIST_TIMELOCK_SLOTS (216,000). */
+    readonly CommitG9FeedAllowlist: 121;
+    /** #545: LP share mint name / symbol / uri (Metaplex), generic or ticker form. */
+    readonly InitLpShareMetadata: 122;
 }>;
 /** Existing tags whose WIRE or ACCOUNT LIST the v2.2 stack extends. */
 export declare const IX_TAG_EXTENDED_V22: Readonly<{
@@ -597,3 +603,21 @@ export declare function deriveInsuranceUnitsV22(programId: PublicKey, market: Pu
  * ```
  */
 export declare function deriveG9FeedAllowlistV22(programId: PublicKey): [PublicKey, number];
+/**
+ * ProposeG9FeedAllowlist (tag 120): `[120][n u8 <= 16]` then n x `{feed[32], owner[32]}`.
+ * @param entries  Up to 16 `{ feed, owner }` pairs.
+ * @returns `2 + 64 n` bytes.
+ */
+export declare function encodeProposeG9FeedAllowlistV22(entries: {
+    feed: PublicKey;
+    owner: PublicKey;
+}[]): Uint8Array;
+/** CommitG9FeedAllowlist (tag 121): `[121]`, no payload. */
+export declare function encodeCommitG9FeedAllowlistV22(): Uint8Array;
+/**
+ * InitLpShareMetadata (tag 122): `[122][n u8 0..=8][n ticker bytes]`. `n == 0` is the generic form (anyone pays); `n > 0`
+ * is the ticker form (marketauth signs; the name is frozen). The ticker must be ASCII, the program's own check decides
+ * which characters it accepts (`lp_share_meta_v22.rs`).
+ * @param ticker  Empty or 1..=8 ASCII bytes.
+ */
+export declare function encodeInitLpShareMetadataV22(ticker?: string): Uint8Array;

@@ -566,11 +566,20 @@ export declare const ACCOUNTS_UPDATE_HYPERP_MARK: readonly AccountSpec[];
  *   [3] lpMint         writable (LP share mint PDA — derived via deriveLpVaultMint())
  *   [4] systemProgram  read-only (required for create_account CPI)
  *   [5] tokenProgram   read-only
+ *   [6] collateralMint read-only (v2.2 #545: the market's primary collateral mint, == config.collateral_mint; the share
+ *                      mint is created with the collateral mint's decimals. The six-account form is REFUSED.)
  *
  * v12 stale accounts removed: vaultAuthority, rent (Rent::get() used instead).
  * registry replaces lpVaultState; lpMint replaces lpVaultMint.
  */
 export declare const ACCOUNTS_CREATE_LP_VAULT: readonly AccountSpec[];
+/**
+ * InitLpShareMetadata (tag 122, v2.2 #545): 7 accounts for the generic form (ticker length 0), 9 with a ticker.
+ * `[7]` market and `[8]` marketauth (signer) are only passed when the data carries a ticker.
+ */
+export declare const ACCOUNTS_INIT_LP_SHARE_METADATA: readonly AccountSpec[];
+/** Extra accounts of the ticker form of tag 122: market (read-only) then marketauth (signer). */
+export declare const ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL: readonly AccountSpec[];
 /**
  * DepositToLpVault (tag 75): 10 accounts.
  *
