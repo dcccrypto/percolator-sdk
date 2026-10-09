@@ -8,9 +8,9 @@
  * @module v22-lp-share
  */
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import { ACCOUNTS_INIT_LP_SHARE_METADATA, ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL, buildAccountMetas } from "../abi/accounts.js";
+import { buildAccountMetas } from "../abi/accounts.js";
 import { encodeInitLpShareMetadataV22 } from "../abi/v22-wire.js";
-import { METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22, isLpShareTickerV22 } from "../abi/v22-lp-share.js";
+import { ACCOUNTS_INIT_LP_SHARE_METADATA, ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL, METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22, isLpShareTickerV22 } from "../abi/v22-lp-share.js";
 import { deriveInsuranceLpMint, deriveLpVaultRegistry } from "./pda.js";
 
 const te = new TextEncoder();

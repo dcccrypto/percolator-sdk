@@ -10,6 +10,7 @@
  * @module v22-lp-share
  */
 import { PublicKey } from "@solana/web3.js";
+import type { AccountSpec } from "./accounts.js";
 
 export const LP_SHARE_TICKER_MAX_V22 = 8;
 export const LP_SHARE_NAME_PREFIX_V22 = "Percolator Earn Share ";
@@ -130,3 +131,23 @@ export function parseLpShareMetadataRecordV22(data: Uint8Array): LpShareMetadata
   if (!im || (im[0] !== 0 && im[0] !== 1)) return null;
   return { updateAuthority: new PublicKey(ua.slice()), mint: new PublicKey(mint.slice()), name, symbol, uri, isMutable: im[0] === 1 };
 }
+
+/**
+ * InitLpShareMetadata (tag 122) accounts: 7 for the generic form (ticker length 0), 9 with a ticker.
+ * `[7]` market and `[8]` marketauth (signer) are only passed when the data carries a ticker ({@link ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL}).
+ */
+export const ACCOUNTS_INIT_LP_SHARE_METADATA: readonly AccountSpec[] = [
+  { name: "payer", signer: true, writable: true },
+  { name: "registry", signer: false, writable: false },
+  { name: "lpMint", signer: false, writable: false },
+  { name: "metadata", signer: false, writable: true },
+  { name: "metaplexProgram", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "feePayerPda", signer: false, writable: true },
+] as const;
+
+/** Extra accounts of the ticker form of tag 122: market (read-only) then marketauth (signer). */
+export const ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL: readonly AccountSpec[] = [
+  { name: "market", signer: false, writable: false },
+  { name: "marketauth", signer: true, writable: false },
+] as const;

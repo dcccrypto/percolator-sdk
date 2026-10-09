@@ -674,6 +674,22 @@ export function encodeSetG9FeedAllowlistV22(keys: readonly (PublicKey | Uint8Arr
 // ============================================================================
 
 /**
+ * Tag 74 CreateLpVault on the v2.2 wrapper (7): the six v2.1 accounts plus `[6]` the market's primary collateral mint (read-only; must
+ * equal `config.collateral_mint`, a classic SPL mint). The six-account form is REFUSED (`NotEnoughAccountKeys`); the share mint is
+ * created with the collateral mint's decimals. Instruction data is unchanged ({@link encodeCreateLpVaultV17}). Equal to
+ * `ACCOUNTS_CREATE_LP_VAULT` of this SDK; kept here so an app that vendors only the v2.2 files has the 7-account list.
+ */
+export const ACCOUNTS_CREATE_LP_VAULT_V22: readonly AccountSpec[] = [
+  { name: "admin", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "registry", signer: false, writable: true },
+  { name: "lpMint", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "collateralMint", signer: false, writable: false },
+] as const;
+
+/**
  * Tag 76 RequestRedeemLpShares (8): `v16_program.rs:28751..28770`. The request PDA `[5]` is
  * `["lp_redemption", registry, redeemer]`; with the v2.2 wire it is created 128 bytes long.
  */

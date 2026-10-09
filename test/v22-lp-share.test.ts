@@ -2,6 +2,8 @@
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import * as S from "../src/abi/v22-lp-share.js";
+import { ACCOUNTS_CREATE_LP_VAULT, ACCOUNTS_INIT_LP_SHARE_METADATA, ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL } from "../src/abi/accounts.js";
+import { ACCOUNTS_CREATE_LP_VAULT_V22 } from "../src/abi/v22-wire.js";
 import * as B from "../src/solana/v22-lp-share.js";
 import { encodeInitLpShareMetadataV22 } from "../src/abi/v22-wire.js";
 import { deriveInsuranceLpMint, deriveLpVaultRegistry } from "../src/solana/pda.js";
@@ -131,5 +133,18 @@ describe("metadata record reader (NUL padding trimmed, strict)", () => {
     const long = b.slice(); long[65] = 255; long[66] = 255; // name length 65,535 > 32
     expect(S.parseLpShareMetadataRecordV22(long)).toBeNull();
     for (let i = 0; i < b.length; i += 7) expect(() => S.parseLpShareMetadataRecordV22(b.slice(0, i))).not.toThrow();
+  });
+});
+
+describe("tag 74 on v2.2: the 7th account (collateral mint)", () => {
+  it("ACCOUNTS_CREATE_LP_VAULT_V22 == ACCOUNTS_CREATE_LP_VAULT, 7 entries, [6] read-only collateralMint; the six-account list is not it", () => {
+    expect(ACCOUNTS_CREATE_LP_VAULT_V22).toEqual(ACCOUNTS_CREATE_LP_VAULT);
+    expect(ACCOUNTS_CREATE_LP_VAULT_V22).toHaveLength(7);
+    expect(ACCOUNTS_CREATE_LP_VAULT_V22[6]).toEqual({ name: "collateralMint", signer: false, writable: false });
+    expect(ACCOUNTS_CREATE_LP_VAULT_V22.slice(0, 6).map((a) => a.name)).toEqual(["admin", "market", "registry", "lpMint", "systemProgram", "tokenProgram"]);
+  });
+  it("tag 122 specs are the ones accounts.ts exports (one definition)", () => {
+    expect(ACCOUNTS_INIT_LP_SHARE_METADATA).toBe(S.ACCOUNTS_INIT_LP_SHARE_METADATA);
+    expect(ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL).toBe(S.ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL);
   });
 });
