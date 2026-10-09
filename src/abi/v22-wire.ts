@@ -142,6 +142,24 @@ export const BOND_COOLDOWN_MAX_SLOTS_V22 = 1_512_000;
 export const BOND_CAP_MAX_BPS_V22 = 5_000;
 /** Coupon ceiling per crank, bps of the harvested LP fee leg (review M-2). */
 export const BOND_COUPON_MAX_LEG_BPS_V22 = 5_000;
+/**
+ * `WRAPPER_MAX_PORTFOLIO_ASSETS` = 4 (percolator-prog#546, founder-confirmed FINAL 2026-10-08): a portfolio holds at most 4 legs and
+ * InitMarket refuses `max_portfolio_assets` above it (error 14).
+ */
+export const WRAPPER_MAX_PORTFOLIO_ASSETS_V22 = 4;
+/**
+ * `MATCHER_BATCH_MAX_LEGS` = min(11, {@link WRAPPER_MAX_PORTFOLIO_ASSETS_V22}) = 4: legs per BatchTradeCpi (5+ fail InvalidInstruction), and the
+ * most trade legs a client should pack into one transaction (4 legs measured 689,000 CU; 714,967 with the growth ext).
+ */
+export const BATCH_MAX_LEGS_V22 = 4;
+
+/**
+ * Client guard for the v2.2 leg cap: a batch (or one transaction's trade legs) of `n` legs must be 1..={@link BATCH_MAX_LEGS_V22}.
+ * @throws a plain `Error` naming the cap (the wrapper would answer InvalidInstruction, Custom 9).
+ */
+export function assertBatchLegsV22(n: number): void {
+  if (!Number.isInteger(n) || n < 1 || n > BATCH_MAX_LEGS_V22) throw new Error(`a v2.2 batch carries 1..=${BATCH_MAX_LEGS_V22} legs, got ${n}`);
+}
 /** `bond_v20::SLOTS_PER_YEAR` (400 ms slots). */
 export const SLOTS_PER_YEAR_V22 = 78_840_000n;
 

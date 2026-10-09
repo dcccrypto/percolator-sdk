@@ -296,3 +296,17 @@ describe("stake v5", () => {
     expect(LAYOUT_V22.accounts.insuranceUnitsBody + 16).toBe(208);
   });
 });
+
+describe("v2.2 leg caps (percolator-prog#546)", () => {
+  it("portfolio and batch caps are 4 and agree with the matcher-v2 constant", async () => {
+    const { WRAPPER_BATCH_MAX_LEGS } = await import("../src/abi/matcher-v2.js");
+    expect(W.WRAPPER_MAX_PORTFOLIO_ASSETS_V22).toBe(4);
+    expect(W.BATCH_MAX_LEGS_V22).toBe(4);
+    expect(W.BATCH_MAX_LEGS_V22).toBe(WRAPPER_BATCH_MAX_LEGS);
+    expect(W.BATCH_MAX_LEGS_V22).toBeLessThanOrEqual(W.WRAPPER_MAX_PORTFOLIO_ASSETS_V22);
+  });
+  it("assertBatchLegsV22: 1..4 pass, 0 / 5 / 1.5 / NaN throw", () => {
+    for (const n of [1, 2, 3, 4]) expect(() => W.assertBatchLegsV22(n)).not.toThrow();
+    for (const n of [0, 5, 11, 14, 1.5, Number.NaN, -1]) expect(() => W.assertBatchLegsV22(n)).toThrow(/1\.\.=4/);
+  });
+});
