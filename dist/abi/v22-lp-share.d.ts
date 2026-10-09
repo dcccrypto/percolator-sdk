@@ -10,6 +10,7 @@
  * @module v22-lp-share
  */
 import { PublicKey } from "@solana/web3.js";
+import type { AccountSpec } from "./accounts.js";
 export declare const LP_SHARE_TICKER_MAX_V22 = 8;
 export declare const LP_SHARE_NAME_PREFIX_V22 = "Percolator Earn Share ";
 export declare const LP_SHARE_NAME_MARKET_CHARS_V22 = 8;
@@ -66,3 +67,10 @@ export interface LpShareMetadataRecordV22 {
  * not ours says whatever its creator wanted.
  */
 export declare function parseLpShareMetadataRecordV22(data: Uint8Array): LpShareMetadataRecordV22 | null;
+/**
+ * InitLpShareMetadata (tag 122) accounts: 7 for the generic form (ticker length 0), 9 with a ticker.
+ * `[7]` market and `[8]` marketauth (signer) are only passed when the data carries a ticker ({@link ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL}).
+ */
+export declare const ACCOUNTS_INIT_LP_SHARE_METADATA: readonly AccountSpec[];
+/** Extra accounts of the ticker form of tag 122: market (read-only) then marketauth (signer). */
+export declare const ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL: readonly AccountSpec[];

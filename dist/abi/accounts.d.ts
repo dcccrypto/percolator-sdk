@@ -573,13 +573,8 @@ export declare const ACCOUNTS_UPDATE_HYPERP_MARK: readonly AccountSpec[];
  * registry replaces lpVaultState; lpMint replaces lpVaultMint.
  */
 export declare const ACCOUNTS_CREATE_LP_VAULT: readonly AccountSpec[];
-/**
- * InitLpShareMetadata (tag 122, v2.2 #545): 7 accounts for the generic form (ticker length 0), 9 with a ticker.
- * `[7]` market and `[8]` marketauth (signer) are only passed when the data carries a ticker.
- */
-export declare const ACCOUNTS_INIT_LP_SHARE_METADATA: readonly AccountSpec[];
-/** Extra accounts of the ticker form of tag 122: market (read-only) then marketauth (signer). */
-export declare const ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL: readonly AccountSpec[];
+/** InitLpShareMetadata (tag 122, v2.2 #545): the account specs live with the rest of the tag in ./v22-lp-share.ts. */
+export { ACCOUNTS_INIT_LP_SHARE_METADATA, ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL } from "./v22-lp-share.js";
 /**
  * DepositToLpVault (tag 75): 10 accounts.
  *

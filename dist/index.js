@@ -1861,6 +1861,100 @@ import {
   SystemProgram
 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+
+// src/abi/v22-lp-share.ts
+import { PublicKey as PublicKey2 } from "@solana/web3.js";
+var LP_SHARE_TICKER_MAX_V22 = 8;
+var LP_SHARE_NAME_PREFIX_V22 = "Percolator Earn Share ";
+var LP_SHARE_NAME_MARKET_CHARS_V22 = 8;
+var LP_SHARE_GENERIC_SYMBOL_V22 = "pEARN";
+var LP_SHARE_TICKER_NAME_PREFIX_V22 = "Percolator Earn ";
+var LP_SHARE_TICKER_NAME_MARKET_CHARS_V22 = 6;
+var LP_SHARE_SYMBOL_PREFIX_V22 = "pe";
+var MPL_MAX_NAME_LEN_V22 = 32;
+var MPL_MAX_SYMBOL_LEN_V22 = 10;
+var MPL_MAX_URI_LEN_V22 = 200;
+var LP_SHARE_URI_BASE_DEVNET_V22 = "https://play.percolator.trade";
+var LP_SHARE_URI_BASE_MAINNET_V22 = "https://percolator.trade";
+var LP_SHARE_URI_PATH_V22 = "/api/earn-share/";
+var LP_SHARE_META_FUND_LAMPORTS_V22 = 30000000n;
+var METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22 = new PublicKey2("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+var MPL_KEY_METADATA_V1 = 4;
+function lpShareTickerFromSymbolV22(symbol) {
+  if (!symbol) return "";
+  return symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, LP_SHARE_TICKER_MAX_V22);
+}
+function isLpShareTickerV22(ticker) {
+  return /^[A-Z0-9]{1,8}$/.test(ticker);
+}
+function lpShareIdentityV22(market, ticker, uriBase = LP_SHARE_URI_BASE_DEVNET_V22) {
+  const b58 = market.toBase58();
+  const uri = `${uriBase}${LP_SHARE_URI_PATH_V22}${b58}`;
+  if (ticker === "") {
+    return { name: `${LP_SHARE_NAME_PREFIX_V22}${b58.slice(0, LP_SHARE_NAME_MARKET_CHARS_V22)}`, symbol: LP_SHARE_GENERIC_SYMBOL_V22, uri, ticker: false };
+  }
+  if (!isLpShareTickerV22(ticker)) throw new Error(`ticker must be 1..8 characters of A-Z 0-9, got ${JSON.stringify(ticker)}`);
+  return {
+    name: `${LP_SHARE_TICKER_NAME_PREFIX_V22}${ticker} ${b58.slice(0, LP_SHARE_TICKER_NAME_MARKET_CHARS_V22)}`,
+    symbol: `${LP_SHARE_SYMBOL_PREFIX_V22}${ticker}`,
+    uri,
+    ticker: true
+  };
+}
+function parseLpShareMetadataRecordV22(data) {
+  let o = 0;
+  const take = (n) => {
+    if (o + n > data.length) return null;
+    const s = data.subarray(o, o + n);
+    o += n;
+    return s;
+  };
+  const takeStr = (max) => {
+    const l = take(4);
+    if (!l) return null;
+    const n = new DataView(l.buffer, l.byteOffset, 4).getUint32(0, true);
+    if (n > max) return null;
+    const s = take(n);
+    if (!s) return null;
+    let end = s.length;
+    while (end > 0 && s[end - 1] === 0) end--;
+    return new TextDecoder("utf-8", { fatal: false }).decode(s.subarray(0, end));
+  };
+  const key3 = take(1);
+  if (!key3 || key3[0] !== MPL_KEY_METADATA_V1) return null;
+  const ua = take(32), mint = take(32);
+  if (!ua || !mint) return null;
+  const name = takeStr(MPL_MAX_NAME_LEN_V22), symbol = takeStr(MPL_MAX_SYMBOL_LEN_V22), uri = takeStr(MPL_MAX_URI_LEN_V22);
+  if (name === null || symbol === null || uri === null) return null;
+  if (!take(2)) return null;
+  const hc = take(1);
+  if (!hc) return null;
+  if (hc[0] === 1) {
+    const nl = take(4);
+    if (!nl) return null;
+    const n = new DataView(nl.buffer, nl.byteOffset, 4).getUint32(0, true);
+    if (n > 5 || !take(n * 34)) return null;
+  } else if (hc[0] !== 0) return null;
+  if (!take(1)) return null;
+  const im = take(1);
+  if (!im || im[0] !== 0 && im[0] !== 1) return null;
+  return { updateAuthority: new PublicKey2(ua.slice()), mint: new PublicKey2(mint.slice()), name, symbol, uri, isMutable: im[0] === 1 };
+}
+var ACCOUNTS_INIT_LP_SHARE_METADATA = [
+  { name: "payer", signer: true, writable: true },
+  { name: "registry", signer: false, writable: false },
+  { name: "lpMint", signer: false, writable: false },
+  { name: "metadata", signer: false, writable: true },
+  { name: "metaplexProgram", signer: false, writable: false },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "feePayerPda", signer: false, writable: true }
+];
+var ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL = [
+  { name: "market", signer: false, writable: false },
+  { name: "marketauth", signer: true, writable: false }
+];
+
+// src/abi/accounts.ts
 var ACCOUNTS_INIT_MARKET = [
   { name: "admin", signer: true, writable: true },
   { name: "slab", signer: false, writable: true },
@@ -2256,19 +2350,6 @@ var ACCOUNTS_CREATE_LP_VAULT = [
   { name: "systemProgram", signer: false, writable: false },
   { name: "tokenProgram", signer: false, writable: false },
   { name: "collateralMint", signer: false, writable: false }
-];
-var ACCOUNTS_INIT_LP_SHARE_METADATA = [
-  { name: "payer", signer: true, writable: true },
-  { name: "registry", signer: false, writable: false },
-  { name: "lpMint", signer: false, writable: false },
-  { name: "metadata", signer: false, writable: true },
-  { name: "metaplexProgram", signer: false, writable: false },
-  { name: "systemProgram", signer: false, writable: false },
-  { name: "feePayerPda", signer: false, writable: true }
-];
-var ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL = [
-  { name: "market", signer: false, writable: false },
-  { name: "marketauth", signer: true, writable: false }
 ];
 var ACCOUNTS_LP_VAULT_DEPOSIT = [
   { name: "depositor", signer: true, writable: true },
@@ -3192,10 +3273,10 @@ function parseErrorFromLogs(logs) {
 }
 
 // src/abi/nft.ts
-import { PublicKey as PublicKey4 } from "@solana/web3.js";
+import { PublicKey as PublicKey5 } from "@solana/web3.js";
 
 // src/config/program-ids.ts
-import { PublicKey as PublicKey3 } from "@solana/web3.js";
+import { PublicKey as PublicKey4 } from "@solana/web3.js";
 function safeEnv(key3) {
   try {
     return typeof process !== "undefined" && process?.env ? process.env[key3] : void 0;
@@ -3246,7 +3327,7 @@ var PROGRAM_IDS_DEVNET_V1 = {
   vault: "VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w"
 };
 Object.freeze(PROGRAM_IDS_DEVNET_V1);
-var PROGRAM_ID_V17 = new PublicKey3(PROGRAM_IDS_V17.percolator);
+var PROGRAM_ID_V17 = new PublicKey4(PROGRAM_IDS_V17.percolator);
 var KNOWN_PROGRAM_IDS = /* @__PURE__ */ new Set([
   PROGRAM_IDS.devnet.percolator,
   PROGRAM_IDS.mainnet.percolator,
@@ -3273,13 +3354,13 @@ function getProgramId(network) {
         );
       }
       console.warn(`[percolator-sdk] PROGRAM_ID env override active: ${override}`);
-      return new PublicKey3(override);
+      return new PublicKey4(override);
     }
   }
   const detectedNetwork = getCurrentNetwork();
   const targetNetwork = network ?? detectedNetwork;
   const programId = PROGRAM_IDS[targetNetwork].percolator;
-  return new PublicKey3(programId);
+  return new PublicKey4(programId);
 }
 function getMatcherProgramId(network) {
   if (network === void 0) {
@@ -3291,7 +3372,7 @@ function getMatcherProgramId(network) {
         );
       }
       console.warn(`[percolator-sdk] MATCHER_PROGRAM_ID env override active: ${override}`);
-      return new PublicKey3(override);
+      return new PublicKey4(override);
     }
   }
   const detectedNetwork = getCurrentNetwork();
@@ -3300,7 +3381,7 @@ function getMatcherProgramId(network) {
   if (!programId) {
     throw new Error(`Matcher program not deployed on ${targetNetwork}`);
   }
-  return new PublicKey3(programId);
+  return new PublicKey4(programId);
 }
 function getCurrentNetwork() {
   const network = safeEnv("NETWORK")?.toLowerCase();
@@ -3325,7 +3406,7 @@ if (NFT_PROGRAM_OVERRIDE !== void 0 && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM_OV
     `[percolator-sdk] NFT_PROGRAM_ID env var "${NFT_PROGRAM_OVERRIDE}" is not a known NFT program address. Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. Pass the programId argument explicitly to bypass env resolution.`
   );
 }
-var NFT_PROGRAM_ID = new PublicKey4(NFT_PROGRAM_OVERRIDE ?? PROGRAM_IDS_V17.nft);
+var NFT_PROGRAM_ID = new PublicKey5(NFT_PROGRAM_OVERRIDE ?? PROGRAM_IDS_V17.nft);
 function getNftProgramId() {
   return NFT_PROGRAM_ID;
 }
@@ -3438,7 +3519,7 @@ function u64Buf(value, label) {
   return buf;
 }
 function deriveNftPda(portfolioAccount, marketId, programId = NFT_PROGRAM_ID) {
-  return PublicKey4.findProgramAddressSync(
+  return PublicKey5.findProgramAddressSync(
     [TEXT.encode("position_nft"), portfolioAccount.toBytes(), u64Buf(marketId, "marketId")],
     programId
   );
@@ -3447,13 +3528,13 @@ function deriveNftMint(_portfolioAccount, _assetIndex, _programId = NFT_PROGRAM_
   throw new Error("deriveNftMint: v16 NFT mint is a fresh signer keypair, not a PDA");
 }
 function deriveMintAuthority(programId = NFT_PROGRAM_ID) {
-  return PublicKey4.findProgramAddressSync(
+  return PublicKey5.findProgramAddressSync(
     [TEXT.encode("mint_authority")],
     programId
   );
 }
 function deriveExtraAccountMetas(nftMint, programId = NFT_PROGRAM_ID) {
-  return PublicKey4.findProgramAddressSync(
+  return PublicKey5.findProgramAddressSync(
     [TEXT.encode("extra-account-metas"), nftMint.toBytes()],
     programId
   );
@@ -3485,12 +3566,12 @@ function parsePositionNftAccount(data) {
   if (data[8] !== POSITION_NFT_VERSION) {
     throw new Error(`PositionNft account has invalid version: ${data[8]}`);
   }
-  const positionOwnerAtMint = new PublicKey4(data.subarray(127, 159));
+  const positionOwnerAtMint = new PublicKey5(data.subarray(127, 159));
   return {
     version: data[8],
     bump: data[9],
-    portfolioAccount: new PublicKey4(data.subarray(10, 42)),
-    nftMint: new PublicKey4(data.subarray(42, 74)),
+    portfolioAccount: new PublicKey5(data.subarray(10, 42)),
+    nftMint: new PublicKey5(data.subarray(42, 74)),
     assetIndex: view2.getUint32(74, true),
     sideAtMint: data[78],
     basisPosQAtMint: readI128FromView(view2, 79),
@@ -3500,12 +3581,12 @@ function parsePositionNftAccount(data) {
     positionOwnerAtMint,
     positionOwner: positionOwnerAtMint,
     mintedAt: view2.getBigInt64(159, true),
-    lastHolder: new PublicKey4(data.subarray(167, 199))
+    lastHolder: new PublicKey5(data.subarray(167, 199))
   };
 }
 
 // src/abi/matcher-v2.ts
-import { PublicKey as PublicKey5, TransactionInstruction } from "@solana/web3.js";
+import { PublicKey as PublicKey6, TransactionInstruction } from "@solana/web3.js";
 var MATCHER_CONFIGURE_TAG = 5;
 var MATCHER_CONFIGURE_AUTH_LP_PDA = 0;
 var MATCHER_CONFIGURE_AUTH_OWNER_PROOF = 1;
@@ -3735,7 +3816,7 @@ function matcherConfigureOwnerProofAccounts(lpOwner, matcherCtx) {
   ];
 }
 function deriveProof(a) {
-  const [, bump] = PublicKey5.findProgramAddressSync(
+  const [, bump] = PublicKey6.findProgramAddressSync(
     [
       new TextEncoder().encode("matcher"),
       a.market.toBytes(),
@@ -4466,7 +4547,7 @@ function base58Encode(bytes) {
 }
 
 // src/abi/risk-limits-p1.ts
-import { PublicKey as PublicKey6, TransactionInstruction as TransactionInstruction2 } from "@solana/web3.js";
+import { PublicKey as PublicKey7, TransactionInstruction as TransactionInstruction2 } from "@solana/web3.js";
 var IX_TAG_P1 = Object.freeze({ SetAssetRiskLimits: 93 });
 var MAX_EXEC_BAND_BPS_P1 = 1e4;
 var MAX_LP_EXPOSURE_K_BPS_P1 = 1e7;
@@ -4503,9 +4584,9 @@ var ACCOUNTS_SET_ASSET_RISK_LIMITS_P1 = [
   { name: "programData", signer: false, writable: false },
   { name: "market", signer: false, writable: true }
 ];
-var BPF_LOADER_UPGRADEABLE = new PublicKey6("BPFLoaderUpgradeab1e11111111111111111111111");
+var BPF_LOADER_UPGRADEABLE = new PublicKey7("BPFLoaderUpgradeab1e11111111111111111111111");
 function buildSetAssetRiskLimitsIxP1(programId, market, upgradeAuthority, args) {
-  const [programData] = PublicKey6.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE);
+  const [programData] = PublicKey7.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE);
   return new TransactionInstruction2({
     programId,
     keys: buildAccountMetas(ACCOUNTS_SET_ASSET_RISK_LIMITS_P1, { upgradeAuthority, programData, market }),
@@ -4895,7 +4976,7 @@ function markExtV3TakerReducing(v3, takerReducing) {
 var GROWTH_U64_MAX = U64_MAX2;
 
 // src/abi/p2b-lock-exits.ts
-import { PublicKey as PublicKey7, TransactionInstruction as TransactionInstruction3 } from "@solana/web3.js";
+import { PublicKey as PublicKey8, TransactionInstruction as TransactionInstruction3 } from "@solana/web3.js";
 var IX_TAG_P2B = Object.freeze({ AdlWindDown: 104, SetAdlWindDownMaxSlots: 105 });
 var ADL_WIND_DOWN_DEFAULT_MAX_EPISODE_SLOTS = 9e3;
 var ADL_WIND_DOWN_MAX_MARK_AGE_SLOTS = 150;
@@ -4939,9 +5020,9 @@ var ACCOUNTS_SET_ADL_WIND_DOWN_MAX_SLOTS = [
   { name: "programData", signer: false, writable: false },
   { name: "market", signer: false, writable: true }
 ];
-var BPF_LOADER_UPGRADEABLE2 = new PublicKey7("BPFLoaderUpgradeab1e11111111111111111111111");
+var BPF_LOADER_UPGRADEABLE2 = new PublicKey8("BPFLoaderUpgradeab1e11111111111111111111111");
 function buildSetAdlWindDownMaxSlotsIx(programId, market, upgradeAuthority, args) {
-  const [programData] = PublicKey7.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE2);
+  const [programData] = PublicKey8.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE2);
   return new TransactionInstruction3({
     programId,
     keys: buildAccountMetas(ACCOUNTS_SET_ADL_WIND_DOWN_MAX_SLOTS, { upgradeAuthority, programData, market }),
@@ -5283,7 +5364,7 @@ function entryVsExitP2b(shares, totalShares, pricing) {
 }
 
 // src/abi/v22-wire.ts
-import { PublicKey as PublicKey8 } from "@solana/web3.js";
+import { PublicKey as PublicKey9 } from "@solana/web3.js";
 var IX_TAG_V22 = Object.freeze({
   /** Wave B, permissionless holding-rent settle (`TAG_SETTLE_HOLDING_RENT`). */
   SettleHoldingRent: 106,
@@ -5362,6 +5443,11 @@ var BOND_COOLDOWN_MIN_SLOTS_V22 = 9e3;
 var BOND_COOLDOWN_MAX_SLOTS_V22 = 1512e3;
 var BOND_CAP_MAX_BPS_V22 = 5e3;
 var BOND_COUPON_MAX_LEG_BPS_V22 = 5e3;
+var WRAPPER_MAX_PORTFOLIO_ASSETS_V22 = 4;
+var BATCH_MAX_LEGS_V22 = 4;
+function assertBatchLegsV22(n) {
+  if (!Number.isInteger(n) || n < 1 || n > BATCH_MAX_LEGS_V22) throw new Error(`a v2.2 batch carries 1..=${BATCH_MAX_LEGS_V22} legs, got ${n}`);
+}
 var SLOTS_PER_YEAR_V22 = 78840000n;
 var RESCUE_NAV_FLOOR_BPS_V22 = 500;
 var RESCUE_MIN_ATOMS_V22 = 100000000n;
@@ -5523,7 +5609,7 @@ function encodeInitInsuranceUnitsV22() {
 }
 function encodeSetG9FeedAllowlistV22(keys) {
   if (keys.length > G9_FEED_ALLOWLIST_CAP_V22) throw new Error(`at most ${G9_FEED_ALLOWLIST_CAP_V22} feeds, got ${keys.length}`);
-  const raw = keys.map((k) => k instanceof PublicKey8 ? k.toBytes() : k);
+  const raw = keys.map((k) => k instanceof PublicKey9 ? k.toBytes() : k);
   const seen = /* @__PURE__ */ new Set();
   for (const k of raw) {
     if (k.length !== 32) throw new Error("each feed key must be 32 bytes");
@@ -5534,6 +5620,15 @@ function encodeSetG9FeedAllowlistV22(keys) {
   }
   return concatBytes(encU8(IX_TAG_V22.SetG9FeedAllowlist), encU8(raw.length), ...raw);
 }
+var ACCOUNTS_CREATE_LP_VAULT_V22 = [
+  { name: "admin", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "registry", signer: false, writable: true },
+  { name: "lpMint", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "collateralMint", signer: false, writable: false }
+];
 var ACCOUNTS_REQUEST_REDEEM_LP_SHARES_V22 = [
   { name: "redeemer", signer: true, writable: true },
   { name: "registry", signer: false, writable: false },
@@ -5657,16 +5752,16 @@ var INSURANCE_UNITS_TAIL_FROM_V22 = Object.freeze({ 9: 5, 56: 5, 57: 6, 41: 6, 1
 var LP_REDEMPTION_LEGACY_ACCOUNT_LEN = 112;
 var LP_REDEMPTION_V22_ACCOUNT_LEN = 128;
 function deriveBondTrancheV22(programId, market) {
-  return PublicKey8.findProgramAddressSync([Buffer.from(SEEDS_V22.bondTranche), market.toBuffer()], programId);
+  return PublicKey9.findProgramAddressSync([Buffer.from(SEEDS_V22.bondTranche), market.toBuffer()], programId);
 }
 function deriveBondPositionV22(programId, market, owner) {
-  return PublicKey8.findProgramAddressSync([Buffer.from(SEEDS_V22.bondPosition), market.toBuffer(), owner.toBuffer()], programId);
+  return PublicKey9.findProgramAddressSync([Buffer.from(SEEDS_V22.bondPosition), market.toBuffer(), owner.toBuffer()], programId);
 }
 function deriveInsuranceUnitsV22(programId, market) {
-  return PublicKey8.findProgramAddressSync([Buffer.from(SEEDS_V22.insuranceUnits), market.toBuffer()], programId);
+  return PublicKey9.findProgramAddressSync([Buffer.from(SEEDS_V22.insuranceUnits), market.toBuffer()], programId);
 }
 function deriveG9FeedAllowlistV22(programId) {
-  return PublicKey8.findProgramAddressSync([Buffer.from(SEEDS_V22.g9Feeds)], programId);
+  return PublicKey9.findProgramAddressSync([Buffer.from(SEEDS_V22.g9Feeds)], programId);
 }
 function encodeProposeG9FeedAllowlistV22(entries) {
   if (entries.length > G9_FEED_ALLOWLIST_CAP_V22) throw new Error(`at most ${G9_FEED_ALLOWLIST_CAP_V22} entries`);
@@ -5682,7 +5777,7 @@ function encodeInitLpShareMetadataV22(ticker = "") {
 }
 
 // src/abi/v22-state.ts
-import { PublicKey as PublicKey9 } from "@solana/web3.js";
+import { PublicKey as PublicKey10 } from "@solana/web3.js";
 function dv2(data) {
   return new DataView(data.buffer, data.byteOffset, data.byteLength);
 }
@@ -5727,7 +5822,7 @@ function decodeBondTrancheV20(data, table = LAYOUT_V22) {
   const v = dv2(data);
   const F = BOND_TRANCHE_FIELD_OFF_V22;
   const t = {
-    marketGroup: new PublicKey9(data.subarray(b, b + 32)),
+    marketGroup: new PublicKey10(data.subarray(b, b + 32)),
     cBAtoms: u128(v, b + F.cBAtoms),
     bSharesTotal: u128(v, b + F.bSharesTotal),
     principalInLpAtoms: u128(v, b + F.principalInLpAtoms),
@@ -5764,7 +5859,7 @@ function decodeBondPositionV20(data, table = LAYOUT_V22) {
   const v = dv2(data);
   const F = BOND_POSITION_FIELD_OFF_V22;
   const p = {
-    owner: new PublicKey9(data.subarray(b, b + 32)),
+    owner: new PublicKey10(data.subarray(b, b + 32)),
     shares: u128(v, b + F.shares),
     pendingWithdrawShares: u128(v, b + F.pendingWithdrawShares),
     requestSlot: v.getBigUint64(b + F.requestSlot, true),
@@ -5799,7 +5894,7 @@ function decodeInsuranceUnitsV20(data, table = LAYOUT_V22) {
   const v = dv2(data);
   const F = INSURANCE_UNITS_FIELD_OFF_V22;
   const x = {
-    marketGroup: new PublicKey9(data.subarray(b, b + 32)),
+    marketGroup: new PublicKey10(data.subarray(b, b + 32)),
     unitsTotal: u128(v, b + F.unitsTotal),
     unitsStake: u128(v, b + F.unitsStake),
     unitsCreator: u128(v, b + F.unitsCreator),
@@ -5843,7 +5938,7 @@ function decodeG9FeedAllowlistV22(data, table = LAYOUT_V22) {
           if (isZero(k) || seen.has(h)) throw bad(parser, `listed ${name} ${i} is zero or duplicated`, ACCOUNT_KIND.G9FeedAllowlist);
           seen.add(h);
         }
-        out.push(new PublicKey9(k));
+        out.push(new PublicKey10(k));
       } else if (!isZero(k)) {
         throw bad(parser, `unlisted ${name} slot ${i} is not zero`, ACCOUNT_KIND.G9FeedAllowlist);
       }
@@ -5877,8 +5972,8 @@ function decodeLpRedemptionV22(data, table = LAYOUT_V22) {
     keeperOk = k === 1;
   }
   return {
-    registry: new PublicKey9(data.subarray(b, b + 32)),
-    redeemer: new PublicKey9(data.subarray(b + 32, b + 64)),
+    registry: new PublicKey10(data.subarray(b, b + 32)),
+    redeemer: new PublicKey10(data.subarray(b + 32, b + 64)),
     shares: u128(v, b + 64),
     requestSlot: v.getBigUint64(b + 80, true),
     version: data[b + 88],
@@ -6195,7 +6290,7 @@ function tokensToLotsV22(tokens, lotExp) {
 }
 
 // src/abi/v22-stake.ts
-import { PublicKey as PublicKey10, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2, SystemProgram as SystemProgram2 } from "@solana/web3.js";
+import { PublicKey as PublicKey11, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2, SystemProgram as SystemProgram2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID2 } from "@solana/spl-token";
 var STAKE_IX_V5 = Object.freeze({
   SyncInsuranceDeployment: 31,
@@ -6338,7 +6433,7 @@ function decodeStakePoolV5(data) {
   if (version !== STAKE_POOL_VERSION_V5) throw new Error(`decodeStakePoolV5: unsupported pool version ${version} !== ${STAKE_POOL_VERSION_V5}`);
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const u644 = (o) => v.getBigUint64(o, true);
-  const pk = (o) => new PublicKey10(data.subarray(o, o + 32));
+  const pk = (o) => new PublicKey11(data.subarray(o, o + 32));
   const riskMode = data[F.riskMode];
   const deployTargetBps = v.getUint16(F.deployTargetBps, true);
   const hysteresisBps = v.getUint16(F.hysteresisBps, true);
@@ -6437,7 +6532,7 @@ function lotsToTokensV22(lots, lotExp) {
 }
 
 // src/abi/v22-fill-events.ts
-import { PublicKey as PublicKey11 } from "@solana/web3.js";
+import { PublicKey as PublicKey12 } from "@solana/web3.js";
 var EVENT_KIND_FILL_V22 = 1;
 var EVENT_KIND_REDUCE_V22 = 2;
 var EVENT_KIND_MOVE_V22 = 3;
@@ -6475,7 +6570,7 @@ function i128(b, o) {
   return dv7.getBigInt64(o + 8, true) << 64n | dv7.getBigUint64(o, true);
 }
 function key(b, o) {
-  return new PublicKey11(b.slice(o, o + 32));
+  return new PublicKey12(b.slice(o, o + 32));
 }
 function decodeWrapperEventV22(b) {
   if (b.length < 2) return { skip: "malformed" };
@@ -6555,7 +6650,7 @@ function runtimeProgramLine(line) {
   const m = RUNTIME_LINE.exec(line);
   if (!m) return null;
   try {
-    if (new PublicKey11(m[1]).toBase58() !== m[1]) return null;
+    if (new PublicKey12(m[1]).toBase58() !== m[1]) return null;
   } catch {
     return null;
   }
@@ -6603,85 +6698,6 @@ function decodeTxEventsV22(succeeded, logs, wrapper) {
     else skipped.push(d.skip);
   }
   return { status: "known", events, skipped };
-}
-
-// src/abi/v22-lp-share.ts
-import { PublicKey as PublicKey12 } from "@solana/web3.js";
-var LP_SHARE_TICKER_MAX_V22 = 8;
-var LP_SHARE_NAME_PREFIX_V22 = "Percolator Earn Share ";
-var LP_SHARE_NAME_MARKET_CHARS_V22 = 8;
-var LP_SHARE_GENERIC_SYMBOL_V22 = "pEARN";
-var LP_SHARE_TICKER_NAME_PREFIX_V22 = "Percolator Earn ";
-var LP_SHARE_TICKER_NAME_MARKET_CHARS_V22 = 6;
-var LP_SHARE_SYMBOL_PREFIX_V22 = "pe";
-var MPL_MAX_NAME_LEN_V22 = 32;
-var MPL_MAX_SYMBOL_LEN_V22 = 10;
-var MPL_MAX_URI_LEN_V22 = 200;
-var LP_SHARE_URI_BASE_DEVNET_V22 = "https://play.percolator.trade";
-var LP_SHARE_URI_BASE_MAINNET_V22 = "https://percolator.trade";
-var LP_SHARE_URI_PATH_V22 = "/api/earn-share/";
-var LP_SHARE_META_FUND_LAMPORTS_V22 = 30000000n;
-var METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22 = new PublicKey12("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
-var MPL_KEY_METADATA_V1 = 4;
-function lpShareTickerFromSymbolV22(symbol) {
-  if (!symbol) return "";
-  return symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, LP_SHARE_TICKER_MAX_V22);
-}
-function isLpShareTickerV22(ticker) {
-  return /^[A-Z0-9]{1,8}$/.test(ticker);
-}
-function lpShareIdentityV22(market, ticker, uriBase = LP_SHARE_URI_BASE_DEVNET_V22) {
-  const b58 = market.toBase58();
-  const uri = `${uriBase}${LP_SHARE_URI_PATH_V22}${b58}`;
-  if (ticker === "") {
-    return { name: `${LP_SHARE_NAME_PREFIX_V22}${b58.slice(0, LP_SHARE_NAME_MARKET_CHARS_V22)}`, symbol: LP_SHARE_GENERIC_SYMBOL_V22, uri, ticker: false };
-  }
-  if (!isLpShareTickerV22(ticker)) throw new Error(`ticker must be 1..8 characters of A-Z 0-9, got ${JSON.stringify(ticker)}`);
-  return {
-    name: `${LP_SHARE_TICKER_NAME_PREFIX_V22}${ticker} ${b58.slice(0, LP_SHARE_TICKER_NAME_MARKET_CHARS_V22)}`,
-    symbol: `${LP_SHARE_SYMBOL_PREFIX_V22}${ticker}`,
-    uri,
-    ticker: true
-  };
-}
-function parseLpShareMetadataRecordV22(data) {
-  let o = 0;
-  const take = (n) => {
-    if (o + n > data.length) return null;
-    const s = data.subarray(o, o + n);
-    o += n;
-    return s;
-  };
-  const takeStr = (max) => {
-    const l = take(4);
-    if (!l) return null;
-    const n = new DataView(l.buffer, l.byteOffset, 4).getUint32(0, true);
-    if (n > max) return null;
-    const s = take(n);
-    if (!s) return null;
-    let end = s.length;
-    while (end > 0 && s[end - 1] === 0) end--;
-    return new TextDecoder("utf-8", { fatal: false }).decode(s.subarray(0, end));
-  };
-  const key3 = take(1);
-  if (!key3 || key3[0] !== MPL_KEY_METADATA_V1) return null;
-  const ua = take(32), mint = take(32);
-  if (!ua || !mint) return null;
-  const name = takeStr(MPL_MAX_NAME_LEN_V22), symbol = takeStr(MPL_MAX_SYMBOL_LEN_V22), uri = takeStr(MPL_MAX_URI_LEN_V22);
-  if (name === null || symbol === null || uri === null) return null;
-  if (!take(2)) return null;
-  const hc = take(1);
-  if (!hc) return null;
-  if (hc[0] === 1) {
-    const nl = take(4);
-    if (!nl) return null;
-    const n = new DataView(nl.buffer, nl.byteOffset, 4).getUint32(0, true);
-    if (n > 5 || !take(n * 34)) return null;
-  } else if (hc[0] !== 0) return null;
-  if (!take(1)) return null;
-  const im = take(1);
-  if (!im || im[0] !== 0 && im[0] !== 1) return null;
-  return { updateAuthority: new PublicKey12(ua.slice()), mint: new PublicKey12(mint.slice()), name, symbol, uri, isMutable: im[0] === 1 };
 }
 
 // src/abi/v22-band.ts
@@ -15534,6 +15550,7 @@ export {
   ACCOUNTS_CONVERT_RELEASED_PNL,
   ACCOUNTS_CREATE_INSURANCE_MINT,
   ACCOUNTS_CREATE_LP_VAULT,
+  ACCOUNTS_CREATE_LP_VAULT_V22,
   ACCOUNTS_DEPOSIT_COLLATERAL,
   ACCOUNTS_DEPOSIT_FEE_CREDITS,
   ACCOUNTS_DEPOSIT_INSURANCE_LP,
@@ -15690,6 +15707,7 @@ export {
   BAND_MIN_EPOCH_SLOTS_V22,
   BAND_MIN_LEG_NOTIONAL_TOKENS_V22,
   BAND_MIN_PIN_EPOCHS_V22,
+  BATCH_MAX_LEGS_V22,
   BOND_CAP_MAX_BPS_V22,
   BOND_COOLDOWN_MAX_SLOTS_V22,
   BOND_COOLDOWN_MIN_SLOTS_V22,
@@ -16040,6 +16058,7 @@ export {
   WELL_KNOWN,
   WRAPPER_ACCOUNT_MAGIC,
   WRAPPER_BATCH_MAX_LEGS,
+  WRAPPER_MAX_PORTFOLIO_ASSETS_V22,
   WSOL_MINT,
   _internal,
   a4CapacityLockOkP2b,
@@ -16056,6 +16075,7 @@ export {
   allocJuniorOkP2b,
   allocWrittenDownP2b,
   assertBandBlockV22,
+  assertBatchLegsV22,
   assertBondConfigV22,
   assertGrowthBatchLegs,
   assertRentBlockV22,

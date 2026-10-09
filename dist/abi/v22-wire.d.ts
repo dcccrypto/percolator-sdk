@@ -125,6 +125,21 @@ export declare const BOND_COOLDOWN_MAX_SLOTS_V22 = 1512000;
 export declare const BOND_CAP_MAX_BPS_V22 = 5000;
 /** Coupon ceiling per crank, bps of the harvested LP fee leg (review M-2). */
 export declare const BOND_COUPON_MAX_LEG_BPS_V22 = 5000;
+/**
+ * `WRAPPER_MAX_PORTFOLIO_ASSETS` = 4 (percolator-prog#546, founder-confirmed FINAL 2026-10-08): a portfolio holds at most 4 legs and
+ * InitMarket refuses `max_portfolio_assets` above it (error 14).
+ */
+export declare const WRAPPER_MAX_PORTFOLIO_ASSETS_V22 = 4;
+/**
+ * `MATCHER_BATCH_MAX_LEGS` = min(11, {@link WRAPPER_MAX_PORTFOLIO_ASSETS_V22}) = 4: legs per BatchTradeCpi (5+ fail InvalidInstruction), and the
+ * most trade legs a client should pack into one transaction (4 legs measured 689,000 CU; 714,967 with the growth ext).
+ */
+export declare const BATCH_MAX_LEGS_V22 = 4;
+/**
+ * Client guard for the v2.2 leg cap: a batch (or one transaction's trade legs) of `n` legs must be 1..={@link BATCH_MAX_LEGS_V22}.
+ * @throws a plain `Error` naming the cap (the wrapper would answer InvalidInstruction, Custom 9).
+ */
+export declare function assertBatchLegsV22(n: number): void;
 /** `bond_v20::SLOTS_PER_YEAR` (400 ms slots). */
 export declare const SLOTS_PER_YEAR_V22 = 78840000n;
 /** `p4_rescue_ins` constants. */
@@ -474,6 +489,13 @@ export declare function encodeInitInsuranceUnitsV22(): Uint8Array;
  * ```
  */
 export declare function encodeSetG9FeedAllowlistV22(keys: readonly (PublicKey | Uint8Array)[]): Uint8Array;
+/**
+ * Tag 74 CreateLpVault on the v2.2 wrapper (7): the six v2.1 accounts plus `[6]` the market's primary collateral mint (read-only; must
+ * equal `config.collateral_mint`, a classic SPL mint). The six-account form is REFUSED (`NotEnoughAccountKeys`); the share mint is
+ * created with the collateral mint's decimals. Instruction data is unchanged ({@link encodeCreateLpVaultV17}). Equal to
+ * `ACCOUNTS_CREATE_LP_VAULT` of this SDK; kept here so an app that vendors only the v2.2 files has the 7-account list.
+ */
+export declare const ACCOUNTS_CREATE_LP_VAULT_V22: readonly AccountSpec[];
 /**
  * Tag 76 RequestRedeemLpShares (8): `v16_program.rs:28751..28770`. The request PDA `[5]` is
  * `["lp_redemption", registry, redeemer]`; with the v2.2 wire it is created 128 bytes long.
