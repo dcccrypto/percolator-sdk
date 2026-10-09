@@ -16,3 +16,4 @@ export * from "./p3-vault-lp.js";
 export * from "./stake-wind-down.js";
 export * from "./p2b-earn.js";
 export * from "./v22.js";
+export * from "./v22-lp-share.js";
