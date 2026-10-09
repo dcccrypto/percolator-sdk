@@ -2,7 +2,7 @@
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import * as S from "../src/abi/v22-lp-share.js";
-import { ACCOUNTS_CREATE_LP_VAULT, ACCOUNTS_INIT_LP_SHARE_METADATA, ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL } from "../src/abi/accounts.js";
+import { ACCOUNTS_CREATE_LP_VAULT, ACCOUNTS_CREATE_LP_VAULT_V21, ACCOUNTS_INIT_LP_SHARE_METADATA, ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL } from "../src/abi/accounts.js";
 import { ACCOUNTS_CREATE_LP_VAULT_V22 } from "../src/abi/v22-wire.js";
 import * as B from "../src/solana/v22-lp-share.js";
 import { encodeInitLpShareMetadataV22 } from "../src/abi/v22-wire.js";
@@ -146,5 +146,21 @@ describe("tag 74 on v2.2: the 7th account (collateral mint)", () => {
   it("tag 122 specs are the ones accounts.ts exports (one definition)", () => {
     expect(ACCOUNTS_INIT_LP_SHARE_METADATA).toBe(S.ACCOUNTS_INIT_LP_SHARE_METADATA);
     expect(ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL).toBe(S.ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL);
+  });
+});
+
+
+describe("S1: tag 74 for the deployed v2.1 wrapper", () => {
+  it("ACCOUNTS_CREATE_LP_VAULT_V21 is the first six entries of the seven-entry v2.2 list (no collateral mint)", () => {
+    expect(ACCOUNTS_CREATE_LP_VAULT_V21).toHaveLength(6);
+    expect(ACCOUNTS_CREATE_LP_VAULT_V21.map((a) => a.name)).toEqual(["admin", "market", "registry", "lpMint", "systemProgram", "tokenProgram"]);
+    expect(ACCOUNTS_CREATE_LP_VAULT_V21).toEqual(ACCOUNTS_CREATE_LP_VAULT.slice(0, 6));
+    expect(ACCOUNTS_CREATE_LP_VAULT).toHaveLength(7);
+    expect(ACCOUNTS_CREATE_LP_VAULT_V21.some((a) => a.name === "collateralMint")).toBe(false);
+  });
+  it("the changelog calls the 6 -> 7 change breaking", async () => {
+    const { readFileSync } = await import("node:fs");
+    const c = readFileSync("CHANGELOG.md", "utf8");
+    expect(c).toMatch(/BREAKING[\s\S]*ACCOUNTS_CREATE_LP_VAULT[\s\S]*SEVEN[\s\S]*ACCOUNTS_CREATE_LP_VAULT_V21/);
   });
 });

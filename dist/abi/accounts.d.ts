@@ -573,6 +573,11 @@ export declare const ACCOUNTS_UPDATE_HYPERP_MARK: readonly AccountSpec[];
  * registry replaces lpVaultState; lpMint replaces lpVaultMint.
  */
 export declare const ACCOUNTS_CREATE_LP_VAULT: readonly AccountSpec[];
+/**
+ * CreateLpVault (tag 74) on the DEPLOYED v2.1 wrapper: the six accounts, without the v2.2 collateral mint. `ACCOUNTS_CREATE_LP_VAULT` is the
+ * seven-account v2.2 list from 9.0.0 on (BREAKING for v2.1 consumers: 8.x exported six); use this one for the v2.1 wrapper.
+ */
+export declare const ACCOUNTS_CREATE_LP_VAULT_V21: readonly AccountSpec[];
 /** InitLpShareMetadata (tag 122, v2.2 #545): the account specs live with the rest of the tag in ./v22-lp-share.ts. */
 export { ACCOUNTS_INIT_LP_SHARE_METADATA, ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL } from "./v22-lp-share.js";
 /**

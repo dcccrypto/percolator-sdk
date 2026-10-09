@@ -2351,6 +2351,7 @@ var ACCOUNTS_CREATE_LP_VAULT = [
   { name: "tokenProgram", signer: false, writable: false },
   { name: "collateralMint", signer: false, writable: false }
 ];
+var ACCOUNTS_CREATE_LP_VAULT_V21 = ACCOUNTS_CREATE_LP_VAULT.slice(0, 6);
 var ACCOUNTS_LP_VAULT_DEPOSIT = [
   { name: "depositor", signer: true, writable: true },
   { name: "market", signer: false, writable: true },
@@ -15550,6 +15551,7 @@ export {
   ACCOUNTS_CONVERT_RELEASED_PNL,
   ACCOUNTS_CREATE_INSURANCE_MINT,
   ACCOUNTS_CREATE_LP_VAULT,
+  ACCOUNTS_CREATE_LP_VAULT_V21,
   ACCOUNTS_CREATE_LP_VAULT_V22,
   ACCOUNTS_DEPOSIT_COLLATERAL,
   ACCOUNTS_DEPOSIT_FEE_CREDITS,

@@ -194,3 +194,45 @@ describe("attribution (strict frame walk)", () => {
     expect(r.skipped).toEqual(["unknown-kind", "malformed"]);
   });
 });
+
+describe("near-miss runtime lines never push or pop a frame (reviewer's vectors)", () => {
+  const closers = [
+    `Program ${W} success `, // trailing space
+    `Program ${W} successful`,
+    `Program ${W} failed`, // no colon
+    `Program ${W} failedx: boom`,
+    ` Program ${W} success`, // leading space
+    `program ${W} success`, // lowercase
+    `Program  ${W} success`, // double space
+    `Program ${W} success\n`, // trailing newline
+    `Program ${W} success\nProgram ${W} success`, // embedded newline
+  ];
+  for (const c of closers) {
+    it(`closer ${JSON.stringify(c.length > 40 ? c.slice(0, 12) + "..." + c.slice(-14) : c)} does not close the frame: the transaction is UNKNOWN`, () => {
+      const r = E.decodeTxEventsV22(true, [inv(W, 1), data(DOC.trade), c], WRAPPER);
+      expect(r).toEqual({ status: "unknown", reason: "unclosed-frame" });
+    });
+  }
+  const openers = [
+    `Program ${W} invoke [+1]`,
+    `Program ${W} invoke []`,
+    `Program ${W} invoke [1`,
+    `Program ${W} invoke [1]\n`,
+    `Program ${W} invoke [ 1]`,
+    `Program ${W} invoke [01x]`,
+    ` Program ${W} invoke [1]`,
+    `program ${W} invoke [1]`,
+    `Program  ${W} invoke [1]`,
+  ];
+  for (const o of openers) {
+    it(`opener ${JSON.stringify(o)} does not open the wrapper's frame: its data line is outside every frame (UNKNOWN), never attributed`, () => {
+      const r = E.decodeTxEventsV22(true, [o, data(DOC.trade), `Program ${W} success`], WRAPPER);
+      expect(r.status).toBe("unknown");
+    });
+  }
+  it("a leading-zero depth is the same number (the runtime never prints one, but the rule is on the NUMBER): [01] at depth 1 pushes", () => {
+    // documented behaviour of this decoder: digits only, compared numerically; the wrapper's own lines never carry leading zeros
+    const r = E.decodeTxEventsV22(true, [`Program ${W} invoke [01]`, data(DOC.trade), `Program ${W} success`], WRAPPER);
+    expect(r).toMatchObject({ status: "known" });
+  });
+});
