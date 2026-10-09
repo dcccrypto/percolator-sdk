@@ -18,3 +18,4 @@ export * from "./v22-lot.js";
 export * from "./v22-fill-events.js";
 export * from "./v22-lp-share.js";
 export * from "./v22-band.js";
+export * from "./stake-dead-lp.js";

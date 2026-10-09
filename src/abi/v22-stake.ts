@@ -19,6 +19,7 @@ import type { AccountMeta } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { concatBytes, encU16, encU64, encU8 } from "./encode.js";
 import type { ErrorInfo } from "./errors.js";
+import { STAKE_FLOOR_FLAGS_RESERVED_INDEX } from "./stake-dead-lp.js";
 
 // ============================================================================
 // Constants
@@ -318,6 +319,10 @@ export interface StakePoolV5 extends StakePoolV5Fields {
   totalReturned: bigint;
   totalWithdrawn: bigint;
   poolMode: number;
+  /** `_reserved[41..49]` (absolute 361): senior/junior split input for the dead-share helpers. */
+  juniorTotalLp: bigint;
+  /** `_reserved[61]` (absolute 381): R-1 dead-share floor flags; 0 = legacy. See `stakeDeadLp`. */
+  floorFlags: number;
 }
 
 const STAKE_POOL_DISCRIMINATOR_V5 = Uint8Array.from([0x53, 0x50, 0x4f, 0x4f, 0x4c, 0x5f, 0x56, 0x31]); // "SPOOL_V1"
@@ -367,6 +372,8 @@ export function decodeStakePoolV5(data: Uint8Array): StakePoolV5 {
     totalReturned: u64(208),
     totalWithdrawn: u64(216),
     poolMode: data[F.poolMode],
+    juniorTotalLp: u64(F.reserved + 41),
+    floorFlags: data[F.reserved + STAKE_FLOOR_FLAGS_RESERVED_INDEX],
     riskMode,
     consentVersion: data[F.consentVersion],
     deployTargetBps,

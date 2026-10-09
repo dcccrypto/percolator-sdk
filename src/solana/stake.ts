@@ -25,6 +25,7 @@ import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 export { TOKEN_2022_PROGRAM_ID };
 import { safeEnv, PROGRAM_IDS_DEVNET_V1 } from '../config/program-ids.js';
 import { concatBytes } from '../abi/encode.js';
+import { STAKE_FLOOR_FLAGS_RESERVED_INDEX } from '../abi/stake-dead-lp.js';
 
 // ═══════════════════════════════════════════════════════════════
 // Program ID — network-conditional (mirrors program-ids.ts pattern)
@@ -536,8 +537,8 @@ export const STAKE_ERRORS: Record<number, string> = {
   25: "Cooldown increase requires timelock — a cooldown_slots INCREASE must go through ProposeCooldownIncrease -> wait -> CommitCooldownIncrease, not UpdateConfig (decreases are still immediate via UpdateConfig)",
   26: "Timelock not elapsed — CommitCooldownIncrease was called before the required timelock window had passed since ProposeCooldownIncrease; LP holders are still inside their exit window",
   27: "No pending cooldown proposal — CommitCooldownIncrease / CancelCooldownIncrease called with no active ProposeCooldownIncrease proposal outstanding",
-  28: "Deposit below minimum liquidity — the pool's first-ever deposit must exceed MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening); deposit a larger amount",
-  29: "No real LP holders — AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (total_lp_supply <= MINIMUM_LIQUIDITY). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard).",
+  28: "Deposit below minimum liquidity — the first deposit into an EMPTY pool, senior tranche or junior tranche must exceed MINIMUM_LIQUIDITY (1,000 atoms) so a permanent dead-share floor can be locked for that sub-pool (N7 anti-inflation hardening; each sub-pool locks its own floor); nothing is locked on refusal; deposit a larger amount",
+  29: "No real LP holders — AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (real_lp_supply() == 0: total_lp_supply minus the per-sub-pool dead floors, 0, 1,000 or 2,000 shares on a tranche pool). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard).",
   30: "Market not terminal (F-9) — RecoverTerminalInsurance (tag 29) needs the wrapper market Resolved or a CloseSlab tombstone, and a non-zero amount needs Resolved (not Closed); AdminCloseSlab (tag 30) needs Resolved. While Live, use RecoverFlushedInsurance (tag 23)",
   32: "Unsupported wrapper layout (F-9, NOT retryable) — the bound wrapper market account is not the layout this stake program pins (magic, VERSION 18, kind, minimum length, a known mode byte), so its engine mode cannot be trusted. RecoverTerminalInsurance (29), AdminCloseSlab (30) and the mode-0 Deposit/DepositJunior path refuse. A wrapper layout bump needs a coordinated stake upgrade; retrying will not help",
   31: "Nothing to recover (F-9) — RecoverTerminalInsurance moved no tokens and booked nothing (amount 0, no stray account, no unbooked vault surplus). Keepers should treat this as done",
@@ -1643,6 +1644,13 @@ export interface StakePoolState {
   mode0FeesAttributed: bigint;
   /** percolator-stake #290: `_reserved[60] == 1` — the attribution cursor is live. */
   feeAttributionArmed: boolean;
+  /**
+   * percolator-stake R-1 (fix/v22-stake-last-junior-residual): raw `_reserved[61]` dead-share
+   * floor flags (FLOOR_SENIOR 0x01, FLOOR_JUNIOR 0x02). `0` with supply > 0 = legacy pool
+   * (every pool on the pre-fix program). Use {@link stakeDeadLp} / {@link stakeRealLpSupply} /
+   * {@link stakeHasRealLpHolders} instead of assuming `totalLpSupply - 1000`.
+   */
+  floorFlags: number;
   poolMode: number;
 
   // _reserved layout (64 bytes) — ADOPTED lineage (state.rs@9ec1c3a):
@@ -1662,7 +1670,8 @@ export interface StakePoolState {
   // [51..59] N-realized_junior_loss (u64) — issue #161
   // [59]     asset_admin_burned (BurnAssetAdmin tag 21 completion flag)
   // [60]     #290 fee_attribution_armed (v18.2)
-  // [61..64] free
+  // [61]     R-1 floor flags (FLOOR_SENIOR 0x01 | FLOOR_JUNIOR 0x02; 0 = legacy)
+  // [62..64] free
   // [64..72] v3 ONLY, OUTSIDE _reserved (absolute offset 384..392):
   //          total_recovered_from_wrapper (u64) — H-1 re-review fix, state.rs@c5a901f
 
@@ -1976,6 +1985,8 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   const assetAdminBurned = bytes[reservedStart + 59] === 1;
   // #290 (stake v18.2): _reserved[60] = fee_attribution_armed.
   const feeAttributionArmed = bytes[reservedStart + 60] === 1;
+  // R-1: _reserved[61] = dead-share floor flags (absolute 381 on v2+, 349 on v1).
+  const floorFlags = bytes[reservedStart + STAKE_FLOOR_FLAGS_RESERVED_INDEX];
 
   // H-1 re-review fix, stake v3 and v4: total_recovered_from_wrapper (u64) is a
   // REAL struct field appended at the tail, offset reservedStart + 64 (== 384
@@ -2010,6 +2021,7 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
     lastVaultSnapshot,
     mode0FeesAttributed: lastVaultSnapshot,
     feeAttributionArmed,
+    floorFlags,
     poolMode,
     hwmEnabled,
     epochHighWaterTvl,

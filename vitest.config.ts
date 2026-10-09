@@ -55,6 +55,7 @@ export default defineConfig({
       "test/v22-band.test.ts",
       "test/v22-fill-events.test.ts",
       "test/v22-lp-share.test.ts",
+      "test/stake-dead-lp.test.ts",
     ],
   },
 });
