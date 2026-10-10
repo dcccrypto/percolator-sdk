@@ -36,14 +36,38 @@ const KNOWN_NFT_PROGRAM_IDS = new Set([
   PROGRAM_IDS_DEVNET_V1.nft, // devnet v1 / close-only (still live)
 ]);
 
-const NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");
-if (NFT_PROGRAM_OVERRIDE !== undefined && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM_OVERRIDE)) {
-  throw new Error(
-    `[percolator-sdk] NFT_PROGRAM_ID env var "${NFT_PROGRAM_OVERRIDE}" is not a known NFT program address. ` +
-    `Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. ` +
-    `Pass the programId argument explicitly to bypass env resolution.`,
-  );
+/**
+ * Resolve the `NFT_PROGRAM_ID` env override (K-5, 2026-10-10).
+ *
+ * Same contract as `PROGRAM_ID` / `MATCHER_PROGRAM_ID` / `STAKE_PROGRAM_ID` (#308): a value in the allowlist is used; an
+ * UNLISTED value is used only when the operator explicitly opts in with `PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1`
+ * (a freshly deployed program, e.g. the v2.2 fresh devnet NFT `27LWmR72…`), with a warning. Without the opt-in an
+ * unlisted value still fails closed (ambient env poisoning must not redirect NFT instructions). This used to throw
+ * at import for EVERY unlisted value, opt-in or not, so a fresh-ID consumer could not set NFT_PROGRAM_ID at all.
+ *
+ * @param env  Environment reader (defaults to `process.env` via `safeEnv`); exported for tests.
+ * @returns The override, or `undefined` when unset/empty.
+ * @throws Error when the value is unlisted and the opt-in flag is not `"1"`, or when it is not a base58 pubkey.
+ */
+export function resolveNftProgramOverride(env: (key: string) => string | undefined = safeEnv): string | undefined {
+  const raw = env("NFT_PROGRAM_ID");
+  const v = raw?.trim();
+  if (!v) return undefined;
+  if (KNOWN_NFT_PROGRAM_IDS.has(v)) return v;
+  if (env("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") !== "1") {
+    throw new Error(
+      `[percolator-sdk] NFT_PROGRAM_ID env var "${v}" is not a known NFT program address. ` +
+      `Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. ` +
+      `Pass the programId argument explicitly to bypass env resolution, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 ` +
+      `to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`,
+    );
+  }
+  new PublicKey(v); // a malformed value is still an error, opt-in or not
+  console.warn(`[percolator-sdk] NFT_PROGRAM_ID env override active: ${v}`);
+  return v;
 }
+
+const NFT_PROGRAM_OVERRIDE = resolveNftProgramOverride();
 
 /**
  * The standalone percolator-nft program (TransferHook + mint authority).

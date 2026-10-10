@@ -215,6 +215,10 @@ export interface StakePoolV5 extends StakePoolV5Fields {
     totalReturned: bigint;
     totalWithdrawn: bigint;
     poolMode: number;
+    /** `_reserved[41..49]` (absolute 361): senior/junior split input for the dead-share helpers. */
+    juniorTotalLp: bigint;
+    /** `_reserved[61]` (absolute 381): R-1 dead-share floor flags; 0 = legacy. See `stakeDeadLp`. */
+    floorFlags: number;
 }
 /**
  * Decode a `StakePool` v5 account. Checks the length (`>= 480`), the discriminator and the version byte (`== 5`)

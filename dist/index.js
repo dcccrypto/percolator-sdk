@@ -3401,12 +3401,21 @@ var KNOWN_NFT_PROGRAM_IDS = /* @__PURE__ */ new Set([
   PROGRAM_IDS_DEVNET_V1.nft
   // devnet v1 / close-only (still live)
 ]);
-var NFT_PROGRAM_OVERRIDE = safeEnv("NFT_PROGRAM_ID");
-if (NFT_PROGRAM_OVERRIDE !== void 0 && !KNOWN_NFT_PROGRAM_IDS.has(NFT_PROGRAM_OVERRIDE)) {
-  throw new Error(
-    `[percolator-sdk] NFT_PROGRAM_ID env var "${NFT_PROGRAM_OVERRIDE}" is not a known NFT program address. Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. Pass the programId argument explicitly to bypass env resolution.`
-  );
+function resolveNftProgramOverride(env = safeEnv) {
+  const raw = env("NFT_PROGRAM_ID");
+  const v = raw?.trim();
+  if (!v) return void 0;
+  if (KNOWN_NFT_PROGRAM_IDS.has(v)) return v;
+  if (env("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") !== "1") {
+    throw new Error(
+      `[percolator-sdk] NFT_PROGRAM_ID env var "${v}" is not a known NFT program address. Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. Pass the programId argument explicitly to bypass env resolution, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`
+    );
+  }
+  new PublicKey5(v);
+  console.warn(`[percolator-sdk] NFT_PROGRAM_ID env override active: ${v}`);
+  return v;
 }
+var NFT_PROGRAM_OVERRIDE = resolveNftProgramOverride();
 var NFT_PROGRAM_ID = new PublicKey5(NFT_PROGRAM_OVERRIDE ?? PROGRAM_IDS_V17.nft);
 function getNftProgramId() {
   return NFT_PROGRAM_ID;
@@ -6293,6 +6302,45 @@ function tokensToLotsV22(tokens, lotExp) {
 // src/abi/v22-stake.ts
 import { PublicKey as PublicKey11, SYSVAR_CLOCK_PUBKEY as SYSVAR_CLOCK_PUBKEY2, SystemProgram as SystemProgram2 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID2 } from "@solana/spl-token";
+
+// src/abi/stake-dead-lp.ts
+var STAKE_MINIMUM_LIQUIDITY = 1000n;
+var STAKE_FLOOR_FLAGS_RESERVED_INDEX = 61;
+var FLOOR_SENIOR = 1;
+var FLOOR_JUNIOR = 2;
+function stakeDeadLp(pool) {
+  const f = pool.floorFlags;
+  if (f === 0) return null;
+  return {
+    senior: (f & FLOOR_SENIOR) !== 0 ? STAKE_MINIMUM_LIQUIDITY : 0n,
+    junior: (f & FLOOR_JUNIOR) !== 0 ? STAKE_MINIMUM_LIQUIDITY : 0n
+  };
+}
+function satSub(a, b) {
+  return a > b ? a - b : 0n;
+}
+function stakeSeniorTotalLp(pool) {
+  return satSub(pool.totalLpSupply, pool.juniorTotalLp);
+}
+function stakeRealSeniorLp(pool) {
+  const d = stakeDeadLp(pool);
+  const senior = stakeSeniorTotalLp(pool);
+  return d === null ? senior : satSub(senior, d.senior);
+}
+function stakeRealJuniorLp(pool) {
+  const d = stakeDeadLp(pool);
+  return d === null ? pool.juniorTotalLp : satSub(pool.juniorTotalLp, d.junior);
+}
+function stakeRealLpSupply(pool) {
+  const d = stakeDeadLp(pool);
+  if (d === null) return satSub(pool.totalLpSupply, STAKE_MINIMUM_LIQUIDITY);
+  return satSub(satSub(pool.totalLpSupply, d.senior), d.junior);
+}
+function stakeHasRealLpHolders(pool) {
+  return stakeRealLpSupply(pool) > 0n;
+}
+
+// src/abi/v22-stake.ts
 var STAKE_IX_V5 = Object.freeze({
   SyncInsuranceDeployment: 31,
   ProposeDeployTarget: 32,
@@ -6456,6 +6504,8 @@ function decodeStakePoolV5(data) {
     totalReturned: u644(208),
     totalWithdrawn: u644(216),
     poolMode: data[F.poolMode],
+    juniorTotalLp: u644(F.reserved + 41),
+    floorFlags: data[F.reserved + STAKE_FLOOR_FLAGS_RESERVED_INDEX],
     riskMode,
     consentVersion: data[F.consentVersion],
     deployTargetBps,
@@ -11406,8 +11456,8 @@ var STAKE_ERRORS = {
   25: "Cooldown increase requires timelock \u2014 a cooldown_slots INCREASE must go through ProposeCooldownIncrease -> wait -> CommitCooldownIncrease, not UpdateConfig (decreases are still immediate via UpdateConfig)",
   26: "Timelock not elapsed \u2014 CommitCooldownIncrease was called before the required timelock window had passed since ProposeCooldownIncrease; LP holders are still inside their exit window",
   27: "No pending cooldown proposal \u2014 CommitCooldownIncrease / CancelCooldownIncrease called with no active ProposeCooldownIncrease proposal outstanding",
-  28: "Deposit below minimum liquidity \u2014 the pool's first-ever deposit must exceed MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening); deposit a larger amount",
-  29: "No real LP holders \u2014 AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (total_lp_supply <= MINIMUM_LIQUIDITY). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard).",
+  28: "Deposit below minimum liquidity \u2014 the first deposit into an EMPTY pool, senior tranche or junior tranche must exceed MINIMUM_LIQUIDITY (1,000 atoms) so a permanent dead-share floor can be locked for that sub-pool (N7 anti-inflation hardening; each sub-pool locks its own floor); nothing is locked on refusal; deposit a larger amount",
+  29: "No real LP holders \u2014 AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (real_lp_supply() == 0: total_lp_supply minus the per-sub-pool dead floors, 0, 1,000 or 2,000 shares on a tranche pool). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard).",
   30: "Market not terminal (F-9) \u2014 RecoverTerminalInsurance (tag 29) needs the wrapper market Resolved or a CloseSlab tombstone, and a non-zero amount needs Resolved (not Closed); AdminCloseSlab (tag 30) needs Resolved. While Live, use RecoverFlushedInsurance (tag 23)",
   32: "Unsupported wrapper layout (F-9, NOT retryable) \u2014 the bound wrapper market account is not the layout this stake program pins (magic, VERSION 18, kind, minimum length, a known mode byte), so its engine mode cannot be trusted. RecoverTerminalInsurance (29), AdminCloseSlab (30) and the mode-0 Deposit/DepositJunior path refuse. A wrapper layout bump needs a coordinated stake upgrade; retrying will not help",
   31: "Nothing to recover (F-9) \u2014 RecoverTerminalInsurance moved no tokens and booked nothing (amount 0, no stray account, no unbooked vault surplus). Keepers should treat this as done"
@@ -11817,6 +11867,7 @@ function decodeStakePool(data) {
   const realizedJuniorLoss = readU64LE4(bytes, reservedStart + 51);
   const assetAdminBurned = bytes[reservedStart + 59] === 1;
   const feeAttributionArmed = bytes[reservedStart + 60] === 1;
+  const floorFlags = bytes[reservedStart + STAKE_FLOOR_FLAGS_RESERVED_INDEX];
   const totalRecoveredFromWrapper = isV4 || isV3 ? readU64LE4(bytes, reservedStart + 64) : null;
   return {
     version,
@@ -11844,6 +11895,7 @@ function decodeStakePool(data) {
     lastVaultSnapshot,
     mode0FeesAttributed: lastVaultSnapshot,
     feeAttributionArmed,
+    floorFlags,
     poolMode,
     hwmEnabled,
     epochHighWaterTvl,
@@ -15761,6 +15813,8 @@ export {
   FILL_FLAG_V22,
   FILL_MAX_RECS_PER_LINE_V22,
   FILL_REC_LEN_V22,
+  FLOOR_JUNIOR,
+  FLOOR_SENIOR,
   G9_DELAY_SLOTS_V22,
   G9_EPOCH_CAP_BPS_V22,
   G9_EPOCH_SLOTS_V22,
@@ -15977,8 +16031,10 @@ export {
   STAKE_DEPOSIT_SIZE,
   STAKE_ERRORS,
   STAKE_ERRORS_V5,
+  STAKE_FLOOR_FLAGS_RESERVED_INDEX,
   STAKE_IX,
   STAKE_IX_V5,
+  STAKE_MINIMUM_LIQUIDITY,
   STAKE_POOL_CURRENT_VERSION,
   STAKE_POOL_DISCRIMINATOR,
   STAKE_POOL_FIELD_OFF_V5,
@@ -16665,6 +16721,7 @@ export {
   rescueSharesV22,
   resolveLayout,
   resolveMarketGeometry,
+  resolveNftProgramOverride,
   resolvePortfolioLayout,
   resolvePrice,
   resolveTxFormat,
@@ -16683,9 +16740,15 @@ export {
   simulateV1,
   slabDataSize,
   slabDataSizeV1,
+  stakeDeadLp,
   stakeGroupAProxyAccounts,
   stakeGroupBProxyAccounts,
+  stakeHasRealLpHolders,
   stakeMetasV5,
+  stakeRealJuniorLp,
+  stakeRealLpSupply,
+  stakeRealSeniorLp,
+  stakeSeniorTotalLp,
   stripLighthouseFromTransaction,
   stripLighthouseInstructions,
   tokenPriceToLotE6V22,
