@@ -1,3 +1,4 @@
+import type { LayoutTable } from "./layout.js";
 import type { InitMarketV17Args, InitMarketArgs } from "./instructions.js";
 import type { MatcherCallExt } from "./matcher-v2.js";
 /** `growth_v19::BPS`. */
@@ -137,13 +138,14 @@ export declare function decodeAssetGrowthFromSlotV19(slot: Uint8Array): AssetGro
  * (the same slot base as `AssetRiskLimitsV17` at slot + 608, see `assetRiskLimitsAccountOffsetP1`).
  *
  * @param assetIndex  Asset slot index.
+ * @param layout      Layout table of the account's VERSION (default LAYOUT_V21; LAYOUT_V22 for v2.2).
  * @returns Byte offset into the market account.
  * @example
  * ```ts
  * assetGrowthAccountOffsetV19(0); // 2022
  * ```
  */
-export declare function assetGrowthAccountOffsetV19(assetIndex: number): number;
+export declare function assetGrowthAccountOffsetV19(assetIndex: number, layout?: LayoutTable): number;
 /**
  * Decode asset `i`'s growth record from a raw market account (kind 1).
  *

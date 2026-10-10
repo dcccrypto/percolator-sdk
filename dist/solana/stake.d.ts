@@ -1114,6 +1114,13 @@ export interface StakePoolState {
     mode0FeesAttributed: bigint;
     /** percolator-stake #290: `_reserved[60] == 1` — the attribution cursor is live. */
     feeAttributionArmed: boolean;
+    /**
+     * percolator-stake R-1 (fix/v22-stake-last-junior-residual): raw `_reserved[61]` dead-share
+     * floor flags (FLOOR_SENIOR 0x01, FLOOR_JUNIOR 0x02). `0` with supply > 0 = legacy pool
+     * (every pool on the pre-fix program). Use {@link stakeDeadLp} / {@link stakeRealLpSupply} /
+     * {@link stakeHasRealLpHolders} instead of assuming `totalLpSupply - 1000`.
+     */
+    floorFlags: number;
     poolMode: number;
     hwmEnabled: boolean;
     epochHighWaterTvl: bigint;

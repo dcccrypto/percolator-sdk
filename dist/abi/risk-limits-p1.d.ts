@@ -1,13 +1,4 @@
-/**
- * P1 per-asset risk limits — wrapper tag 93 `SetAssetRiskLimits` and the `AssetRiskLimitsV17`
- * record. Additive to SDK 8.0.0.
- *
- * Source: percolator-prog `58e379f1` (the relaunch wrapper, P1 + P3), `src/v16_program.rs`:
- * decode arm `TAG_SET_ASSET_RISK_LIMITS` (93), its encoder (optional tail), `handle_set_asset_risk_limits`,
- * `state::AssetRiskLimitsV17` at wrapper-slot offset `ASSET_RISK_LIMITS_OFF` (608).
- *
- * @module risk-limits-p1
- */
+import type { LayoutTable } from "./layout.js";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import type { AccountSpec } from "./accounts.js";
 /** P1 tag table. */
@@ -92,13 +83,14 @@ export declare const ASSET_RISK_LIMITS_SLOT_OFF_P1 = 608;
 /**
  * Account offset of asset `i`'s record: 592 + 758 + 2325·i + 608 = 1958 + 2325·i.
  * @param assetIndex  Asset slot.
+ * @param layout      Layout table of the account's VERSION (default LAYOUT_V21; LAYOUT_V22 for v2.2).
  * @returns Byte offset.
  * @example
  * ```ts
  * assetRiskLimitsAccountOffsetP1(0); // 1958
  * ```
  */
-export declare function assetRiskLimitsAccountOffsetP1(assetIndex: number): number;
+export declare function assetRiskLimitsAccountOffsetP1(assetIndex: number, layout?: LayoutTable): number;
 /** Decoded `AssetRiskLimitsV17` (raw stored values; 0 = protocol default). */
 export interface AssetRiskLimitsP1 {
     sideOiCapQ: bigint;

@@ -5,6 +5,8 @@ import {
   parseParams,
   detectSlabLayout,
   isV17MarketAccount,
+  unknownMarketVersion,
+  knownWrapperVersions,
   parseWrapperConfigV17,
   SLAB_TIERS_V1M,
   SLAB_TIERS_V1M2,
@@ -35,6 +37,8 @@ const ENGINE_BITMAP_OFF_V0 = 320;
  */
 export interface DiscoveredMarket {
   slabAddress: PublicKey;
+  /** v17-line markets: the wrapper VERSION (18 = v2.1, 19 = v2.2); decode with `LAYOUTS_BY_VERSION.get(wrapperVersion)`. */
+  wrapperVersion?: number;
   /** The program that owns this slab account */
   programId: PublicKey;
   /**
@@ -869,10 +873,18 @@ export async function discoverMarkets(
     // #264: gate on isV17MarketAccount (kind byte @10 == 1) so portfolio/ledger/
     // registry accounts — which share the magic+version but carry no WrapperConfigV16
     // — are not mis-parsed as markets.
+    {
+      const unknownV = unknownMarketVersion(data);
+      if (unknownV !== null) {
+        console.warn(`[discoverMarkets] skipping ${pkStr}: wrapper VERSION ${unknownV} is not a layout this SDK knows (decodes ${knownWrapperVersions().join(", ")})`);
+        continue;
+      }
+    }
     if (isV17MarketAccount(data)) {
       try {
         const configV17 = parseWrapperConfigV17(data);
         markets.push({
+          wrapperVersion: new DataView(data.buffer, data.byteOffset, data.byteLength).getUint16(8, true),
           slabAddress: pubkey,
           programId,
           header: {} as SlabHeader,
@@ -1038,6 +1050,13 @@ export async function getMarketsByAddress(
     // Gate: check for a v17 MARKET account first, then fall through to v12 slab path.
     // #264: gate on isV17MarketAccount (kind byte @10 == 1) — portfolio/ledger/registry
     // accounts share the magic+version but are not markets and carry no WrapperConfigV16.
+    {
+      const unknownV = unknownMarketVersion(data);
+      if (unknownV !== null) {
+        console.warn(`[getMarketsByAddress] skipping ${pubkey.toBase58()}: wrapper VERSION ${unknownV} is not a layout this SDK knows (decodes ${knownWrapperVersions().join(", ")})`);
+        continue;
+      }
+    }
     if (isV17MarketAccount(data)) {
       try {
         const configV17 = parseWrapperConfigV17(data);
@@ -1045,6 +1064,7 @@ export async function getMarketsByAddress(
         // the DiscoveredMarket type is satisfied. Callers should check configV17 !== undefined
         // to detect a v17 market.
         markets.push({
+          wrapperVersion: new DataView(data.buffer, data.byteOffset, data.byteLength).getUint16(8, true),
           slabAddress: pubkey,
           programId,
           header: {} as SlabHeader,

@@ -31,7 +31,7 @@ import {
 } from "./stake.js";
 import type { AdminCloseSlabAccounts, RecoverTerminalInsuranceAccounts } from "./stake.js";
 import { deriveVaultAuthority } from "./pda.js";
-import { V17_KIND_OFF, V17_MARKET_ASSET_SLOT_LEN, V17_MARKET_GROUP_LEN, V17_MARKET_GROUP_OFF } from "./slab.js";
+import { resolveMarketGeometry } from "../abi/layout.js";
 
 // ============================================================================
 // Offsets
@@ -139,11 +139,20 @@ export interface TerminalInsuranceCapacity {
  * ```
  */
 export function decodeTerminalInsuranceCapacity(marketData: Uint8Array, assetIndex = 0): TerminalInsuranceCapacity {
-  if (marketData[V17_KIND_OFF] !== 1) throw new Error(`not a market account (kind ${marketData[V17_KIND_OFF]})`);
-  const H = V17_MARKET_GROUP_OFF;
-  const hdr = MARKET_GROUP_HEADER_OFF_V18;
-  const slotBase = H + V17_MARKET_GROUP_LEN + assetIndex * V17_MARKET_ASSET_SLOT_LEN + ASSET_WRAPPER_LEN;
-  const E = ENGINE_ASSET_SLOT_OFF_V18;
+  const geom = resolveMarketGeometry(marketData, { parser: "decodeTerminalInsuranceCapacity", strictLength: false });
+  const H = geom.groupOff;
+  const GL = geom.layout.group;
+  const hdr = {
+    vault: GL.vault,
+    insurance: GL.insurance,
+    cTot: GL.cTot,
+    sourceInsuranceCreditReservedTotalAtoms: GL.sourceInsuranceCreditReservedTotalAtoms,
+    insuranceDomainBudgetRemainingTotal: GL.insuranceDomainBudgetRemainingTotal,
+    materializedPortfolioCount: GL.materializedPortfolioCount,
+    mode: GL.mode,
+  };
+  const slotBase = geom.engineOff(assetIndex);
+  const E = geom.layout.engineSlot;
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || marketData.length < slotBase + E.insuranceReservationShort + 16) {
     throw new Error(`market account too short for asset ${assetIndex}`);
   }

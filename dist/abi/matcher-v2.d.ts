@@ -368,8 +368,8 @@ export declare function isMatcherCtxV2(ctxAccountData: Uint8Array): boolean;
 export declare const MATCHER_BATCH_HEADER_LEN = 18;
 /** Per-leg length: `asset u16, oracle_price_e6 u64, req_size i128` (`MATCHER_BATCH_LEG_LEN`). */
 export declare const MATCHER_BATCH_LEG_LEN = 26;
-/** Legs per wrapper BatchTradeCpi (`MATCHER_BATCH_MAX_LEGS` in the wrapper; the P2 matcher itself allows 16). */
-export declare const WRAPPER_BATCH_MAX_LEGS = 11;
+/** Legs per wrapper BatchTradeCpi (`MATCHER_BATCH_MAX_LEGS` in the wrapper = min(11, WRAPPER_MAX_PORTFOLIO_ASSETS = 4) since #546; the P2 matcher itself allows 16). */
+export declare const WRAPPER_BATCH_MAX_LEGS = 4;
 /**
  * Port of the wrapper's `risk_limits_v17::encode_matcher_call_ext` (P1+P3 FINAL `58e379f1`) — the
  * exact 24 bytes the wrapper appends per leg (TradeCpi and, since F-10, BatchTradeCpi). Mode 0 →
@@ -405,7 +405,7 @@ export interface MatcherBatchLeg {
  *
  * @param reqId        Request id.
  * @param lpAccountId  First 8 bytes of the matcher delegate PDA, LE (`matcher_lp_account_id`).
- * @param legs         1..=16 legs (the wrapper sends at most 11).
+ * @param legs         1..=16 legs (the wrapper sends at most 4 since #546).
  * @param exts         Optional per-leg 24-byte extensions (must match `legs.length`).
  * @returns Instruction data for the matcher program.
  * @example

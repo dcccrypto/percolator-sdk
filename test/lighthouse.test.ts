@@ -293,7 +293,7 @@ describe("parseErrorFromLogs — error code extraction", () => {
     expect(result!.name).toBe("EngineProvenanceMismatch");
   });
 
-  it("v17: Percolator errors 104+ return Unknown(...) — past the v18/P1/P3/P2b error table (64-90 reused 2026-09-30, 91 NAV floor 7a3ac04c)", () => {
+  it("v17: Percolator errors 125+ return Unknown(...) — past the v2.2 error table (104-119 and 123-124 are the Phase 4 block, 120-122 the P2b lock exits)", () => {
     // In v12.x, codes 61-65 were ADL-specific errors (EngineSideBlocked etc.).
     // In v17 none of those MEANINGS survive, but THREE of those ordinals have
     // since been reused: 61 by AssetSlotAlreadyConfigured
@@ -307,7 +307,7 @@ describe("parseErrorFromLogs — error code extraction", () => {
     const named = parseErrorFromLogs(["Program failed: custom program error: 0x5b"]);
     expect(named?.code).toBe(91);
     expect(named?.name).toBe("LpVaultTargetPotImpaired");
-    for (const code of [104, 105]) {
+    for (const code of [125, 126]) {
       const hex = code.toString(16);
       const logs = [
         `Program failed: custom program error: 0x${hex}`,

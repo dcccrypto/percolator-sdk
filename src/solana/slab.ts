@@ -1,4 +1,6 @@
 import { Connection, PublicKey } from "@solana/web3.js";
+import { ACCOUNT_KIND, LAYOUTS_BY_VERSION, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
+import type { LayoutTable } from "../abi/layout.js";
 
 // =============================================================================
 // Browser-compatible read helpers using DataView
@@ -3721,6 +3723,26 @@ export const V17_MAGIC = 0x5045_5243_5631_3600n;
  * value changed.
  */
 export const V17_EXPECTED_VERSION = 18;
+/** Every wrapper VERSION this SDK can decode, ascending. Prefer this over {@link V17_EXPECTED_VERSION} (the v2.1 value). */
+export function knownWrapperVersions(): number[] {
+  return [...LAYOUTS_BY_VERSION.keys()].sort((a, b) => a - b);
+}
+/**
+ * Loud classification of a v17-magic MARKET account whose VERSION is unknown (for discovery): returns the VERSION when
+ * the buffer is a market of an UNKNOWN version, else `null`.
+ *
+ * @param data  Raw account bytes.
+ * @returns The unknown VERSION or `null`.
+ * @example
+ * ```ts
+ * const v = unknownMarketVersion(data); if (v !== null) console.warn(`skipping VERSION ${v}`);
+ * ```
+ */
+export function unknownMarketVersion(data: Uint8Array): number | null {
+  if (data.length < V17_KIND_OFF + 1 || readU64LE(data, 0) !== V17_MAGIC || data[V17_KIND_OFF] !== 1) return null;
+  const v = readU16LE(data, 8);
+  return LAYOUTS_BY_VERSION.has(v) ? null : v;
+}
 
 /**
  * v17 account-kind byte (offset 10 of the 16-byte header).
@@ -4595,13 +4617,14 @@ export function parseAssetOracleProfileV17(data: Uint8Array, profileOff: number)
  * Check if a raw account buffer contains a v17 percolator account.
  *
  * @param data Raw account bytes.
- * @returns true if magic == V17_MAGIC and version == V17_EXPECTED_VERSION.
+ * @returns true if magic == V17_MAGIC and the VERSION is one the layout table knows (see {@link LAYOUTS_BY_VERSION}).
  */
 export function isV17Account(data: Uint8Array): boolean {
   if (data.length < 10) return false;
   const magic = readU64LE(data, 0);
   const version = readU16LE(data, 8);
-  return magic === V17_MAGIC && version === V17_EXPECTED_VERSION;
+  // VERSION-keyed: every wrapper VERSION the layout table knows (18 = v2.1, 19 = v2.2).
+  return magic === V17_MAGIC && LAYOUTS_BY_VERSION.has(version);
 }
 
 /**
@@ -4724,40 +4747,20 @@ export interface V17MarketGroupOI {
  * ```
  */
 export function parseMarketGroupV17OI(data: Uint8Array): V17MarketGroupOI {
-  const MIN_LEN = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN;
-  if (data.length < MIN_LEN) {
-    throw new Error(
-      `parseMarketGroupV17OI: buffer too short — need >= ${MIN_LEN} bytes, got ${data.length}`,
-    );
-  }
-  if (!isV17MarketAccount(data)) {
-    throw new Error(
-      "parseMarketGroupV17OI: not a v17 market account (bad magic, version, or kind)",
-    );
-  }
+  // VERSION-keyed geometry (never inferred from the length): v2.1 and v2.2 have different group / slot sizes.
+  const g = resolveMarketGeometry(data, { parser: "parseMarketGroupV17OI", strictLength: false });
+  const L = g.layout;
 
-  // Read insurance u128 from MarketGroupV16HeaderAccount at absolute offset 813.
-  const insuranceOff = V17_MARKET_GROUP_OFF + V17_HEADER_INSURANCE_OFF;
-  const insuranceBalance = readU128LE(data, insuranceOff);
-
-  // Iterate asset slots.  Slots start immediately after MarketGroupV16HeaderAccount.
-  const slotsBase = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN; // 1350 post-fee-split
-  const numSlots = Math.floor(
-    (data.length - slotsBase) / V17_MARKET_ASSET_SLOT_LEN,
-  );
+  const insuranceBalance = readU128LE(data, g.groupOff + L.group.insurance);
 
   let totalLongOiQ = 0n;
   let totalShortOiQ = 0n;
   const assets: V17MarketGroupOI["assets"] = [];
 
-  for (let i = 0; i < numSlots; i++) {
-    const slotBase = slotsBase + i * V17_MARKET_ASSET_SLOT_LEN;
-    // EngineAssetSlotV16Account starts at slotBase + wrapper-T size (512).
-    // AssetStateV16Account is the first field of EngineAssetSlotV16Account (offset 0).
-    const longOff =
-      slotBase + V17_ASSET_SLOT_WRAPPER_SIZE + V17_ASSET_STATE_OI_LONG_REL;
-    const shortOff =
-      slotBase + V17_ASSET_SLOT_WRAPPER_SIZE + V17_ASSET_STATE_OI_SHORT_REL;
+  for (let i = 0; i < g.slotCount; i++) {
+    // EngineAssetSlotV16Account starts after the wrapper prefix; AssetStateV16Account is its first field.
+    const longOff = g.engineOff(i) + L.assetState.oiEffLongQ;
+    const shortOff = g.engineOff(i) + L.assetState.oiEffShortQ;
 
     // Guard against a truncated buffer (should not happen on well-formed accounts).
     if (shortOff + 16 > data.length) break;
@@ -4790,22 +4793,10 @@ function assertV17StandaloneHeader(
   data: Uint8Array,
   parserName: string,
   expectedKind: number,
-): void {
-  if (data.length < V17_ACCOUNT_HEADER_LEN) {
-    throw new Error(`${parserName}: data too short (${data.length} < ${V17_ACCOUNT_HEADER_LEN})`);
-  }
-  const magic = readU64LE(data, 0);
-  if (magic !== V17_MAGIC) {
-    throw new Error(`${parserName}: invalid v17 magic`);
-  }
-  const version = readU16LE(data, 8);
-  if (version !== V17_EXPECTED_VERSION) {
-    throw new Error(`${parserName}: invalid v17 version (${version} !== ${V17_EXPECTED_VERSION})`);
-  }
-  const kind = readU8(data, 10);
-  if (kind !== expectedKind) {
-    throw new Error(`${parserName}: invalid v17 account kind (${kind} !== ${expectedKind})`);
-  }
+): LayoutTable {
+  // VERSION guard (typed UnknownLayoutError): magic, a KNOWN wrapper VERSION (18 = v2.1, 19 = v2.2) and the
+  // kind. Standalone accounts whose body is identical in both layouts (registry, redemption) accept either.
+  return resolveLayout(data, { parser: parserName, kind: expectedKind });
 }
 
 // PortfolioAccountV16Account field layout (relative to HEADER_LEN=16).
@@ -4959,6 +4950,14 @@ export interface PortfolioLegV17 {
   bEpochSnap: bigint;
   bStale: boolean;
   stale: boolean;
+  /** v2.2 only (wrapper VERSION 19): band certification epoch snapshot. */
+  bandEpochSnap?: bigint;
+  /** v2.2 only: the leg is queued for liquidation under the band. */
+  bandLiqPending?: boolean;
+  /** v2.2 only: holding-rent index snapshot. */
+  rentSnap?: bigint;
+  /** v2.2 only: rent remainder carried across settlements. */
+  rentCarry?: bigint;
 }
 
 /** Per source-domain slot returned by parsePortfolioV17. */
@@ -5077,7 +5076,10 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
   if (data.length < MIN_PORTFOLIO_BYTES) {
     throw new Error(`parsePortfolioV17: data too short (${data.length} < ${MIN_PORTFOLIO_BYTES})`);
   }
-  assertV17StandaloneHeader(data, "parsePortfolioV17", V17_KIND_PORTFOLIO);
+  // VERSION + engine-discriminator guard (typed UnknownLayoutError); the leg stride and every offset after the
+  // legs come from the table of the account's VERSION, never from its length.
+  const L = resolvePortfolioLayout(data, { parser: "parsePortfolioV17" });
+  const G = L.portfolio;
 
   // Provenance header
   const marketGroupId = new PublicKey(data.subarray(PF_PROVENANCE_MARKET_GROUP_OFF, PF_PROVENANCE_MARKET_GROUP_OFF + 32));
@@ -5115,34 +5117,42 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
 
   // Legs
   const legs: PortfolioLegV17[] = [];
-  for (let i = 0; i < PF_LEGS_COUNT; i++) {
-    const b = PF_LEGS_OFF + i * PF_LEG_SIZE;
-    if (data.length < b + PF_LEG_SIZE) break;
-    legs.push({
-      active: data[b] !== 0,
-      assetIndex: readU32LE(data, b + 1),
-      marketId: readU64LE(data, b + 5),
-      side: data[b + 13],
-      basisPosQ: readI128LE(data, b + 14),
-      aBasis: readU128LE(data, b + 30),
-      kSnap: readI128LE(data, b + 46),
-      fSnap: readI128LE(data, b + 62),
-      kfEpochSnap: readU64LE(data, b + 78),
-      epochSnap: readU64LE(data, b + 86),
-      lossWeight: readU128LE(data, b + 94),
-      bSnap: readU128LE(data, b + 110),
-      bRem: readU128LE(data, b + 126),
-      bEpochSnap: readU64LE(data, b + 142),
-      bStale: data[b + 150] !== 0,
-      stale: data[b + 151] !== 0,
-    });
+  for (let i = 0; i < G.legCount; i++) {
+    const b = G.legsOff + i * G.legStride;
+    if (data.length < b + G.legStride) break;
+    const o = G.leg;
+    const leg: PortfolioLegV17 = {
+      active: data[b + o.active] !== 0,
+      assetIndex: readU32LE(data, b + o.assetIndex),
+      marketId: readU64LE(data, b + o.marketId),
+      side: data[b + o.side],
+      basisPosQ: readI128LE(data, b + o.basisPosQ),
+      aBasis: readU128LE(data, b + o.aBasis),
+      kSnap: readI128LE(data, b + o.kSnap),
+      fSnap: readI128LE(data, b + o.fSnap),
+      kfEpochSnap: readU64LE(data, b + o.kfEpochSnap),
+      epochSnap: readU64LE(data, b + o.epochSnap),
+      lossWeight: readU128LE(data, b + o.lossWeight),
+      bSnap: readU128LE(data, b + o.bSnap),
+      bRem: readU128LE(data, b + o.bRem),
+      bEpochSnap: readU64LE(data, b + o.bEpochSnap),
+      bStale: data[b + o.bStale] !== 0,
+      stale: data[b + o.stale] !== 0,
+    };
+    if (o.bandEpochSnap !== null && o.bandLiqPending !== null && o.rentSnap !== null && o.rentCarry !== null) {
+      leg.bandEpochSnap = readU64LE(data, b + o.bandEpochSnap);
+      leg.bandLiqPending = data[b + o.bandLiqPending] !== 0;
+      leg.rentSnap = readU128LE(data, b + o.rentSnap);
+      leg.rentCarry = readU64LE(data, b + o.rentCarry);
+    }
+    legs.push(leg);
   }
 
   // Source domains
   const sourceDomains: PortfolioSourceDomainV17[] = [];
-  for (let i = 0; i < PF_SOURCE_DOMAINS_CAP; i++) {
-    const b = PF_SOURCE_DOMAINS_OFF + i * PF_SOURCE_DOMAIN_SIZE;
-    if (data.length < b + PF_SOURCE_DOMAIN_SIZE) break;
+  for (let i = 0; i < G.sourceDomainCap; i++) {
+    const b = G.sourceDomainsOff + i * G.sourceDomainStride;
+    if (data.length < b + G.sourceDomainStride) break;
     sourceDomains.push({
       domain: readU32LE(data, b + 0),
       sourceClaimMarketId: readU64LE(data, b + 4),
@@ -5161,6 +5171,13 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
     });
   }
 
+  const PF_MATCHER_PROGRAM_OFF = G.matcherConfigOff;
+  const PF_MATCHER_CONTEXT_OFF = PF_MATCHER_PROGRAM_OFF + 32;
+  const PF_MATCHER_DELEGATE_OFF = PF_MATCHER_CONTEXT_OFF + 32;
+  const PF_MATCHER_CONTROL_OFF = PF_MATCHER_DELEGATE_OFF + 32;
+  const PF_PORTFOLIO_ID_OFF = PF_MATCHER_PROGRAM_OFF + PF_MATCHER_CONFIG_LEN;
+  const PF_MATCHER_SEQUENCE_OFF = PF_PORTFOLIO_ID_OFF + 8;
+  const PF_MATCHER_EXPIRY_OFF = PF_MATCHER_SEQUENCE_OFF + 8;
   const matcherProgram = data.length >= PF_MATCHER_PROGRAM_OFF + 32
     ? new PublicKey(data.subarray(PF_MATCHER_PROGRAM_OFF, PF_MATCHER_PROGRAM_OFF + 32))
     : PublicKey.default;

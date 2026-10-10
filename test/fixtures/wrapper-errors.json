@@ -1,6 +1,6 @@
 {
-  "prog": "d9e3e2d72c8734ecc9d99905f3cebbb090b61154",
-  "count": 107,
+  "prog": "c8501d153ed1a7bd9b1bc3343b89f47096838ead",
+  "count": 125,
   "errors": {
     "0": "InvalidMagic",
     "1": "InvalidVersion",
@@ -106,8 +106,26 @@
     "101": "VaultLpCapacityLocked",
     "102": "VaultLpCreatorFeeVesting",
     "103": "VaultLpSeniorCapitalHalt",
+    "104": "PriceBandPinned",
+    "105": "PriceBandConfigInvalid",
+    "106": "HoldingRentConfigInvalid",
+    "107": "BondTrancheImpaired",
+    "108": "BondCapacityLocked",
+    "109": "BondWithdrawCooldown",
+    "110": "BondConfigInvalid",
+    "111": "PriceBandPositionCap",
+    "112": "PriceBandTooNarrow",
+    "113": "PriceBandLegBelowMinNotional",
+    "114": "RescueRefused",
+    "115": "RescueNavFloor",
+    "116": "InsuranceBackstopRefused",
+    "117": "RedemptionBelowMinPayout",
+    "118": "ExitRequiresLossCurrent",
+    "119": "LotConfigInvalid",
     "120": "EngineAdlReduceOnly",
     "121": "EngineLossStale",
-    "122": "EarnExitWouldUnderBackClaims"
+    "122": "EarnExitWouldUnderBackClaims",
+    "123": "BondDepositAboveCap",
+    "124": "BondSlippage"
   }
 }

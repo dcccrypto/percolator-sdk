@@ -7,6 +7,8 @@ import { type Network } from "../config/program-ids.js";
  */
 export interface DiscoveredMarket {
     slabAddress: PublicKey;
+    /** v17-line markets: the wrapper VERSION (18 = v2.1, 19 = v2.2); decode with `LAYOUTS_BY_VERSION.get(wrapperVersion)`. */
+    wrapperVersion?: number;
     /** The program that owns this slab account */
     programId: PublicKey;
     /**

@@ -47,7 +47,8 @@ import type { NonboundPotP2b, NonboundVaultPricingP2b, SetVaultLpRiskV19ArgsP2b 
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveVaultAuthority } from "./pda.js";
 import { deriveProgramDataAddressP3, deriveVaultLpStateP3, withBoundVaultLpTailP3 } from "./p3-vault-lp.js";
 import type { VaultLpMarketP3 } from "./p3-vault-lp.js";
-import { V17_EXPECTED_VERSION, V17_KIND_OFF, V17_MAGIC, V17_MARKET_ASSET_SLOT_LEN, V17_MARKET_GROUP_LEN, V17_MARKET_GROUP_OFF } from "./slab.js";
+import { V17_KIND_OFF, V17_MAGIC } from "./slab.js";
+import { resolveLayout, resolveMarketGeometry } from "../abi/layout.js";
 import { V17_ASSET_SLOT_WRAPPER_LEN, V17_ENGINE_BACKING_LONG_REL, V17_ENGINE_BACKING_SHORT_REL } from "./backing-bucket.js";
 
 /**
@@ -128,7 +129,7 @@ export function decodeVaultLpExtV19(data: Uint8Array): VaultLpExtV19 {
   if (data.length < VAULT_LP_EXT_ACCOUNT_LEN_P2B) throw new Error(`VaultLpExtV19: need ${VAULT_LP_EXT_ACCOUNT_LEN_P2B} bytes, got ${data.length}`);
   const v = dv(data);
   if (v.getBigUint64(0, true) !== V17_MAGIC) throw new Error("VaultLpExtV19: invalid v17 magic");
-  if (v.getUint16(8, true) !== V17_EXPECTED_VERSION) throw new Error(`VaultLpExtV19: invalid v17 version ${v.getUint16(8, true)}`);
+  resolveLayout(data, { parser: "VaultLpExtV19" }); // VERSION guard: 18 (v2.1) or 19 (v2.2), else a typed UnknownLayoutError
   if (data[V17_KIND_OFF] !== KIND_VAULT_LP_EXT_P2B) throw new Error(`VaultLpExtV19: kind ${data[V17_KIND_OFF]} != ${KIND_VAULT_LP_EXT_P2B}`);
   const B = 16;
   const F = VAULT_LP_EXT_FIELD_OFF_P2B;
@@ -335,7 +336,7 @@ export function decodeBackingDomainLedgerP2b(data: Uint8Array): BackingDomainLed
   if (data.length !== BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B) throw new Error(`BackingDomainLedger: need exactly ${BACKING_DOMAIN_LEDGER_ACCOUNT_LEN_P2B} bytes, got ${data.length}`);
   const v = dv(data);
   if (v.getBigUint64(0, true) !== V17_MAGIC) throw new Error("BackingDomainLedger: invalid v17 magic");
-  if (v.getUint16(8, true) !== V17_EXPECTED_VERSION) throw new Error(`BackingDomainLedger: invalid v17 version ${v.getUint16(8, true)}`);
+  resolveLayout(data, { parser: "BackingDomainLedger" }); // VERSION guard: 18 (v2.1) or 19 (v2.2), else a typed UnknownLayoutError
   if (data[V17_KIND_OFF] !== KIND_BACKING_DOMAIN_LEDGER_P2B) throw new Error(`BackingDomainLedger: kind ${data[V17_KIND_OFF]} != ${KIND_BACKING_DOMAIN_LEDGER_P2B}`);
   const B = 16;
   const F = BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B;
@@ -381,13 +382,13 @@ export interface PotEngineRecordsP2b {
  * ```
  */
 export function readPotEngineRecordsP2b(marketData: Uint8Array, domain: number): PotEngineRecordsP2b {
-  if (marketData[V17_KIND_OFF] !== 1) throw new Error(`not a market account (kind ${marketData[V17_KIND_OFF]})`);
+  const g = resolveMarketGeometry(marketData, { parser: "readPotEngineRecordsP2b", strictLength: false });
   if (!Number.isInteger(domain) || domain < 0) throw new Error(`bad domain ${domain}`);
   const asset = domain >> 1;
   const short = (domain & 1) === 1;
-  const engineBase = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + asset * V17_MARKET_ASSET_SLOT_LEN + V17_ASSET_SLOT_WRAPPER_LEN;
-  const scOff = engineBase + (short ? SOURCE_CREDIT_REL_P2B.short : SOURCE_CREDIT_REL_P2B.long);
-  const bkOff = engineBase + (short ? V17_ENGINE_BACKING_SHORT_REL : V17_ENGINE_BACKING_LONG_REL);
+  const engineBase = g.engineOff(asset);
+  const scOff = engineBase + (short ? g.layout.engineSlot.sourceCreditShort : g.layout.engineSlot.sourceCreditLong);
+  const bkOff = engineBase + (short ? g.layout.engineSlot.backingShort : g.layout.engineSlot.backingLong);
   if (marketData.length < bkOff + 97 || marketData.length < scOff + SOURCE_CREDIT_LEN_P2B) throw new Error(`market account too short for domain ${domain}`);
   const v = dv(marketData);
   const S = SOURCE_CREDIT_FIELD_OFF_P2B;

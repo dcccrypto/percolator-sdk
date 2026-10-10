@@ -17,6 +17,7 @@ import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import type { Connection } from "@solana/web3.js";
 import type { CrankObservationHint } from "../abi/instructions.js";
 import type { SetVaultLpRiskArgsP3, VaultLpSetMatcherArgsP3 } from "../abi/p3.js";
+import type { LayoutTable } from "../abi/layout.js";
 /** `KIND_VAULT_LP_STATE`. */
 export declare const V18_KIND_VAULT_LP_STATE_P3 = 9;
 /** `size_of::<VaultLpStateV18>()`. */
@@ -81,13 +82,14 @@ export declare const ASSET_VAULT_LP_P2B_FLAGS_OFF_P3 = 91;
  * `MARKET_GROUP_OFF + MARKET_GROUP_LEN + i·MARKET_ASSET_SLOT_LEN + 896` (= 2246 + 2325·i).
  *
  * @param assetIndex  Asset slot index.
+ * @param layout      Layout table of the account's VERSION (default {@link LAYOUT_V21}; pass `LAYOUT_V22` for v2.2).
  * @returns Byte offset.
  * @example
  * ```ts
  * assetVaultLpAccountOffsetP3(0); // 2246
  * ```
  */
-export declare function assetVaultLpAccountOffsetP3(assetIndex: number): number;
+export declare function assetVaultLpAccountOffsetP3(assetIndex: number, layout?: LayoutTable): number;
 /**
  * Recommended compute-unit limits for P3 transactions (measured worst cases on the relaunch head,
  * security review 2026-09-30, with headroom). The runtime default is 200k per instruction, which
@@ -905,7 +907,7 @@ export interface OpenResolvedReceiptP3 {
  * const open = await listOpenResolvedReceiptsP3(conn, W, market);
  * ```
  */
-export declare function listOpenResolvedReceiptsP3(conn: Pick<Connection, "getProgramAccounts">, programId: PublicKey, market: PublicKey): Promise<OpenResolvedReceiptP3[]>;
+export declare function listOpenResolvedReceiptsP3(conn: Pick<Connection, "getProgramAccounts">, programId: PublicKey, market: PublicKey, layout?: LayoutTable): Promise<OpenResolvedReceiptP3[]>;
 /**
  * Tag 30 CloseResolved, permissionless form (owner unsigned, `nft_registry` at [7]); data
  * `[30][fee_rate_per_slot u128 = 0]`. The receipt-revisit fallback when a 46 is refused.
