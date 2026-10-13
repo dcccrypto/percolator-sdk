@@ -94,8 +94,8 @@ describe("resolvePrice", () => {
       pairAddress?: string;
       liquidity?: { usd: number };
       priceUsd?: string;
-      baseToken?: { symbol: string };
-      quoteToken?: { symbol: string };
+      baseToken?: { symbol: string; address?: string };
+      quoteToken?: { symbol: string; address?: string };
     }>;
     jupiterPrice?: number | null;
     /** Aggregate routable liquidity Jupiter reports (v3 field). Default 10M. */
@@ -106,10 +106,16 @@ describe("resolvePrice", () => {
     fetchSpy.mockImplementation(async (url: string) => {
       if (url.includes("dexscreener.com")) {
         if (opts?.dexFail) throw new Error("Network error");
+        // #353: the parser only trusts a pair whose baseToken.address is the queried mint. Pairs
+        // that do not name a base address default to the queried mint (the pre-#353 fixtures all
+        // modelled "queried token is the base").
+        const queried = decodeURIComponent(url.split("/tokens/")[1] ?? "");
         return {
           ok: true,
           json: async () => ({
-            pairs: opts?.dexPairs ?? [],
+            pairs: (opts?.dexPairs ?? []).map((p) =>
+              p.baseToken ? { ...p, baseToken: { address: queried, ...p.baseToken } } : p,
+            ),
           }),
         };
       }
@@ -631,5 +637,72 @@ describe("resolvePrice", () => {
       .map((s) => s.dexId);
     expect(dexIds).toContain("pumpswap");
     expect(dexIds).toContain("meteora");
+  });
+});
+
+// ============================================================================
+// #353: DexScreener priceUsd is the BASE token's price
+// ============================================================================
+
+describe("#353 DexScreener base/quote attribution", () => {
+  const MINT = "QuotedMint1111111111111111111111111111111111";
+  const OTHER = "BaseMint11111111111111111111111111111111111";
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function serve(pairs: unknown[]) {
+    fetchSpy.mockImplementation(async (url: string) => {
+      if (url.includes("dexscreener.com")) return { ok: true, json: async () => ({ pairs }) };
+      return { ok: true, json: async () => ({}) }; // jupiter: nothing
+    });
+  }
+  const pair = (base: unknown, quote: unknown, priceUsd: string) => ({
+    chainId: "solana",
+    dexId: "raydium",
+    pairAddress: "pairX",
+    liquidity: { usd: 5_000_000 },
+    priceUsd,
+    baseToken: base,
+    quoteToken: quote,
+  });
+
+  it("attributes priceUsd when the queried mint is the base token", async () => {
+    serve([pair({ address: MINT, symbol: "Q" }, { address: OTHER, symbol: "B" }, "2.5")]);
+    const r = await resolvePrice(MINT);
+    const dex = r.allSources.filter((s) => s.type === "dex");
+    expect(dex).toHaveLength(1);
+    expect(dex[0].price).toBe(2.5);
+  });
+
+  it("does NOT attribute the base token's priceUsd to a quote-side queried mint", async () => {
+    // priceUsd 150 is the price of OTHER (base); MINT is only the quote.
+    serve([pair({ address: OTHER, symbol: "B" }, { address: MINT, symbol: "Q" }, "150")]);
+    const r = await resolvePrice(MINT);
+    expect(r.allSources.filter((s) => s.type === "dex")).toHaveLength(0);
+    expect(r.bestSource).toBeNull();
+  });
+
+  it("skips pairs with a missing or malformed baseToken address", async () => {
+    serve([
+      pair({ symbol: "Q" }, { address: OTHER, symbol: "B" }, "1"),
+      pair({ address: 42, symbol: "Q" }, { address: OTHER, symbol: "B" }, "1"),
+      pair("not-an-object", null, "1"),
+    ]);
+    const r = await resolvePrice(MINT);
+    expect(r.allSources.filter((s) => s.type === "dex")).toHaveLength(0);
+  });
+
+  it("keeps only the base-side pair when both sides are returned", async () => {
+    serve([
+      pair({ address: OTHER, symbol: "B" }, { address: MINT, symbol: "Q" }, "150"),
+      pair({ address: MINT, symbol: "Q" }, { address: OTHER, symbol: "B" }, "0.0066"),
+    ]);
+    const r = await resolvePrice(MINT);
+    const dex = r.allSources.filter((s) => s.type === "dex");
+    expect(dex.map((s) => s.price)).toEqual([0.0066]);
   });
 });

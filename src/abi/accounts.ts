@@ -1009,6 +1009,8 @@ export const ACCOUNTS_UPDATE_HYPERP_MARK: readonly AccountSpec[] = [
  *   [3] lpMint         writable (LP share mint PDA — derived via deriveLpVaultMint())
  *   [4] systemProgram  read-only (required for create_account CPI)
  *   [5] tokenProgram   read-only
+ *   [6] collateralMint read-only (v2.2 #545: the market's primary collateral mint, == config.collateral_mint; the share
+ *                      mint is created with the collateral mint's decimals. The six-account form is REFUSED.)
  *
  * v12 stale accounts removed: vaultAuthority, rent (Rent::get() used instead).
  * registry replaces lpVaultState; lpMint replaces lpVaultMint.
@@ -1020,7 +1022,17 @@ export const ACCOUNTS_CREATE_LP_VAULT: readonly AccountSpec[] = [
   { name: "lpMint", signer: false, writable: true },
   { name: "systemProgram", signer: false, writable: false },
   { name: "tokenProgram", signer: false, writable: false },
+  { name: "collateralMint", signer: false, writable: false },
 ] as const;
+
+/**
+ * CreateLpVault (tag 74) on the DEPLOYED v2.1 wrapper: the six accounts, without the v2.2 collateral mint. `ACCOUNTS_CREATE_LP_VAULT` is the
+ * seven-account v2.2 list from 9.0.0 on (BREAKING for v2.1 consumers: 8.x exported six); use this one for the v2.1 wrapper.
+ */
+export const ACCOUNTS_CREATE_LP_VAULT_V21: readonly AccountSpec[] = ACCOUNTS_CREATE_LP_VAULT.slice(0, 6);
+
+/** InitLpShareMetadata (tag 122, v2.2 #545): the account specs live with the rest of the tag in ./v22-lp-share.ts. */
+export { ACCOUNTS_INIT_LP_SHARE_METADATA, ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL } from "./v22-lp-share.js";
 
 /**
  * DepositToLpVault (tag 75): 10 accounts.

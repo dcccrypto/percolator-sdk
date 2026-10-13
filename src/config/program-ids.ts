@@ -24,15 +24,16 @@ export function safeEnv(key: string): string | undefined {
 
 export const PROGRAM_IDS = {
   devnet: {
-    // v2.1 fresh-ID deploy (SDK 9.0.0, decided 2026-10-05, "mode ii"): the devnet wrapper and
-    // matcher move to BRAND-NEW program addresses (5NGgnU2j… / DfTxJUT5…), and stake/nft move
-    // with them (see PROGRAM_IDS_V17). This is the ACTIVE devnet set that getProgramId() /
-    // getProgramId("devnet") resolves and that PDA derivation + tx targeting use. The previous
-    // ETDLAdi… world (SDK 8.x) stays LIVE as "v1 / close-only" so users can exit: its four ids
-    // are exported as PROGRAM_IDS_DEVNET_V1 — pass them explicitly to read/close v1 markets.
+    // v2.2 (SDK 9.0.0-candidate, Q-5 2026-10-11): the devnet defaults are the FRESH v2.2 test
+    // deployment (2026-10-10, byte-verified against the reviewed RC builds) — see
+    // PROGRAM_IDS_DEVNET_V22. The earlier v2.1 RC ids (5NGgnU2j… / DfTxJUT5… / DWUNq2iY… /
+    // A6DVNubv…) were NEVER deployed; defaulting to them made every default-derived PDA and tx
+    // target a program that does not exist. This is the ACTIVE devnet set that getProgramId() /
+    // getProgramId("devnet") resolves. The ETDLAdi… world (SDK 8.x) stays LIVE as "v1 /
+    // close-only": its ids are exported as PROGRAM_IDS_DEVNET_V1 — pass them explicitly.
     // Older abandoned wrappers (GnwdeQr…, DhSkE7u…) remain outside every allowlist.
-    percolator: "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
-    matcher: "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam",
+    percolator: "6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM",
+    matcher: "AsHvEJ8zNctKmdeS57H5E4w6nkTLi3bPVpd6ZCLc2ayN",
   },
   mainnet: {
     percolator: "ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv",
@@ -44,48 +45,61 @@ Object.freeze(PROGRAM_IDS.mainnet);
 Object.freeze(PROGRAM_IDS);
 
 /**
- * Devnet program IDs, historically named "v17". As of the v2.1 fresh-ID deploy (SDK 9.0.0)
- * every member points at the v2.1 devnet set — wrapper 5NGgnU2j…, matcher DfTxJUT5…,
- * nft DWUNq2iY…, stake/vault A6DVNubv… — so this object is a SINGLE SOURCE OF TRUTH with
- * PROGRAM_IDS.devnet (same wrapper, same matcher) and is the devnet default consumed by
- * stake.ts / abi/nft.ts.
+ * The v2.2 fresh devnet deployment (2026-10-10, ~05:04-05:08Z): the ONLY deployed programs that
+ * speak this SDK's v2.2 wire. Byte-verified against the reviewed builds (QA handoff §3):
+ *   wrapper `6kpg2wi7…` = percolator-prog devnet/v22-fresh-ids 81ed7fdf (RC 6c078a0e + the two
+ *   pinned ids below), stake `7JrgAUHi…` = percolator-stake 75aac97 (RC aebbff6 + ids), nft
+ *   `27LWmR72…` = percolator-nft b257417, matcher `AsHvEJ8z…` = percolator-match 2b08537a.
+ * The wrapper pins `vault` as its STAKE_PROGRAM_ID and `matcher` as its
+ * CANONICAL_VAULT_LP_MATCHER_PROGRAM, so the four ids move together.
  *
- * The previous all-fresh relaunch set (SDK 8.x: ETDLAdi… / EDKKgRaV… / EMYT15LZ… /
- * VmpVUArR…) is NOT abandoned — it stays live as "v1 / close-only" and is exported as
- * {@link PROGRAM_IDS_DEVNET_V1}.
+ * v2.2 does not ship (test deployment only). When v2.2 gets its release ids, change this one
+ * object; every default below derives from it.
  *
- * @deprecated Prefer PROGRAM_IDS.devnet / getProgramId("devnet"). PROGRAM_IDS_V17 and
- * PROGRAM_ID_V17 are retained only for back-compat with consumers that still import them.
- *
- * (Earlier sets — GnwdeQr… world (matcher 4seJWjv3…, stake GCHhcgw…, nft CNGBPZR…), the
- * v17 DhSkE7u… wrapper, and the 2026-06-26 triple 69VUZ7a2… / 51CeUNpb… / 5TnritLt… — are
- * superseded; pin @percolatorct/sdk@7.0.0 for the GnwdeQr world.)
+ * @example
+ * ```ts
+ * import { PublicKey } from "@solana/web3.js";
+ * import { PROGRAM_IDS_DEVNET_V22 } from "@percolatorct/sdk";
+ * const wrapper = new PublicKey(PROGRAM_IDS_DEVNET_V22.percolator); // 6kpg2wi7…
+ * ```
  */
-export const PROGRAM_IDS_V17 = {
-  /** ACTIVE devnet wrapper (5NGgnU2j…) — v2.1 fresh-ID deploy (SDK 9.0.0). Single source of
-   *  truth with PROGRAM_IDS.devnet.percolator; @deprecated alias, prefer PROGRAM_IDS.devnet. */
-  percolator: "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
-  /** v2.1 matcher — fresh devnet address (SDK 9.0.0). */
-  matcher: "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam",
-  /** v2.1 nft — fresh devnet address (SDK 9.0.0). */
-  nft: "DWUNq2iYh6Sdgdv3qv7aWJNJGhoK25FqyQrqDUrDD9zs",
-  /** v2.1 stake/vault — fresh devnet address (SDK 9.0.0); the wrapper's pinned STAKE_PROGRAM_ID. */
-  vault: "A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE",
+export const PROGRAM_IDS_DEVNET_V22 = {
+  /** v2.2 devnet wrapper (engine 3ce4cbd1 inside). */
+  percolator: "6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM",
+  /** v2.2 devnet matcher (percolator-match 2b08537a) — the wrapper's canonical vault-LP matcher. */
+  matcher: "AsHvEJ8zNctKmdeS57H5E4w6nkTLi3bPVpd6ZCLc2ayN",
+  /** v2.2 devnet nft program. */
+  nft: "27LWmR72Ru1NCkbN2xgxB7BgYcTUrU7qeEJoV3D8sZh1",
+  /** v2.2 devnet stake/vault program (v5) — the v2.2 wrapper's pinned STAKE_PROGRAM_ID. */
+  vault: "7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V",
 } as const;
-Object.freeze(PROGRAM_IDS_V17);
+Object.freeze(PROGRAM_IDS_DEVNET_V22);
+
+/**
+ * Devnet program IDs, historically named "v17". In SDK 9.0.0-candidate every member points at
+ * the v2.2 fresh devnet set ({@link PROGRAM_IDS_DEVNET_V22}), so this object is a SINGLE SOURCE
+ * OF TRUTH with PROGRAM_IDS.devnet and is the devnet default consumed by stake.ts / abi/nft.ts.
+ *
+ * The all-fresh relaunch set (SDK 8.x: ETDLAdi… / EDKKgRaV… / EMYT15LZ… / VmpVUArR…) stays live
+ * as "v1 / close-only" and is exported as {@link PROGRAM_IDS_DEVNET_V1}. The v2.1 RC set
+ * (5NGgnU2j… / DfTxJUT5… / DWUNq2iY… / A6DVNubv…) was never deployed and is no longer accepted.
+ *
+ * @deprecated Prefer PROGRAM_IDS.devnet / getProgramId("devnet") / PROGRAM_IDS_DEVNET_V22.
+ * PROGRAM_IDS_V17 and PROGRAM_ID_V17 are retained only for back-compat.
+ */
+export const PROGRAM_IDS_V17 = PROGRAM_IDS_DEVNET_V22;
 
 /**
  * LEGACY devnet "v1 / close-only" program-ID set — the ETDLAdi… world that was the active
  * devnet set in SDK 8.x (all-fresh relaunch, 2026-09-30). It stays deployed after the v2.1
- * fresh-ID cutover so users can close positions and withdraw; new markets are created only
- * on the v2.1 set ({@link PROGRAM_IDS_V17} / {@link PROGRAM_IDS}.devnet).
+ * cutover so users can close positions and withdraw; new markets are created only
+ * on the v2.2 set ({@link PROGRAM_IDS_DEVNET_V22} / {@link PROGRAM_IDS}.devnet).
  *
  * Nothing in the SDK defaults to these ids. Pass them explicitly (e.g. as `programId`,
  * `matcherProgram`, `stakeProgram`) when reading or closing a v1 market. The v1 wrapper,
  * matcher, stake and nft ids are accepted by the corresponding env-override allowlists.
- *
- * The wire format is unchanged between v1 and v2.1 for every instruction this SDK encodes
- * against both; only the program addresses differ.
+ * v1 markets are VERSION 18; the v2.2 decoders refuse them by VERSION, so use SDK 8.x for v1
+ * state you need decoded.
  *
  * @example
  * ```ts
@@ -93,7 +107,7 @@ Object.freeze(PROGRAM_IDS_V17);
  * import { PROGRAM_IDS_DEVNET_V1, getProgramId } from "@percolatorct/sdk";
  *
  * const v1Wrapper = new PublicKey(PROGRAM_IDS_DEVNET_V1.percolator); // ETDLAdi…
- * const v21Wrapper = getProgramId("devnet");                          // 5NGgnU2j…
+ * const v22Wrapper = getProgramId("devnet");                          // 6kpg2wi7…
  * ```
  */
 export const PROGRAM_IDS_DEVNET_V1 = {
@@ -109,9 +123,24 @@ export const PROGRAM_IDS_DEVNET_V1 = {
 Object.freeze(PROGRAM_IDS_DEVNET_V1);
 
 /**
- * The devnet wrapper PublicKey. As of the v2.1 fresh-ID deploy (SDK 9.0.0) this resolves to
- * the ACTIVE devnet wrapper (5NGgnU2j…) — identical to getProgramId("devnet") — because
- * PROGRAM_IDS_V17.percolator was cut over. Retained (with its historical "V17" name) only for
+ * Known percolator-nft program addresses per network. devnet = the v2.2 fresh NFT (27LWmR72…);
+ * mainnet = FqhKJT9g…. `abi/nft.ts` builds its NFT_PROGRAM_ID allowlist from this (plus the v1
+ * close-only id).
+ *
+ * @example
+ * ```ts
+ * new PublicKey(NFT_PROGRAM_IDS.devnet); // 27LWmR72…
+ * ```
+ */
+export const NFT_PROGRAM_IDS = {
+  devnet: PROGRAM_IDS_DEVNET_V22.nft,
+  mainnet: "FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS",
+} as const;
+Object.freeze(NFT_PROGRAM_IDS);
+
+/**
+ * The devnet wrapper PublicKey. In SDK 9.0.0-candidate this resolves to the ACTIVE v2.2 devnet
+ * wrapper (6kpg2wi7…) — identical to getProgramId("devnet"). Retained (with its historical "V17" name) only for
  * back-compat with consumers that still import it.
  * @deprecated Prefer getProgramId("devnet") / PROGRAM_IDS.devnet.percolator.
  */

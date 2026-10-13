@@ -3,8 +3,9 @@
  * Percolator Insurance LP Staking program — instruction encoders, PDA derivation, and account specs.
  *
  * Program: percolator-stake (dcccrypto/percolator-stake)
- * Devnet (v2.1, SDK 9.0.0): A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE — the v2.1 fresh-ID
- *   set, see PROGRAM_IDS_V17.vault in `src/config/program-ids.ts`. The v1 / close-only
+ * Devnet (v2.2, SDK 9.0.0-candidate): 7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V — the v2.2
+ *   fresh devnet set, see PROGRAM_IDS_DEVNET_V22.vault in `src/config/program-ids.ts` (the v2.1 RC
+ *   id A6DVNubv… was never deployed). The v1 / close-only
  *   ETDLAdi… world's stake program VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w is exported as
  *   PROGRAM_IDS_DEVNET_V1.vault and stays accepted by the STAKE_PROGRAM_ID env allowlist.
  * Deployed mainnet: DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F (unverified — no confirmed
@@ -22,9 +23,42 @@
 
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
+/**
+ * @deprecated #352: the stake program accepts ONLY the classic SPL Token program
+ * (percolator-stake `verify_token_program`, processor.rs:17). Re-exported for source
+ * compatibility only; every stake account builder throws if given this id.
+ */
 export { TOKEN_2022_PROGRAM_ID };
-import { safeEnv, PROGRAM_IDS_DEVNET_V1 } from '../config/program-ids.js';
+import { safeEnv, PROGRAM_IDS_DEVNET_V1, PROGRAM_IDS_DEVNET_V22 } from '../config/program-ids.js';
 import { concatBytes } from '../abi/encode.js';
+import { STAKE_FLOOR_FLAGS_RESERVED_INDEX } from '../abi/stake-dead-lp.js';
+
+/**
+ * Guard: the stake program supports ONLY the classic SPL Token program (percolator-stake
+ * `verify_token_program`, processor.rs:17 rejects anything else with IncorrectProgramId; there is
+ * no Token-2022 handling). #352: fail at build time with a clear message instead of shipping a
+ * transaction that is certain to be refused on-chain.
+ *
+ * @param tokenProgramId - The token program a caller passed to a stake account builder.
+ * @returns The same id, when it is the classic SPL Token program.
+ * @throws Error when the id is Token-2022 or any other non-classic token program.
+ * @example
+ * ```ts
+ * assertClassicTokenProgram(TOKEN_PROGRAM_ID); // ok
+ * assertClassicTokenProgram(TOKEN_2022_PROGRAM_ID); // throws
+ * ```
+ */
+export function assertClassicTokenProgram(tokenProgramId: PublicKey): PublicKey {
+  if (!tokenProgramId.equals(TOKEN_PROGRAM_ID)) {
+    const what = tokenProgramId.equals(TOKEN_2022_PROGRAM_ID)
+      ? 'Token-2022 is not supported by the stake program'
+      : 'unsupported token program';
+    throw new Error(
+      `stake: ${what} (got ${tokenProgramId.toBase58()}); the stake program accepts only the classic SPL Token program ${TOKEN_PROGRAM_ID.toBase58()}`,
+    );
+  }
+  return tokenProgramId;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Program ID — network-conditional (mirrors program-ids.ts pattern)
@@ -33,8 +67,8 @@ import { concatBytes } from '../abi/encode.js';
 /**
  * Known stake program addresses per network.
  *
- * devnet (SDK 9.0.0): the v2.1 fresh-ID stake program `A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE`
- * (= PROGRAM_IDS_V17.vault; pinned as STAKE_PROGRAM_ID by the v2.1 wrapper). The previous
+ * devnet (SDK 9.0.0-candidate): the v2.2 fresh devnet stake program `7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V`
+ * (= PROGRAM_IDS_DEVNET_V22.vault; pinned as STAKE_PROGRAM_ID by the v2.2 wrapper 6kpg2wi7…). The previous
  * default `VmpVUArR…` belongs to the v1 / close-only ETDLAdi… world — see PROGRAM_IDS_DEVNET_V1.
  * The history below is kept as a record.
  *
@@ -60,12 +94,12 @@ import { concatBytes } from '../abi/encode.js';
  * a real, executing mainnet program rather than failing safe.
  */
 export const STAKE_PROGRAM_IDS = {
-  devnet: 'A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE',
+  devnet: PROGRAM_IDS_DEVNET_V22.vault, // 7JrgAUHi… — v2.2 fresh devnet stake (v5); see program-ids.ts
   mainnet: 'DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F',
 } as const;
 Object.freeze(STAKE_PROGRAM_IDS);
 
-/** Allowlist of legitimate stake program addresses (devnet v2.1 + devnet v1 close-only + mainnet). */
+/** Allowlist of legitimate stake program addresses (devnet v2.2 + devnet v1 close-only + mainnet). */
 const KNOWN_STAKE_PROGRAM_IDS = new Set<string>([
   ...Object.values(STAKE_PROGRAM_IDS),
   PROGRAM_IDS_DEVNET_V1.vault, // v1 / close-only devnet stake program (still live)
@@ -536,8 +570,8 @@ export const STAKE_ERRORS: Record<number, string> = {
   25: "Cooldown increase requires timelock — a cooldown_slots INCREASE must go through ProposeCooldownIncrease -> wait -> CommitCooldownIncrease, not UpdateConfig (decreases are still immediate via UpdateConfig)",
   26: "Timelock not elapsed — CommitCooldownIncrease was called before the required timelock window had passed since ProposeCooldownIncrease; LP holders are still inside their exit window",
   27: "No pending cooldown proposal — CommitCooldownIncrease / CancelCooldownIncrease called with no active ProposeCooldownIncrease proposal outstanding",
-  28: "Deposit below minimum liquidity — the pool's first-ever deposit must exceed MINIMUM_LIQUIDITY so a permanent dead-share floor can be locked (N7 anti-inflation hardening); deposit a larger amount",
-  29: "No real LP holders — AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (total_lp_supply <= MINIMUM_LIQUIDITY). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard).",
+  28: "Deposit below minimum liquidity — the first deposit into an EMPTY pool, senior tranche or junior tranche must exceed MINIMUM_LIQUIDITY (1,000 atoms) so a permanent dead-share floor can be locked for that sub-pool (N7 anti-inflation hardening; each sub-pool locks its own floor); nothing is locked on refusal; deposit a larger amount",
+  29: "No real LP holders — AccrueFees refused because the pool's LP supply is only the N7 MINIMUM_LIQUIDITY dead-share floor (real_lp_supply() == 0: total_lp_supply minus the per-sub-pool dead floors, 0, 1,000 or 2,000 shares on a tranche pool). Fees booked now would belong to shares nobody can redeem; nothing is booked and the fee tokens stay in the vault until the first accrual after a real staker deposits (F3 dead-share guard, percolator-stake feat/p1-stake-f3-dead-share-guard).",
   30: "Market not terminal (F-9) — RecoverTerminalInsurance (tag 29) needs the wrapper market Resolved or a CloseSlab tombstone, and a non-zero amount needs Resolved (not Closed); AdminCloseSlab (tag 30) needs Resolved. While Live, use RecoverFlushedInsurance (tag 23)",
   32: "Unsupported wrapper layout (F-9, NOT retryable) — the bound wrapper market account is not the layout this stake program pins (magic, VERSION 18, kind, minimum length, a known mode byte), so its engine mode cannot be trusted. RecoverTerminalInsurance (29), AdminCloseSlab (30) and the mode-0 Deposit/DepositJunior path refuse. A wrapper layout bump needs a coordinated stake upgrade; retrying will not help",
   31: "Nothing to recover (F-9) — RecoverTerminalInsurance moved no tokens and booked nothing (amount 0, no stray account, no unbooked vault surplus). Keepers should treat this as done",
@@ -1159,7 +1193,7 @@ export function encodeStakeRecoverFlushedInsurance(amount: bigint | number): Uin
  * @param wrapperMarket       Wrapper market/slab account (writable).
  * @param wrapperVault        Wrapper insurance vault token account — source (writable).
  * @param wrapperVaultAuth    Wrapper vault authority PDA.
- * @param tokenProgram        Token program.
+ * @param tokenProgram        Token program (classic SPL Token only, #352: anything else throws).
  * @param percolatorProgram   Wrapper program ID.
  */
 export interface RecoverFlushedInsuranceAccounts {
@@ -1201,7 +1235,7 @@ export function recoverFlushedInsuranceAccounts(
     { pubkey: a.wrapperMarket,      isSigner: false, isWritable: true  },
     { pubkey: a.wrapperVault,       isSigner: false, isWritable: true  },
     { pubkey: a.wrapperVaultAuth,   isSigner: false, isWritable: false },
-    { pubkey: a.tokenProgram,       isSigner: false, isWritable: false },
+    { pubkey: assertClassicTokenProgram(a.tokenProgram), isSigner: false, isWritable: false },
     { pubkey: a.percolatorProgram,  isSigner: false, isWritable: false },
   ];
 }
@@ -1643,6 +1677,13 @@ export interface StakePoolState {
   mode0FeesAttributed: bigint;
   /** percolator-stake #290: `_reserved[60] == 1` — the attribution cursor is live. */
   feeAttributionArmed: boolean;
+  /**
+   * percolator-stake R-1 (fix/v22-stake-last-junior-residual): raw `_reserved[61]` dead-share
+   * floor flags (FLOOR_SENIOR 0x01, FLOOR_JUNIOR 0x02). `0` with supply > 0 = legacy pool
+   * (every pool on the pre-fix program). Use {@link stakeDeadLp} / {@link stakeRealLpSupply} /
+   * {@link stakeHasRealLpHolders} instead of assuming `totalLpSupply - 1000`.
+   */
+  floorFlags: number;
   poolMode: number;
 
   // _reserved layout (64 bytes) — ADOPTED lineage (state.rs@9ec1c3a):
@@ -1662,7 +1703,8 @@ export interface StakePoolState {
   // [51..59] N-realized_junior_loss (u64) — issue #161
   // [59]     asset_admin_burned (BurnAssetAdmin tag 21 completion flag)
   // [60]     #290 fee_attribution_armed (v18.2)
-  // [61..64] free
+  // [61]     R-1 floor flags (FLOOR_SENIOR 0x01 | FLOOR_JUNIOR 0x02; 0 = legacy)
+  // [62..64] free
   // [64..72] v3 ONLY, OUTSIDE _reserved (absolute offset 384..392):
   //          total_recovered_from_wrapper (u64) — H-1 re-review fix, state.rs@c5a901f
 
@@ -1976,6 +2018,8 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   const assetAdminBurned = bytes[reservedStart + 59] === 1;
   // #290 (stake v18.2): _reserved[60] = fee_attribution_armed.
   const feeAttributionArmed = bytes[reservedStart + 60] === 1;
+  // R-1: _reserved[61] = dead-share floor flags (absolute 381 on v2+, 349 on v1).
+  const floorFlags = bytes[reservedStart + STAKE_FLOOR_FLAGS_RESERVED_INDEX];
 
   // H-1 re-review fix, stake v3 and v4: total_recovered_from_wrapper (u64) is a
   // REAL struct field appended at the tail, offset reservedStart + 64 (== 384
@@ -2010,6 +2054,7 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
     lastVaultSnapshot,
     mode0FeesAttributed: lastVaultSnapshot,
     feeAttributionArmed,
+    floorFlags,
     poolMode,
     hwmEnabled,
     epochHighWaterTvl,
@@ -2160,13 +2205,15 @@ export interface StakeAccounts {
  * Returns array of {pubkey, isSigner, isWritable} in the order the program expects.
  *
  * @param a - Named accounts for the InitPool instruction.
- * @param tokenProgramId - Token program to use. Defaults to SPL Token. Pass
- *   `TOKEN_2022_PROGRAM_ID` for Token-2022 collateral mints.
+ * @param tokenProgramId - Token program. Defaults to classic SPL Token, the ONLY program the
+ *   stake program accepts (#352: Token-2022 collateral is not supported; passing it throws).
+ * @throws Error if `tokenProgramId` is not the classic SPL Token program.
  */
 export function initPoolAccounts(
   a: StakeAccounts['initPool'],
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
+  assertClassicTokenProgram(tokenProgramId);
   return [
     { pubkey: a.admin, isSigner: true, isWritable: true },
     { pubkey: a.slab, isSigner: false, isWritable: true },  // writable: InitPool CPIs UpdateAuthority which writes the slab
@@ -2191,8 +2238,9 @@ export function initPoolAccounts(
  * v18.1 stake reads only the first 11 and ignores the trailing account.
  *
  * @param a - Named accounts for the Deposit instruction.
- * @param tokenProgramId - Token program to use. Defaults to SPL Token. Pass
- *   `TOKEN_2022_PROGRAM_ID` for Token-2022 collateral mints.
+ * @param tokenProgramId - Token program. Defaults to classic SPL Token, the ONLY program the
+ *   stake program accepts (#352: Token-2022 collateral is not supported; passing it throws).
+ * @throws Error if `tokenProgramId` is not the classic SPL Token program.
  * @returns Account metas in the order the program parses them.
  * @example
  * ```ts
@@ -2206,6 +2254,7 @@ export function depositAccounts(
   a: StakeAccounts['deposit'],
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
+  assertClassicTokenProgram(tokenProgramId);
   return [
     { pubkey: a.user, isSigner: true, isWritable: false },
     { pubkey: a.pool, isSigner: false, isWritable: true },
@@ -2228,7 +2277,7 @@ export function depositAccounts(
  * including the #290 wrapper market at index 11".
  *
  * @param a - Named accounts (same shape as Deposit).
- * @param tokenProgramId - Token program to use. Defaults to SPL Token.
+ * @param tokenProgramId - Token program. Classic SPL Token only (#352); anything else throws.
  * @returns Account metas in the order the program parses them.
  * @example
  * ```ts
@@ -2254,8 +2303,9 @@ export function depositJuniorAccounts(
  * v18.1 stake ignores the trailing account.
  *
  * @param a - Named accounts for the Withdraw instruction.
- * @param tokenProgramId - Token program to use. Defaults to SPL Token. Pass
- *   `TOKEN_2022_PROGRAM_ID` for Token-2022 collateral mints.
+ * @param tokenProgramId - Token program. Defaults to classic SPL Token, the ONLY program the
+ *   stake program accepts (#352: Token-2022 collateral is not supported; passing it throws).
+ * @throws Error if `tokenProgramId` is not the classic SPL Token program.
  * @returns Account metas in the order the program parses them.
  * @example
  * ```ts
@@ -2267,6 +2317,7 @@ export function withdrawAccounts(
   a: StakeAccounts['withdraw'],
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
+  assertClassicTokenProgram(tokenProgramId);
   return [
     { pubkey: a.user, isSigner: true, isWritable: false },
     { pubkey: a.pool, isSigner: false, isWritable: true },
@@ -2315,13 +2366,15 @@ export function accrueFeesAccounts(a: StakeAccounts['accrueFees']) {
  * Build account keys for FlushToInsurance instruction.
  *
  * @param a - Named accounts for the FlushToInsurance instruction.
- * @param tokenProgramId - Token program to use. Defaults to SPL Token. Pass
- *   `TOKEN_2022_PROGRAM_ID` for Token-2022 collateral mints.
+ * @param tokenProgramId - Token program. Defaults to classic SPL Token, the ONLY program the
+ *   stake program accepts (#352: Token-2022 collateral is not supported; passing it throws).
+ * @throws Error if `tokenProgramId` is not the classic SPL Token program.
  */
 export function flushToInsuranceAccounts(
   a: StakeAccounts['flushToInsurance'],
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
+  assertClassicTokenProgram(tokenProgramId);
   return [
     { pubkey: a.caller, isSigner: true, isWritable: false },
     { pubkey: a.pool, isSigner: false, isWritable: true },
@@ -2387,7 +2440,7 @@ export interface RecoverTerminalInsuranceAccounts {
   wrapperProgram: PublicKey;
   /** OPTIONAL stray token account to sweep (pool mint, owner `vault_auth`, not `pool.vault`). */
   stray?: PublicKey;
-  /** Token program (default SPL Token). */
+  /** Token program (default SPL Token; classic only, #352: anything else throws). */
   tokenProgram?: PublicKey;
 }
 
@@ -2417,7 +2470,7 @@ export function recoverTerminalInsuranceAccounts(
     { pubkey: a.market, isSigner: false, isWritable: true },
     { pubkey: a.wrapperVault, isSigner: false, isWritable: true },
     { pubkey: a.wrapperVaultAuthority, isSigner: false, isWritable: false },
-    { pubkey: a.tokenProgram ?? TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: assertClassicTokenProgram(a.tokenProgram ?? TOKEN_PROGRAM_ID), isSigner: false, isWritable: false },
     { pubkey: a.wrapperProgram, isSigner: false, isWritable: false },
     ...(a.stray ? [{ pubkey: a.stray, isSigner: false, isWritable: true }] : []),
   ];
@@ -2443,7 +2496,7 @@ export interface AdminCloseSlabAccounts {
   poolVault: PublicKey;
   /** `pool.percolator_program`. */
   wrapperProgram: PublicKey;
-  /** Token program (default SPL Token). */
+  /** Token program (default SPL Token; classic only, #352: anything else throws). */
   tokenProgram?: PublicKey;
 }
 
@@ -2472,7 +2525,7 @@ export function adminCloseSlabAccounts(
     { pubkey: a.wrapperVault, isSigner: false, isWritable: true },
     { pubkey: a.wrapperVaultAuthority, isSigner: false, isWritable: false },
     { pubkey: a.poolDestToken, isSigner: false, isWritable: true },
-    { pubkey: a.tokenProgram ?? TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: assertClassicTokenProgram(a.tokenProgram ?? TOKEN_PROGRAM_ID), isSigner: false, isWritable: false },
     { pubkey: a.collateralMint, isSigner: false, isWritable: true },
     { pubkey: a.poolVault, isSigner: false, isWritable: true },
     { pubkey: a.wrapperProgram, isSigner: false, isWritable: false },

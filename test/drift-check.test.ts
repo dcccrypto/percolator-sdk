@@ -735,8 +735,8 @@ describe("parseEngineLight — V12_19 uses layout-driven offsets (not stale isV2
 // ===========================================================================
 
 describe("STAKE_PROGRAM_ID — address constants", () => {
-  it("STAKE_PROGRAM_ID exports the v2.1 devnet address A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE (matches PROGRAM_IDS_V17.vault)", () => {
-    expect(STAKE_PROGRAM_ID.toBase58()).toBe("A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE");
+  it("STAKE_PROGRAM_ID exports the v2.2 devnet address 7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V (matches PROGRAM_IDS_V17.vault)", () => {
+    expect(STAKE_PROGRAM_ID.toBase58()).toBe("7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V");
   });
 
   it("STAKE_PROGRAM_ID does NOT export the OLD superseded address 51CeUNpbXovK2BRADPyssuf3Q1xWGabEK9pYkp5mqVhQ", () => {
@@ -759,12 +759,12 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     }
   });
 
-  it("getStakeProgramId('devnet') returns A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE", () => {
+  it("getStakeProgramId('devnet') returns 7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V", () => {
     const saved = process.env.STAKE_PROGRAM_ID;
     delete process.env.STAKE_PROGRAM_ID;
     try {
       const pk = getStakeProgramId("devnet");
-      expect(pk.toBase58()).toBe("A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE");
+      expect(pk.toBase58()).toBe("7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V");
     } finally {
       if (saved !== undefined) process.env.STAKE_PROGRAM_ID = saved;
     }
@@ -781,10 +781,10 @@ describe("STAKE_PROGRAM_ID — address constants", () => {
     }
   });
 
-  it("STAKE_PROGRAM_IDS.devnet constant is A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE", () => {
-    // v2.1 fresh-ID stake program (SDK 9.0.0) — the v2.1 wrapper's STAKE_PROGRAM_ID pin.
+  it("STAKE_PROGRAM_IDS.devnet constant is 7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V", () => {
+    // v2.2 fresh-ID stake program (SDK 9.0.0) — the v2.2 wrapper's STAKE_PROGRAM_ID pin.
     // VmpVUArR… is the v1 / close-only world (PROGRAM_IDS_DEVNET_V1.vault).
-    expect(STAKE_PROGRAM_IDS.devnet).toBe("A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE");
+    expect(STAKE_PROGRAM_IDS.devnet).toBe("7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V");
   });
 
   it("getStakeProgramId() with no args, no env, in a browser context THROWS rather than guessing", () => {

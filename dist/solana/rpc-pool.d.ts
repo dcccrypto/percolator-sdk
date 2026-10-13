@@ -205,6 +205,46 @@ declare function endpointLabel(ep: RpcEndpointConfig): string;
 declare function isRetryable(err: unknown, codes: number[]): boolean;
 declare function computeDelay(attempt: number, config: ResolvedRetryConfig): number;
 /**
+ * Thrown by {@link RpcPool.call} when the SDK's own per-request timeout fires. The callback may
+ * STILL BE RUNNING (or may already have taken effect on-chain): the outcome is indeterminate.
+ * For non-idempotent callbacks (the default, e.g. sendTransaction) the pool does not fail over
+ * or retry after this error, because that would run a second copy concurrently (#351).
+ */
+export declare class RpcTimeoutError extends Error {
+    constructor(message: string);
+}
+/** Options for {@link RpcPool.call}. */
+export interface RpcCallOptions {
+    /**
+     * Declare that running `fn` more than once is safe (reads such as getBalance/getAccountInfo).
+     * When `true`, an SDK-generated timeout aborts the attempt's signal and fails over / retries as
+     * before. When `false` (default) a timeout is surfaced as {@link RpcTimeoutError} with NO
+     * failover or retry, so a send-type callback can never run concurrently with its own retry.
+     * @default false
+     */
+    idempotent?: boolean;
+}
+/**
+ * Redact credentials from a URL so it is safe for logging / `status()` output (#350).
+ *
+ * - `username` / `password` (userinfo) are removed.
+ * - Query parameters whose name looks like a credential (`api-key`, `token`, `secret`, `key`,
+ *   `password`, ...) are replaced with `***`, as are query values that look like opaque tokens.
+ * - Path segments that look like opaque tokens (Alchemy `/v2/<key>`, QuickNode `/<key>/`, Helius
+ *   `/<key>`) are replaced with `***`.
+ * - The fragment is dropped.
+ * - If the input is not a parseable http(s)/ws(s) URL a fixed placeholder is returned, NEVER the raw string.
+ *
+ * @param raw - Endpoint URL as configured.
+ * @returns A redacted URL string, or `"[unparseable-url]"`.
+ * @example
+ * ```ts
+ * redactUrl("https://user:pw@rpc.example.com/v2/abcdefghijklmnopqrstuv?api-key=zzz");
+ * // "https://rpc.example.com/v2/***?api-key=***"
+ * ```
+ */
+declare function redactUrl(raw: string): string;
+/**
  * RPC connection pool with retry, failover, and round-robin support.
  *
  * Wraps one or more Solana RPC endpoints behind a single `call()` interface
@@ -254,17 +294,25 @@ export declare class RpcPool {
      * Execute a function against a pooled connection with automatic retry
      * and failover.
      *
-     * @param fn - Async function that receives a `Connection` and returns a result.
+     * Timeout semantics (#351): when the SDK's `requestTimeoutMs` fires, `fn` is not cancelled by
+     * the race itself, so it may still be running. The `signal` passed as `fn`'s second argument is
+     * aborted at that point (honour it where you can). With `opts.idempotent === true` the pool then
+     * fails over / retries; otherwise (default) it throws {@link RpcTimeoutError} immediately and
+     * never runs a second copy, so non-idempotent calls (sendTransaction) cannot double-execute.
+     * Errors thrown BY `fn` mean it has settled and keep the existing retry/failover behaviour.
+     *
+     * @param fn - Async function that receives a `Connection` and an `AbortSignal` (aborted on SDK timeout).
+     * @param opts - `{ idempotent: true }` to allow failover/retry after a timeout (reads only).
      * @returns The result of `fn`.
-     * @throws The last error if all retries and failovers are exhausted.
+     * @throws {RpcTimeoutError} on timeout of a non-idempotent call; otherwise the last error if all retries and failovers are exhausted.
      *
      * @example
      * ```ts
-     * const balance = await pool.call(c => c.getBalance(pubkey));
-     * const markets = await pool.call(c => discoverMarkets(c, programId, opts));
+     * const balance = await pool.call(c => c.getBalance(pubkey), { idempotent: true });
+     * const sig = await pool.call(c => c.sendRawTransaction(raw)); // non-idempotent: no timeout failover
      * ```
      */
-    call<T>(fn: (connection: Connection) => Promise<T>): Promise<T>;
+    call<T>(fn: (connection: Connection, signal: AbortSignal) => Promise<T>, opts?: RpcCallOptions): Promise<T>;
     /**
      * Get a raw `Connection` from the current preferred endpoint.
      * Useful when you need to pass a Connection to external code.
@@ -356,5 +404,6 @@ export declare const _internal: {
     readonly resolveRetryConfig: typeof resolveRetryConfig;
     readonly normalizeEndpoint: typeof normalizeEndpoint;
     readonly endpointLabel: typeof endpointLabel;
+    readonly redactUrl: typeof redactUrl;
 };
 export {};

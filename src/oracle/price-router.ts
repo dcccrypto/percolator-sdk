@@ -69,7 +69,19 @@ function combineAbortSignals(signals: AbortSignal[]): AbortSignal {
 
 const SUPPORTED_DEX_IDS = new Set(["pumpswap", "raydium", "meteora"]);
 
-function parseDexScreenerPairs(json: unknown): PriceSource[] {
+/**
+ * Parse DexScreener pairs for a queried mint.
+ *
+ * DexScreener's `priceUsd` is ALWAYS the price of the pair's BASE token. A pair returned for
+ * `/tokens/<mint>` may have the queried mint on the quote side, in which case `priceUsd` is the
+ * price of the OTHER token. #353: only pairs whose `baseToken.address` equals `mint` are
+ * attributed (no quote-side inversion), so a quote-side match can never become a wrong price.
+ *
+ * @param json - Raw DexScreener response body.
+ * @param mint - The queried mint (base58). Compared exactly (base58 is case-sensitive).
+ * @returns Up to 10 sources, sorted by liquidity descending.
+ */
+function parseDexScreenerPairs(json: unknown, mint: string): PriceSource[] {
   if (!isRecord(json)) return [];
   const rawPairs = json.pairs;
   if (!Array.isArray(rawPairs)) return [];
@@ -78,6 +90,8 @@ function parseDexScreenerPairs(json: unknown): PriceSource[] {
   for (const pair of rawPairs) {
     if (!isRecord(pair)) continue;
     if (pair.chainId !== "solana") continue;
+    // #353: priceUsd is the base token's price; require the queried mint to BE the base token.
+    if (!isRecord(pair.baseToken) || pair.baseToken.address !== mint) continue;
     const dexId = String(pair.dexId || "").toLowerCase();
     if (!SUPPORTED_DEX_IDS.has(dexId)) continue;
 
@@ -252,7 +266,7 @@ async function fetchDexSources(mint: string, signal?: AbortSignal): Promise<Pric
     );
     if (!resp.ok) return [];
     const json: unknown = await resp.json();
-    return parseDexScreenerPairs(json);
+    return parseDexScreenerPairs(json, mint);
   } catch {
     return [];
   }

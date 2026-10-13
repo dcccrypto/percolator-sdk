@@ -44,6 +44,7 @@ import {
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveVaultAuthority } from "../src/solana/pda.js";
 import { deriveVaultLpStateP3 } from "../src/solana/p3-vault-lp.js";
 import * as root from "../src/index.js";
+import { stampMarket, stampPortfolio } from "./helpers/stamp.js";
 
 const hex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
 const pk = (): PublicKey => Keypair.generate().publicKey;
@@ -204,6 +205,7 @@ describe("ede691b6 worse-of Earn pricing (vault_lp_equity_lag_bounds_ro)", () =>
   });
   it("readAssetPricesP3 reads asset i after the 1024-byte wrapper prefix", () => {
     const d = new Uint8Array(592 + 758 + 2 * 2325);
+    stampMarket(d);
     const v = new DataView(d.buffer);
     const base1 = 592 + 758 + 2325 + 1024;
     v.setBigUint64(base1 + 17, 777n, true); v.setBigUint64(base1 + 25, 555n, true);
@@ -289,7 +291,7 @@ describe("resolved receipts + revisit sweep (5544302a option B, 5e4c15ff revisit
     const d = new Uint8Array(9563);
     d.set(market.toBytes(), 16); d.set(owner.toBytes(), 80);
     const v = new DataView(d.buffer); v.setBigUint64(9369 + 48, 777n, true); d[9369 + 64] = present; d[9369 + 65] = finalized;
-    return d;
+    return stampPortfolio(d);
   };
   it("decodes present / finalized / open", () => {
     const o = Keypair.generate().publicKey;

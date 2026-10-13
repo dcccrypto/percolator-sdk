@@ -13,6 +13,8 @@
  *
  * @module growth-v19
  */
+import { LAYOUT_V21, resolveMarketGeometry } from "./layout.js";
+import type { LayoutTable } from "./layout.js";
 import { concatBytes, encU8, encU16, encU32, encU128 } from "./encode.js";
 import { encodeInitMarket } from "./instructions.js";
 import type { InitMarketV17Args, InitMarketArgs } from "./instructions.js";
@@ -210,15 +212,16 @@ export function decodeAssetGrowthFromSlotV19(slot: Uint8Array): AssetGrowthV19 |
  * (the same slot base as `AssetRiskLimitsV17` at slot + 608, see `assetRiskLimitsAccountOffsetP1`).
  *
  * @param assetIndex  Asset slot index.
+ * @param layout      Layout table of the account's VERSION (default LAYOUT_V21; LAYOUT_V22 for v2.2).
  * @returns Byte offset into the market account.
  * @example
  * ```ts
  * assetGrowthAccountOffsetV19(0); // 2022
  * ```
  */
-export function assetGrowthAccountOffsetV19(assetIndex: number): number {
+export function assetGrowthAccountOffsetV19(assetIndex: number, layout: LayoutTable = LAYOUT_V21): number {
   if (!Number.isInteger(assetIndex) || assetIndex < 0) throw new Error(`bad assetIndex ${assetIndex}`);
-  return 592 + 758 + 2325 * assetIndex + ASSET_GROWTH_SLOT_OFF;
+  return layout.marketGroupOff + layout.marketGroupLen + layout.assetSlotStride * assetIndex + layout.wrapperSlot.growth;
 }
 
 /**
@@ -233,8 +236,8 @@ export function assetGrowthAccountOffsetV19(assetIndex: number): number {
  * ```
  */
 export function decodeAssetGrowthV19(marketData: Uint8Array, assetIndex: number): AssetGrowthV19 | null {
-  if (marketData[10] !== 1) throw new Error(`not a market account (kind ${marketData[10]})`);
-  const off = assetGrowthAccountOffsetV19(assetIndex);
+  const g = resolveMarketGeometry(marketData, { parser: "decodeAssetGrowthV19", strictLength: false });
+  const off = assetGrowthAccountOffsetV19(assetIndex, g.layout);
   if (marketData.length < off + ASSET_GROWTH_LEN) throw new Error(`market account too short for asset ${assetIndex}`);
   return decodeAssetGrowthRecordV19(marketData.subarray(off, off + ASSET_GROWTH_LEN));
 }

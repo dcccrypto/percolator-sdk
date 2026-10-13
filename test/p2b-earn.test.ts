@@ -44,6 +44,7 @@ import {
 import type { VaultLpMarketP3 } from "../src/solana/p3-vault-lp.js";
 import { deriveLpBackingLedger, deriveLpVaultRegistry } from "../src/solana/pda.js";
 import { encodeLpVaultCrankFees } from "../src/abi/instructions.js";
+import { stampMarket } from "./helpers/stamp.js";
 
 type Row = Record<string, string | number | boolean | null | string[]>;
 interface Fx {
@@ -458,7 +459,7 @@ describe("raw records behind the non-bound pricing (R3-M1 monitor input)", () =>
   // plant the program-written records at the RUSTC offsets of asset 1, long (domain 2) and short (domain 3)
   const plant = (): Uint8Array => {
     const m = new Uint8Array(PL.marketGroupOff + PL.marketGroupHeaderLen + 2 * PL.assetSlotLen);
-    m[10] = 1;
+    stampMarket(m);
     const a = PL.assetOffsets[1];
     m.set(sc, a.sourceCreditLong); m.set(bk, a.backingLong);
     return m;
@@ -475,7 +476,7 @@ describe("raw records behind the non-bound pricing (R3-M1 monitor input)", () =>
     // the short pot (domain 3) was not planted: all zero (negative control for the long / short selection)
     expect(readPotEngineRecordsP2b(plant(), 3).positiveClaimBoundNum).toBe(0n);
     expect(() => readPotEngineRecordsP2b(plant(), 40)).toThrow(/too short/);
-    expect(() => readPotEngineRecordsP2b(new Uint8Array(4000), 2)).toThrow(/not a market/);
+    expect(() => readPotEngineRecordsP2b(new Uint8Array(4000), 2)).toThrow(/not a v17 market account/);
   });
   it("end to end: par vs E3 for a pot owing a winner's claim", () => {
     // held 1185 atoms, claims 180e12 less insurance cover (30e12 - 3e12) -> owes ceil(153e12 / 1e12) = 153 -> physical net 1032
@@ -495,7 +496,7 @@ describe("raw records behind the non-bound pricing (R3-M1 monitor input)", () =>
     expect(p.parMinusE3Atoms).toBe(68n);
     expect(p.parMinusE3Bps).toBe(618); // floor(68 * 10000 / 1100)
     // a vault with no ledger yet prices at zero on both readings
-    const empty = nonboundVaultPricingFromAccountsP2b({ marketData: new Uint8Array(plant().length).fill(0, 0).map((_, i) => (i === 10 ? 1 : 0)), registryDomain: 2, feeShareBps: 5_000, ownLedgerData: null, siblingLedgerData: new Uint8Array(0) });
+    const empty = nonboundVaultPricingFromAccountsP2b({ marketData: stampMarket(new Uint8Array(plant().length)), registryDomain: 2, feeShareBps: 5_000, ownLedgerData: null, siblingLedgerData: new Uint8Array(0) });
     expect([empty.entryNavAtoms, empty.exitNavAtoms, empty.parMinusE3Atoms]).toEqual([0n, 0n, 0n]);
   });
   it("earnings sync: the ledger earns the bucket's delta before NAV is read (same on entry and exit)", () => {

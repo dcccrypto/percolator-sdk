@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   RpcPool,
+  RpcTimeoutError,
   checkRpcHealth,
   withRetry,
   _internal,
@@ -651,5 +652,137 @@ describe("Type exports", () => {
       slot: 12345,
     };
     expect(result.healthy).toBe(true);
+  });
+});
+
+// ============================================================================
+// #350: redactUrl strips credentials
+// ============================================================================
+
+describe("#350 redactUrl", () => {
+  const r = _internal.redactUrl;
+
+  it("removes userinfo username and password", () => {
+    const out = r("https://alice:hunter2@rpc.example.com/");
+    expect(out).not.toContain("alice");
+    expect(out).not.toContain("hunter2");
+    expect(out).toContain("rpc.example.com");
+  });
+
+  it("removes a username-only userinfo (token as username)", () => {
+    const out = r("https://sk_live_secrettoken@rpc.example.com/");
+    expect(out).not.toContain("sk_live_secrettoken");
+  });
+
+  it("redacts api-key style query parameters", () => {
+    const out = r("https://mainnet.helius-rpc.com/?api-key=abc123&foo=bar");
+    expect(out).not.toContain("abc123");
+    expect(out).toContain("api-key=***");
+    expect(out).toContain("foo=bar");
+  });
+
+  it("redacts opaque path-embedded keys (Alchemy / QuickNode style)", () => {
+    expect(r("https://solana-mainnet.g.alchemy.com/v2/ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")).toBe(
+      "https://solana-mainnet.g.alchemy.com/v2/***",
+    );
+    const qn = r("https://x.quiknode.pro/0123456789abcdef0123456789abcdef01234567/");
+    expect(qn).not.toContain("0123456789abcdef");
+  });
+
+  it("drops the fragment", () => {
+    expect(r("https://rpc.example.com/#secretfragmentvalue1234567890")).not.toContain("secretfragment");
+  });
+
+  it("returns a fixed placeholder, never the raw string, when unparseable", () => {
+    const raw = "user:pass@not a url/with-secret-0123456789abcdef";
+    const out = r(raw);
+    expect(out).toBe("[unparseable-url]");
+    expect(out).not.toContain("pass");
+    expect(out).not.toContain("secret");
+  });
+
+  it("endpointLabel does not echo an unparseable URL", () => {
+    expect(_internal.endpointLabel({ url: "user:pass@not a url/secret-0123456789" })).toBe("endpoint");
+  });
+
+  it("status() urls never contain credentials", () => {
+    const pool = new RpcPool({
+      endpoints: [
+        { url: "https://bob:pw123@rpc1.example.com/?token=tok" },
+      ],
+      verbose: false,
+    });
+    const blob = JSON.stringify(pool.status());
+    expect(blob).not.toContain("bob");
+    expect(blob).not.toContain("pw123");
+    expect(blob).toContain("token=***");
+  });
+});
+
+// ============================================================================
+// #351: timeout must not fail over concurrently for non-idempotent callbacks
+// ============================================================================
+
+describe("#351 RpcPool timeout failover", () => {
+  const mk = () =>
+    new RpcPool({
+      endpoints: ["https://rpc1.example.com", "https://rpc2.example.com"],
+      strategy: "failover",
+      retry: { maxRetries: 2, baseDelayMs: 1, maxDelayMs: 2, jitterFactor: 0 },
+      requestTimeoutMs: 30,
+      verbose: false,
+    });
+
+  it("default (non-idempotent): a timeout throws RpcTimeoutError and fn runs exactly once", async () => {
+    const pool = mk();
+    let running = 0;
+    let maxConcurrent = 0;
+    const fn = vi.fn(async () => {
+      running++;
+      maxConcurrent = Math.max(maxConcurrent, running);
+      await new Promise((r) => setTimeout(r, 300));
+      running--;
+      return "late";
+    });
+    await expect(pool.call(fn)).rejects.toBeInstanceOf(RpcTimeoutError);
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(maxConcurrent).toBe(1);
+    await new Promise((r) => setTimeout(r, 350));
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("the attempt's AbortSignal is aborted when the SDK timeout fires", async () => {
+    const pool = mk();
+    let sig: AbortSignal | undefined;
+    await expect(
+      pool.call(async (_c, s) => {
+        sig = s;
+        await new Promise((r) => setTimeout(r, 200));
+      }),
+    ).rejects.toBeInstanceOf(RpcTimeoutError);
+    expect(sig?.aborted).toBe(true);
+  });
+
+  it("idempotent: true still fails over to the next endpoint after a timeout", async () => {
+    const pool = mk();
+    const seen: AbortSignal[] = [];
+    const fn = vi.fn(async (_c: Connection, s: AbortSignal) => {
+      seen.push(s);
+      if (fn.mock.calls.length === 1) await new Promise((r) => setTimeout(r, 300));
+      return "ok";
+    });
+    await expect(pool.call(fn, { idempotent: true })).resolves.toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(seen[0].aborted).toBe(true); // first attempt told to stop before the retry ran
+  });
+
+  it("errors thrown BY fn (callback settled) still fail over without idempotent", async () => {
+    const pool = mk();
+    const fn = vi.fn(async () => {
+      if (fn.mock.calls.length === 1) throw new Error("HTTP 429 Too Many Requests");
+      return "ok";
+    });
+    await expect(pool.call(fn)).resolves.toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });

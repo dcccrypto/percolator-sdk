@@ -1,3 +1,23 @@
+## 9.0.0-candidate: QA fixes (2026-10-11, Q-1 / Q-2 / Q-5 / P-2)
+
+- **BREAKING (devnet defaults):** `PROGRAM_IDS.devnet`, `PROGRAM_IDS_V17`, `STAKE_PROGRAM_IDS.devnet`, the NFT default and `CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3` now resolve to the deployed v2.2 fresh devnet set (`PROGRAM_IDS_DEVNET_V22`: wrapper `6kpg2wi7…`, stake `7JrgAUHi…`, nft `27LWmR72…`, matcher `AsHvEJ8z…`). The v2.1 RC ids were never deployed and are dropped from the defaults and the env allowlists. `NFT_PROGRAM_IDS` added; `NFT_PROGRAM_ID=27LWmR72…` no longer needs the override opt-in.
+- **Changed:** `parseErrorFromLogs(logs, opts?)` attributes the error to the failing program (`program`, `programId`) and uses that program's table: stake (`STAKE_ERRORS` + `STAKE_ERRORS_V5`, names in `STAKE_ERROR_NAMES`), nft (`NFT_ERRORS`), matcher (`MATCHER_V2_ERRORS`), SPL Token (`SPL_TOKEN_ERRORS`). Stake 28/29/33/41 used to decode as wrapper names. Unknown programs keep the legacy wrapper decoding (`program: "unknown"`). `opts.programIds` and `opts.context` are new; `getContextualErrorHint` added.
+- **Changed:** wrapper 9 and 19 hints. 9 names the trade causes (fee cap below base + matcher fee or above the maximum, limit price missed, 5th position); 19 no longer claims a stale mark and, with `{ action: "withdraw", openLegs > 0 }`, says to close positions first.
+- **Added:** `computeTradeFeeBpsToSignV22`, `readTradeFeeInputsV22`, `matcherFeeWorstCaseBpsV22` (fee to sign = base + matcher fee + margin, bounded by `max_trading_fee_bps`; verified against wrapper RC 6c078a0e `handle_trade_cpi` and matcher 2b08537a `v2::requested_fee_bps`).
+- **Added (Q-7):** `buildMultiAssetTradeIxsV22`, `refineMultiAssetTradePlanV22`, `buildRefreshCrankIxV22` (multi-asset market, >= 3 legs: refresh LP / taker / LP then trade, 1.4M CU); error context `healthCheckStale` for 19; `staleResolveErrorContextV22`, `staleSlotsRemaining` context for 27 on tag 39.
+- **Added:** tag 39 `encodeResolveStalePermissionless` (alias `…V22`), `ACCOUNTS_RESOLVE_STALE_PERMISSIONLESS_V22`, `buildResolveStalePermissionlessIxV22`, `staleResolveStatusV22`.
+
+## 9.0.0-candidate: BREAKING
+
+- **`ACCOUNTS_CREATE_LP_VAULT` (tag 74) is now SEVEN entries** (the market's collateral mint at `[6]`, wrapper #545); 8.x exported six. A v2.2 wrapper refuses the six-account form (`NotEnoughAccountKeys`), the deployed v2.1 wrapper takes six. v2.1 consumers must switch to the new **`ACCOUNTS_CREATE_LP_VAULT_V21`** (the six entries) or keep their own list; `ACCOUNTS_CREATE_LP_VAULT_V22` is the same seven as `ACCOUNTS_CREATE_LP_VAULT`. Instruction data is unchanged.
+- Added: `abi/v22-fill-events` (FILL / REDUCE / MOVE decoders, strict log attribution), `abi/v22-lp-share` + `solana/v22-lp-share` (tag 122 builder, share-token identity, Metaplex record reader), `WRAPPER_MAX_PORTFOLIO_ASSETS_V22` / `BATCH_MAX_LEGS_V22` (= 4) and `assertBatchLegsV22`.
+
+## 9.0.0-candidate (v2.2 SDK layer, draft)
+
+- Added (additive; v1 and v2.1 paths unchanged): `abi/layout` (VERSION-keyed `LAYOUT_V21` / `LAYOUT_V22` rows, VERSION + engine-discriminator guard, typed `UnknownLayoutError`), `abi/v22-wire` (tags 0 merged trailer, 76, 77, 106-112, 116-119 encoders, account lists, tails), `abi/v22-state` (BondTranche, BondPosition, InsuranceUnits 192 B, G9 allowlist, 112/128 B redemption), `abi/v22-math` (bond / rescue / G9 / band / lot / redemption math), `abi/v22-stake` (stake v5 wire, StakePool v5, errors 33-45), `solana/v22` (builders, compute presets, Earn exit planner, atomic launch bundle, exact-length portfolio createAccount).
+- Added (follow-up): `abi/v22-band` (band / rent state decoders, rent-rate math, favourable-close rule with the floor-stuck exemption), `abi/v22-lot` (one lot conversion, sizes never round up), full ordered launch bundle (74, creates, 94, 107, Earn seeds with the bound tail), `ACCOUNT_TAILS_V22`, 78 / 97 builders; discovery and `isV17Account` / `isV17MarketAccount` accept every known VERSION and skip unknown ones with a warning.
+- Changed: market and portfolio decoders now refuse unknown VERSIONs / discriminators with `UnknownLayoutError`; error table gains 104-119, 123, 124.
+
 # Changelog
 
 All notable changes to `@percolator/sdk` are documented here.

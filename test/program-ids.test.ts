@@ -129,51 +129,51 @@ describe("getMatcherProgramId", () => {
 // self-referential comparisons against the module's own constants) so that
 // a regression fails loudly instead of silently passing.
 //
-// v2.1 fresh-ID deploy (SDK 9.0.0, mode ii): the ACTIVE devnet set moved to brand-new
-// addresses — wrapper 5NGgnU2j…, matcher DfTxJUT5…, nft DWUNq2iY…, stake/vault A6DVNubv….
+// v2.2 fresh-ID deploy (SDK 9.0.0, mode ii): the ACTIVE devnet set moved to brand-new
+// addresses — wrapper 6kpg2wi7…, matcher AsHvEJ8z…, nft 27LWmR72…, stake/vault 7JrgAUHi….
 // PROGRAM_IDS_V17 / PROGRAM_ID_V17 are single-source-of-truth aliases of that set. The
 // SDK 8.x ETDLAdi… world is v1 / close-only (PROGRAM_IDS_DEVNET_V1, see the block below).
 // The abandoned wrappers (GnwdeQr…, DhSkE7u…) must appear nowhere as an active id.
 // ===========================================================================
-describe("devnet wrapper id (v2.1 fresh-ID cutover) + v17-named record", () => {
-  it("getProgramId('devnet') resolves to the v2.1 wrapper 5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe", () => {
+describe("devnet wrapper id (v2.2 fresh-ID cutover) + v17-named record", () => {
+  it("getProgramId('devnet') resolves to the v2.2 wrapper 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM", () => {
     const pk = getProgramId("devnet");
-    expect(pk.toBase58()).toBe("5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe");
+    expect(pk.toBase58()).toBe("6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM");
   });
 
-  it("PROGRAM_IDS.devnet.percolator is the v2.1 wrapper (active default)", () => {
+  it("PROGRAM_IDS.devnet.percolator is the v2.2 wrapper (active default)", () => {
     expect(PROGRAM_IDS.devnet.percolator).toBe(
-      "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
+      "6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM",
     );
   });
 
-  it("PROGRAM_IDS_V17.percolator is the v2.1 wrapper (deprecated alias, single source of truth)", () => {
+  it("PROGRAM_IDS_V17.percolator is the v2.2 wrapper (deprecated alias, single source of truth)", () => {
     expect(PROGRAM_IDS_V17.percolator).toBe(
-      "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
+      "6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM",
     );
   });
 
-  it("PROGRAM_ID_V17 PublicKey is the v2.1 wrapper (deprecated alias of the active id)", () => {
+  it("PROGRAM_ID_V17 PublicKey is the v2.2 wrapper (deprecated alias of the active id)", () => {
     expect(PROGRAM_ID_V17.toBase58()).toBe(
-      "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
+      "6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM",
     );
   });
 
-  it("PROGRAM_IDS_V17.vault is the v2.1 stake/vault program A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE", () => {
+  it("PROGRAM_IDS_V17.vault is the v2.2 stake/vault program 7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V", () => {
     expect(PROGRAM_IDS_V17.vault).toBe(
-      "A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE",
+      "7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V",
     );
   });
 
-  it("PROGRAM_IDS_V17.nft is the v2.1 nft program DWUNq2iYh6Sdgdv3qv7aWJNJGhoK25FqyQrqDUrDD9zs", () => {
+  it("PROGRAM_IDS_V17.nft is the v2.2 nft program 27LWmR72Ru1NCkbN2xgxB7BgYcTUrU7qeEJoV3D8sZh1", () => {
     expect(PROGRAM_IDS_V17.nft).toBe(
-      "DWUNq2iYh6Sdgdv3qv7aWJNJGhoK25FqyQrqDUrDD9zs",
+      "27LWmR72Ru1NCkbN2xgxB7BgYcTUrU7qeEJoV3D8sZh1",
     );
   });
 
-  it("PROGRAM_IDS_V17.matcher is the v2.1 matcher DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam", () => {
+  it("PROGRAM_IDS_V17.matcher is the v2.2 matcher AsHvEJ8zNctKmdeS57H5E4w6nkTLi3bPVpd6ZCLc2ayN", () => {
     expect(PROGRAM_IDS_V17.matcher).toBe(
-      "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam",
+      "AsHvEJ8zNctKmdeS57H5E4w6nkTLi3bPVpd6ZCLc2ayN",
     );
   });
 
@@ -252,14 +252,14 @@ describe("getCurrentNetwork", () => {
 });
 
 // ===========================================================================
-// v2.1 (default) vs v1 / close-only (PROGRAM_IDS_DEVNET_V1) devnet sets — SDK 9.0.0.
+// v2.2 (default) vs v1 / close-only (PROGRAM_IDS_DEVNET_V1) devnet sets — SDK 9.0.0.
 // Literal pins on both sides, so reverting ANY default to its v1 value fails here.
 // ===========================================================================
-const V21_LITERALS = {
-  percolator: "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
-  matcher: "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam",
-  nft: "DWUNq2iYh6Sdgdv3qv7aWJNJGhoK25FqyQrqDUrDD9zs",
-  vault: "A6DVNubvzMMETQinK6bipekkaTTrkUu2RMw2kBoJrdkE",
+const V22_LITERALS = {
+  percolator: "6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM",
+  matcher: "AsHvEJ8zNctKmdeS57H5E4w6nkTLi3bPVpd6ZCLc2ayN",
+  nft: "27LWmR72Ru1NCkbN2xgxB7BgYcTUrU7qeEJoV3D8sZh1",
+  vault: "7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V",
 } as const;
 const V1_LITERALS = {
   percolator: "ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB",
@@ -268,32 +268,32 @@ const V1_LITERALS = {
   vault: "VmpVUArRnVkrjaPXQ2qaqCQa3ZrZFgsz7rjeALitF5w",
 } as const;
 
-describe("devnet v2.1 default set vs PROGRAM_IDS_DEVNET_V1 (v1 / close-only)", () => {
+describe("devnet v2.2 default set vs PROGRAM_IDS_DEVNET_V1 (v1 / close-only)", () => {
   it("PROGRAM_IDS_DEVNET_V1 is exactly the four ETDLAdi-world literals", () => {
     expect({ ...PROGRAM_IDS_DEVNET_V1 }).toEqual(V1_LITERALS);
     expect(Object.isFrozen(PROGRAM_IDS_DEVNET_V1)).toBe(true);
   });
 
-  it("PROGRAM_IDS_V17 is exactly the four v2.1 literals", () => {
-    expect({ ...PROGRAM_IDS_V17 }).toEqual(V21_LITERALS);
+  it("PROGRAM_IDS_V17 is exactly the four v2.2 literals", () => {
+    expect({ ...PROGRAM_IDS_V17 }).toEqual(V22_LITERALS);
   });
 
-  it("every devnet default equals its v2.1 literal", () => {
+  it("every devnet default equals its v2.2 literal", () => {
     const saved = { p: process.env.PROGRAM_ID, m: process.env.MATCHER_PROGRAM_ID, s: process.env.STAKE_PROGRAM_ID };
     delete process.env.PROGRAM_ID;
     delete process.env.MATCHER_PROGRAM_ID;
     delete process.env.STAKE_PROGRAM_ID;
     try {
-      expect(PROGRAM_IDS.devnet.percolator).toBe(V21_LITERALS.percolator);
-      expect(PROGRAM_IDS.devnet.matcher).toBe(V21_LITERALS.matcher);
-      expect(getProgramId("devnet").toBase58()).toBe(V21_LITERALS.percolator);
-      expect(getMatcherProgramId("devnet").toBase58()).toBe(V21_LITERALS.matcher);
-      expect(PROGRAM_ID_V17.toBase58()).toBe(V21_LITERALS.percolator);
-      expect(STAKE_PROGRAM_IDS.devnet).toBe(V21_LITERALS.vault);
-      expect(STAKE_PROGRAM_ID.toBase58()).toBe(V21_LITERALS.vault);
-      expect(getStakeProgramId("devnet").toBase58()).toBe(V21_LITERALS.vault);
-      expect(NFT_PROGRAM_ID.toBase58()).toBe(V21_LITERALS.nft);
-      expect(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3).toBe(V21_LITERALS.matcher);
+      expect(PROGRAM_IDS.devnet.percolator).toBe(V22_LITERALS.percolator);
+      expect(PROGRAM_IDS.devnet.matcher).toBe(V22_LITERALS.matcher);
+      expect(getProgramId("devnet").toBase58()).toBe(V22_LITERALS.percolator);
+      expect(getMatcherProgramId("devnet").toBase58()).toBe(V22_LITERALS.matcher);
+      expect(PROGRAM_ID_V17.toBase58()).toBe(V22_LITERALS.percolator);
+      expect(STAKE_PROGRAM_IDS.devnet).toBe(V22_LITERALS.vault);
+      expect(STAKE_PROGRAM_ID.toBase58()).toBe(V22_LITERALS.vault);
+      expect(getStakeProgramId("devnet").toBase58()).toBe(V22_LITERALS.vault);
+      expect(NFT_PROGRAM_ID.toBase58()).toBe(V22_LITERALS.nft);
+      expect(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3).toBe(V22_LITERALS.matcher);
     } finally {
       if (saved.p !== undefined) process.env.PROGRAM_ID = saved.p;
       if (saved.m !== undefined) process.env.MATCHER_PROGRAM_ID = saved.m;
@@ -301,7 +301,7 @@ describe("devnet v2.1 default set vs PROGRAM_IDS_DEVNET_V1 (v1 / close-only)", (
     }
   });
 
-  it("the v2.1 and v1 sets are disjoint (no id shared between worlds)", () => {
+  it("the v2.2 and v1 sets are disjoint (no id shared between worlds)", () => {
     const v21 = new Set<string>(Object.values(PROGRAM_IDS_V17));
     const v1 = new Set<string>(Object.values(PROGRAM_IDS_DEVNET_V1));
     expect(v21.size).toBe(4);

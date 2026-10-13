@@ -302,9 +302,10 @@ function normalizeEndpoint(ep: RpcEndpointConfig | string): RpcEndpointConfig {
 function endpointLabel(ep: RpcEndpointConfig): string {
   if (ep.label) return ep.label;
   try {
-    return new URL(ep.url).hostname;
+    return new URL(ep.url).hostname || "endpoint";
   } catch {
-    return ep.url.slice(0, 40);
+    // #350: never echo any part of an unparseable (possibly credential-bearing) URL.
+    return "endpoint";
   }
 }
 
@@ -353,10 +354,35 @@ function computeDelay(attempt: number, config: ResolvedRetryConfig): number {
   return half + Math.floor(Math.random() * (raw - half + 1));
 }
 
+/**
+ * Thrown by {@link RpcPool.call} when the SDK's own per-request timeout fires. The callback may
+ * STILL BE RUNNING (or may already have taken effect on-chain): the outcome is indeterminate.
+ * For non-idempotent callbacks (the default, e.g. sendTransaction) the pool does not fail over
+ * or retry after this error, because that would run a second copy concurrently (#351).
+ */
+export class RpcTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RpcTimeoutError";
+  }
+}
+
+/** Options for {@link RpcPool.call}. */
+export interface RpcCallOptions {
+  /**
+   * Declare that running `fn` more than once is safe (reads such as getBalance/getAccountInfo).
+   * When `true`, an SDK-generated timeout aborts the attempt's signal and fails over / retries as
+   * before. When `false` (default) a timeout is surfaced as {@link RpcTimeoutError} with NO
+   * failover or retry, so a send-type callback can never run concurrently with its own retry.
+   * @default false
+   */
+  idempotent?: boolean;
+}
+
 function rejectAfter<T>(ms: number, message: string): { promise: Promise<T>; cancel: () => void } {
   let timer: ReturnType<typeof setTimeout>;
   const promise = new Promise<T>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
+    timer = setTimeout(() => reject(new RpcTimeoutError(message)), ms);
   });
   return { promise, cancel: () => clearTimeout(timer!) };
 }
@@ -366,23 +392,52 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/** Placeholder returned when a URL cannot be parsed: never echo the raw string. */
+const REDACTED_URL_PLACEHOLDER = "[unparseable-url]";
+
+/** An opaque secret-looking token: 20+ chars of a URL-safe alphabet (API keys, JWT segments, base58/hex tokens). */
+const OPAQUE_TOKEN = /^[A-Za-z0-9_\-.~%]{20,}$/;
+
 /**
- * Redact sensitive query-string parameters (api-key, api_key, token, secret,
- * key, password) from a URL so it is safe for logging / status output.
+ * Redact credentials from a URL so it is safe for logging / `status()` output (#350).
+ *
+ * - `username` / `password` (userinfo) are removed.
+ * - Query parameters whose name looks like a credential (`api-key`, `token`, `secret`, `key`,
+ *   `password`, ...) are replaced with `***`, as are query values that look like opaque tokens.
+ * - Path segments that look like opaque tokens (Alchemy `/v2/<key>`, QuickNode `/<key>/`, Helius
+ *   `/<key>`) are replaced with `***`.
+ * - The fragment is dropped.
+ * - If the input is not a parseable http(s)/ws(s) URL a fixed placeholder is returned, NEVER the raw string.
+ *
+ * @param raw - Endpoint URL as configured.
+ * @returns A redacted URL string, or `"[unparseable-url]"`.
+ * @example
+ * ```ts
+ * redactUrl("https://user:pw@rpc.example.com/v2/abcdefghijklmnopqrstuv?api-key=zzz");
+ * // "https://rpc.example.com/v2/***?api-key=***"
+ * ```
  */
 function redactUrl(raw: string): string {
   try {
     const u = new URL(raw);
+    // `new URL("user:pass@host/x")` parses as an opaque "user:" scheme and would echo the secret.
+    if (!/^(https?|wss?):$/.test(u.protocol)) return REDACTED_URL_PLACEHOLDER;
+    u.username = "";
+    u.password = "";
+    u.hash = "";
     const sensitive = /^(api[-_]?key|access[-_]?token|auth[-_]?token|token|secret|key|password|bearer|credential|jwt)$/i;
-    for (const k of [...u.searchParams.keys()]) {
-      if (sensitive.test(k)) {
+    for (const [k, v] of [...u.searchParams.entries()]) {
+      if (sensitive.test(k) || OPAQUE_TOKEN.test(v)) {
         u.searchParams.set(k, "***");
       }
     }
+    u.pathname = u.pathname
+      .split("/")
+      .map((seg) => (OPAQUE_TOKEN.test(seg) ? "***" : seg))
+      .join("/");
     return u.toString();
   } catch {
-    // Not a valid URL — return as-is (unlikely for RPC endpoints).
-    return raw;
+    return REDACTED_URL_PLACEHOLDER;
   }
 }
 
@@ -498,17 +553,29 @@ export class RpcPool {
    * Execute a function against a pooled connection with automatic retry
    * and failover.
    *
-   * @param fn - Async function that receives a `Connection` and returns a result.
+   * Timeout semantics (#351): when the SDK's `requestTimeoutMs` fires, `fn` is not cancelled by
+   * the race itself, so it may still be running. The `signal` passed as `fn`'s second argument is
+   * aborted at that point (honour it where you can). With `opts.idempotent === true` the pool then
+   * fails over / retries; otherwise (default) it throws {@link RpcTimeoutError} immediately and
+   * never runs a second copy, so non-idempotent calls (sendTransaction) cannot double-execute.
+   * Errors thrown BY `fn` mean it has settled and keep the existing retry/failover behaviour.
+   *
+   * @param fn - Async function that receives a `Connection` and an `AbortSignal` (aborted on SDK timeout).
+   * @param opts - `{ idempotent: true }` to allow failover/retry after a timeout (reads only).
    * @returns The result of `fn`.
-   * @throws The last error if all retries and failovers are exhausted.
+   * @throws {RpcTimeoutError} on timeout of a non-idempotent call; otherwise the last error if all retries and failovers are exhausted.
    *
    * @example
    * ```ts
-   * const balance = await pool.call(c => c.getBalance(pubkey));
-   * const markets = await pool.call(c => discoverMarkets(c, programId, opts));
+   * const balance = await pool.call(c => c.getBalance(pubkey), { idempotent: true });
+   * const sig = await pool.call(c => c.sendRawTransaction(raw)); // non-idempotent: no timeout failover
    * ```
    */
-  async call<T>(fn: (connection: Connection) => Promise<T>): Promise<T> {
+  async call<T>(
+    fn: (connection: Connection, signal: AbortSignal) => Promise<T>,
+    opts: RpcCallOptions = {},
+  ): Promise<T> {
+    const idempotent = opts.idempotent === true;
     const maxAttempts = this.retryConfig ? this.retryConfig.maxRetries + 1 : 1;
     let lastError: unknown;
 
@@ -528,9 +595,10 @@ export class RpcPool {
       const ep = this.endpoints[epIdx];
 
       const timeout = rejectAfter<T>(this.requestTimeoutMs, `RPC request timed out after ${this.requestTimeoutMs}ms (${ep.label})`);
+      const ac = new AbortController();
       try {
         const result = await Promise.race([
-          fn(ep.connection),
+          fn(ep.connection, ac.signal),
           timeout.promise,
         ]);
 
@@ -542,6 +610,10 @@ export class RpcPool {
       } catch (err) {
         lastError = err;
         ep.failures++;
+        if (err instanceof RpcTimeoutError) {
+          // The attempt is abandoned: tell it to stop (best effort).
+          ac.abort(err);
+        }
 
         if (ep.failures >= RpcPool.UNHEALTHY_THRESHOLD) {
           ep.healthy = false;
@@ -551,6 +623,12 @@ export class RpcPool {
               `[RpcPool] Endpoint ${ep.label} marked unhealthy after ${ep.failures} consecutive failures`,
             );
           }
+        }
+
+        // #351: a non-idempotent callback that timed out may still be running or may have taken
+        // effect; failing over / retrying would run a concurrent second copy. Surface it.
+        if (err instanceof RpcTimeoutError && !idempotent) {
+          throw err;
         }
 
         const retryable = this.retryConfig
@@ -834,4 +912,5 @@ export const _internal = {
   resolveRetryConfig,
   normalizeEndpoint,
   endpointLabel,
+  redactUrl,
 } as const;

@@ -37,7 +37,7 @@ jobs:
     steps:
       # ---------- SDK repo ----------
       - name: Checkout percolator-sdk
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.repository_owner }}/percolator-sdk
           path: percolator-sdk
@@ -47,7 +47,7 @@ jobs:
       # repository secrets are not provided to pull_request runs from forks.
       # If they become private, add PERCOLATOR_READ_TOKEN here with Contents: read.
       - name: Checkout percolator-prog
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.repository_owner }}/percolator-prog
           path: percolator-prog
@@ -64,7 +64,7 @@ jobs:
       # wrapper ships — the same reasoning percolator-prog's own ci.yml gives for
       # leaving the engine unpinned while pinning the sibling programs.
       - name: Checkout percolator (engine — path dependency of percolator-prog)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.repository_owner }}/percolator
           path: percolator
@@ -83,31 +83,31 @@ jobs:
           echo "engine pinned at $(git -C percolator rev-parse HEAD)"
 
       - name: Checkout percolator-stake
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.repository_owner }}/percolator-stake
           path: percolator-stake
 
       - name: Checkout percolator-nft
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.repository_owner }}/percolator-nft
           path: percolator-nft
 
       - name: Checkout percolator-match
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.repository_owner }}/percolator-match
           path: percolator-match
 
       # ---------- Rust toolchain ----------
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
 
       # Cache Cargo registry + build artifacts across runs.
       # Key includes Cargo.lock hashes from all four Rust repos.
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -122,12 +122,12 @@ jobs:
 
       # ---------- Node + pnpm ----------
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 9
 
       - name: Setup Node 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: pnpm

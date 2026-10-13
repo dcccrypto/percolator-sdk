@@ -70,12 +70,7 @@
  * to the engine-slot start both shift +16 (947 -> 963, 1044 -> 1060).
  */
 
-import {
-  V17_MARKET_GROUP_OFF,
-  V17_MARKET_GROUP_LEN,
-  V17_MARKET_ASSET_SLOT_LEN,
-  isV17MarketAccount,
-} from "./slab.js";
+import { resolveMarketGeometry } from "../abi/layout.js";
 
 // ---------------------------------------------------------------------------
 // Little-endian readers (module-local, matching slab.ts's private helpers)
@@ -350,24 +345,16 @@ export function parseBackingBucketsV17(
   data: Uint8Array,
   opts: ParseBackingBucketsOptions = {},
 ): BackingBucketMarketState {
-  const MIN_LEN = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN;
-  if (data.length < MIN_LEN) {
-    throw new Error(
-      `parseBackingBucketsV17: buffer too short — need >= ${MIN_LEN} bytes, got ${data.length}`,
-    );
-  }
-  if (!isV17MarketAccount(data)) {
-    throw new Error(
-      "parseBackingBucketsV17: not a v17 market account (bad magic, version, or kind)",
-    );
-  }
+  // VERSION-keyed geometry + typed refusal of unknown layouts (v2.1 = VERSION 18, v2.2 = VERSION 19).
+  const geom = resolveMarketGeometry(data, { parser: "parseBackingBucketsV17", strictLength: false });
+  const L = geom.layout;
 
-  const groupOff = V17_MARKET_GROUP_OFF;
-  const mode = readU8At(data, groupOff + V17_GROUP_MODE_REL);
-  const headerCurrentSlot = readU64LEAt(data, groupOff + V17_GROUP_CURRENT_SLOT_REL);
+  const groupOff = geom.groupOff;
+  const mode = readU8At(data, groupOff + L.group.mode);
+  const headerCurrentSlot = readU64LEAt(data, groupOff + L.group.currentSlot);
   const maxMarketSlots = readU32LEAt(
     data,
-    groupOff + V17_GROUP_CONFIG_REL + V17_CONFIG_MAX_MARKET_SLOTS_REL,
+    groupOff + L.group.config + L.group.maxMarketSlotsInConfig,
   );
 
   // `authenticated_market_slot_or_fallback_view`: max(Clock, header.current_slot).
@@ -379,11 +366,7 @@ export function parseBackingBucketsV17(
   }
   const nowSlot = chainSlot > headerCurrentSlot ? chainSlot : headerCurrentSlot;
 
-  const slotsBase = groupOff + V17_MARKET_GROUP_LEN;
-  const physicalAssetSlots = Math.max(
-    0,
-    Math.floor((data.length - slotsBase) / V17_MARKET_ASSET_SLOT_LEN),
-  );
+  const physicalAssetSlots = geom.slotCount;
   const addressableAssetSlots = Math.min(maxMarketSlots, physicalAssetSlots);
   const addressableDomainCount = addressableAssetSlots * 2;
 
@@ -391,12 +374,11 @@ export function parseBackingBucketsV17(
   const buckets: BackingBucketV17[] = [];
 
   for (let assetIndex = 0; assetIndex < addressableAssetSlots; assetIndex++) {
-    const engineBase =
-      slotsBase + assetIndex * V17_MARKET_ASSET_SLOT_LEN + V17_ASSET_SLOT_WRAPPER_LEN;
+    const engineBase = geom.engineOff(assetIndex);
     for (const side of ["long", "short"] as const) {
       const bucketOff =
         engineBase +
-        (side === "long" ? V17_ENGINE_BACKING_LONG_REL : V17_ENGINE_BACKING_SHORT_REL);
+        (side === "long" ? L.engineSlot.backingLong : L.engineSlot.backingShort);
       if (bucketOff + V17_BACKING_BUCKET_LEN > data.length) break;
 
       const domain = assetIndex * 2 + (side === "short" ? 1 : 0);

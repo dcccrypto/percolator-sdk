@@ -4096,7 +4096,7 @@ export function encodeBatchTradeNoCpi(args: BatchTradeNoCpiArgs): Uint8Array {
  * matcher sequence — the CPI-matched side), all AFTER the legs, in that
  * order.
  *
- * @param legs CPI trade legs. The wrapper accepts at most 11 (`MATCHER_BATCH_MAX_LEGS`; 12+
+ * @param legs CPI trade legs. The wrapper accepts at most min(11, WRAPPER_MAX_PORTFOLIO_ASSETS) = 4 since #546 (`MATCHER_BATCH_MAX_LEGS`; 5+
  *   fail InvalidInstruction). CU: measured ~342k CU for a 2-leg batch on the relaunch
  *   wrapper, ~120k per extra leg — request a compute-unit limit accordingly
  *   (e.g. `ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })` for 2 legs).
