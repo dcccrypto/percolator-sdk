@@ -7,6 +7,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [8.1.0] — unreleased (do not `npm publish` without explicit human go)
+
+### Changed
+
+- **`sideEffects: false` + proper CJS.** ESM stays a single bundle (`dist/index.js`; a per-module build measured WORSE in Next/Turbopack),
+  so it was dropped. `package.json` declares `"sideEffects": false` plus a `module` field, so
+  esbuild/rollup consumers can drop unused code (one-name import: ~18-23 KiB gz -> ~2-8 KiB gz). No change for the Next 16 app.
+  Module-level statements were audited: only `Object.freeze` and initialisation of module-local
+  lookup tables (slab size maps, Pyth feed index), no polyfills, globals or cross-module registry
+  mutation, so `false` is accurate.
+- `require('@percolatorct/sdk')` now resolves to a real CommonJS bundle (`dist/index.cjs`) with
+  matching `dist/index.d.cts` declarations (fixes TS1479 for `moduleResolution: node16` CJS consumers).
+- Public API unchanged: the 747 runtime exports are identical to 8.0.1. Adds `./package.json` to `exports`.
+
 ## [8.0.1] — unreleased (do not `npm publish` without explicit human go)
 
 Client-side prep for the devnet wrapper upgrade to percolator-prog **`7a3ac04c`**
