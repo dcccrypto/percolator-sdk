@@ -7,6 +7,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [8.1.0] — unreleased (do not `npm publish` without explicit human go)
+
+### Changed
+
+- **Tree-shakeable build.** ESM output is now one file per source module (`dist/**/*.js`, tsup
+  `bundle:false`) and `package.json` declares `"sideEffects": false` plus a `module` field, so
+  bundlers can drop unused modules and re-exports instead of pulling the whole ~500 KB bundle.
+  Module-level statements were audited: only `Object.freeze` and initialisation of module-local
+  lookup tables (slab size maps, Pyth feed index), no polyfills, globals or cross-module registry
+  mutation, so `false` is accurate.
+- `require('@percolatorct/sdk')` now resolves to a real CommonJS bundle (`dist/index.cjs`) with
+  matching `dist/index.d.cts` declarations (fixes TS1479 for `moduleResolution: node16` CJS consumers).
+- Public API unchanged: the 747 runtime exports are identical to 8.0.1. Adds `./package.json` to `exports`.
+
 ## [8.0.1] — unreleased (do not `npm publish` without explicit human go)
 
 Client-side prep for the devnet wrapper upgrade to percolator-prog **`7a3ac04c`**

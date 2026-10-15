@@ -1,20 +1,26 @@
 {
   "name": "@percolatorct/sdk",
-  "version": "8.0.1",
+  "version": "8.1.0",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"
   },
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.js",
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      },
       "default": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
@@ -38,5 +44,7 @@
     "tsx": "^4.21.0",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"
-  }
+  },
+  "module": "./dist/index.js",
+  "sideEffects": false
 }
