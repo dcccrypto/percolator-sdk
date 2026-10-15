@@ -11,9 +11,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **Tree-shakeable build.** ESM output is now one file per source module (`dist/**/*.js`, tsup
-  `bundle:false`) and `package.json` declares `"sideEffects": false` plus a `module` field, so
-  bundlers can drop unused modules and re-exports instead of pulling the whole ~500 KB bundle.
+- **`sideEffects: false` + proper CJS.** ESM stays a single bundle (`dist/index.js`; a per-module build measured WORSE in Next/Turbopack),
+  so it was dropped. `package.json` declares `"sideEffects": false` plus a `module` field, so
+  esbuild/rollup consumers can drop unused code (one-name import: ~18-23 KiB gz -> ~2-8 KiB gz). No change for the Next 16 app.
   Module-level statements were audited: only `Object.freeze` and initialisation of module-local
   lookup tables (slab size maps, Pyth feed index), no polyfills, globals or cross-module registry
   mutation, so `false` is accurate.

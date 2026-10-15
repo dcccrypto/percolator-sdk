@@ -1,26 +1,25 @@
 import { defineConfig } from "tsup";
 
 /**
- * Two outputs, both under dist/:
+ * Outputs under dist/:
  *
- * 1. ESM, one file per source module (bundle:false) so the module graph is
- *    preserved. Bundlers (webpack/turbopack/rollup/esbuild) can then drop
- *    unused modules; with `"sideEffects": false` they can drop unused
- *    re-exports too. Import specifiers already carry `.js`, so the emitted
- *    files resolve under Node ESM as well.
- * 2. CJS, a single bundled dist/index.cjs for `require()` (Node consumers do
- *    not need tree-shaking and this avoids rewriting every relative specifier).
+ * 1. ESM: a single bundled dist/index.js. (A per-module ESM build was tried and
+ *    measured +12.5 KiB gz/route WORSE in the Next 16 / Turbopack app, which
+ *    already tree-shakes a single ESM file at part level.) `"sideEffects": false`
+ *    in package.json lets bundlers drop the whole package when unused.
+ * 2. CJS: dist/index.cjs for `require()`, plus dist/index.d.cts declarations so
+ *    TypeScript node16/nodenext CJS consumers type-check.
  *
- * Declarations are emitted separately by `tsc` (see package.json "build").
+ * Per-module .d.ts files are emitted separately by `tsc` (see package.json "build").
  */
 export default defineConfig([
-  {
-    entry: ["src/**/*.ts", "!src/**/__tests__/**", "!src/**/*.test.ts"],
+    {
+    entry: ["src/index.ts"],
     format: ["esm"],
     target: "node20",
     outDir: "dist",
     clean: true,
-    bundle: false,
+    bundle: true,
     splitting: false,
     sourcemap: true,
     dts: false,
