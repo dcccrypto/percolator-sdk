@@ -125,6 +125,12 @@ const DEPOSIT_DOC = parseAccounts(docBlock(FIXTURE, 1, "Deposit"));
 const WITHDRAW_DOC = parseAccounts(docBlock(FIXTURE, 2, "Withdraw"));
 const ACCRUE_DOC = parseAccounts(docBlock(FIXTURE, 12, "AccrueFees"));
 const JUNIOR_BLOCK = docBlock(FIXTURE, 16, "DepositJunior");
+/**
+ * R3.19 (QA 2026-10-15): the Deposit doc under-declares [0] as `[signer]` only, but the processor (stake 0f88ff1
+ * `process_deposit` / `process_deposit_junior`) makes the user the deposit-PDA rent payer (`create_or_adopt_pda(.., user, ..)`)
+ * and, on FIRST_LOSS, the tag-116 refresh payer, so the runtime needs it writable. The builder follows the CODE.
+ */
+const DEPOSIT_RUNTIME = DEPOSIT_DOC.map((d, i) => (i === 0 ? { ...d, writable: true } : d));
 
 const depositArgs = {
   user: keys.user,
@@ -152,12 +158,13 @@ describe("stake #290: pool.slab trailing account (v18.2)", () => {
     expect(JUNIOR_BLOCK).toMatch(/same as Deposit, including the #290 wrapper market at index 11/);
   });
 
-  it("depositAccounts matches instruction.rs Deposit, index by index", () => {
-    assertMatchesDoc(depositAccounts(depositArgs), DEPOSIT_DOC);
+  it("depositAccounts matches instruction.rs Deposit, index by index (user [0] writable per the processor)", () => {
+    expect(DEPOSIT_DOC[0]).toMatchObject({ signer: true, writable: false }); // the doc's under-declaration, pinned
+    assertMatchesDoc(depositAccounts(depositArgs), DEPOSIT_RUNTIME);
   });
 
-  it("depositJuniorAccounts matches instruction.rs DepositJunior (= Deposit)", () => {
-    assertMatchesDoc(depositJuniorAccounts(depositArgs), DEPOSIT_DOC);
+  it("depositJuniorAccounts matches instruction.rs DepositJunior (= Deposit, user [0] writable)", () => {
+    assertMatchesDoc(depositJuniorAccounts(depositArgs), DEPOSIT_RUNTIME);
   });
 
   it("withdrawAccounts matches instruction.rs Withdraw, index by index", () => {

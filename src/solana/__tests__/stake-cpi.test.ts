@@ -197,10 +197,11 @@ describe('Stake CPI Integration — Full Lifecycle', () => {
       expect(keys[11].pubkey.equals(slab.publicKey)).toBe(true);
       expect(keys[11].isWritable).toBe(false);
 
-      // Account 0: user — signer (signs the transfer)
+      // Account 0: user — signer (signs the transfer) AND writable: it pays the deposit-PDA rent
+      // (stake 0f88ff1 create_or_adopt_pda), so a read-only user fails PrivilegeEscalation when it is not the fee payer.
       expect(keys[0].pubkey.equals(user.publicKey)).toBe(true);
       expect(keys[0].isSigner).toBe(true);
-      expect(keys[0].isWritable).toBe(false);
+      expect(keys[0].isWritable).toBe(true);
 
       // Account 1: pool — writable (updates total_deposited)
       expect(keys[1].pubkey.equals(pool)).toBe(true);

@@ -3710,7 +3710,11 @@ function initPoolAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID2) {
 function depositAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID2) {
   assertClassicTokenProgram(tokenProgramId);
   return [
-    { pubkey: a.user, isSigner: true, isWritable: false },
+    // [0] staker: signer AND writable. stake 0f88ff1 `process_deposit` / `process_deposit_junior` make it the rent
+    // payer of the per-user deposit PDA (`create_or_adopt_pda(deposit_pda, user, ..)`, a System transfer that debits
+    // it). Read-only only worked while the staker was also the fee payer; otherwise the first deposit fails with
+    // `PrivilegeEscalation` (QA 2026-10-15).
+    { pubkey: a.user, isSigner: true, isWritable: true },
     { pubkey: a.pool, isSigner: false, isWritable: true },
     { pubkey: a.userCollateralAta, isSigner: false, isWritable: true },
     { pubkey: a.vault, isSigner: false, isWritable: true },
@@ -3730,6 +3734,9 @@ function depositJuniorAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID2) {
 function withdrawAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID2) {
   assertClassicTokenProgram(tokenProgramId);
   return [
+    // [0] staker: signer, read-only. stake 0f88ff1 `process_withdraw` debits no lamports from it on this (legacy /
+    // FEE_ONLY, <= 11 account) layout. A FIRST_LOSS withdrawal needs the v5 list (`ACCOUNTS_STAKE_WITHDRAW_V5`), where
+    // the staker pays the tag-116 refresh and IS writable.
     { pubkey: a.user, isSigner: true, isWritable: false },
     { pubkey: a.pool, isSigner: false, isWritable: true },
     { pubkey: a.userLpAta, isSigner: false, isWritable: true },
@@ -3880,7 +3887,11 @@ function encodeStakeCommitDeployTargetV5() {
   return encU8(STAKE_IX_V5.CommitDeployTarget);
 }
 var ACCOUNTS_STAKE_DEPOSIT_V5 = [
-  { name: "user", signer: true, writable: false },
+  // [0] staker: signer AND writable (stake 0f88ff1 `process_deposit`): it is the rent payer of the deposit PDA
+  // (`create_or_adopt_pda(deposit_pda, user, ..)`) and, on a FIRST_LOSS pool, the payer of the wrapper tag-116
+  // refresh CPI (`v5_read_units(pool, user, ..)` -> `cpi_refresh_ins_units` passes it as `AccountMeta::new(payer, true)`).
+  // Read-only here fails `PrivilegeEscalation` whenever the staker is not also the fee payer (QA 2026-10-15).
+  { name: "user", signer: true, writable: true },
   { name: "pool", signer: false, writable: true },
   { name: "userCollateral", signer: false, writable: true },
   { name: "vault", signer: false, writable: true },
@@ -3896,7 +3907,10 @@ var ACCOUNTS_STAKE_DEPOSIT_V5 = [
   { name: "wrapperProgram", signer: false, writable: false }
 ];
 var ACCOUNTS_STAKE_WITHDRAW_V5 = [
-  { name: "user", signer: true, writable: false },
+  // [0] staker: signer AND writable (stake 0f88ff1 `process_withdraw`): on a FIRST_LOSS pool it pays the wrapper
+  // tag-116 refresh CPI (`v5_read_units(pool, user, ..)`, payer meta writable). Read-only fails `PrivilegeEscalation`
+  // whenever the staker is not also the fee payer (QA 2026-10-15).
+  { name: "user", signer: true, writable: true },
   { name: "pool", signer: false, writable: true },
   { name: "userLp", signer: false, writable: true },
   { name: "lpMint", signer: false, writable: true },

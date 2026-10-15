@@ -62,6 +62,7 @@ export default defineConfig({
       "test/v22-multi-asset-trade.test.ts",
       "test/dist-fresh.test.ts",
       "test/stake-352-token-program.test.ts",
+      "test/stake-staker-signer.test.ts",
       "test/workflow-pinning-349.test.ts",
     ],
   },
