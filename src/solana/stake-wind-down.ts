@@ -282,7 +282,7 @@ export interface StakeWindDownArgs {
   riskMode: 0 | 1 | 2;
   /** Override for the derived wrapper `InsuranceUnitsV20` PDA (`["ins_units", market]`, FIRST_LOSS only). */
   insuranceUnits?: PublicKey;
-  /** Override for the derived creator collateral ATA (ATA of `admin` for `collateralMint`; v5 pools). */
+  /** Override for the derived creator collateral ATA (ATA of `admin` for `collateralMint`; v5 pools). The caller must create it first: the planner does not. */
   creatorToken?: PublicKey;
   /** If set, a tag-84 WithdrawProtocolFee(amount 0 = all) claim is planned between tag-30 repeats. */
   protocolFee?: { authority: PublicKey; destToken: PublicKey; authorityEpoch: bigint };
@@ -296,6 +296,11 @@ export interface StakeWindDownArgs {
  *   (c) tag 29 with amount 0 (+ optional stray) — stake 31 NothingToRecover → done;
  *   (d) tag 30, repeated while the market is not a tombstone, with a tag-84 claim in between
  *       when protocol legs were re-booked.
+ *
+ * v5 pools (`riskMode` 1 / 2): the planner DERIVES the creator's collateral ATA (ATA of `admin` for `collateralMint`) but does NOT create it.
+ * The CALLER must make sure that account exists as an initialized token account owned by `pool.admin` BEFORE sending the tag-29 steps (for example
+ * with an idempotent create-ATA instruction ahead of them; anyone may pay for it): without it the program answers `NotEnoughAccountKeys` (FIRST_LOSS)
+ * or `CreatorAccountRequired` (46, FEE_ONLY, when the settlement owes the creator). The planner stays pure and never adds a create instruction.
  *
  * @param a  Accounts, market bytes and optional protocol-fee claim inputs.
  * @returns Ordered steps.
