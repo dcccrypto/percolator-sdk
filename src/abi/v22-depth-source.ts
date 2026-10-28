@@ -65,6 +65,20 @@ export function deriveDepthSourceV22(programId: PublicKey, market: PublicKey): [
   return PublicKey.findProgramAddressSync([Buffer.from(DEPTH_SOURCE_SEED_V22), market.toBuffer()], programId);
 }
 
+/** Decision 16 (prog#606): `["pool_claim", pool]`, kind 18, one growth market per spot pool. */
+export const POOL_CLAIM_SEED_V22 = "pool_claim";
+
+/**
+ * The pool-claim PDA of `pool` (prog#606). Tag 123 op 1 creates / checks it at `[10]`; op 0 releases it at `[5]`.
+ *
+ * @param programId  Wrapper program id.
+ * @param pool       The AMM pool account.
+ * @returns `[pda, bump]`.
+ */
+export function derivePoolClaimV22(programId: PublicKey, pool: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from(POOL_CLAIM_SEED_V22), pool.toBuffer()], programId);
+}
+
 /**
  * Tag 123 SetDepthSource data: `[123][op u8][asset_index u16 LE][market_id u64 LE]` (12 bytes). Upgrade authority only.
  *
@@ -131,6 +145,11 @@ export interface SetDepthSourceArgsV22 {
   quoteVault: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
+  /**
+   * prog#606 pool claim: the pool the market is pinned to TODAY, when the new pin moves to a different pool (its claim is released at
+   * `[11]`). Omit for a first pin or a re-pin of the same pool. Ignored by programs before #606 (extra accounts).
+   */
+  previousPool?: PublicKey;
 }
 
 /**
@@ -152,7 +171,13 @@ export function buildSetDepthSourceIxV22(a: SetDepthSourceArgsV22): TransactionI
       upgradeAuthority: a.upgradeAuthority, programData, market: a.market, depthSource: deriveDepthSourceV22(a.programId, a.market)[0], systemProgram: SystemProgram.programId,
     }),
     ...buildAccountMetas(ACCOUNTS_SET_DEPTH_SOURCE_POOL_TAIL_V22, { pool: a.pool, baseVault: a.baseVault, quoteVault: a.quoteVault, baseMint: a.baseMint, quoteMint: a.quoteMint }),
+    // prog#606: [10] the new pool's claim (created for this market; 129 if another market holds it).
+    { pubkey: derivePoolClaimV22(a.programId, a.pool)[0], isSigner: false, isWritable: true },
   ];
+  if (a.previousPool && !a.previousPool.equals(a.pool)) {
+    // [11] the old pool's claim, released when the pin moves.
+    keys.push({ pubkey: derivePoolClaimV22(a.programId, a.previousPool)[0], isSigner: false, isWritable: true });
+  }
   return new TransactionInstruction({ programId: a.programId, keys, data: Buffer.from(encodeSetDepthSourceV22(1, a.assetIndex, a.marketId)) });
 }
 
@@ -170,11 +195,20 @@ export function buildSetDepthSourceIxV22(a: SetDepthSourceArgsV22): TransactionI
  * const ix = buildClearDepthSourceIxV22(programId, upgradeAuthority, market);
  * ```
  */
-export function buildClearDepthSourceIxV22(programId: PublicKey, upgradeAuthority: PublicKey, market: PublicKey, assetIndex = 0, marketId: bigint | string = 0n): TransactionInstruction {
+export function buildClearDepthSourceIxV22(
+  programId: PublicKey,
+  upgradeAuthority: PublicKey,
+  market: PublicKey,
+  assetIndex = 0,
+  marketId: bigint | string = 0n,
+  pinnedPool?: PublicKey,
+): TransactionInstruction {
   const [programData] = PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE);
   const keys = buildAccountMetas(ACCOUNTS_SET_DEPTH_SOURCE_V22, {
     upgradeAuthority, programData, market, depthSource: deriveDepthSourceV22(programId, market)[0], systemProgram: SystemProgram.programId,
   });
+  // prog#606: [5] the pinned pool's claim, released (required by #606 whenever the pin is active).
+  if (pinnedPool) keys.push({ pubkey: derivePoolClaimV22(programId, pinnedPool)[0], isSigner: false, isWritable: true });
   return new TransactionInstruction({ programId, keys, data: Buffer.from(encodeClearDepthSourceV22(assetIndex, marketId)) });
 }
 

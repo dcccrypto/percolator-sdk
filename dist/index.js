@@ -8606,6 +8606,10 @@ var DEPTH_AMM_PROGRAMS_V22 = Object.freeze({
 function deriveDepthSourceV22(programId, market) {
   return PublicKey13.findProgramAddressSync([Buffer.from(DEPTH_SOURCE_SEED_V22), market.toBuffer()], programId);
 }
+var POOL_CLAIM_SEED_V22 = "pool_claim";
+function derivePoolClaimV22(programId, pool) {
+  return PublicKey13.findProgramAddressSync([Buffer.from(POOL_CLAIM_SEED_V22), pool.toBuffer()], programId);
+}
 function encodeSetDepthSourceV22(op, assetIndex, marketId) {
   if (op !== DEPTH_SOURCE_OP.Clear && op !== DEPTH_SOURCE_OP.Set) throw new Error(`SetDepthSource op must be 0 (clear) or 1 (set), got ${String(op)}`);
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex > 65535) throw new Error(`assetIndex must be a u16, got ${assetIndex}`);
@@ -8646,11 +8650,16 @@ function buildSetDepthSourceIxV22(a) {
       depthSource: deriveDepthSourceV22(a.programId, a.market)[0],
       systemProgram: SystemProgram4.programId
     }),
-    ...buildAccountMetas(ACCOUNTS_SET_DEPTH_SOURCE_POOL_TAIL_V22, { pool: a.pool, baseVault: a.baseVault, quoteVault: a.quoteVault, baseMint: a.baseMint, quoteMint: a.quoteMint })
+    ...buildAccountMetas(ACCOUNTS_SET_DEPTH_SOURCE_POOL_TAIL_V22, { pool: a.pool, baseVault: a.baseVault, quoteVault: a.quoteVault, baseMint: a.baseMint, quoteMint: a.quoteMint }),
+    // prog#606: [10] the new pool's claim (created for this market; 129 if another market holds it).
+    { pubkey: derivePoolClaimV22(a.programId, a.pool)[0], isSigner: false, isWritable: true }
   ];
+  if (a.previousPool && !a.previousPool.equals(a.pool)) {
+    keys.push({ pubkey: derivePoolClaimV22(a.programId, a.previousPool)[0], isSigner: false, isWritable: true });
+  }
   return new TransactionInstruction4({ programId: a.programId, keys, data: Buffer.from(encodeSetDepthSourceV22(1, a.assetIndex, a.marketId)) });
 }
-function buildClearDepthSourceIxV22(programId, upgradeAuthority, market, assetIndex = 0, marketId = 0n) {
+function buildClearDepthSourceIxV22(programId, upgradeAuthority, market, assetIndex = 0, marketId = 0n, pinnedPool) {
   const [programData] = PublicKey13.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE3);
   const keys = buildAccountMetas(ACCOUNTS_SET_DEPTH_SOURCE_V22, {
     upgradeAuthority,
@@ -8659,6 +8668,7 @@ function buildClearDepthSourceIxV22(programId, upgradeAuthority, market, assetIn
     depthSource: deriveDepthSourceV22(programId, market)[0],
     systemProgram: SystemProgram4.programId
   });
+  if (pinnedPool) keys.push({ pubkey: derivePoolClaimV22(programId, pinnedPool)[0], isSigner: false, isWritable: true });
   return new TransactionInstruction4({ programId, keys, data: Buffer.from(encodeClearDepthSourceV22(assetIndex, marketId)) });
 }
 function buildPushAuthMarkDexIxV22(a) {
@@ -18411,6 +18421,7 @@ export {
   PHASE1_VOLUME_MIN_SLOTS,
   PHASE2_MATURITY_SLOTS,
   PHASE2_VOLUME_THRESHOLD,
+  POOL_CLAIM_SEED_V22,
   POSITION_NFT_LEGACY_V2_LEN,
   POSITION_NFT_STATE_LEN,
   POS_SCALE_P3,
@@ -18862,6 +18873,7 @@ export {
   deriveNftMint,
   deriveNftPda,
   deriveNftRegistry,
+  derivePoolClaimV22,
   deriveProgramDataAddressP3,
   deriveProgramDataV22,
   derivePythPriceUpdateAccount,

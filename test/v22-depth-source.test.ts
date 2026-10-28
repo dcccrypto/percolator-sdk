@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   ACCOUNT_KIND, LAYOUT_V22, WRAPPER_ACCOUNT_MAGIC, UnknownLayoutError,
-  deriveDepthSourceV22, encodeSetDepthSourceV22, encodeClearDepthSourceV22, buildSetDepthSourceIxV22, buildClearDepthSourceIxV22, buildPushAuthMarkDexIxV22,
+  deriveDepthSourceV22, derivePoolClaimV22, encodeSetDepthSourceV22, encodeClearDepthSourceV22, buildSetDepthSourceIxV22, buildClearDepthSourceIxV22, buildPushAuthMarkDexIxV22,
   decodeDepthSourceV22, DEPTH_AMM_PROGRAMS_V22, DEPTH_SOURCE_ACCOUNT_LEN_V22, plus2PctDepthE6, isqrtU128, reserveValueE6, encodePushAuthMark, IX_TAG_V22,
   decodeError,
 } from "../src/index.js";
@@ -30,12 +30,23 @@ describe("tag 123 SetDepthSource wire", () => {
     const [want, wb] = PublicKey.findProgramAddressSync([Buffer.from("depth_src"), market.toBuffer()], program);
     expect([pda.toBase58(), bump]).toEqual([want.toBase58(), wb]);
   });
-  it("set: 10 accounts in the Rust order, UA signer + writable, market writable (F-3), PDA writable; clear: 5", () => {
+  it("set: 11 accounts in the Rust order (prog#606 pool claim at [10]), UA signer + writable, market writable (F-3), PDA writable; clear: 5 (+[5] claim)", () => {
     const [market, pool, bv, qv, bm, qm, ua] = [k(1), k(2), k(3), k(4), k(5), k(6), k(7)];
     const ix = buildSetDepthSourceIxV22({ programId: program, upgradeAuthority: ua, market, assetIndex: 3, marketId: 5n, pool, baseVault: bv, quoteVault: qv, baseMint: bm, quoteMint: qm });
-    expect(ix.keys).toHaveLength(10);
-    expect(ix.keys.map((x) => x.pubkey.toBase58()).slice(2)).toEqual([market, deriveDepthSourceV22(program, market)[0], PublicKey.default, pool, bv, qv, bm, qm].map((x) => x.toBase58()));
-    expect(ix.keys.map((x) => [x.isSigner, x.isWritable])).toEqual([[true, true], [false, false], [false, true], [false, true], [false, false], [false, false], [false, false], [false, false], [false, false], [false, false]]);
+    expect(ix.keys).toHaveLength(11);
+    const claim = (p: PublicKey): PublicKey => PublicKey.findProgramAddressSync([Buffer.from("pool_claim"), p.toBuffer()], program)[0];
+    expect(derivePoolClaimV22(program, pool)[0].equals(claim(pool))).toBe(true);
+    expect(ix.keys.map((x) => x.pubkey.toBase58()).slice(2)).toEqual([market, deriveDepthSourceV22(program, market)[0], PublicKey.default, pool, bv, qv, bm, qm, claim(pool)].map((x) => x.toBase58()));
+    expect(ix.keys.map((x) => [x.isSigner, x.isWritable])).toEqual([[true, true], [false, false], [false, true], [false, true], [false, false], [false, false], [false, false], [false, false], [false, false], [false, false], [false, true]]);
+    // the pin moves to another pool: the old pool's claim at [11]; same pool: no [11]
+    const old = k(9);
+    const mv = buildSetDepthSourceIxV22({ programId: program, upgradeAuthority: ua, market, assetIndex: 3, marketId: 5n, pool, baseVault: bv, quoteVault: qv, baseMint: bm, quoteMint: qm, previousPool: old });
+    expect(mv.keys).toHaveLength(12);
+    expect(mv.keys[11]!.pubkey.equals(claim(old)) && mv.keys[11]!.isWritable).toBe(true);
+    expect(buildSetDepthSourceIxV22({ programId: program, upgradeAuthority: ua, market, assetIndex: 3, marketId: 5n, pool, baseVault: bv, quoteVault: qv, baseMint: bm, quoteMint: qm, previousPool: pool }).keys).toHaveLength(11);
+    const cc = buildClearDepthSourceIxV22(program, ua, market, 0, 0n, pool);
+    expect(cc.keys).toHaveLength(6);
+    expect(cc.keys[5]!.pubkey.equals(claim(pool)) && cc.keys[5]!.isWritable).toBe(true);
     expect(ix.keys[1]!.pubkey.equals(PublicKey.findProgramAddressSync([program.toBytes()], new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))[0])).toBe(true);
     expect(hex(ix.data)).toBe("7b" + "01" + "0300" + "0500000000000000");
     const c = buildClearDepthSourceIxV22(program, ua, market);

@@ -62,6 +62,16 @@ export declare const DEPTH_AMM_PROGRAMS_V22: Readonly<{
  * ```
  */
 export declare function deriveDepthSourceV22(programId: PublicKey, market: PublicKey): [PublicKey, number];
+/** Decision 16 (prog#606): `["pool_claim", pool]`, kind 18, one growth market per spot pool. */
+export declare const POOL_CLAIM_SEED_V22 = "pool_claim";
+/**
+ * The pool-claim PDA of `pool` (prog#606). Tag 123 op 1 creates / checks it at `[10]`; op 0 releases it at `[5]`.
+ *
+ * @param programId  Wrapper program id.
+ * @param pool       The AMM pool account.
+ * @returns `[pda, bump]`.
+ */
+export declare function derivePoolClaimV22(programId: PublicKey, pool: PublicKey): [PublicKey, number];
 /**
  * Tag 123 SetDepthSource data: `[123][op u8][asset_index u16 LE][market_id u64 LE]` (12 bytes). Upgrade authority only.
  *
@@ -99,6 +109,11 @@ export interface SetDepthSourceArgsV22 {
     quoteVault: PublicKey;
     baseMint: PublicKey;
     quoteMint: PublicKey;
+    /**
+     * prog#606 pool claim: the pool the market is pinned to TODAY, when the new pin moves to a different pool (its claim is released at
+     * `[11]`). Omit for a first pin or a re-pin of the same pool. Ignored by programs before #606 (extra accounts).
+     */
+    previousPool?: PublicKey;
 }
 /**
  * Tag 123 op 1: pin (or replace) the market's DEX depth source. 10 accounts. The wrapper refuses (129) a pool off the allow-list, vault / mint
@@ -127,7 +142,7 @@ export declare function buildSetDepthSourceIxV22(a: SetDepthSourceArgsV22): Tran
  * const ix = buildClearDepthSourceIxV22(programId, upgradeAuthority, market);
  * ```
  */
-export declare function buildClearDepthSourceIxV22(programId: PublicKey, upgradeAuthority: PublicKey, market: PublicKey, assetIndex?: number, marketId?: bigint | string): TransactionInstruction;
+export declare function buildClearDepthSourceIxV22(programId: PublicKey, upgradeAuthority: PublicKey, market: PublicKey, assetIndex?: number, marketId?: bigint | string, pinnedPool?: PublicKey): TransactionInstruction;
 /** Arguments of {@link buildPushAuthMarkDexIxV22}. */
 export interface PushAuthMarkDexArgsV22 {
     programId: PublicKey;
