@@ -662,6 +662,28 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "GrowthTierConfigInvalid",
     hint: "These liquidity tiers are outside the safe limits. Thresholds must rise from at least $5k / $20k / $100k, and leverage must rise from the launch level up to the market's maximum.",
   },
+  // v2.2 leverage guard (percolator-prog fix/v22-lev-audit-2026-10-28 on feat/v22-rc23-2026-10-22 a0c1337d): explicit
+  // discriminants 131..=135. Wire: ledger v22-lev-guard-wire-spec-2026-10-28.
+  131: {
+    name: "CreatorStakeBelowMinimum",
+    hint: "The creator stake must be 0 or at least $500. No Earn allocation runs below that.",
+  },
+  132: {
+    name: "LevGuardRequired",
+    hint: "This market needs its leverage guard account on opening trades. Update the app and retry.",
+  },
+  133: {
+    name: "LevGuardRefused",
+    hint: "The leverage guard refused this open: the token is under 6 hours old, or the leverage or size is above the current safety limit, or the price just moved sharply, or the short side is capped. Reduce size or leverage, or try later.",
+  },
+  134: {
+    name: "LevGuardInvalid",
+    hint: "The leverage guard instruction was malformed (operation, data, signer or accounts). This is a client bug.",
+  },
+  135: {
+    name: "LpStopNotTriggered",
+    hint: "The liquidity-provider stop does not hold right now, or there is nothing left to cut.",
+  },
   // P2b E7 (percolator-prog #525, engine #276): explicit discriminants 120..=122; each was Custom(21).
   120: {
     name: "EngineAdlReduceOnly",

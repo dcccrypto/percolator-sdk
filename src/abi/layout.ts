@@ -456,6 +456,8 @@ export const ACCOUNT_KIND = Object.freeze({
   G9FeedAllowlist: 15,
   /** R2.1 item 4: `DepthSourceV22`, `["depth_src", market]`. */
   DepthSource: 16,
+  /** `LevGuardV22` (`["lev_guard", market]`, 16 + 344 + 4096). */
+  LevGuard: 17,
 } as const);
 
 // ============================================================================
