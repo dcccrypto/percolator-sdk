@@ -650,6 +650,37 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
     name: "DepthInputInvalid",
     hint: "The price update carried an invalid liquidity reading.",
   },
+  // v2.2 growth round 2 (percolator-prog): explicit discriminants 129 and 130, appended after 128.
+  129: {
+    name: "DepthSourceInvalid",
+    hint: "The on-chain liquidity source for this market was refused (wrong pool, vault, mint or pin). Nothing was written.",
+  },
+  130: {
+    name: "GrowthTierConfigInvalid",
+    hint: "The market's leverage tier settings are out of bounds: thresholds must rise (T1 < T2 < T3) and leverage must not fall between tiers.",
+  },
+  // v2.2 leverage guard (percolator-prog fix/v22-lev-audit-2026-10-28 on feat/v22-rc23-2026-10-22 a0c1337d): explicit
+  // discriminants 131..=135. Wire: ledger v22-lev-guard-wire-spec-2026-10-28.
+  131: {
+    name: "CreatorStakeBelowMinimum",
+    hint: "The creator stake must be 0 or at least $500. No Earn allocation runs below that.",
+  },
+  132: {
+    name: "LevGuardRequired",
+    hint: "This market needs its leverage guard account on opening trades. Update the app and retry.",
+  },
+  133: {
+    name: "LevGuardRefused",
+    hint: "The leverage guard refused this open: the token is under 6 hours old, or the leverage or size is above the current safety limit, or the price just moved sharply, or the short side is capped. Reduce size or leverage, or try later.",
+  },
+  134: {
+    name: "LevGuardInvalid",
+    hint: "The leverage guard instruction was malformed (operation, data, signer or accounts). This is a client bug.",
+  },
+  135: {
+    name: "LpStopNotTriggered",
+    hint: "The liquidity-provider stop does not hold right now, or there is nothing left to cut.",
+  },
   // P2b E7 (percolator-prog #525, engine #276): explicit discriminants 120..=122; each was Custom(21).
   120: {
     name: "EngineAdlReduceOnly",

@@ -454,6 +454,8 @@ export const ACCOUNT_KIND = Object.freeze({
   BondPosition: 12,
   InsuranceUnits: 13,
   G9FeedAllowlist: 15,
+  /** `LevGuardV22` (`["lev_guard", market]`, 16 + 344 + 4096). Kind 14 and 16 (DepthSourceV22) are not enumerated here. */
+  LevGuard: 17,
 } as const);
 
 // ============================================================================

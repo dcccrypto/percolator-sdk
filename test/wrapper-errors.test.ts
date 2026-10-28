@@ -21,9 +21,9 @@ describe("v2.2 codes 125-127 (G9 timelock, P-1 position cap)", () => {
     expect(FX.errors["126"]).toBe("PositionCapReached");
     expect(FX.errors["127"]).toBe("CounterpartyPositionCapReached");
   });
-  it("negative control: a bare 9 still decodes to InvalidInstruction and 129 is unknown", () => {
+  it("negative control: a bare 9 still decodes to InvalidInstruction and 136 is unknown", () => {
     expect(decodeError(9)?.name).toBe("InvalidInstruction");
-    expect(decodeError(129)).toBeUndefined();
+    expect(decodeError(136)).toBeUndefined();
     expect(decodeError(126)?.hint).not.toBe(decodeError(127)?.hint);
   });
 });
@@ -34,9 +34,9 @@ describe("v2.2 growth code 128 DepthInputInvalid (PushAuthMark depth_mode other 
     expect(decodeError(128)?.hint).toBe("The price update carried an invalid liquidity reading.");
     expect(FX.errors["128"]).toBe("DepthInputInvalid");
   });
-  it("negative control: 127 keeps its name, 129 is unknown", () => {
+  it("negative control: 127 keeps its name, 136 is unknown", () => {
     expect(decodeError(127)?.name).toBe("CounterpartyPositionCapReached");
-    expect(decodeError(129)).toBeUndefined();
+    expect(decodeError(136)).toBeUndefined();
   });
 });
 
@@ -91,5 +91,19 @@ describe("wrapper error map is generated from the program (rustc discriminants)"
   });
   it("the SDK defines no code the program does not have", () => {
     for (const code of Object.keys(PERCOLATOR_ERRORS)) expect(FX.errors[code], `sdk code ${code}`).toBeDefined();
+  });
+});
+
+describe("v2.2 codes 129-135 (depth source, tier config, leverage guard)", () => {
+  it("names match the program enum discriminants", () => {
+    const names: Record<number, string> = {
+      129: "DepthSourceInvalid", 130: "GrowthTierConfigInvalid", 131: "CreatorStakeBelowMinimum", 132: "LevGuardRequired",
+      133: "LevGuardRefused", 134: "LevGuardInvalid", 135: "LpStopNotTriggered",
+    };
+    for (const [code, name] of Object.entries(names)) {
+      expect(decodeError(Number(code))?.name).toBe(name);
+      expect(decodeError(Number(code))?.hint.length).toBeGreaterThan(10);
+    }
+    expect(decodeError(136)).toBeUndefined();
   });
 });
