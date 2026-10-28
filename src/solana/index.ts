@@ -22,8 +22,5 @@ export * from "./p2b-earn.js";
 export * from "./v22.js";
 export * from "./v22-lp-share.js";
 export * from "./v22-multi-asset-trade.js";
-<<<<<<< HEAD
 export * from "./v22-catchup-liquidate.js";
-=======
 export * from "./lev-guard-v22.js";
->>>>>>> f25e10b (feat(v22 sdk): tag 124 leverage guard encoders, builders, PDAs, kind-17 decoder, guard tail helper)
