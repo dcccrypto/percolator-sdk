@@ -11718,7 +11718,8 @@ function decodeLevGuardV22(data, table = LAYOUT_V22) {
   return g;
 }
 function levKeyTagV22(key3) {
-  return new DataView(key3.toBytes().buffer).getBigUint64(0, true);
+  const b = key3.toBytes();
+  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
 }
 function levAgeBandV22(t0Slot, nowSlot) {
   if (nowSlot < t0Slot) return "NoOpen";
