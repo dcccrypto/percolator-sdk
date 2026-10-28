@@ -174,6 +174,21 @@ describe("LevGuardV22 decoder", () => {
     // offsets asserted independently of the decoder's own table
     expect(G.LEV_GUARD_FIELD_OFF_V22).toMatchObject({ t0Slot: 64, repJDumpBps: 80, holderDumpSlot: 104, pbLastPx: 112, frozenNQ: 168, navps: 184, navRef: 280, roundId: 312, roundTargetQ: 320, roundOpenSlot: 336, burstVarPeakX100: 344, burstPeakSlot: 352 });
   });
+  it("decodes the pre-burst 4456 B layout too (burst fields 0, touched set at 16 + 344) and refuses other lengths (review M-1)", () => {
+    const { data } = synth();
+    const old = new Uint8Array(4456);
+    old.set(data.subarray(0, 16 + 344), 0);
+    old.set(data.subarray(16 + 360, 16 + 360 + 4096), 16 + 344);
+    const g = G.decodeLevGuardV22(old);
+    expect(g.roundOpenSlot).toBe(777_777n);
+    expect(g.burstVarPeakX100).toBe(0);
+    expect(g.burstPeakSlot).toBe(0n);
+    expect(g.touchedTags).toEqual([0xdeadbeefn, 0xcafen]);
+    for (const len of [4455, 4457, 4471, 4473, 8000]) {
+      const d = new Uint8Array(len); d.set(data.subarray(0, Math.min(len, data.length)));
+      expect(() => G.decodeLevGuardV22(d)).toThrow();
+    }
+  });
   it("touched tag is the first 8 key bytes LE, also for keys built from pooled Buffers (byteOffset != 0)", () => {
     const fromLe = (b: Uint8Array): bigint => { let x = 0n; for (let i = 7; i >= 0; i--) x = (x << 8n) | BigInt(b[i]); return x; };
     const a = new Uint8Array(32).map((_, i) => 0x10 + i);

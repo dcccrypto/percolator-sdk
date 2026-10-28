@@ -34,6 +34,8 @@ export declare const LEV_GUARD_SEEDS_V22: Readonly<{
 }>;
 /** Record length (`LEV_GUARD_REC_LEN`). */
 export declare const LEV_GUARD_REC_LEN_V22 = 360;
+/** The record before prog#605 (burst memory): 344 B, account 4456. The decoder accepts both. */
+export declare const LEV_GUARD_REC_LEN_PRE_BURST_V22 = 344;
 /** Touched-set capacity (`W1_TOUCHED_CAP`). */
 export declare const LEV_GUARD_TOUCHED_CAP_V22 = 512;
 /** Touched-set byte length (`8 * W1_TOUCHED_CAP`). */

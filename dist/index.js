@@ -12614,6 +12614,7 @@ var LEV_GUARD_SEEDS_V22 = Object.freeze({
   depthSource: "depth_src"
 });
 var LEV_GUARD_REC_LEN_V22 = 360;
+var LEV_GUARD_REC_LEN_PRE_BURST_V22 = 344;
 var LEV_GUARD_TOUCHED_CAP_V22 = 512;
 var LEV_GUARD_TOUCHED_LEN_V22 = 8 * LEV_GUARD_TOUCHED_CAP_V22;
 var LEV_GUARD_BODY_LEN_V22 = LEV_GUARD_REC_LEN_V22 + LEV_GUARD_TOUCHED_LEN_V22;
@@ -12772,9 +12773,16 @@ function decodeLevGuardV22(data, table = LAYOUT_V22) {
   const L = resolveLayout(data, { parser, kind: ACCOUNT_KIND.LevGuard, versions: [table.version] });
   const b = L.headerLen;
   if (b !== 16) throw new UnknownLayoutError("INVALID_RECORD", parser, `invalid account data: header length ${b} != 16`, { kind: ACCOUNT_KIND.LevGuard });
-  if (data.length < b + LEV_GUARD_BODY_LEN_V22) {
-    throw new UnknownLayoutError("TOO_SHORT", parser, `account too short: ${data.length} < ${b + LEV_GUARD_BODY_LEN_V22}`, { version: L.version, kind: ACCOUNT_KIND.LevGuard });
+  const recLen = data.length - b - LEV_GUARD_TOUCHED_LEN_V22;
+  if (recLen !== LEV_GUARD_REC_LEN_V22 && recLen !== LEV_GUARD_REC_LEN_PRE_BURST_V22) {
+    throw new UnknownLayoutError(
+      data.length < b + LEV_GUARD_REC_LEN_PRE_BURST_V22 + LEV_GUARD_TOUCHED_LEN_V22 ? "TOO_SHORT" : "INVALID_RECORD",
+      parser,
+      `lev guard account length ${data.length}: expected ${b + LEV_GUARD_REC_LEN_PRE_BURST_V22 + LEV_GUARD_TOUCHED_LEN_V22} or ${LEV_GUARD_ACCOUNT_LEN_V22}`,
+      { version: L.version, kind: ACCOUNT_KIND.LevGuard }
+    );
   }
+  const burst = recLen === LEV_GUARD_REC_LEN_V22;
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const F = LEV_GUARD_FIELD_OFF_V22;
   const u163 = (o) => v.getUint16(b + o, true);
@@ -12822,14 +12830,14 @@ function decodeLevGuardV22(data, table = LAYOUT_V22) {
     roundId: u645(F.roundId),
     roundTargetQ: u1286(F.roundTargetQ),
     roundOpenSlot: u645(F.roundOpenSlot),
-    burstVarPeakX100: v.getUint32(b + F.burstVarPeakX100, true),
-    burstPeakSlot: u645(F.burstPeakSlot),
+    burstVarPeakX100: burst ? v.getUint32(b + F.burstVarPeakX100, true) : 0,
+    burstPeakSlot: burst ? u645(F.burstPeakSlot) : 0n,
     touchedTags: []
   };
   const rawBool = (o) => data[b + o] <= 1;
-  const bad3 = g.version !== LEV_GUARD_VERSION_V22 || (flags & ~(LEV_GUARD_FLAG_V22.MINT_AUTH_LIVE | LEV_GUARD_FLAG_V22.FREEZE_AUTH_LIVE)) !== 0 || !rawBool(F.roundActive) || !rawBool(F.roundLpLong) || g.touchedN > LEV_GUARD_TOUCHED_CAP_V22 || g.roundKeepBps > 1e4 || g.repJDumpBps > 1e4 || g.repMIndBps > 1e4 || g.repNMultBps > 1e4 || data[b + F.pad0] !== 0 || !allZero(data.subarray(b + F.pad1, b + F.pad1 + 2)) || !allZero(data.subarray(b + F.pad2, b + F.pad2 + 6)) || !allZero(data.subarray(b + F.pad3, b + F.pad3 + 4));
+  const bad3 = g.version !== LEV_GUARD_VERSION_V22 || (flags & ~(LEV_GUARD_FLAG_V22.MINT_AUTH_LIVE | LEV_GUARD_FLAG_V22.FREEZE_AUTH_LIVE)) !== 0 || !rawBool(F.roundActive) || !rawBool(F.roundLpLong) || g.touchedN > LEV_GUARD_TOUCHED_CAP_V22 || g.roundKeepBps > 1e4 || g.repJDumpBps > 1e4 || g.repMIndBps > 1e4 || g.repNMultBps > 1e4 || data[b + F.pad0] !== 0 || !allZero(data.subarray(b + F.pad1, b + F.pad1 + 2)) || !allZero(data.subarray(b + F.pad2, b + F.pad2 + 6)) || burst && !allZero(data.subarray(b + F.pad3, b + F.pad3 + 4));
   if (bad3) throw new UnknownLayoutError("INVALID_RECORD", parser, "invalid account data: lev guard fails the program's validate_guard", { kind: ACCOUNT_KIND.LevGuard });
-  const t = b + LEV_GUARD_REC_LEN_V22;
+  const t = b + recLen;
   for (let i = 0; i < g.touchedN; i++) g.touchedTags.push(v.getBigUint64(t + 8 * i, true));
   return g;
 }
@@ -18271,6 +18279,7 @@ export {
   LEV_GUARD_FIELD_OFF_V22,
   LEV_GUARD_FLAG_V22,
   LEV_GUARD_OP_V22,
+  LEV_GUARD_REC_LEN_PRE_BURST_V22,
   LEV_GUARD_REC_LEN_V22,
   LEV_GUARD_SEEDS_V22,
   LEV_GUARD_TOUCHED_CAP_V22,

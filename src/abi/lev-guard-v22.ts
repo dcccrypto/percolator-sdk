@@ -44,6 +44,8 @@ export const LEV_GUARD_SEEDS_V22 = Object.freeze({
 
 /** Record length (`LEV_GUARD_REC_LEN`). */
 export const LEV_GUARD_REC_LEN_V22 = 360;
+/** The record before prog#605 (burst memory): 344 B, account 4456. The decoder accepts both. */
+export const LEV_GUARD_REC_LEN_PRE_BURST_V22 = 344;
 /** Touched-set capacity (`W1_TOUCHED_CAP`). */
 export const LEV_GUARD_TOUCHED_CAP_V22 = 512;
 /** Touched-set byte length (`8 * W1_TOUCHED_CAP`). */
@@ -374,9 +376,18 @@ export function decodeLevGuardV22(data: Uint8Array, table: LayoutTable = LAYOUT_
   const L = resolveLayout(data, { parser, kind: ACCOUNT_KIND.LevGuard, versions: [table.version] });
   const b = L.headerLen;
   if (b !== 16) throw new UnknownLayoutError("INVALID_RECORD", parser, `invalid account data: header length ${b} != 16`, { kind: ACCOUNT_KIND.LevGuard });
-  if (data.length < b + LEV_GUARD_BODY_LEN_V22) {
-    throw new UnknownLayoutError("TOO_SHORT", parser, `account too short: ${data.length} < ${b + LEV_GUARD_BODY_LEN_V22}`, { version: L.version, kind: ACCOUNT_KIND.LevGuard });
+  // Exact lengths only (security review M-1): 4456 (record 344, prog#604) or 4472 (record 360, prog#605 burst
+  // memory). Anything else is refused rather than decoded at shifted offsets.
+  const recLen = data.length - b - LEV_GUARD_TOUCHED_LEN_V22;
+  if (recLen !== LEV_GUARD_REC_LEN_V22 && recLen !== LEV_GUARD_REC_LEN_PRE_BURST_V22) {
+    throw new UnknownLayoutError(
+      data.length < b + LEV_GUARD_REC_LEN_PRE_BURST_V22 + LEV_GUARD_TOUCHED_LEN_V22 ? "TOO_SHORT" : "INVALID_RECORD",
+      parser,
+      `lev guard account length ${data.length}: expected ${b + LEV_GUARD_REC_LEN_PRE_BURST_V22 + LEV_GUARD_TOUCHED_LEN_V22} or ${LEV_GUARD_ACCOUNT_LEN_V22}`,
+      { version: L.version, kind: ACCOUNT_KIND.LevGuard },
+    );
   }
+  const burst = recLen === LEV_GUARD_REC_LEN_V22;
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const F = LEV_GUARD_FIELD_OFF_V22;
   const u16 = (o: number): number => v.getUint16(b + o, true);
@@ -424,8 +435,8 @@ export function decodeLevGuardV22(data: Uint8Array, table: LayoutTable = LAYOUT_
     roundId: u64(F.roundId),
     roundTargetQ: u128(F.roundTargetQ),
     roundOpenSlot: u64(F.roundOpenSlot),
-    burstVarPeakX100: v.getUint32(b + F.burstVarPeakX100, true),
-    burstPeakSlot: u64(F.burstPeakSlot),
+    burstVarPeakX100: burst ? v.getUint32(b + F.burstVarPeakX100, true) : 0,
+    burstPeakSlot: burst ? u64(F.burstPeakSlot) : 0n,
     touchedTags: [],
   };
   const rawBool = (o: number): boolean => data[b + o] <= 1;
@@ -436,9 +447,9 @@ export function decodeLevGuardV22(data: Uint8Array, table: LayoutTable = LAYOUT_
     g.touchedN > LEV_GUARD_TOUCHED_CAP_V22 || g.roundKeepBps > 10_000 ||
     g.repJDumpBps > 10_000 || g.repMIndBps > 10_000 || g.repNMultBps > 10_000 ||
     data[b + F.pad0] !== 0 || !allZero(data.subarray(b + F.pad1, b + F.pad1 + 2)) || !allZero(data.subarray(b + F.pad2, b + F.pad2 + 6)) ||
-    !allZero(data.subarray(b + F.pad3, b + F.pad3 + 4));
+    (burst && !allZero(data.subarray(b + F.pad3, b + F.pad3 + 4)));
   if (bad) throw new UnknownLayoutError("INVALID_RECORD", parser, "invalid account data: lev guard fails the program's validate_guard", { kind: ACCOUNT_KIND.LevGuard });
-  const t = b + LEV_GUARD_REC_LEN_V22;
+  const t = b + recLen;
   for (let i = 0; i < g.touchedN; i++) g.touchedTags.push(v.getBigUint64(t + 8 * i, true));
   return g;
 }
