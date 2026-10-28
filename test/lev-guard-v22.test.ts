@@ -170,9 +170,21 @@ describe("LevGuardV22 decoder", () => {
     // offsets asserted independently of the decoder's own table
     expect(G.LEV_GUARD_FIELD_OFF_V22).toMatchObject({ t0Slot: 64, repJDumpBps: 80, holderDumpSlot: 104, pbLastPx: 112, frozenNQ: 168, navps: 184, navRef: 280, roundId: 312, roundTargetQ: 320, roundOpenSlot: 336 });
   });
-  it("touched tag matches the first 8 key bytes", () => {
-    const k = pk();
-    expect(G.levKeyTagV22(k)).toBe(new DataView(k.toBytes().buffer).getBigUint64(0, true));
+  it("touched tag is the first 8 key bytes LE, also for keys built from pooled Buffers (byteOffset != 0)", () => {
+    const fromLe = (b: Uint8Array): bigint => { let x = 0n; for (let i = 7; i >= 0; i--) x = (x << 8n) | BigInt(b[i]); return x; };
+    const a = new Uint8Array(32).map((_, i) => 0x10 + i);
+    const c = new Uint8Array(32).map((_, i) => 0xa0 + i);
+    // Buffer.from(array) and allocUnsafe slices come from the shared 8 KiB pool: byteOffset is not 0
+    const pa = new PublicKey(Buffer.from(a));
+    const pc = new PublicKey(Buffer.from(c));
+    expect(Buffer.from(a).byteOffset + Buffer.from(c).byteOffset).toBeGreaterThan(0);
+    expect(G.levKeyTagV22(pa)).toBe(fromLe(a));
+    expect(G.levKeyTagV22(pc)).toBe(fromLe(c));
+    expect(G.levKeyTagV22(pa)).not.toBe(G.levKeyTagV22(pc));
+    const k = pk(), k2 = new PublicKey(k.toBase58());
+    expect(G.levKeyTagV22(k)).toBe(fromLe(k.toBytes()));
+    expect(G.levKeyTagV22(k2)).toBe(G.levKeyTagV22(k));
+    expect(G.levKeyTagV22(pk())).not.toBe(G.levKeyTagV22(k));
   });
   it("refuses wrong kind, short data, bad version, unknown flag bit, nonzero padding, touched_n > 512", () => {
     const mk = (f: (d: Uint8Array) => void): Uint8Array => { const s = synth().data; f(s); return s; };
