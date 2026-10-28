@@ -33,14 +33,14 @@ export declare const LEV_GUARD_SEEDS_V22: Readonly<{
     readonly depthSource: "depth_src";
 }>;
 /** Record length (`LEV_GUARD_REC_LEN`). */
-export declare const LEV_GUARD_REC_LEN_V22 = 344;
+export declare const LEV_GUARD_REC_LEN_V22 = 360;
 /** Touched-set capacity (`W1_TOUCHED_CAP`). */
 export declare const LEV_GUARD_TOUCHED_CAP_V22 = 512;
 /** Touched-set byte length (`8 * W1_TOUCHED_CAP`). */
 export declare const LEV_GUARD_TOUCHED_LEN_V22: number;
 /** Body length (record + touched set). */
 export declare const LEV_GUARD_BODY_LEN_V22: number;
-/** Account length: 16-byte header + body = 4456. */
+/** Account length: 16-byte header + body = 4472 (prog#605 burst memory; 4456 before it). */
 export declare const LEV_GUARD_ACCOUNT_LEN_V22: number;
 /** The only record version (`LEV_GUARD_VERSION`). */
 export declare const LEV_GUARD_VERSION_V22 = 1;
@@ -173,7 +173,7 @@ export declare const ACCOUNTS_LEV_GUARD_POKE_V22: readonly AccountSpec[];
  * `[6..]` the opposing user portfolios to cut (all writable), at most as many as fit the transaction.
  */
 export declare const ACCOUNTS_LEV_GUARD_LP_STOP_V22: readonly AccountSpec[];
-/** Field offsets INSIDE the 344-byte record (rustc `offset_of!`; add 16 for the account). */
+/** Field offsets INSIDE the 360-byte record (rustc `offset_of!`; add 16 for the account). */
 export declare const LEV_GUARD_FIELD_OFF_V22: Readonly<{
     readonly market: 0;
     readonly riskKey: 32;
@@ -216,6 +216,9 @@ export declare const LEV_GUARD_FIELD_OFF_V22: Readonly<{
     readonly roundId: 312;
     readonly roundTargetQ: 320;
     readonly roundOpenSlot: 336;
+    readonly burstVarPeakX100: 344;
+    readonly pad3: 348;
+    readonly burstPeakSlot: 352;
 }>;
 /** Decoded `LevGuardV22`. u64 fields are `bigint`, u128 fields `bigint`, u8 / u16 fields `number`. */
 export interface LevGuardV22 {
@@ -268,11 +271,15 @@ export interface LevGuardV22 {
     roundTargetQ: bigint;
     /** Slot the current W1 round opened (record offset 336). */
     roundOpenSlot: bigint;
+    /** Burst memory (decision 28, prog#605): the running peak of the market's vol variance (x100) (record offset 344). */
+    burstVarPeakX100: number;
+    /** Slot the burst peak was set (record offset 352); the peak is read decayed with a 7-day half-life. */
+    burstPeakSlot: bigint;
     /** The first `touchedN` tags of the touched set (first 8 bytes of each cut portfolio key, as a LE u64). */
     touchedTags: bigint[];
 }
 /**
- * Decode a leverage guard account (`16 + 344 + 4096 = 4456` bytes, header kind 17). Mirrors the program's `validate_guard`
+ * Decode a leverage guard account (`16 + 360 + 4096 = 4472` bytes, header kind 17). Mirrors the program's `validate_guard`
  * (version 1, only known flag bits, booleans 0/1, `touched_n <= 512`, `round_keep_bps <= 10 000`, report bps in range, padding zero).
  *
  * @param data   Raw account bytes.

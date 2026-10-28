@@ -12613,7 +12613,7 @@ var LEV_GUARD_SEEDS_V22 = Object.freeze({
   vaultLpExt: "vault_lp_ext",
   depthSource: "depth_src"
 });
-var LEV_GUARD_REC_LEN_V22 = 344;
+var LEV_GUARD_REC_LEN_V22 = 360;
 var LEV_GUARD_TOUCHED_CAP_V22 = 512;
 var LEV_GUARD_TOUCHED_LEN_V22 = 8 * LEV_GUARD_TOUCHED_CAP_V22;
 var LEV_GUARD_BODY_LEN_V22 = LEV_GUARD_REC_LEN_V22 + LEV_GUARD_TOUCHED_LEN_V22;
@@ -12755,7 +12755,10 @@ var LEV_GUARD_FIELD_OFF_V22 = Object.freeze({
   navLastSlot: 304,
   roundId: 312,
   roundTargetQ: 320,
-  roundOpenSlot: 336
+  roundOpenSlot: 336,
+  burstVarPeakX100: 344,
+  pad3: 348,
+  burstPeakSlot: 352
 });
 function u128At(v, off) {
   return v.getBigUint64(off + 8, true) << 64n | v.getBigUint64(off, true);
@@ -12819,10 +12822,12 @@ function decodeLevGuardV22(data, table = LAYOUT_V22) {
     roundId: u645(F.roundId),
     roundTargetQ: u1286(F.roundTargetQ),
     roundOpenSlot: u645(F.roundOpenSlot),
+    burstVarPeakX100: v.getUint32(b + F.burstVarPeakX100, true),
+    burstPeakSlot: u645(F.burstPeakSlot),
     touchedTags: []
   };
   const rawBool = (o) => data[b + o] <= 1;
-  const bad3 = g.version !== LEV_GUARD_VERSION_V22 || (flags & ~(LEV_GUARD_FLAG_V22.MINT_AUTH_LIVE | LEV_GUARD_FLAG_V22.FREEZE_AUTH_LIVE)) !== 0 || !rawBool(F.roundActive) || !rawBool(F.roundLpLong) || g.touchedN > LEV_GUARD_TOUCHED_CAP_V22 || g.roundKeepBps > 1e4 || g.repJDumpBps > 1e4 || g.repMIndBps > 1e4 || g.repNMultBps > 1e4 || data[b + F.pad0] !== 0 || !allZero(data.subarray(b + F.pad1, b + F.pad1 + 2)) || !allZero(data.subarray(b + F.pad2, b + F.pad2 + 6));
+  const bad3 = g.version !== LEV_GUARD_VERSION_V22 || (flags & ~(LEV_GUARD_FLAG_V22.MINT_AUTH_LIVE | LEV_GUARD_FLAG_V22.FREEZE_AUTH_LIVE)) !== 0 || !rawBool(F.roundActive) || !rawBool(F.roundLpLong) || g.touchedN > LEV_GUARD_TOUCHED_CAP_V22 || g.roundKeepBps > 1e4 || g.repJDumpBps > 1e4 || g.repMIndBps > 1e4 || g.repNMultBps > 1e4 || data[b + F.pad0] !== 0 || !allZero(data.subarray(b + F.pad1, b + F.pad1 + 2)) || !allZero(data.subarray(b + F.pad2, b + F.pad2 + 6)) || !allZero(data.subarray(b + F.pad3, b + F.pad3 + 4));
   if (bad3) throw new UnknownLayoutError("INVALID_RECORD", parser, "invalid account data: lev guard fails the program's validate_guard", { kind: ACCOUNT_KIND.LevGuard });
   const t = b + LEV_GUARD_REC_LEN_V22;
   for (let i = 0; i < g.touchedN; i++) g.touchedTags.push(v.getBigUint64(t + 8 * i, true));

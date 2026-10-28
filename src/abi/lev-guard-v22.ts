@@ -43,14 +43,14 @@ export const LEV_GUARD_SEEDS_V22 = Object.freeze({
 } as const);
 
 /** Record length (`LEV_GUARD_REC_LEN`). */
-export const LEV_GUARD_REC_LEN_V22 = 344;
+export const LEV_GUARD_REC_LEN_V22 = 360;
 /** Touched-set capacity (`W1_TOUCHED_CAP`). */
 export const LEV_GUARD_TOUCHED_CAP_V22 = 512;
 /** Touched-set byte length (`8 * W1_TOUCHED_CAP`). */
 export const LEV_GUARD_TOUCHED_LEN_V22 = 8 * LEV_GUARD_TOUCHED_CAP_V22;
 /** Body length (record + touched set). */
 export const LEV_GUARD_BODY_LEN_V22 = LEV_GUARD_REC_LEN_V22 + LEV_GUARD_TOUCHED_LEN_V22;
-/** Account length: 16-byte header + body = 4456. */
+/** Account length: 16-byte header + body = 4472 (prog#605 burst memory; 4456 before it). */
 export const LEV_GUARD_ACCOUNT_LEN_V22 = 16 + LEV_GUARD_BODY_LEN_V22;
 /** The only record version (`LEV_GUARD_VERSION`). */
 export const LEV_GUARD_VERSION_V22 = 1;
@@ -276,7 +276,7 @@ export const ACCOUNTS_LEV_GUARD_LP_STOP_V22: readonly AccountSpec[] = [
 // Account decoder
 // ============================================================================
 
-/** Field offsets INSIDE the 344-byte record (rustc `offset_of!`; add 16 for the account). */
+/** Field offsets INSIDE the 360-byte record (rustc `offset_of!`; add 16 for the account). */
 export const LEV_GUARD_FIELD_OFF_V22 = Object.freeze({
   market: 0, riskKey: 32, t0Slot: 64, assetIndex: 72, version: 74, bump: 75, flags: 76, roundActive: 77, roundLpLong: 78, pad0: 79,
   repJDumpBps: 80, repMIndBps: 82, repLCapX100: 84, repNMultBps: 86, repSlot: 88,
@@ -285,6 +285,7 @@ export const LEV_GUARD_FIELD_OFF_V22 = Object.freeze({
   frozenLX100: 160, pad2: 162, frozenNQ: 168,
   navps: 184, navLastEquity: 200, navLastIn: 216, navLastOut: 232, navPeakCur: 248, navPeakPrev: 264, navRef: 280,
   navBucketStart: 296, navLastSlot: 304, roundId: 312, roundTargetQ: 320, roundOpenSlot: 336,
+  burstVarPeakX100: 344, pad3: 348, burstPeakSlot: 352,
 } as const);
 
 /** Decoded `LevGuardV22`. u64 fields are `bigint`, u128 fields `bigint`, u8 / u16 fields `number`. */
@@ -338,6 +339,10 @@ export interface LevGuardV22 {
   roundTargetQ: bigint;
   /** Slot the current W1 round opened (record offset 336). */
   roundOpenSlot: bigint;
+  /** Burst memory (decision 28, prog#605): the running peak of the market's vol variance (x100) (record offset 344). */
+  burstVarPeakX100: number;
+  /** Slot the burst peak was set (record offset 352); the peak is read decayed with a 7-day half-life. */
+  burstPeakSlot: bigint;
   /** The first `touchedN` tags of the touched set (first 8 bytes of each cut portfolio key, as a LE u64). */
   touchedTags: bigint[];
 }
@@ -351,7 +356,7 @@ function allZero(b: Uint8Array): boolean {
 }
 
 /**
- * Decode a leverage guard account (`16 + 344 + 4096 = 4456` bytes, header kind 17). Mirrors the program's `validate_guard`
+ * Decode a leverage guard account (`16 + 360 + 4096 = 4472` bytes, header kind 17). Mirrors the program's `validate_guard`
  * (version 1, only known flag bits, booleans 0/1, `touched_n <= 512`, `round_keep_bps <= 10 000`, report bps in range, padding zero).
  *
  * @param data   Raw account bytes.
@@ -419,6 +424,8 @@ export function decodeLevGuardV22(data: Uint8Array, table: LayoutTable = LAYOUT_
     roundId: u64(F.roundId),
     roundTargetQ: u128(F.roundTargetQ),
     roundOpenSlot: u64(F.roundOpenSlot),
+    burstVarPeakX100: v.getUint32(b + F.burstVarPeakX100, true),
+    burstPeakSlot: u64(F.burstPeakSlot),
     touchedTags: [],
   };
   const rawBool = (o: number): boolean => data[b + o] <= 1;
@@ -428,7 +435,8 @@ export function decodeLevGuardV22(data: Uint8Array, table: LayoutTable = LAYOUT_
     !rawBool(F.roundActive) || !rawBool(F.roundLpLong) ||
     g.touchedN > LEV_GUARD_TOUCHED_CAP_V22 || g.roundKeepBps > 10_000 ||
     g.repJDumpBps > 10_000 || g.repMIndBps > 10_000 || g.repNMultBps > 10_000 ||
-    data[b + F.pad0] !== 0 || !allZero(data.subarray(b + F.pad1, b + F.pad1 + 2)) || !allZero(data.subarray(b + F.pad2, b + F.pad2 + 6));
+    data[b + F.pad0] !== 0 || !allZero(data.subarray(b + F.pad1, b + F.pad1 + 2)) || !allZero(data.subarray(b + F.pad2, b + F.pad2 + 6)) ||
+    !allZero(data.subarray(b + F.pad3, b + F.pad3 + 4));
   if (bad) throw new UnknownLayoutError("INVALID_RECORD", parser, "invalid account data: lev guard fails the program's validate_guard", { kind: ACCOUNT_KIND.LevGuard });
   const t = b + LEV_GUARD_REC_LEN_V22;
   for (let i = 0; i < g.touchedN; i++) g.touchedTags.push(v.getBigUint64(t + 8 * i, true));

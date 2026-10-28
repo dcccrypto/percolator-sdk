@@ -1,6 +1,6 @@
 /**
  * v2.2 leverage guard (tag 124): byte-exact encoders (hand-computed from `Instruction::LevGuard::encode` in percolator-prog
- * fix/v22-lev-audit-2026-10-28), account flags, PDAs, the 4456-byte decoder, derived reads, and the TradeCpi guard tail.
+ * fix/v22-lev-audit-2026-10-28), account flags, PDAs, the 4472-byte decoder, derived reads, and the TradeCpi guard tail.
  * No Rust-encoded parity fixture: the prog's sdk_parity_fixtures has no tag-124 vectors yet (bytes below follow the encode source).
  */
 import { Keypair, PublicKey, TransactionInstruction } from "@solana/web3.js";
@@ -141,15 +141,17 @@ function synth(): { data: Uint8Array; market: PublicKey; riskKey: PublicKey } {
   v.setBigUint64(r + 296, 5555n, true); v.setBigUint64(r + 304, 6666n, true); v.setBigUint64(r + 312, 42n, true);
   u128(320, (1n << 100n) + 5n);
   v.setBigUint64(r + 336, 777_777n, true);
-  v.setBigUint64(r + 344, 0xdeadbeefn, true);
-  v.setBigUint64(r + 352, 0xcafen, true);
+  v.setUint32(r + 344, 44_444, true);
+  v.setBigUint64(r + 352, 888_888n, true);
+  v.setBigUint64(r + 360, 0xdeadbeefn, true);
+  v.setBigUint64(r + 368, 0xcafen, true);
   return { data, market, riskKey };
 }
 
 describe("LevGuardV22 decoder", () => {
-  it("length is 4456 = 16 + 344 + 512*8 and the kind is 17", () => {
-    expect(G.LEV_GUARD_ACCOUNT_LEN_V22).toBe(4456);
-    expect(G.LEV_GUARD_REC_LEN_V22).toBe(344);
+  it("length is 4472 = 16 + 360 + 512*8 and the kind is 17", () => {
+    expect(G.LEV_GUARD_ACCOUNT_LEN_V22).toBe(4472);
+    expect(G.LEV_GUARD_REC_LEN_V22).toBe(360);
     expect(ACCOUNT_KIND.LevGuard).toBe(17);
   });
   it("round-trips every field at the documented offset", () => {
@@ -166,10 +168,11 @@ describe("LevGuardV22 decoder", () => {
       navps: 1n * 10n ** 12n, navLastEquity: 2n * 10n ** 12n, navLastIn: 3n * 10n ** 12n, navLastOut: 4n * 10n ** 12n,
       navPeakCur: 5n * 10n ** 12n, navPeakPrev: 6n * 10n ** 12n, navRef: 7n * 10n ** 12n,
       navBucketStart: 5555n, navLastSlot: 6666n, roundId: 42n, roundTargetQ: (1n << 100n) + 5n, roundOpenSlot: 777_777n,
+      burstVarPeakX100: 44_444, burstPeakSlot: 888_888n,
       touchedTags: [0xdeadbeefn, 0xcafen],
     });
     // offsets asserted independently of the decoder's own table
-    expect(G.LEV_GUARD_FIELD_OFF_V22).toMatchObject({ t0Slot: 64, repJDumpBps: 80, holderDumpSlot: 104, pbLastPx: 112, frozenNQ: 168, navps: 184, navRef: 280, roundId: 312, roundTargetQ: 320, roundOpenSlot: 336 });
+    expect(G.LEV_GUARD_FIELD_OFF_V22).toMatchObject({ t0Slot: 64, repJDumpBps: 80, holderDumpSlot: 104, pbLastPx: 112, frozenNQ: 168, navps: 184, navRef: 280, roundId: 312, roundTargetQ: 320, roundOpenSlot: 336, burstVarPeakX100: 344, burstPeakSlot: 352 });
   });
   it("touched tag is the first 8 key bytes LE, also for keys built from pooled Buffers (byteOffset != 0)", () => {
     const fromLe = (b: Uint8Array): bigint => { let x = 0n; for (let i = 7; i >= 0; i--) x = (x << 8n) | BigInt(b[i]); return x; };
