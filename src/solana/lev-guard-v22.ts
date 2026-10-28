@@ -14,6 +14,7 @@ import {
   encodeLevGuardSetT0V22, encodeLevGuardTightenV22,
 } from "../abi/lev-guard-v22.js";
 import type { LevGuardReportV22 } from "../abi/lev-guard-v22.js";
+import { deriveDepthSourceV22 } from "../abi/v22-depth-source.js";
 import { IX_TAG_EXTENDED_V22, IX_TAG_V22 } from "../abi/v22-wire.js";
 import { BPF_LOADER_UPGRADEABLE_ID_P3 } from "./p3-vault-lp.js";
 
@@ -68,21 +69,6 @@ export function deriveVaultLpStateV22(programId: PublicKey, market: PublicKey): 
  */
 export function deriveVaultLpExtV22(programId: PublicKey, market: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.vaultLpExt), market.toBytes()], programId);
-}
-
-/**
- * Depth-source pin PDA, seeds `["depth_src", market]` (written by tag 123; op 3 TIGHTEN reads it).
- *
- * @param programId  Wrapper program id.
- * @param market     Market account.
- * @returns `[pda, bump]`.
- * @example
- * ```ts
- * const [pin] = deriveDepthSourceV22(PROGRAM_ID, market);
- * ```
- */
-export function deriveDepthSourceV22(programId: PublicKey, market: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.depthSource), market.toBytes()], programId);
 }
 
 /**

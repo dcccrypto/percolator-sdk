@@ -418,6 +418,11 @@ export interface StakeWithdrawQuoteV5 {
  * @param exitInsurance Exit reading, atoms (`snapInsuranceFreeAtoms`).
  * @param vaultBalance  SPL balance of `pool.vault`.
  * @param userLp        The staker's LP balance.
+ * @param liveInsurance OPTIONAL live market insurance (`min(Σ decodeTerminalInsuranceCapacity(marketData).domains[].withdrawCapacity, .insurance)`, the wrapper's `ins_units_readings_view` free reading). `units.snapInsuranceFreeAtoms`
+ *                      is only refreshed when someone touches the units account, so after an insurance loss it is STALE-HIGH and over-quotes
+ *                      (devnet FGSFL 2026-10-20: quote 10.96M, program paid 8.35M). The program re-reads the live free reading inside the withdraw
+ *                      and free = min(withdraw capacity, gross insurance), so the exit reading is clamped to `min(exitInsurance, liveInsurance)`: never higher than what the
+ *                      program will use. A stale-LOW snapshot only under-quotes (safe).
  * @returns The quote, or `null` where the program fails closed (see {@link stakePoolValue}) or the pool has no LP supply.
  * @example
  * ```ts
@@ -430,7 +435,7 @@ export declare function quoteStakeWithdrawNowV5(pool: StakePoolValueFields & {
 }, insUnits: {
     unitsStake: bigint;
     unitsTotal: bigint;
-}, exitInsurance: bigint, vaultBalance: bigint, userLp: bigint): StakeWithdrawQuoteV5 | null;
+}, exitInsurance: bigint, vaultBalance: bigint, userLp: bigint, liveInsurance?: bigint): StakeWithdrawQuoteV5 | null;
 /**
  * The creator's collateral token account for `RecoverTerminalInsurance`: the classic-token ATA of `pool.admin` for the pool mint.
  * The processor accepts it whenever passed (owner must be `pool.admin`) and requires it when the settlement owes the creator, so

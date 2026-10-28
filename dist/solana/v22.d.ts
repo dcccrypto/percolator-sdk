@@ -366,7 +366,9 @@ export declare function withInsuranceUnitsTailV22(base: TransactionInstruction, 
  *
  * @param m           Market context (`lpPortfolio` required).
  * @param cranker     Signer.
- * @param mode        0 DRAW, 1 RESTORE, 2 PROPOSE.
+ * @param mode        0 DRAW, 1 RESTORE, 2 PROPOSE, 3 RESTORE-FROM-PNL (repays the vault LP's
+ *                    unconverted source-backed profit first; see encodeInsuranceBackstopDrawV22
+ *                    for the W4-4 note that a mode-3 error must fall back to mode 1).
  * @param maxAmount   Cap in atoms.
  * @param extraTail   Leg feed accounts and `["g9_feeds"]` (read-only).
  * @returns Instruction.
@@ -375,7 +377,7 @@ export declare function withInsuranceUnitsTailV22(base: TransactionInstruction, 
  * const propose = buildInsuranceBackstopDrawIxV22(m, keeper, 2, 0n, legFeeds);
  * ```
  */
-export declare function buildInsuranceBackstopDrawIxV22(m: MarketV22, cranker: PublicKey, mode: 0 | 1 | 2, maxAmount: bigint, extraTail?: readonly PublicKey[]): TransactionInstruction;
+export declare function buildInsuranceBackstopDrawIxV22(m: MarketV22, cranker: PublicKey, mode: 0 | 1 | 2 | 3, maxAmount: bigint, extraTail?: readonly PublicKey[]): TransactionInstruction;
 /**
  * RescueDeposit (tag 112): buy senior shares at the certified IMPAIRED value. Accounts as tag 75; bound vaults append
  * `[11] vault_lp_state` and `[12]` the vault LP portfolio. Only tranche 0 is accepted on chain today.

@@ -168,6 +168,7 @@ export declare const BackstopMode: Readonly<{
     readonly Draw: 0;
     readonly Restore: 1;
     readonly Propose: 2;
+    readonly RestoreFromPnl: 3;
 }>;
 /** PDA seeds (`constants::*_SEED`). */
 export declare const SEEDS_V22: Readonly<{
@@ -442,9 +443,20 @@ export declare function encodeBondRequestWithdrawV22(shares: bigint): Uint8Array
 export declare function encodeBondExecuteWithdrawV22(minOut: bigint, sourceDomain: number): Uint8Array;
 /**
  * InsuranceBackstopDraw (tag 111, G9): `[111, mode u8, max_amount u128]` (18 bytes). `mode` 2 PROPOSE, 0 DRAW
- * (only in `[proposal + 9,000, + 18,000)` slots), 1 RESTORE. Mirrors `v16_program.rs:9542..9545`.
+ * (only in `[proposal + 9,000, + 18,000)` slots), 1 RESTORE, 3 RESTORE-FROM-PNL. Mirrors
+ * `v16_program.rs:9542..9545`.
  *
- * @param mode       0 DRAW, 1 RESTORE, 2 PROPOSE (anything else is refused on chain).
+ * Mode 3 (W-4 residual) is RESTORE, except that the vault LP's unconverted, unliened, source-backed
+ * profit is repaid FIRST (the engine routes it support -> insurance in one call, never through
+ * withdrawable capital) and capital only for the remainder. It shares mode 1's equity room, so it
+ * does NOT repay past the R-6 floor; it differs only when the LP's capital is smaller than the
+ * repayable amount while it holds profit, where mode 1 is capped at `min(want, capital)`.
+ *
+ * KEEPER NOTE (W4-4, from the program): mode 3 can REVERT where mode 1 would succeed -- the engine's
+ * capacity read returns an error, not 0, on an inconsistent source ledger or a failed validation. A
+ * caller that gets a mode-3 error must fall back to mode 1 in the same sweep.
+ *
+ * @param mode       0 DRAW, 1 RESTORE, 2 PROPOSE, 3 RESTORE-FROM-PNL (anything else is refused on chain).
  * @param maxAmount  Cap in atoms (`u128::MAX` for "as much as allowed").
  * @returns 18 bytes.
  * @example
@@ -452,7 +464,7 @@ export declare function encodeBondExecuteWithdrawV22(minOut: bigint, sourceDomai
  * encodeInsuranceBackstopDrawV22(BackstopMode.Propose, 0n);
  * ```
  */
-export declare function encodeInsuranceBackstopDrawV22(mode: 0 | 1 | 2, maxAmount: bigint): Uint8Array;
+export declare function encodeInsuranceBackstopDrawV22(mode: 0 | 1 | 2 | 3, maxAmount: bigint): Uint8Array;
 /**
  * RescueDeposit (tag 112): `[112, tranche u8, amount u64, min_shares u128]` (26 bytes). Only tranche 0 (the
  * senior Earn vault) is accepted today: the program refuses tranche 1 with 114 although tags 107..110 exist

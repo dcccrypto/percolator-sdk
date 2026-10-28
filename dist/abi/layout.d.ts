@@ -275,6 +275,8 @@ export declare const ACCOUNT_KIND: Readonly<{
     readonly G9FeedAllowlist: 15;
     /** R2.1 item 4: `DepthSourceV22`, `["depth_src", market]`. */
     readonly DepthSource: 16;
+    /** `LevGuardV22` (`["lev_guard", market]`, 16 + 344 + 4096). */
+    readonly LevGuard: 17;
 }>;
 /**
  * Read the 16-byte wrapper header.

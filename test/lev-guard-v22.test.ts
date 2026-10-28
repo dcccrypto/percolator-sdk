@@ -7,6 +7,7 @@ import { Keypair, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import * as G from "../src/abi/lev-guard-v22.js";
 import * as B from "../src/solana/lev-guard-v22.js";
+import { deriveDepthSourceV22 } from "../src/abi/v22-depth-source.js";
 import { ACCOUNT_KIND, LAYOUT_V22, UnknownLayoutError, WRAPPER_ACCOUNT_MAGIC } from "../src/abi/layout.js";
 import { encodeTradeCpi } from "../src/abi/instructions.js";
 import { buildEvictAndTradeCpiIxV22 } from "../src/solana/v22.js";
@@ -54,9 +55,9 @@ describe("PDAs", () => {
     expect(B.deriveLevGuardV22(PROGRAM, MARKET)[0].equals(PublicKey.findProgramAddressSync([t("lev_guard"), MARKET.toBytes()], PROGRAM)[0])).toBe(true);
     expect(B.deriveVaultLpStateV22(PROGRAM, MARKET)[0].equals(PublicKey.findProgramAddressSync([t("vault_lp"), MARKET.toBytes()], PROGRAM)[0])).toBe(true);
     expect(B.deriveVaultLpExtV22(PROGRAM, MARKET)[0].equals(PublicKey.findProgramAddressSync([t("vault_lp_ext"), MARKET.toBytes()], PROGRAM)[0])).toBe(true);
-    expect(B.deriveDepthSourceV22(PROGRAM, MARKET)[0].equals(PublicKey.findProgramAddressSync([t("depth_src"), MARKET.toBytes()], PROGRAM)[0])).toBe(true);
+    expect(deriveDepthSourceV22(PROGRAM, MARKET)[0].equals(PublicKey.findProgramAddressSync([t("depth_src"), MARKET.toBytes()], PROGRAM)[0])).toBe(true);
     expect(B.deriveProgramDataV22(PROGRAM)[0].equals(PublicKey.findProgramAddressSync([PROGRAM.toBytes()], new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))[0])).toBe(true);
-    const all = [B.deriveLevGuardV22, B.deriveVaultLpStateV22, B.deriveVaultLpExtV22, B.deriveDepthSourceV22].map((f) => f(PROGRAM, MARKET)[0].toBase58());
+    const all = [B.deriveLevGuardV22, B.deriveVaultLpStateV22, B.deriveVaultLpExtV22, deriveDepthSourceV22].map((f) => f(PROGRAM, MARKET)[0].toBase58());
     expect(new Set(all).size).toBe(4);
   });
 });
@@ -90,7 +91,7 @@ describe("builders: account order and flags", () => {
     const [mint, vault, holder] = [pk(), pk(), pk()];
     const ix = B.buildLevGuardTightenIxV22(C, pk(), { baseMint: mint, poolBaseVault: vault });
     expect(flags(ix)).toEqual(["s-", "--", "-w", "--", "--", "--"]);
-    expect(ix.keys[3].pubkey.equals(B.deriveDepthSourceV22(PROGRAM, MARKET)[0])).toBe(true);
+    expect(ix.keys[3].pubkey.equals(deriveDepthSourceV22(PROGRAM, MARKET)[0])).toBe(true);
     const ix2 = B.buildLevGuardTightenIxV22(C, pk(), { baseMint: mint, poolBaseVault: vault, holderTokenAccount: holder });
     expect(ix2.keys).toHaveLength(7);
     expect(flags(ix2)[6]).toBe("--");
