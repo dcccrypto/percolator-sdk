@@ -446,7 +446,9 @@ export function decodeLevGuardV22(data: Uint8Array, table: LayoutTable = LAYOUT_
  * ```
  */
 export function levKeyTagV22(key: PublicKey): bigint {
-  return new DataView(key.toBytes().buffer).getBigUint64(0, true);
+  // toBytes() is a fresh copy; never read `.buffer` of a Node pooled Buffer (it ignores byteOffset).
+  const b = key.toBytes();
+  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
 }
 
 // ============================================================================
