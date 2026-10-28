@@ -46,13 +46,15 @@ export declare const FILL_FLAG_V22: Readonly<{
     ZERO: 4;
     MATCHER: 8;
 }>;
-/** REDUCE `reason`. Units differ: 1 = basis units; 2 and 3 = ADL-effective units; 4 and 5 = size traded against the vault LP. */
+/** REDUCE `reason`. Units differ: 1 = basis units; 2 and 3 = ADL-effective units; 4 and 5 = size traded against the vault LP; 8 = LP stop (6 and 7, force-close and resolved-close, are not decoded here and are skipped). */
 export declare const REDUCE_REASON_V22: Readonly<{
     readonly REBALANCE_REDUCE: 1;
     readonly ADL_WIND_DOWN: 2;
     readonly LIQUIDATION: 3;
     readonly DUST_SWEEP: 4;
     readonly EVICTION: 5;
+    /** Tag 124 op 5 (W1 LP stop, `ix_tag` 124): an opposing account cut to the round's keep fraction at P_last. ADL-effective units. */
+    readonly LP_STOP: 8;
 }>;
 export type ReduceReasonV22 = (typeof REDUCE_REASON_V22)[keyof typeof REDUCE_REASON_V22];
 /** MOVE `sub`. */
