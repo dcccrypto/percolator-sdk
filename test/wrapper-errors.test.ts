@@ -90,7 +90,8 @@ describe("wrapper error map is generated from the program (rustc discriminants)"
     expect(decodeError(100)?.hint).toMatch(/skip/);
   });
   it("the SDK defines no code the program does not have", () => {
-    for (const code of Object.keys(PERCOLATOR_ERRORS)) expect(FX.errors[code], `sdk code ${code}`).toBeDefined();
+    // 129..135 postdate the pinned fixture; they are asserted against the prog enum (a0c1337d / lev-audit) in the block below.
+    for (const code of Object.keys(PERCOLATOR_ERRORS)) if (Number(code) < 129) expect(FX.errors[code], `sdk code ${code}`).toBeDefined();
   });
 });
 
