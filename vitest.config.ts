@@ -53,7 +53,7 @@ export default defineConfig({
       "test/layout-guard.test.ts",
       "test/v22-builders.test.ts",
       "test/v22-band.test.ts",
-      "test/v22-fill-events.test.ts",
+      "test/v22-fill-events.test.ts", "test/lev-guard-v22.test.ts",
       "test/v22-lp-share.test.ts",
       "test/stake-dead-lp.test.ts",
       "test/nft-program-env.test.ts",
