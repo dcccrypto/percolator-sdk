@@ -23,3 +23,4 @@ export * from "./nft-errors.js";
 export * from "./v22-trade-fee.js";
 export * from "./v22-resolve.js";
 export * from "./v22-funding.js";
+export * from "./lev-guard-v22.js";

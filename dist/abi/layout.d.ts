@@ -273,6 +273,8 @@ export declare const ACCOUNT_KIND: Readonly<{
     readonly BondPosition: 12;
     readonly InsuranceUnits: 13;
     readonly G9FeedAllowlist: 15;
+    /** `LevGuardV22` (`["lev_guard", market]`, 16 + 344 + 4096). Kind 14 and 16 (DepthSourceV22) are not enumerated here. */
+    readonly LevGuard: 17;
 }>;
 /**
  * Read the 16-byte wrapper header.

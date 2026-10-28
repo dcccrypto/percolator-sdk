@@ -22,3 +22,4 @@ export * from "./p2b-earn.js";
 export * from "./v22.js";
 export * from "./v22-lp-share.js";
 export * from "./v22-multi-asset-trade.js";
+export * from "./lev-guard-v22.js";
