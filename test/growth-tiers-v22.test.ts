@@ -425,7 +425,9 @@ const BAND = 1000; // G(1000) = 3445
 const NOW = 1_000n;
 /** Engine config of the fixtures: IMR 5% (L_tier 20x), no liquidation fee, band epoch 600 slots (H = 1,200). */
 const VOL = { engineImrBps: 500n, liquidationFeeBps: 0n, bandMaxEpochSlots: 600n };
-const view = (gr: AssetGrowthV19, band: number, now: bigint, cM: bigint | null, stress: number | boolean) => growthCeilingView(gr, band, now, cM, stress, VOL);
+// These pin the pure growth_v19 tier / curve math (the Rust unit tests of those functions). rc23's κ / λ caps are applied in the
+// wrapper's growth_g8_ctx_view on top of it, so they are switched off here and covered in test/lev-guard-limits-v22.test.ts.
+const view = (gr: AssetGrowthV19, band: number, now: bigint, cM: bigint | null, stress: number | boolean) => growthCeilingView(gr, band, now, cM, stress, VOL, { rc23Caps: false });
 const dex = (usd: bigint, extra: RecOver = {}): RecOver => ({ src: DEPTH_SOURCE.OnChainPool | DEPTH_EVER | DEPTH_PREV_REAL, depth: usd * M, prev: usd * M, slot: 990n, lastGood: usd * M, lastGoodSlot: 990n, ...extra });
 
 describe("growthCeilingView: explainer worked examples (tiered 20x meme market, launch 5x)", () => {
@@ -573,7 +575,7 @@ function qin(growth: AssetGrowthV19, cap: bigint, now = NOW, lpPos = 1n): QuoteM
   return {
     engineImrBps: 500n, growth, lpCapital: cap, lpPnl: 0n, lpFeeCredits: 0n, lpEffectivePositionQ: lpPos, assetBound: true,
     oiEffLongQ: 0n, oiEffShortQ: 0n, priceE6: M, bankruptcyHlockActive: false,
-    v22: { bandBps: BAND, nowSlot: now, vol: { liquidationFeeBps: VOL.liquidationFeeBps, bandMaxEpochSlots: VOL.bandMaxEpochSlots } },
+    v22: { bandBps: BAND, nowSlot: now, vol: { liquidationFeeBps: VOL.liquidationFeeBps, bandMaxEpochSlots: VOL.bandMaxEpochSlots }, rc23Caps: false },
   };
 }
 
