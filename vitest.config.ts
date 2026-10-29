@@ -69,6 +69,7 @@ export default defineConfig({
       "test/deps-advisories.test.ts",
       "test/init-matcher-ctx-range.test.ts",
       "test/sdk421-backstop-mode3.test.ts",
+      "test/v22-launch-settings.test.ts", "test/v22-init-signer.test.ts",
     ],
   },
 });

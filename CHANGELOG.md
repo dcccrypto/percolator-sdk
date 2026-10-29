@@ -1,3 +1,8 @@
+## 9.0.0-candidate: v2.2 D7 launch-settings table + D26 init signers
+
+- **Added (D7):** `src/abi/v22-launch-settings.ts` (no imports; vendorable byte-for-byte): `V22_LAUNCH_SETTINGS` (frozen, keyed `major` / `meme`), `v22LaunchSettings(cls)`, `V22_MAJOR_MINTS` (wSOL, cbBTC), `classifyV22Asset(mint)` (default `meme`), `V22_STAKE_POOL_MODE_FEE_ONLY` (= 2). Stale window 18,000 (major) / 54,000 (meme); stake cooldown 150; stake mode FEE_ONLY; Earn redemption cooldown 150. Insurance, senior seed, holding fee and bond settings are undecided and not in the table.
+- **Changed (wire, account meta, D26):** `ACCOUNTS_INIT_MARKET[1]` (slab) and `ACCOUNTS_INIT_USER[2]` (portfolio) are now `signer: true`, so `buildAccountMetas` marks the new account as a signer. rc23 will require the signature (createAccount + init in one tx, the account keypair signs); the deployed wrapper ignores the extra signer flag. Account order is unchanged.
+
 ## 9.0.0-candidate: v2.2 rc23 prog #616 - the legacy 17-byte RequestRedeemLpShares is refused
 
 - **Deprecated:** `encodeRequestRedeemLpShares` (tag 76, `[76, shares]`, 17 bytes, no payout floor). The v2.2 program refuses it since rc23 (prog #616, InvalidInstructionData); use `encodeRequestRedeemLpSharesV22` / `buildRequestRedeemLpSharesIxV22` (26 bytes: shares u128, min_payout_atoms u64, keeper_ok u8; `defaultMinPayoutV22` for a floor). The export stays for v1 / pre-v2.2 programs.
