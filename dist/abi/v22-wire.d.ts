@@ -298,7 +298,7 @@ export interface RequestRedeemV22Args {
 /**
  * RequestRedeemLpShares v2.2: `[76, shares u128, min_payout_atoms u64, keeper_ok u8]` (26 bytes). The
  * request PDA is then created 16 bytes longer (128 bytes, {@link LP_REDEMPTION_V22_ACCOUNT_LEN}).
- * The legacy 17-byte `[76, shares]` is {@link encodeRequestRedeemLpShares} and is unchanged.
+ * The legacy 17-byte `[76, shares]` is {@link encodeRequestRedeemLpShares} (deprecated: the v2.2 program refuses it since rc23, prog #616).
  * Mirrors `v16_program.rs:9275..9295` (`min_payout_atoms == 0` or `keeper_ok > 1` is refused).
  *
  * @param a  See {@link RequestRedeemV22Args}.

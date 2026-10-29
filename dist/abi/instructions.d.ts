@@ -1688,7 +1688,7 @@ export interface LpVaultWithdrawArgs {
 }
 /**
  * @deprecated v12.x LpVaultWithdraw (tag 39 in v12, now alias 76=RequestRedeemLpShares in v17).
- * v17 uses a 2-step request/execute redemption flow — see encodeRequestRedeemLpShares.
+ * v17 uses a 2-step request/execute redemption flow — see encodeRequestRedeemLpSharesV22.
  */
 export declare function encodeLpVaultWithdraw(_args: LpVaultWithdrawArgs): Uint8Array;
 /**
@@ -3179,6 +3179,10 @@ export declare function encodeDepositToLpVault(args: {
  *
  * BREAKING vs v12.x: was LpVaultWithdraw (tag 39) with lpAmount u64.
  * v17 uses shares u128 and a two-step request/execute redemption flow.
+ *
+ * @deprecated Refused by the v2.2 program since rc23 (percolator-prog #616: the 17-byte form with no payout floor
+ * answers InvalidInstructionData). Use the floored v2.2 form, `encodeRequestRedeemLpSharesV22` /
+ * `buildRequestRedeemLpSharesIxV22` (26 bytes: shares, min_payout_atoms, keeper_ok). Kept for v1 / pre-v2.2 programs.
  *
  * @example
  * ```ts

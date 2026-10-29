@@ -2145,13 +2145,13 @@ export interface LpVaultWithdrawArgs {
 
 /**
  * @deprecated v12.x LpVaultWithdraw (tag 39 in v12, now alias 76=RequestRedeemLpShares in v17).
- * v17 uses a 2-step request/execute redemption flow — see encodeRequestRedeemLpShares.
+ * v17 uses a 2-step request/execute redemption flow — see encodeRequestRedeemLpSharesV22.
  */
 export function encodeLpVaultWithdraw(_args: LpVaultWithdrawArgs): Uint8Array {
   return removedInstruction(
     "LpVaultWithdraw (v12 wire, tag 39→76 alias — wire format changed)",
     IX_TAG.LpVaultWithdraw,
-    "encodeRequestRedeemLpShares() + encodeExecuteRedemption()",
+    "encodeRequestRedeemLpSharesV22() + encodeExecuteRedemption()",
   );
 }
 
@@ -2353,7 +2353,7 @@ export function encodeSetInsuranceIsolation(args: { bps: number }): Uint8Array {
  */
 /** @deprecated v12.x QueueWithdrawal (old tag 102). Not in v17. */
 export function encodeQueueWithdrawal(_args: { lpAmount: bigint | string }): Uint8Array {
-  return removedInstruction("QueueWithdrawal (v12 tag 102 — not in v17)", IX_TAG.QueueWithdrawal, "encodeRequestRedeemLpShares()");
+  return removedInstruction("QueueWithdrawal (v12 tag 102 — not in v17)", IX_TAG.QueueWithdrawal, "encodeRequestRedeemLpSharesV22()");
 }
 
 /**
@@ -3684,7 +3684,7 @@ export function encodeDepositInsuranceLP(_args: { amount: bigint | string }): Ui
 
 /** @deprecated v12.x Insurance LP alias — removed in v17. */
 export function encodeWithdrawInsuranceLP(_args: { lpAmount: bigint | string }): Uint8Array {
-  return removedInstruction("WithdrawInsuranceLP (v12 alias)", IX_TAG.RequestRedeemLpShares, "encodeRequestRedeemLpShares()");
+  return removedInstruction("WithdrawInsuranceLP (v12 alias)", IX_TAG.RequestRedeemLpShares, "encodeRequestRedeemLpSharesV22()");
 }
 
 // ============================================================================
@@ -4427,6 +4427,10 @@ export function encodeDepositToLpVault(args: {
  *
  * BREAKING vs v12.x: was LpVaultWithdraw (tag 39) with lpAmount u64.
  * v17 uses shares u128 and a two-step request/execute redemption flow.
+ *
+ * @deprecated Refused by the v2.2 program since rc23 (percolator-prog #616: the 17-byte form with no payout floor
+ * answers InvalidInstructionData). Use the floored v2.2 form, `encodeRequestRedeemLpSharesV22` /
+ * `buildRequestRedeemLpSharesIxV22` (26 bytes: shares, min_payout_atoms, keeper_ok). Kept for v1 / pre-v2.2 programs.
  *
  * @example
  * ```ts

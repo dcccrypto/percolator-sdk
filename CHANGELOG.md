@@ -1,3 +1,8 @@
+## 9.0.0-candidate: v2.2 rc23 prog #616 - the legacy 17-byte RequestRedeemLpShares is refused
+
+- **Deprecated:** `encodeRequestRedeemLpShares` (tag 76, `[76, shares]`, 17 bytes, no payout floor). The v2.2 program refuses it since rc23 (prog #616, InvalidInstructionData); use `encodeRequestRedeemLpSharesV22` / `buildRequestRedeemLpSharesIxV22` (26 bytes: shares u128, min_payout_atoms u64, keeper_ok u8; `defaultMinPayoutV22` for a floor). The export stays for v1 / pre-v2.2 programs.
+- **Changed (text):** error 126 `PositionCapReached` hint now reads "... Close a position on this market to open another."
+
 ## 9.0.0-candidate: v2.2 rc23 open limits — κ / λ caps and the leverage-guard open rules (percolator-prog `feat/v22-rc23-2026-10-22` @ 02524b05)
 
 - **Changed (values):** `growthCeilingView` (so `quoteMaxLeverage`, `nCapG8Q` at its dials, the room and the utilisation fee) applies rc23's two tighten-only lines of `growth_g8_ctx_view` on a clamp-enforced market: κ ← `kappaEffBps(κ, None)` (prog #594: `min(κ, floor(fee·1015/20))`; the pool fee is not plumbed, so 5 bps → **253 bps** on every market) and λ_depth ← `lambdaFallbackBps(λ_depth, σ_72h)` (prog #599: `min(λ, 1.0 before W1, 0.95/(2σ_72h))`, seed variance without data). On by default; `growthCeilingView(..., { rc23Caps: false })` / `QuoteMaxLeverageInput.v22.rc23Caps = false` quotes a wrapper without them. `GrowthCeilingView.lambdaEffBps` / `MaxLeverageQuote.lambdaEffBps`: the λ_eff of the P1 LP cap (68) and P3-H2 cap (80) (`growth_capacity_lambda_view`).

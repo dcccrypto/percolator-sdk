@@ -638,7 +638,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   126: {
     name: "PositionCapReached",
-    hint: "This account already holds the maximum number of positions on this market. Close one first.",
+    hint: "This account already holds the maximum number of positions on this market. Close a position on this market to open another.",
   },
   127: {
     name: "CounterpartyPositionCapReached",
