@@ -487,8 +487,8 @@ describe("buildAccountMetas", () => {
     // admin — signs and pays for the slab alloc
     expect(metas[0].isSigner).toBe(true);
     expect(metas[0].isWritable).toBe(true);
-    // slab — written
-    expect(metas[1].isSigner).toBe(false);
+    // slab — written, and (D26, rc23) signs its own InitMarket
+    expect(metas[1].isSigner).toBe(true);
     expect(metas[1].isWritable).toBe(true);
     // mint — read-only
     expect(metas[2].isSigner).toBe(false);

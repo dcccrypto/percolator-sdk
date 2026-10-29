@@ -26,7 +26,10 @@ export interface AccountSpec {
  *
  * v17 wire account layout (v16_program.rs `handle_init_market`):
  *   [0] admin   signer, writable  (market admin; pays for the slab alloc)
- *   [1] slab    writable          (the market account)
+ *   [1] slab    signer, writable  (the market account; D26: rc23 requires its signature,
+ *                                  so createAccount + InitMarket go in ONE tx and the slab
+ *                                  keypair signs. Surplus signer flags are accepted by the
+ *                                  deployed wrapper, so this is backward-compatible)
  *   [2] mint    readonly          (collateral mint)
  *
  * GH#381: this template was still the v12 NINE-account shape — it additionally
@@ -42,7 +45,7 @@ export interface AccountSpec {
  */
 export const ACCOUNTS_INIT_MARKET: readonly AccountSpec[] = [
   { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true },
+  { name: "slab", signer: true, writable: true },
   { name: "mint", signer: false, writable: false },
 ] as const;
 
@@ -52,7 +55,9 @@ export const ACCOUNTS_INIT_MARKET: readonly AccountSpec[] = [
  * v17 wire account layout (v16_program.rs handle_init_portfolio):
  *   [0] owner      signer, writable (portfolio owner; pays for alloc)
  *   [1] market     writable (market-group slab; must be program-owned)
- *   [2] portfolio  writable (portfolio PDA; must be program-owned)
+ *   [2] portfolio  signer, writable (the pre-created portfolio account; D26: rc23 requires its
+ *                  signature, so createAccount + InitPortfolio go in ONE tx and the portfolio
+ *                  keypair signs; backward-compatible with the deployed wrapper)
  *
  * v12 clock sysvar, userAta, vault, tokenProgram are gone — v17
  * InitPortfolio does not transfer collateral and does not read the clock.
@@ -60,7 +65,7 @@ export const ACCOUNTS_INIT_MARKET: readonly AccountSpec[] = [
 export const ACCOUNTS_INIT_USER: readonly AccountSpec[] = [
   { name: "owner", signer: true, writable: true },
   { name: "market", signer: false, writable: true },
-  { name: "portfolio", signer: false, writable: true },
+  { name: "portfolio", signer: true, writable: true },
 ] as const;
 
 /**

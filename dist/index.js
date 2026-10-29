@@ -1965,13 +1965,13 @@ var ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL = [
 // src/abi/accounts.ts
 var ACCOUNTS_INIT_MARKET = [
   { name: "admin", signer: true, writable: true },
-  { name: "slab", signer: false, writable: true },
+  { name: "slab", signer: true, writable: true },
   { name: "mint", signer: false, writable: false }
 ];
 var ACCOUNTS_INIT_USER = [
   { name: "owner", signer: true, writable: true },
   { name: "market", signer: false, writable: true },
-  { name: "portfolio", signer: false, writable: true }
+  { name: "portfolio", signer: true, writable: true }
 ];
 var ACCOUNTS_INIT_LP = [
   { name: "user", signer: true, writable: true },
@@ -13208,6 +13208,33 @@ function levGuardRefusalV22(lim, i, takerEffQ, signedFill, takerEquityAfter) {
   return null;
 }
 
+// src/abi/v22-launch-settings.ts
+var V22_STAKE_POOL_MODE_FEE_ONLY = 2;
+var V22_LAUNCH_SETTINGS = Object.freeze({
+  major: Object.freeze({
+    staleWindowSlots: 18e3,
+    stakeCooldownSlots: 150,
+    stakePoolMode: V22_STAKE_POOL_MODE_FEE_ONLY,
+    earnRedemptionCooldownSlots: 150
+  }),
+  meme: Object.freeze({
+    staleWindowSlots: 54e3,
+    stakeCooldownSlots: 150,
+    stakePoolMode: V22_STAKE_POOL_MODE_FEE_ONLY,
+    earnRedemptionCooldownSlots: 150
+  })
+});
+var V22_MAJOR_MINTS = Object.freeze([
+  "So11111111111111111111111111111111111111112",
+  "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij"
+]);
+function v22LaunchSettings(cls) {
+  return V22_LAUNCH_SETTINGS[cls];
+}
+function classifyV22Asset(mint) {
+  return V22_MAJOR_MINTS.includes(mint) ? "major" : "meme";
+}
+
 // src/solana/pda.ts
 import { PublicKey as PublicKey18 } from "@solana/web3.js";
 var textEncoder = new TextEncoder();
@@ -18925,6 +18952,9 @@ export {
   V17_WRAPPER_HEAP_FRAME_BYTES,
   V18_KIND_VAULT_LP_STATE_P3,
   V1RpcError,
+  V22_LAUNCH_SETTINGS,
+  V22_MAJOR_MINTS,
+  V22_STAKE_POOL_MODE_FEE_ONLY,
   VAMM_MAGIC,
   VAULT_LP_DEFAULT_MAX_LEV_BPS_P3,
   VAULT_LP_EXT_ACCOUNT_LEN_P2B,
@@ -19087,6 +19117,7 @@ export {
   clampEnforced,
   classifyLighthouseError,
   classifyRedemptionSimulationV22,
+  classifyV22Asset,
   clearStaticMarkets,
   closeoutCreatorShare,
   closeoutSplit,
@@ -19778,6 +19809,7 @@ export {
   v17MarketAccountLen,
   v1ConfigFromBudget,
   v1TransactionSignature,
+  v22LaunchSettings,
   validateAmount,
   validateBps,
   validateFeeSplit,
