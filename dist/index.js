@@ -12660,8 +12660,9 @@ var LEV_GUARD_SEEDS_V22 = Object.freeze({
 });
 var LEV_GUARD_REC_LEN_V22 = 360;
 var LEV_GUARD_REC_LEN_PRE_BURST_V22 = 344;
-var LEV_GUARD_TOUCHED_CAP_V22 = 512;
-var LEV_GUARD_TOUCHED_LEN_V22 = 8 * LEV_GUARD_TOUCHED_CAP_V22;
+var LEV_GUARD_KEY_TAG_LEN_V22 = 16;
+var LEV_GUARD_TOUCHED_CAP_V22 = 256;
+var LEV_GUARD_TOUCHED_LEN_V22 = LEV_GUARD_KEY_TAG_LEN_V22 * LEV_GUARD_TOUCHED_CAP_V22;
 var LEV_GUARD_BODY_LEN_V22 = LEV_GUARD_REC_LEN_V22 + LEV_GUARD_TOUCHED_LEN_V22;
 var LEV_GUARD_ACCOUNT_LEN_V22 = 16 + LEV_GUARD_BODY_LEN_V22;
 var LEV_GUARD_VERSION_V22 = 1;
@@ -12883,12 +12884,13 @@ function decodeLevGuardV22(data, table = LAYOUT_V22) {
   const bad3 = g.version !== LEV_GUARD_VERSION_V22 || (flags & ~(LEV_GUARD_FLAG_V22.MINT_AUTH_LIVE | LEV_GUARD_FLAG_V22.FREEZE_AUTH_LIVE)) !== 0 || !rawBool(F.roundActive) || !rawBool(F.roundLpLong) || g.touchedN > LEV_GUARD_TOUCHED_CAP_V22 || g.roundKeepBps > 1e4 || g.repJDumpBps > 1e4 || g.repMIndBps > 1e4 || g.repNMultBps > 1e4 || data[b + F.pad0] !== 0 || !allZero(data.subarray(b + F.pad1, b + F.pad1 + 2)) || !allZero(data.subarray(b + F.pad2, b + F.pad2 + 6)) || burst && !allZero(data.subarray(b + F.pad3, b + F.pad3 + 4));
   if (bad3) throw new UnknownLayoutError("INVALID_RECORD", parser, "invalid account data: lev guard fails the program's validate_guard", { kind: ACCOUNT_KIND.LevGuard });
   const t = b + recLen;
-  for (let i = 0; i < g.touchedN; i++) g.touchedTags.push(v.getBigUint64(t + 8 * i, true));
+  for (let i = 0; i < g.touchedN; i++) g.touchedTags.push(u128At(v, t + LEV_GUARD_KEY_TAG_LEN_V22 * i));
   return g;
 }
 function levKeyTagV22(key3) {
   const b = key3.toBytes();
-  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  return u128At(v, 0);
 }
 function levAgeBandV22(t0Slot, nowSlot) {
   if (nowSlot < t0Slot) return "NoOpen";
@@ -18621,6 +18623,7 @@ export {
   LEV_GUARD_BODY_LEN_V22,
   LEV_GUARD_FIELD_OFF_V22,
   LEV_GUARD_FLAG_V22,
+  LEV_GUARD_KEY_TAG_LEN_V22,
   LEV_GUARD_OP_V22,
   LEV_GUARD_REC_LEN_PRE_BURST_V22,
   LEV_GUARD_REC_LEN_V22,

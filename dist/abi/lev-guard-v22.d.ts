@@ -36,9 +36,15 @@ export declare const LEV_GUARD_SEEDS_V22: Readonly<{
 export declare const LEV_GUARD_REC_LEN_V22 = 360;
 /** The record before prog#605 (burst memory): 344 B, account 4456. The decoder accepts both. */
 export declare const LEV_GUARD_REC_LEN_PRE_BURST_V22 = 344;
+/**
+ * Tag width (`KEY_TAG_LEN`, prog#610/#611). The tag is a portfolio address PREFIX and is that
+ * account's identity in the touched set, so the width is a security parameter: at 8 bytes a
+ * birthday search over client-chosen portfolio addresses costs ~2^32, at 16 it costs ~2^64.
+ */
+export declare const LEV_GUARD_KEY_TAG_LEN_V22 = 16;
 /** Touched-set capacity (`W1_TOUCHED_CAP`). */
-export declare const LEV_GUARD_TOUCHED_CAP_V22 = 512;
-/** Touched-set byte length (`8 * W1_TOUCHED_CAP`). */
+export declare const LEV_GUARD_TOUCHED_CAP_V22 = 256;
+/** Touched-set byte length (`KEY_TAG_LEN * W1_TOUCHED_CAP`): 4096, unchanged by the widening. */
 export declare const LEV_GUARD_TOUCHED_LEN_V22: number;
 /** Body length (record + touched set). */
 export declare const LEV_GUARD_BODY_LEN_V22: number;
@@ -277,12 +283,16 @@ export interface LevGuardV22 {
     burstVarPeakX100: number;
     /** Slot the burst peak was set (record offset 352); the peak is read decayed with a 7-day half-life. */
     burstPeakSlot: bigint;
-    /** The first `touchedN` tags of the touched set (first 8 bytes of each cut portfolio key, as a LE u64). */
+    /**
+     * The first `touchedN` tags of the touched set: the first `LEV_GUARD_KEY_TAG_LEN_V22` bytes of
+     * each cut portfolio key, as a LE unsigned integer. Compare with `levKeyTagV22`, never by
+     * truncating a key yourself.
+     */
     touchedTags: bigint[];
 }
 /**
  * Decode a leverage guard account (`16 + 360 + 4096 = 4472` bytes, header kind 17). Mirrors the program's `validate_guard`
- * (version 1, only known flag bits, booleans 0/1, `touched_n <= 512`, `round_keep_bps <= 10 000`, report bps in range, padding zero).
+ * (version 1, only known flag bits, booleans 0/1, `touched_n <= 256`, `round_keep_bps <= 10 000`, report bps in range, padding zero).
  *
  * @param data   Raw account bytes.
  * @param table  Layout table (default {@link LAYOUT_V22}); only its header version is used.
@@ -296,10 +306,14 @@ export interface LevGuardV22 {
  */
 export declare function decodeLevGuardV22(data: Uint8Array, table?: LayoutTable): LevGuardV22;
 /**
- * The tag the program stores for a cut portfolio: the first 8 bytes of its key as a LE u64 (`key_tag`).
+ * The tag the program stores for a cut portfolio: the first `LEV_GUARD_KEY_TAG_LEN_V22` bytes of
+ * its key as a LE unsigned integer (`key_tag`).
+ *
+ * The tag is a PREFIX, so it is not a collision-free identity; 16 bytes puts a birthday search at
+ * ~2^64 (prog#610). Always derive it with this function so the width stays in one place.
  *
  * @param key  Portfolio account key.
- * @returns The u64 tag.
+ * @returns The tag as an unsigned integer up to 2^128.
  * @example
  * ```ts
  * const cut = guard.touchedTags.includes(levKeyTagV22(portfolio));

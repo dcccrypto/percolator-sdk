@@ -143,8 +143,8 @@ function synth(): { data: Uint8Array; market: PublicKey; riskKey: PublicKey } {
   v.setBigUint64(r + 336, 777_777n, true);
   v.setUint32(r + 344, 44_444, true);
   v.setBigUint64(r + 352, 888_888n, true);
-  v.setBigUint64(r + 360, 0xdeadbeefn, true);
-  v.setBigUint64(r + 368, 0xcafen, true);
+  u128(360, 0xdeadbeefn);
+  u128(376, 0xcafen); // tags are KEY_TAG_LEN = 16 B apart (prog#610)
   return { data, market, riskKey };
 }
 
@@ -189,8 +189,9 @@ describe("LevGuardV22 decoder", () => {
       expect(() => G.decodeLevGuardV22(d)).toThrow();
     }
   });
-  it("touched tag is the first 8 key bytes LE, also for keys built from pooled Buffers (byteOffset != 0)", () => {
-    const fromLe = (b: Uint8Array): bigint => { let x = 0n; for (let i = 7; i >= 0; i--) x = (x << 8n) | BigInt(b[i]); return x; };
+  it("touched tag is the first KEY_TAG_LEN key bytes LE, also for keys built from pooled Buffers (byteOffset != 0)", () => {
+    const N = G.LEV_GUARD_KEY_TAG_LEN_V22;
+    const fromLe = (b: Uint8Array): bigint => { let x = 0n; for (let i = N - 1; i >= 0; i--) x = (x << 8n) | BigInt(b[i]); return x; };
     const a = new Uint8Array(32).map((_, i) => 0x10 + i);
     const c = new Uint8Array(32).map((_, i) => 0xa0 + i);
     // Buffer.from(array) and allocUnsafe slices come from the shared 8 KiB pool: byteOffset is not 0
@@ -205,7 +206,18 @@ describe("LevGuardV22 decoder", () => {
     expect(G.levKeyTagV22(k2)).toBe(G.levKeyTagV22(k));
     expect(G.levKeyTagV22(pk())).not.toBe(G.levKeyTagV22(k));
   });
-  it("refuses wrong kind, short data, bad version, unknown flag bit, nonzero padding, touched_n > 512", () => {
+  it("separates two keys that share an 8-byte prefix (prog#610)", () => {
+    // The pair an attacker prepares: identical first 8 bytes, differing at byte 8. On the
+    // 8-byte tag these produced the SAME value, so the keeper read an uncut account as cut.
+    const a = new Uint8Array(32).fill(7); a[8] = 1;
+    const b = new Uint8Array(32).fill(7); b[8] = 2;
+    expect(G.levKeyTagV22(new PublicKey(a))).not.toBe(G.levKeyTagV22(new PublicKey(b)));
+    // and the tag is still a prefix: anything past KEY_TAG_LEN collides, by construction
+    const c = new Uint8Array(32).fill(7); c[G.LEV_GUARD_KEY_TAG_LEN_V22] = 1;
+    const d = new Uint8Array(32).fill(7); d[G.LEV_GUARD_KEY_TAG_LEN_V22] = 2;
+    expect(G.levKeyTagV22(new PublicKey(c))).toBe(G.levKeyTagV22(new PublicKey(d)));
+  });
+  it("refuses wrong kind, short data, bad version, unknown flag bit, nonzero padding, touched_n > 256", () => {
     const mk = (f: (d: Uint8Array) => void): Uint8Array => { const s = synth().data; f(s); return s; };
     expect(() => G.decodeLevGuardV22(mk((d) => { d[10] = 16; }))).toThrow(UnknownLayoutError);
     expect(() => G.decodeLevGuardV22(synth().data.slice(0, 4455))).toThrow(UnknownLayoutError);
@@ -214,7 +226,7 @@ describe("LevGuardV22 decoder", () => {
     expect(() => G.decodeLevGuardV22(mk((d) => { d[16 + 76] = 4; }))).toThrow(UnknownLayoutError);
     expect(() => G.decodeLevGuardV22(mk((d) => { d[16 + 79] = 1; }))).toThrow(UnknownLayoutError);
     expect(() => G.decodeLevGuardV22(mk((d) => { d[16 + 165] = 1; }))).toThrow(UnknownLayoutError);
-    expect(() => G.decodeLevGuardV22(mk((d) => { new DataView(d.buffer).setUint16(16 + 100, 513, true); }))).toThrow(UnknownLayoutError);
+    expect(() => G.decodeLevGuardV22(mk((d) => { new DataView(d.buffer).setUint16(16 + 100, 257, true); }))).toThrow(UnknownLayoutError);
     expect(() => G.decodeLevGuardV22(mk((d) => { new DataView(d.buffer).setUint16(16 + 80, 10_001, true); }))).toThrow(UnknownLayoutError);
   });
 });
