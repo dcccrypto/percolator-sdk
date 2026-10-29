@@ -1001,7 +1001,7 @@ function encodeLpVaultWithdraw(_args) {
   return removedInstruction(
     "LpVaultWithdraw (v12 wire, tag 39\u219276 alias \u2014 wire format changed)",
     IX_TAG.LpVaultWithdraw,
-    "encodeRequestRedeemLpShares() + encodeExecuteRedemption()"
+    "encodeRequestRedeemLpSharesV22() + encodeExecuteRedemption()"
   );
 }
 function encodePauseMarket() {
@@ -1070,7 +1070,7 @@ function encodeSetInsuranceIsolation(args) {
   );
 }
 function encodeQueueWithdrawal(_args) {
-  return removedInstruction("QueueWithdrawal (v12 tag 102 \u2014 not in v17)", IX_TAG.QueueWithdrawal, "encodeRequestRedeemLpShares()");
+  return removedInstruction("QueueWithdrawal (v12 tag 102 \u2014 not in v17)", IX_TAG.QueueWithdrawal, "encodeRequestRedeemLpSharesV22()");
 }
 function encodeClaimQueuedWithdrawal() {
   return removedInstruction("ClaimQueuedWithdrawal (v12 tag 103 \u2014 not in v17)", IX_TAG.ClaimQueuedWithdrawal, void 0);
@@ -1441,7 +1441,7 @@ function encodeDepositInsuranceLP(_args) {
   return removedInstruction("DepositInsuranceLP (v12 alias)", IX_TAG.DepositToLpVault, "encodeDepositToLpVault()");
 }
 function encodeWithdrawInsuranceLP(_args) {
-  return removedInstruction("WithdrawInsuranceLP (v12 alias)", IX_TAG.RequestRedeemLpShares, "encodeRequestRedeemLpShares()");
+  return removedInstruction("WithdrawInsuranceLP (v12 alias)", IX_TAG.RequestRedeemLpShares, "encodeRequestRedeemLpSharesV22()");
 }
 function encodeSetMaxPnlCap(_args) {
   return removedInstruction(
@@ -5158,7 +5158,7 @@ var PERCOLATOR_ERRORS = {
   },
   126: {
     name: "PositionCapReached",
-    hint: "This account already holds the maximum number of positions on this market. Close one first."
+    hint: "This account already holds the maximum number of positions on this market. Close a position on this market to open another."
   },
   127: {
     name: "CounterpartyPositionCapReached",

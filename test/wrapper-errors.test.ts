@@ -15,7 +15,7 @@ describe("v2.2 codes 125-127 (G9 timelock, P-1 position cap)", () => {
   it("decode to the wrapper's names with plain hints", () => {
     expect(decodeError(125)?.name).toBe("G9AllowlistTimelock");
     expect(decodeError(126)?.name).toBe("PositionCapReached");
-    expect(decodeError(126)?.hint).toBe("This account already holds the maximum number of positions on this market. Close one first.");
+    expect(decodeError(126)?.hint).toBe("This account already holds the maximum number of positions on this market. Close a position on this market to open another.");
     expect(decodeError(127)?.name).toBe("CounterpartyPositionCapReached");
     expect(decodeError(127)?.hint).toMatch(/not caused by your account/);
     expect(FX.errors["126"]).toBe("PositionCapReached");
