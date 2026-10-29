@@ -1718,6 +1718,76 @@ export interface NextUnlock {
     fullDepthUsd?: number;
 }
 /** Everything derived from the growth record + band + depth + LP equity for the app. */
+/** `KAPPA_CAP_NUM / KAPPA_CAP_DEN`: κ_cap = fee · 0.5 · 101.5 = `floor(fee_bps · 1015 / 20)` (growth_v19 S-3). */
+export declare const KAPPA_CAP_NUM = 1015;
+export declare const KAPPA_CAP_DEN = 20;
+/** `KAPPA_CAP_FALLBACK_FEE_BPS`: the pool fee is not plumbed (`growth_g8_ctx_view` passes `None`), so every market reads 5 bps => κ_cap 253 bps. */
+export declare const KAPPA_CAP_FALLBACK_FEE_BPS = 5;
+/** `lev_guard_v22::W1_LIVE` (false at 02524b05): before W1 ships λ_eff is also capped at 1.0. */
+export declare const LEV_W1_LIVE = false;
+/** `LAMBDA_CAP_PRE_W1_BPS`: λ_eff ≤ 1.0 until W1. */
+export declare const LAMBDA_CAP_PRE_W1_BPS = 10000;
+/** `LAMBDA_VOL_HORIZON_SLOTS`: σ for λ_vol over 72 h before W1 (24 h after). */
+export declare const LAMBDA_VOL_HORIZON_SLOTS: bigint;
+/**
+ * `growth_v19::kappa_cap_bps`: the κ cap (bps of depth) of a pool with fee `feeBps`, rounded DOWN.
+ *
+ * @param feeBps  Pool fee (bps).
+ * @returns `floor(feeBps * 1015 / 20)`.
+ * @example
+ * ```ts
+ * kappaCapBps(5); // 253
+ * ```
+ */
+export declare function kappaCapBps(feeBps: number): number;
+/**
+ * `growth_v19::kappa_eff_bps`: `min(κ_tier, kappaCapBps(fee))`, an unknown fee (`null`) reading {@link KAPPA_CAP_FALLBACK_FEE_BPS}. Tighten-only.
+ *
+ * @param kappaTierBps  κ from the dials (lagging curve).
+ * @param feeBps        Pool fee, or `null` (what the program passes today).
+ * @returns κ_eff (bps).
+ * @example
+ * ```ts
+ * kappaEffBps(10_000, null); // 253
+ * ```
+ */
+export declare function kappaEffBps(kappaTierBps: number, feeBps: number | null): number;
+/**
+ * `lev_guard_v22::lambda_vol_bps`: `λ_vol = 0.95 / (2·σ_H)` = `floor(47_500_000 / σ_bps)`; σ 0 = no cap.
+ *
+ * @param sigmaHBps_  σ over {@link LAMBDA_VOL_HORIZON_SLOTS} (bps).
+ * @returns λ_vol (bps), `Number.MAX_SAFE_INTEGER` for no cap.
+ */
+export declare function lambdaVolBps(sigmaHBps_: bigint): number;
+/**
+ * `lev_guard_v22::lambda_fallback_bps`: `min(λ, [1.0 before W1], λ_vol)`. Tighten-only.
+ *
+ * @param lambdaEffBps  λ_depth from the dials.
+ * @param sigmaHBps_    σ over {@link LAMBDA_VOL_HORIZON_SLOTS} (bps).
+ * @returns The capped λ_depth (bps).
+ * @example
+ * ```ts
+ * lambdaFallbackBps(20_000, sigmaHBps(2_500, 648_000n)); // 10_000 (the 1.0 cap binds; λ_vol ~11,800)
+ * ```
+ */
+export declare function lambdaFallbackBps(lambdaEffBps: number, sigmaHBps_: bigint): number;
+/**
+ * The two rc23 lines of `growth_g8_ctx_view` on a clamp-enforced market: κ ← `kappaEffBps(κ, None)`, λ_depth ←
+ * `lambdaFallbackBps(λ_depth, σ_72h)` with σ from the stored variance, the seed variance without data (fails closed).
+ *
+ * @param dials  The dials from {@link smoothDialsAndVenueL}.
+ * @param g      The growth record (its variance).
+ * @returns The capped dials (leverage signal unchanged).
+ */
+export declare function rc23CapDials(dials: SmoothDials, g: Pick<AssetGrowthV19, "volHasData" | "volVarX100">): SmoothDials;
+/** Options of {@link growthCeilingView}. */
+export interface GrowthCeilingOptions {
+    /**
+     * Apply the rc23 κ / λ caps ({@link rc23CapDials}). Default `true` (the program this file tracks). `false` quotes a wrapper that predates
+     * them (prog #594 / #599 not deployed); the caps only ever tighten, so `true` never over-quotes either program.
+     */
+    rc23Caps?: boolean;
+}
 export interface GrowthCeilingView {
     /** Combined tier `min(venue, book)`; 0 off the clamp. */
     tier: number;
@@ -1766,6 +1836,11 @@ export interface GrowthCeilingView {
     nextUnlock: NextUnlock;
     /** The next tier's requirements regardless of the ratchet. */
     nextTierUnlock: NextUnlock;
+    /**
+     * λ_eff every stored-λ reader uses (`growth_capacity_lambda_view`: the P1 LP cap 68, the P3-H2 vault-LP cap 80, the bond / junior
+     * locks): `min(stored λ, dials.lambdaDepthBps)` on a clamp-enforced market, the stored λ off it.
+     */
+    lambdaEffBps: number;
 }
 /**
  * Derive tier, ceiling and next unlock for one asset, exactly as the wrapper's gate does (`growth_g8_ctx_view` + `growth_ceiling_x100`,
@@ -1781,6 +1856,7 @@ export interface GrowthCeilingView {
  * @param stress     Stress level ({@link stressLevel}); a legacy boolean `forceDown` is accepted (`true` = h-lock, launch).
  * @param vol        Engine config for the volatility term ({@link GrowthVolInputs}). Required for an exact ceiling once the record has volatility
  *                   data; omitted -> the view fails closed to launch and sets `volInputsMissing`.
+ * @param opts       {@link GrowthCeilingOptions} (rc23 κ / λ caps, on by default).
  * @returns {@link GrowthCeilingView}.
  * @example
  * ```ts
@@ -1788,7 +1864,7 @@ export interface GrowthCeilingView {
  * if (v.nextUnlock.kind === "both") console.log(`${v.nextUnlock.leverageX100! / 100}x unlocks at $${v.nextUnlock.depthUsd} pool depth and $${v.nextUnlock.backingUsd} market backing`);
  * ```
  */
-export declare function growthCeilingView(g: AssetGrowthV19, bandBps: number, nowSlot: bigint, cM: bigint | null, stress: number | boolean, vol?: GrowthVolInputs): GrowthCeilingView;
+export declare function growthCeilingView(g: AssetGrowthV19, bandBps: number, nowSlot: bigint, cM: bigint | null, stress: number | boolean, vol?: GrowthVolInputs, opts?: GrowthCeilingOptions): GrowthCeilingView;
 /** Inputs of {@link quoteMaxLeverage}. */
 export interface QuoteMaxLeverageInput {
     /** Engine initial margin (bps) of the asset. */
@@ -1835,6 +1911,8 @@ export interface QuoteMaxLeverageInput {
             liquidationFeeBps: bigint;
             bandMaxEpochSlots: bigint;
         };
+        /** rc23 κ / λ caps ({@link GrowthCeilingOptions.rc23Caps}); default `true`. */
+        rc23Caps?: boolean;
     };
 }
 /** Why a side is closed. */
@@ -1901,6 +1979,8 @@ export interface MaxLeverageQuote {
     nextTierUnlock: NextUnlock;
     /** v2.2: graduation above `L_launch` is allowed (clamp enforced and tier >= 1). */
     graduationOn: boolean;
+    /** λ_eff of the P1 LP cap / P3-H2 cap ({@link GrowthCeilingView.lambdaEffBps}); the stored λ without the v2.2 input; null with growth off. */
+    lambdaEffBps: number | null;
 }
 /**
  * Quote the maximum leverage a taker can open on `side` right now.

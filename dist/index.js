@@ -4370,9 +4370,9 @@ function ownerProofHeader(proof) {
     encU8(proof.bump)
   );
 }
-function encodeMatcherConfigureBackingFeeCap(proof, capBps) {
-  checkRange("capBps", capBps, MATCHER_BACKING_FEE_CAP_BPS_MAX);
-  return concatBytes(ownerProofHeader(proof), encU8(MATCHER_CONFIGURE_OP_BACKING_FEE_CAP), encU16(capBps));
+function encodeMatcherConfigureBackingFeeCap(proof, capBps2) {
+  checkRange("capBps", capBps2, MATCHER_BACKING_FEE_CAP_BPS_MAX);
+  return concatBytes(ownerProofHeader(proof), encU8(MATCHER_CONFIGURE_OP_BACKING_FEE_CAP), encU16(capBps2));
 }
 function encodeMatcherConfigureSetParams(proof, params) {
   return concatBytes(ownerProofHeader(proof), encU8(MATCHER_CONFIGURE_OP_SET_PARAMS), encodeMatcherSetParams(params));
@@ -4397,11 +4397,11 @@ function deriveProof(a) {
   );
   return { wrapperProgramId: a.wrapperProgramId, market: a.market, lpPortfolio: a.lpPortfolio, bump };
 }
-function buildMatcherConfigureBackingFeeCapIx(a, capBps) {
+function buildMatcherConfigureBackingFeeCapIx(a, capBps2) {
   return new TransactionInstruction({
     programId: a.matcherProgramId,
     keys: matcherConfigureOwnerProofAccounts(a.lpOwner, a.matcherCtx),
-    data: Buffer.from(encodeMatcherConfigureBackingFeeCap(deriveProof(a), capBps))
+    data: Buffer.from(encodeMatcherConfigureBackingFeeCap(deriveProof(a), capBps2))
   });
 }
 function buildMatcherConfigureSetParamsIx(a, params) {
@@ -7210,7 +7210,39 @@ function depthRateEtaSlots(ever, lastGood, riseSlot64, fresh, threshold, nowSlot
   }
   return null;
 }
-function growthCeilingView(g, bandBps, nowSlot, cM, stress, vol) {
+var KAPPA_CAP_NUM = 1015;
+var KAPPA_CAP_DEN = 20;
+var KAPPA_CAP_FALLBACK_FEE_BPS = 5;
+var LEV_W1_LIVE = false;
+var LAMBDA_CAP_PRE_W1_BPS = 1e4;
+var LAMBDA_VOL_HORIZON_SLOTS = LEV_W1_LIVE ? 216000n : 648000n;
+function kappaCapBps(feeBps) {
+  return Math.floor(feeBps * KAPPA_CAP_NUM / KAPPA_CAP_DEN);
+}
+function kappaEffBps(kappaTierBps, feeBps) {
+  const cap = kappaCapBps(feeBps ?? KAPPA_CAP_FALLBACK_FEE_BPS);
+  return kappaTierBps < cap ? kappaTierBps : cap;
+}
+function lambdaVolBps(sigmaHBps_) {
+  if (sigmaHBps_ === 0n) return Number.MAX_SAFE_INTEGER;
+  const v = 47500000n / sigmaHBps_;
+  return v > 0xffffffffn ? 4294967295 : Number(v);
+}
+function lambdaFallbackBps(lambdaEffBps2, sigmaHBps_) {
+  let l = lambdaEffBps2;
+  if (!LEV_W1_LIVE && LAMBDA_CAP_PRE_W1_BPS < l) l = LAMBDA_CAP_PRE_W1_BPS;
+  const v = lambdaVolBps(sigmaHBps_);
+  return v < l ? v : l;
+}
+function rc23CapDials(dials, g) {
+  const v = g.volHasData ? g.volVarX100 : VOL_VAR_SEED_X100;
+  return {
+    lSignalX100: dials.lSignalX100,
+    kappaBps: kappaEffBps(dials.kappaBps, null),
+    lambdaDepthBps: lambdaFallbackBps(dials.lambdaDepthBps, sigmaHBps(v, LAMBDA_VOL_HORIZON_SLOTS))
+  };
+}
+function growthCeilingView(g, bandBps, nowSlot, cM, stress, vol, opts = {}) {
   const st = stressOf(stress);
   const clamp = clampEnforced(bandBps, g.rGapBps);
   const unit = wholeTokenAtoms(g.collateralDecimals);
@@ -7229,7 +7261,7 @@ function growthCeilingView(g, bandBps, nowSlot, cM, stress, vol) {
   const grad = graduationOn(clamp, bandBps, tier);
   const venueD = clamp ? venueDepthCapped(eff, dsByte, thresholds, g.attestedMaxTier) : 0n;
   const dv8 = clamp ? smoothDialsAndVenueL(venueD, clamp && cM !== null ? bookD : 0n, thresholds, table) : null;
-  const dials = dv8 !== null ? dv8.dials : { lSignalX100: 0, kappaBps: Number(KAPPA_TABLE_BPS[0]), lambdaDepthBps: Number(LAMBDA_DEPTH_TABLE_BPS[0]) };
+  const dials = dv8 !== null ? opts.rc23Caps === false ? dv8.dials : rc23CapDials(dv8.dials, g) : { lSignalX100: 0, kappaBps: Number(KAPPA_TABLE_BPS[0]), lambdaDepthBps: Number(LAMBDA_DEPTH_TABLE_BPS[0]) };
   const venueLX100 = dv8 !== null ? dv8.venueLX100 : 0;
   const volInputsMissing = clamp && g.volHasData === true && vol === void 0;
   const lVol = clamp && vol !== void 0 ? growthLVolX100(g, vol) : null;
@@ -7301,7 +7333,8 @@ function growthCeilingView(g, bandBps, nowSlot, cM, stress, vol) {
     lSignalX100: lSignal,
     volInputsMissing,
     venueDepthE6: venueD,
-    depthTwMinE6: twMin
+    depthTwMinE6: twMin,
+    lambdaEffBps: clamp ? Math.min(g.lambdaBps, dials.lambdaDepthBps) : g.lambdaBps
   };
 }
 function quoteMaxLeverage(input, side) {
@@ -7331,6 +7364,7 @@ function quoteMaxLeverage(input, side) {
     nextUnlock: { kind: "none" },
     nextTierUnlock: { kind: "none" },
     graduationOn: false,
+    lambdaEffBps: null,
     ...meta,
     ...p
   });
@@ -7346,7 +7380,7 @@ function quoteMaxLeverage(input, side) {
   const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
   const v = input.v22;
   const stress = v ? stressLevel(v.drawOutstanding === true, realAdl(v.modeLong ?? 0, v.modeShort ?? 0), input.bankruptcyHlockActive) : STRESS_NONE;
-  const view2 = v ? growthCeilingView(g, v.bandBps, v.nowSlot, cM, stress, v.vol ? { engineImrBps: e, liquidationFeeBps: v.vol.liquidationFeeBps, bandMaxEpochSlots: v.vol.bandMaxEpochSlots } : void 0) : null;
+  const view2 = v ? growthCeilingView(g, v.bandBps, v.nowSlot, cM, stress, v.vol ? { engineImrBps: e, liquidationFeeBps: v.vol.liquidationFeeBps, bandMaxEpochSlots: v.vol.bandMaxEpochSlots } : void 0, { rc23Caps: v.rc23Caps !== false }) : null;
   const lCeil = view2 ? view2.ceilingX100 : Math.min(g.lLaunchX100, g.lTierX100);
   meta = {
     ceilingX100: lCeil,
@@ -7356,7 +7390,8 @@ function quoteMaxLeverage(input, side) {
     capDepthE6: view2?.capDepthE6 ?? null,
     nextUnlock: view2?.nextUnlock ?? { kind: "none" },
     nextTierUnlock: view2?.nextTierUnlock ?? { kind: "none" },
-    graduationOn: view2?.graduationOn ?? false
+    graduationOn: view2?.graduationOn ?? false,
+    lambdaEffBps: view2 ? view2.lambdaEffBps : g.lambdaBps
   };
   const base = ceilingImrBps(e, lCeil);
   if (base === null) return closed("invalid-config");
@@ -8822,8 +8857,8 @@ function bondClaimAfterRedemptionV22(bondClaim, shares, totalShares) {
   if (slice === null || slice > bondClaim) return null;
   return bondClaim - slice;
 }
-function bondCapOkV22(bondClaimAfter, seniorClaimEff, junior, capBps) {
-  const cap = bpsFloorV22(seniorClaimEff + junior, capBps);
+function bondCapOkV22(bondClaimAfter, seniorClaimEff, junior, capBps2) {
+  const cap = bpsFloorV22(seniorClaimEff + junior, capBps2);
   return cap !== null && bondClaimAfter <= cap;
 }
 function bondWithdrawLockOkV22(nCapAfter, oiLongQ, oiShortQ, lpEffAbsQ) {
@@ -8925,13 +8960,13 @@ function g9PhaseV22(pendingSlot, now) {
   if (!g9ProposalOpenV22(pendingSlot, now)) return "propose";
   return g9DelayElapsedV22(pendingSlot, now) ? "draw" : "wait";
 }
-function g9EpochRoomV22(base, drawnThisEpoch, capBps) {
-  const cap = bpsFloorV22(base, capBps) ?? 0n;
+function g9EpochRoomV22(base, drawnThisEpoch, capBps2) {
+  const cap = bpsFloorV22(base, capBps2) ?? 0n;
   return cap > drawnThisEpoch ? cap - drawnThisEpoch : 0n;
 }
-function backstopDrawAmountV22(deficit, insuranceFree, insuranceGross, outstanding, capBps) {
+function backstopDrawAmountV22(deficit, insuranceFree, insuranceGross, outstanding, capBps2) {
   const base = insuranceGross + outstanding;
-  const capTotal = bpsFloorV22(base, capBps) ?? 0n;
+  const capTotal = bpsFloorV22(base, capBps2) ?? 0n;
   const room = capTotal > outstanding ? capTotal - outstanding : 0n;
   let m = deficit < insuranceFree ? deficit : insuranceFree;
   m = m < room ? m : room;
@@ -12887,6 +12922,290 @@ function levW1RoundLiveV22(g, nowSlot) {
   return d <= LEV_W1_ROUND_SLOTS_V22;
 }
 
+// src/abi/lev-guard-limits-v22.ts
+var BPS4 = 10000n;
+var U16_MAX3 = 65535;
+var GROWTH_FLAG_LEV_GUARD_V22 = 4;
+var LEV_SLOTS_PER_HOUR = 9000n;
+var LEV_SLOTS_PER_DAY = 216000n;
+var LEV_J_DUMP_DEFAULT_DAY_BPS = 3500;
+var LEV_J_DUMP_DEFAULT_WEEK_BPS = 2e3;
+var LEV_M_IND_DEFAULT_YOUNG_BPS = 5e3;
+var LEV_J_DUMP_STALE_OLD_BPS = 1e3;
+var LEV_M_IND_STALE_OLD_BPS = 2500;
+var LEV_HOLDER_PROOF_SLOTS = LEV_SLOTS_PER_DAY;
+var LEV_L_FLOOR_X100 = 200;
+var LEV_Z_NUM = 233n;
+var LEV_Z_DEN = 100n;
+var LEV_PHI_OPEN_BPS = 30n;
+var LEV_M_ORACLE_NUM = 3;
+var LEV_M_ORACLE_DEN = 4;
+var LEV_N_FLOOR_USD = 200n;
+var LEV_BETA_YOUNG_BPS = 1e3;
+var LEV_BETA_BPS = 5e3;
+var LEV_BURST_VAR_FLOOR_DIV = 4;
+var LEV_BURST_HALF_LIFE_SLOTS = 7n * LEV_SLOTS_PER_DAY;
+var LEV_BREAKER_SAMPLE_BPS = 1000n;
+var LEV_BREAKER_HOUR_BPS = 3000n;
+var LEV_ABNORMAL_SIGMA_MULT = 4n;
+var LEV_FREEZE_SLOTS = LEV_SLOTS_PER_HOUR;
+var LEV_M_ORACLE_SLOTS = LEV_SLOTS_PER_DAY;
+var LEV_VOL_PROFILE_LIVE = false;
+var AGE_ORDER = { NoOpen: 0, Day: 1, Week: 2, Month: 3, Mature: 4 };
+var min16 = (a, b) => a < b ? a : b;
+var max16 = (a, b) => a > b ? a : b;
+var capBps = (x) => min16(x, 1e4);
+var minB = (a, b) => a < b ? a : b;
+var maxB = (a, b) => a > b ? a : b;
+var absB = (a) => a < 0n ? -a : a;
+function levDefaultOverlayV22(band, rep) {
+  let j = 0;
+  let m = 0;
+  if (band === "NoOpen" || band === "Day") [j, m] = [LEV_J_DUMP_DEFAULT_DAY_BPS, LEV_M_IND_DEFAULT_YOUNG_BPS];
+  else if (band === "Week") [j, m] = [LEV_J_DUMP_DEFAULT_WEEK_BPS, LEV_M_IND_DEFAULT_YOUNG_BPS];
+  else if (rep === "Stale") [j, m] = [LEV_J_DUMP_STALE_OLD_BPS, LEV_M_IND_STALE_OLD_BPS];
+  return { jDumpBps: j, mIndBps: m, lCapX100: U16_MAX3, nMultBps: 1e4 };
+}
+function levMergeOverlayV22(band, g, nowSlot) {
+  const rep = levReportAgeV22(g.repSlot, nowSlot);
+  const o = levDefaultOverlayV22(band, rep);
+  if (rep === "Fresh" || rep === "Held") {
+    o.jDumpBps = max16(o.jDumpBps, capBps(g.repJDumpBps));
+    o.mIndBps = max16(o.mIndBps, capBps(g.repMIndBps));
+    if (g.repLCapX100 !== 0) o.lCapX100 = min16(o.lCapX100, g.repLCapX100);
+    o.nMultBps = min16(o.nMultBps, capBps(g.repNMultBps));
+  }
+  if (g.holderDumpSlot !== 0n && nowSlot >= g.holderDumpSlot && nowSlot - g.holderDumpSlot <= LEV_HOLDER_PROOF_SLOTS) {
+    const d = capBps(g.holderDumpBps);
+    o.jDumpBps = max16(o.jDumpBps, d);
+    o.mIndBps = max16(o.mIndBps, d);
+  }
+  if (g.mintAuthLive || g.freezeAuthLive) {
+    o.lCapX100 = 1;
+    o.nMultBps = 0;
+  }
+  return o;
+}
+var levLFloorX100V22 = (lEngX100) => min16(LEV_L_FLOOR_X100, lEngX100);
+function levLTraderX100V22(mmrBps, sigma1hBps, jumpBps) {
+  const s = sigma1hBps ?? 0n;
+  const zs = (s * LEV_Z_NUM + LEV_Z_DEN - 1n) / LEV_Z_DEN;
+  const j = BigInt(jumpBps);
+  const cushion = isqrtCeil(zs * zs + j * j);
+  const den = mmrBps + LEV_PHI_OPEN_BPS + cushion;
+  if (den === 0n) return U16_MAX3;
+  const l = 1000000n / den;
+  return l > BigInt(U16_MAX3) ? U16_MAX3 : Number(l);
+}
+function levLOverlayX100V22(existingX100, lTraderX100, lCapX100, mOracle, frozenX100, lEngX100) {
+  let t = min16(lTraderX100, lCapX100);
+  if (mOracle) t = Math.floor(t * LEV_M_ORACLE_NUM / LEV_M_ORACLE_DEN);
+  if (frozenX100 !== null) t = min16(t, frozenX100);
+  t = max16(levLFloorX100V22(lEngX100), t);
+  return min16(existingX100, t);
+}
+function levNOverlayQV22(nCapQ_, band, nMultBps, nFloorQ, frozenQ) {
+  if (band === "NoOpen") return 0n;
+  const m = BigInt(capBps(nMultBps));
+  const scaled = nCapQ_ / BPS4 * m + nCapQ_ % BPS4 * m / BPS4;
+  const floor = nFloorQ < nCapQ_ ? nFloorQ : nCapQ_;
+  let v = scaled > floor ? scaled : floor;
+  if (frozenQ !== null && frozenQ < v) v = frozenQ;
+  return v > nCapQ_ ? nCapQ_ : v;
+}
+var levBetaBpsV22 = (band) => levAgeBandIsYoungV22(band) ? LEV_BETA_YOUNG_BPS : LEV_BETA_BPS;
+var levMTailBpsV22 = (band) => AGE_ORDER[band] < AGE_ORDER.Mature ? 1e4 : 5e3;
+function levMDumpBpsV22(band, mIndBps) {
+  const rug = levAgeBandIsYoungV22(band) ? 1e4 : capBps(mIndBps);
+  return max16(max16(rug, 100), levMTailBpsV22(band));
+}
+function levShortUsersCapNotionalV22(longUsersNotional, cM, mmrBps, band, mIndBps) {
+  const m = BigInt(levMDumpBpsV22(band, mIndBps));
+  const offBps = minB(BPS4, mmrBps * BPS4 / m);
+  return longUsersNotional * offBps / BPS4 + cM * BigInt(levBetaBpsV22(band)) / m;
+}
+function levBurstDecayV22(peak, elapsed) {
+  const halvings = elapsed / LEV_BURST_HALF_LIFE_SLOTS;
+  if (halvings >= 32n) return 0;
+  const p = BigInt(peak >>> Number(halvings));
+  const rem = elapsed % LEV_BURST_HALF_LIFE_SLOTS;
+  const cut = p * rem / (2n * LEV_BURST_HALF_LIFE_SLOTS);
+  return Number(p - cut);
+}
+function levBurstUpdateV22(peak, peakSlot, varNow, nowSlot) {
+  const eff = levBurstDecayV22(peak, nowSlot > peakSlot ? nowSlot - peakSlot : 0n);
+  return varNow >= eff ? [varNow, nowSlot] : [peak, peakSlot];
+}
+function levBurstVarEffV22(peak, peakSlot, varNow, nowSlot) {
+  const floor = Math.floor(levBurstDecayV22(peak, nowSlot > peakSlot ? nowSlot - peakSlot : 0n) / LEV_BURST_VAR_FLOOR_DIV);
+  return floor > varNow ? floor : varNow;
+}
+var levPriceBandOfV22 = (g) => ({
+  lastPx: g.pbLastPx,
+  lastSlot: g.pbLastSlot,
+  refPx: g.pbRefPx,
+  refSlot: g.pbRefSlot,
+  freezeUntil: g.pbFreezeUntil,
+  oracleUntil: g.pbOracleUntil
+});
+function levMoveBpsV22(a, b) {
+  if (b === 0n) return (1n << 64n) - 1n;
+  const d = absB(a - b);
+  return (d * BPS4 + b - 1n) / b;
+}
+function levObservePriceV22(b, px, nowSlot, sigma1hBps) {
+  const n = { ...b };
+  if (px === 0n) return { band: n, trip: "None" };
+  if (n.lastPx === 0n || n.refPx === 0n) {
+    return { band: { ...n, lastPx: px, lastSlot: nowSlot, refPx: px, refSlot: nowSlot }, trip: "None" };
+  }
+  const sample = levMoveBpsV22(px, n.lastPx);
+  const hour = levMoveBpsV22(px, n.refPx);
+  let trip = "None";
+  if (sample > LEV_BREAKER_SAMPLE_BPS || hour > LEV_BREAKER_HOUR_BPS) trip = "Breaker";
+  else if (sigma1hBps !== null && sigma1hBps > 0n && hour > sigma1hBps * LEV_ABNORMAL_SIGMA_MULT) trip = "Freeze";
+  if (trip !== "None") n.freezeUntil = maxB(n.freezeUntil, nowSlot + LEV_FREEZE_SLOTS);
+  if (trip === "Breaker") n.oracleUntil = maxB(n.oracleUntil, nowSlot + LEV_M_ORACLE_SLOTS);
+  n.lastPx = px;
+  n.lastSlot = nowSlot;
+  if ((nowSlot > n.refSlot ? nowSlot - n.refSlot : 0n) >= LEV_SLOTS_PER_HOUR) {
+    n.refPx = px;
+    n.refSlot = nowSlot;
+  }
+  return { band: n, trip };
+}
+var levFrozenV22 = (b, nowSlot) => nowSlot < b.freezeUntil;
+var levMOracleOnV22 = (b, nowSlot) => nowSlot < b.oracleUntil;
+var NONE = {
+  applies: false,
+  blocked: null,
+  opensAtSlot: null,
+  band: null,
+  roundLive: false,
+  overlay: null,
+  lEffX100: U16_MAX3,
+  imrBps: null,
+  nEffQ: 0n,
+  lpAbsMaxQ: 0n,
+  frozen: false,
+  mOracle: false
+};
+function levGuardOpenLimitsV22(i) {
+  if (!i.guardRequired) return NONE;
+  const g = i.guard;
+  if (!g) return { ...NONE, applies: true, blocked: "guard-missing", lEffX100: 0 };
+  const now = i.nowSlot;
+  const band = levAgeBandV22(g.t0Slot, now);
+  const roundLive = levW1RoundLiveV22(g, now);
+  const lpAbs = absB(i.lpEffQ);
+  if (band === "NoOpen") {
+    return { ...NONE, applies: true, blocked: "age-under-6h", opensAtSlot: g.t0Slot + LEV_AGE_NO_OPEN_SLOTS_V22, band, roundLive, lEffX100: 0, lpAbsMaxQ: lpAbs };
+  }
+  const sigma1h = i.volHasData ? sigmaHBps(i.volVarX100, LEV_SLOTS_PER_HOUR) : null;
+  const before = levPriceBandOfV22(g);
+  const { band: pb, trip } = levObservePriceV22(before, i.targetPriceE6, now, sigma1h);
+  const tripNow = trip !== "None" && !levFrozenV22(before, now);
+  const frozenL = tripNow ? i.lNowX100 : g.frozenLX100;
+  const frozenN = tripNow ? i.nCapQ : g.frozenNQ;
+  const frozen = levFrozenV22(pb, now);
+  const mOracle = levMOracleOnV22(pb, now);
+  const ov = levMergeOverlayV22(band, g, now);
+  let sigmaLev = null;
+  if (i.volHasData) {
+    const [p, t] = levBurstUpdateV22(g.burstVarPeakX100, g.burstPeakSlot, i.volVarX100, now);
+    sigmaLev = sigmaHBps(levBurstVarEffV22(p, t, i.volVarX100, now), LEV_SLOTS_PER_HOUR);
+  }
+  const lTr = levLTraderX100V22(i.mmrBps, sigmaLev, ov.jDumpBps);
+  const lEff = levLOverlayX100V22(i.lNowX100, lTr, ov.lCapX100, mOracle, frozen ? frozenL : null, i.lTierX100);
+  const imr = ceilingImrBps(i.engineImrBps, lEff);
+  const unit = wholeTokenAtoms(i.collateralDecimals);
+  const floorQ = nCapQ(LEV_N_FLOOR_USD * unit, 1e4, i.priceE6, i.posScale ?? GROWTH_POS_SCALE) ?? 0n;
+  const nEff = levNOverlayQV22(i.nCapQ, band, ov.nMultBps, floorQ, frozen ? frozenN : null);
+  return {
+    applies: true,
+    blocked: null,
+    opensAtSlot: null,
+    band,
+    roundLive,
+    overlay: ov,
+    lEffX100: lEff,
+    imrBps: imr,
+    nEffQ: nEff,
+    lpAbsMaxQ: roundLive ? lpAbs : maxB(lpAbs, nEff),
+    frozen,
+    mOracle
+  };
+}
+var notional = (q, priceE6, posScale) => q * priceE6 / posScale;
+function levGuardLeverageOkV22(lim, takerEquity, takerAfterAbsQ, priceE6, posScale = GROWTH_POS_SCALE) {
+  if (!lim.applies) return true;
+  if (lim.imrBps === null || lim.imrBps > BPS4) return false;
+  const req = (notional(takerAfterAbsQ, priceE6, posScale) * lim.imrBps + BPS4 - 1n) / BPS4;
+  return takerEquity >= req;
+}
+function levGuardMaxPositionQV22(lim, takerEquity, priceE6, posScale = GROWTH_POS_SCALE) {
+  if (!lim.applies) return null;
+  if (lim.blocked !== null || lim.imrBps === null || lim.imrBps > BPS4 || priceE6 <= 0n || takerEquity < 0n) return 0n;
+  let lo = 0n;
+  let hi = (takerEquity + 1n) * BPS4 * posScale / (lim.imrBps === 0n ? 1n : lim.imrBps) / priceE6 + posScale + 1n;
+  while (lo < hi) {
+    const mid = (lo + hi + 1n) / 2n;
+    if (levGuardLeverageOkV22(lim, takerEquity, mid, priceE6, posScale)) lo = mid;
+    else hi = mid - 1n;
+  }
+  return lo;
+}
+function usersAfter(i, takerEffQ, signedFill) {
+  const pos = (x) => x > 0n ? x : 0n;
+  const neg = (x) => x < 0n ? -x : 0n;
+  const after = takerEffQ + signedFill;
+  const long0 = usersSideOiQ(i.oiEffLongQ, i.lpEffQ, true);
+  const short0 = usersSideOiQ(i.oiEffShortQ, i.lpEffQ, false);
+  const l = long0 - pos(takerEffQ) + pos(after);
+  const s = short0 - neg(takerEffQ) + neg(after);
+  return { long: l > 0n ? l : 0n, short: s > 0n ? s : 0n };
+}
+function levGuardShortCapOkV22(lim, i, takerEffQ, signedFill) {
+  if (!lim.applies || lim.band === null || lim.overlay === null) return true;
+  if (takerEffQ + signedFill >= 0n) return true;
+  const ps = i.posScale ?? GROWTH_POS_SCALE;
+  const u = usersAfter(i, takerEffQ, signedFill);
+  const cap = levShortUsersCapNotionalV22(notional(u.long, i.priceE6, ps), i.cM, i.mmrBps, lim.band, lim.overlay.mIndBps);
+  return notional(u.short, i.priceE6, ps) <= cap;
+}
+function levGuardMaxFillQV22(lim, i, direction, takerEffQ) {
+  if (!lim.applies) return null;
+  if (lim.blocked !== null) return 0n;
+  const b = i.lpEffQ;
+  let size = direction === "long" ? b + lim.lpAbsMaxQ : lim.lpAbsMaxQ - b;
+  if (size < 0n) size = 0n;
+  if (direction === "long") return size;
+  if (levGuardShortCapOkV22(lim, i, takerEffQ, -size)) return size;
+  let lo = 0n;
+  let hi = size;
+  while (lo < hi) {
+    const mid = (lo + hi + 1n) / 2n;
+    if (levGuardShortCapOkV22(lim, i, takerEffQ, -mid)) lo = mid;
+    else hi = mid - 1n;
+  }
+  return lo;
+}
+function levGuardRefusalV22(lim, i, takerEffQ, signedFill, takerEquityAfter) {
+  if (!lim.applies) return null;
+  const after = takerEffQ + signedFill;
+  const riskUp = after !== 0n && (takerEffQ === 0n || takerEffQ > 0n !== after > 0n || absB(after) > absB(takerEffQ));
+  if (!riskUp) return null;
+  if (lim.blocked === "guard-missing") return "guard_required";
+  if (lim.blocked === "age-under-6h") return "age_under_6h";
+  const lpBefore = absB(i.lpEffQ);
+  const lpAfter = absB(i.lpEffQ - signedFill);
+  if (lim.roundLive && lpAfter > lpBefore) return "lp_stop_round";
+  if (!levGuardLeverageOkV22(lim, takerEquityAfter, absB(after), i.priceE6, i.posScale ?? GROWTH_POS_SCALE)) return "leverage";
+  if (lpAfter > lpBefore && lpAfter > lim.nEffQ) return "size";
+  if (!levGuardShortCapOkV22(lim, i, takerEffQ, signedFill)) return "short_dump_cap";
+  return null;
+}
+
 // src/solana/pda.ts
 import { PublicKey as PublicKey18 } from "@solana/web3.js";
 var textEncoder = new TextEncoder();
@@ -15355,7 +15674,7 @@ function buildVaultLpRefreshCrankIxP3(a) {
 var BOUND_SCALE_P3 = 1000000000000n;
 var LP_VAULT_MINIMUM_LIQUIDITY_P3 = 1000n;
 var sat2 = (a, b) => a > b ? a - b : 0n;
-var minB = (a, b) => a < b ? a : b;
+var minB2 = (a, b) => a < b ? a : b;
 function vaultPotHeldAtomsP3(bucket) {
   return (bucket.freshUnlienedBackingNum + bucket.validLienedBackingNum) / BOUND_SCALE_P3;
 }
@@ -15365,7 +15684,7 @@ function vaultPhysicalIdleBackingAtomsP3(freshUnlienedBackingNums) {
 function boundVaultNavFlooredP3(own, sibling, feeShareBps, held) {
   if (!Number.isInteger(feeShareBps) || feeShareBps < 0 || feeShareBps > 1e4) throw new Error("feeShareBps must be 0..=10000");
   const earn = (p) => sat2(p.totalEarningsAtoms, p.totalEarningsWithdrawnAtoms) * BigInt(feeShareBps) / 10000n;
-  const availablePrincipal = minB(own.totalPrincipalAtoms, held.own) + minB(sibling.totalPrincipalAtoms, held.sibling);
+  const availablePrincipal = minB2(own.totalPrincipalAtoms, held.own) + minB2(sibling.totalPrincipalAtoms, held.sibling);
   const lpEarnings = earn(own) + earn(sibling);
   return { availablePrincipal, lpEarnings, nav: availablePrincipal + lpEarnings };
 }
@@ -15393,14 +15712,14 @@ function vaultLpSeniorPricingClaimP3(c, undrawn, juniorSurplus) {
   return c > loss ? c - loss : 0n;
 }
 function boundVaultSeniorValueP3(a) {
-  if (a.resolved) return minB(a.physicalIdleBacking, a.seniorClaim);
+  if (a.resolved) return minB2(a.physicalIdleBacking, a.seniorClaim);
   return liveExitSeniorValueP3(a.seniorClaim, a.nav, a.lpEquityWorse >= 0n ? a.lpValue : 0n, a.lpEquityWorse);
 }
 function liveExitSeniorValueP3(c, nav, lpValueAtEff, lpEquityWorse) {
-  if (lpEquityWorse >= 0n) return minB(nav + minB(lpValueAtEff, lpEquityWorse), c);
+  if (lpEquityWorse >= 0n) return minB2(nav + minB2(lpValueAtEff, lpEquityWorse), c);
   const d = -lpEquityWorse;
   const cP = vaultLpSeniorPricingClaimP3(c, d, nav > c ? nav - c : 0n);
-  return minB(nav > d ? nav - d : 0n, cP);
+  return minB2(nav > d ? nav - d : 0n, cP);
 }
 function boundVaultRedemptionAtomsP3(shares, totalShares, seniorValue) {
   if (totalShares === 0n || shares > totalShares) return null;
@@ -15413,7 +15732,7 @@ function boundVaultDepositQuoteP3(a) {
   if (a.seniorDrawOutstandingAtoms !== 0n) {
     const vBetter = navH + (a.lpEquityBetter > 0n ? a.lpEquityBetter : 0n);
     const above = vBetter > cEff ? vBetter - cEff : 0n;
-    cEff += minB(above, a.seniorDrawOutstandingAtoms);
+    cEff += minB2(above, a.seniorDrawOutstandingAtoms);
   }
   if (navH < cEff && navH + a.lpValue < cEff) return { ok: false, error: "VaultLpSeniorImpaired" };
   let shares;
@@ -17383,19 +17702,19 @@ function computePreTradeLiqPrice(oracleE6, margin, posSize, maintBps, feeBps, di
   }
   return computeLiqPrice(adjustedEntry, margin, signedPos, maintBps);
 }
-function computeTradingFee(notional, tradingFeeBps) {
-  return notional * tradingFeeBps / 10000n;
+function computeTradingFee(notional2, tradingFeeBps) {
+  return notional2 * tradingFeeBps / 10000n;
 }
-function computeDynamicFeeBps(notional, config) {
+function computeDynamicFeeBps(notional2, config) {
   if (config.tier2Threshold === 0n) return config.baseBps;
-  if (config.tier3Threshold > 0n && notional >= config.tier3Threshold) return config.tier3Bps;
-  if (notional >= config.tier2Threshold) return config.tier2Bps;
+  if (config.tier3Threshold > 0n && notional2 >= config.tier3Threshold) return config.tier3Bps;
+  if (notional2 >= config.tier2Threshold) return config.tier2Bps;
   return config.baseBps;
 }
-function computeDynamicTradingFee(notional, config) {
-  const feeBps = computeDynamicFeeBps(notional, config);
-  if (notional <= 0n || feeBps <= 0n) return 0n;
-  return (notional * feeBps + 9999n) / 10000n;
+function computeDynamicTradingFee(notional2, config) {
+  const feeBps = computeDynamicFeeBps(notional2, config);
+  if (notional2 <= 0n || feeBps <= 0n) return 0n;
+  return (notional2 * feeBps + 9999n) / 10000n;
 }
 function computeFeeSplit(totalFee, config) {
   if (config.lpBps === 0n && config.protocolBps === 0n && config.creatorBps === 0n) {
@@ -17437,8 +17756,8 @@ function computeFundingRateAnnualized(fundingRateBpsPerSlot) {
   const slotsPerYear = 2.5 * 60 * 60 * 24 * 365;
   return bpsPerSlot * slotsPerYear / 100;
 }
-function computeRequiredMargin(notional, initialMarginBps) {
-  return notional * initialMarginBps / 10000n;
+function computeRequiredMargin(notional2, initialMarginBps) {
+  return notional2 * initialMarginBps / 10000n;
 }
 function computeMaxLeverage(initialMarginBps) {
   if (initialMarginBps <= 0n) {
@@ -17488,7 +17807,7 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 
 // src/validation.ts
 import { PublicKey as PublicKey34 } from "@solana/web3.js";
-var U16_MAX3 = 65535;
+var U16_MAX4 = 65535;
 var U64_MAX6 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
 var I64_MAX = BigInt("9223372036854775807");
@@ -17539,10 +17858,10 @@ function validatePublicKey(value, field) {
 function validateIndex(value, field) {
   const t = requireDecimalUIntString(value, field);
   const bi = BigInt(t);
-  if (bi > BigInt(U16_MAX3)) {
+  if (bi > BigInt(U16_MAX4)) {
     throw new ValidationError(
       field,
-      `must be <= ${U16_MAX3} (u16 max), got ${t}`
+      `must be <= ${U16_MAX4} (u16 max), got ${t}`
     );
   }
   return Number(bi);
@@ -17640,10 +17959,10 @@ function validateU64(value, field) {
 function validateU16(value, field) {
   const t = requireDecimalUIntString(value, field);
   const bi = BigInt(t);
-  if (bi > BigInt(U16_MAX3)) {
+  if (bi > BigInt(U16_MAX4)) {
     throw new ValidationError(
       field,
-      `must be <= ${U16_MAX3} (u16 max), got ${t}`
+      `must be <= ${U16_MAX4} (u16 max), got ${t}`
     );
   }
   return Number(bi);
@@ -18226,6 +18545,7 @@ export {
   GROWTH_DEPTH_MULT,
   GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS,
   GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS,
+  GROWTH_FLAG_LEV_GUARD_V22,
   GROWTH_FLAG_R3_LAYOUT,
   GROWTH_FLAG_VOL_DATA,
   GROWTH_LEVERAGE_X100_ONE,
@@ -18269,21 +18589,34 @@ export {
   IX_TAG_P2B_EARN,
   IX_TAG_P3,
   IX_TAG_V22,
+  KAPPA_CAP_DEN,
+  KAPPA_CAP_FALLBACK_FEE_BPS,
+  KAPPA_CAP_NUM,
   KAPPA_LAG_TOP_MUL,
   KAPPA_TABLE_BPS,
   KIND_BACKING_DOMAIN_LEDGER_P2B,
   KIND_VAULT_LP_EXT_P2B,
+  LAMBDA_CAP_PRE_W1_BPS,
   LAMBDA_DEPTH_TABLE_BPS,
+  LAMBDA_VOL_HORIZON_SLOTS,
   LAYOUTS_BY_VERSION,
   LAYOUT_V21,
   LAYOUT_V22,
   LAYOUT_V22_ROWS,
   LAYOUT_V22_STAGE_A,
   LAYOUT_V22_VARIANT_B,
+  LEV_ABNORMAL_SIGMA_MULT,
   LEV_AGE_DAY_SLOTS_V22,
   LEV_AGE_MONTH_SLOTS_V22,
   LEV_AGE_NO_OPEN_SLOTS_V22,
   LEV_AGE_WEEK_SLOTS_V22,
+  LEV_BETA_BPS,
+  LEV_BETA_YOUNG_BPS,
+  LEV_BREAKER_HOUR_BPS,
+  LEV_BREAKER_SAMPLE_BPS,
+  LEV_BURST_HALF_LIFE_SLOTS,
+  LEV_BURST_VAR_FLOOR_DIV,
+  LEV_FREEZE_SLOTS,
   LEV_GUARD_ACCOUNT_LEN_V22,
   LEV_GUARD_BODY_LEN_V22,
   LEV_GUARD_FIELD_OFF_V22,
@@ -18295,13 +18628,31 @@ export {
   LEV_GUARD_TOUCHED_CAP_V22,
   LEV_GUARD_TOUCHED_LEN_V22,
   LEV_GUARD_VERSION_V22,
+  LEV_HOLDER_PROOF_SLOTS,
+  LEV_J_DUMP_DEFAULT_DAY_BPS,
+  LEV_J_DUMP_DEFAULT_WEEK_BPS,
+  LEV_J_DUMP_STALE_OLD_BPS,
+  LEV_L_FLOOR_X100,
+  LEV_M_IND_DEFAULT_YOUNG_BPS,
+  LEV_M_IND_STALE_OLD_BPS,
+  LEV_M_ORACLE_DEN,
+  LEV_M_ORACLE_NUM,
+  LEV_M_ORACLE_SLOTS,
   LEV_NAV_ONE_V22,
+  LEV_N_FLOOR_USD,
+  LEV_PHI_OPEN_BPS,
   LEV_REPORT_BPS_MAX_V22,
   LEV_REPORT_FRESH_SLOTS_V22,
   LEV_REPORT_HELD_SLOTS_V22,
+  LEV_SLOTS_PER_DAY,
   LEV_SLOTS_PER_DAY_V22,
+  LEV_SLOTS_PER_HOUR,
   LEV_SLOTS_PER_HOUR_V22,
+  LEV_VOL_PROFILE_LIVE,
+  LEV_W1_LIVE,
   LEV_W1_ROUND_SLOTS_V22,
+  LEV_Z_DEN,
+  LEV_Z_NUM,
   LIGHTHOUSE_CONSTRAINT_ADDRESS,
   LIGHTHOUSE_ERROR_CODES,
   LIGHTHOUSE_PROGRAM_ID,
@@ -19208,20 +19559,48 @@ export {
   isValidChainlinkOracle,
   isqrtCeil,
   isqrtU128,
+  kappaCapBps,
   kappaDepth,
   kappaDepthBps,
+  kappaEffBps,
   knownWrapperVersions,
   lSignalWithVol,
   lTableX100,
   lVolX100,
   lambdaDepthBps,
   lambdaEffBps,
+  lambdaFallbackBps,
+  lambdaVolBps,
   layoutHasBandRentV22,
   levAgeBandIsYoungV22,
   levAgeBandV22,
+  levBetaBpsV22,
+  levBurstDecayV22,
+  levBurstUpdateV22,
+  levBurstVarEffV22,
+  levDefaultOverlayV22,
+  levFrozenV22,
+  levGuardLeverageOkV22,
+  levGuardMaxFillQV22,
+  levGuardMaxPositionQV22,
+  levGuardOpenLimitsV22,
+  levGuardRefusalV22,
+  levGuardShortCapOkV22,
   levKeyTagV22,
+  levLFloorX100V22,
+  levLOverlayX100V22,
+  levLTraderX100V22,
   levLpStopTriggeredV22,
+  levMDumpBpsV22,
+  levMOracleOnV22,
+  levMTailBpsV22,
+  levMergeOverlayV22,
+  levMoveBpsV22,
+  levNOverlayQV22,
+  levObservePriceV22,
+  levPriceBandOfV22,
   levReportAgeV22,
+  levShortUsersCapNotionalV22,
   levW1RoundLiveV22,
   leverageX100ForImrBps,
   liquidityNotionalE6,
@@ -19305,6 +19684,7 @@ export {
   rGapFloorBps,
   rankAdlPositions,
   ratchetCeilingX100,
+  rc23CapDials,
   readAssetPricesP3,
   readBandRentViewV22,
   readLastThrUpdateSlot,
