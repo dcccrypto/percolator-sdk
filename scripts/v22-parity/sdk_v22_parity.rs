@@ -185,11 +185,11 @@ fn main() {
     accts.push(format!("\"insuranceUnits\":{{\"hex\":\"{}\",\"programReads\":{}}}", hex(&a), state::read_insurance_units(&a).is_ok()));
     let mut bad = a.clone(); bad[16 + 32] = 31; // total != stake + creator
     accts.push(format!("\"insuranceUnitsBadTotal\":{{\"hex\":\"{}\",\"programReads\":{}}}", hex(&bad), state::read_insurance_units(&bad).is_ok()));
-    let mut al: state::G9FeedAllowlistV22 = bytemuck::Zeroable::zeroed();
-    al.count = 2; al.version = c::G9_FEED_ALLOWLIST_VERSION; al.bump = 254; al.keys[0] = [1; 32]; al.keys[1] = [2; 32];
-    let mut a = vec![0u8; state::g9_feed_allowlist_account_len()]; state::write_g9_feed_allowlist(&mut a, &al).unwrap();
+    // rc23: write_g9_feed_allowlist is gone (wave D); the program writes through open_g9_feed_allowlist_mut.
+    let mut a = vec![0u8; state::g9_feed_allowlist_account_len()];
+    { let al = state::open_g9_feed_allowlist_mut(&mut a, 254).unwrap(); al.count = 2; al.keys[0] = [1; 32]; al.keys[1] = [2; 32]; al.owners[0] = [9; 32]; al.owners[1] = [8; 32]; }
     accts.push(format!("\"g9Allowlist\":{{\"hex\":\"{}\",\"programReads\":{}}}", hex(&a), state::read_g9_feed_allowlist(&a).is_ok()));
-    let mut bad = a.clone(); bad[16 + 8 + 32 * 5] = 1; // unlisted slot non-zero
+    let mut bad = a.clone(); bad[16 + 16 + 32 * 5] = 1; // unlisted slot non-zero (header 16 + record prefix 16 + keys[5])
     accts.push(format!("\"g9AllowlistUnlistedSet\":{{\"hex\":\"{}\",\"programReads\":{}}}", hex(&bad), state::read_g9_feed_allowlist(&bad).is_ok()));
     // redemption legacy and v2.2
     let rd = state::LpRedemptionV16 { registry: [3; 32], redeemer: [4; 32], shares: 55, request_slot: 66, version: c::LP_VAULT_VERSION, bump: 5, _padding: [0; 6] };

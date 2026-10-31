@@ -8087,7 +8087,7 @@ function assertBatchLegsV22(n) {
   if (!Number.isInteger(n) || n < 1 || n > BATCH_MAX_LEGS_V22) throw new Error(`a v2.2 batch carries 1..=${BATCH_MAX_LEGS_V22} legs, got ${n}`);
 }
 var SLOTS_PER_YEAR_V22 = 78840000n;
-var RESCUE_NAV_FLOOR_BPS_V22 = 500;
+var RESCUE_NAV_FLOOR_BPS_V22 = 5e3;
 var RESCUE_MIN_ATOMS_V22 = 100000000n;
 var RESCUE_MAX_MULT_V22 = 10n;
 var INS_UNITS_GENESIS_MIN_ATOMS_V22 = 1000000n;
