@@ -292,7 +292,7 @@ export declare function buildInitBondTrancheIxV22(m: MarketV22, authority: Publi
  * @param vaultToken  Market collateral vault token account.
  * @param amount      Atoms.
  * @param minShares   Slippage floor.
- * @returns Instruction (13 accounts).
+ * @returns Instruction (15 accounts: 13 + the #641 NAV flow tail `[13]` vault ext w, `[14]` lev guard w).
  * @example
  * ```ts
  * const ix = buildBondDepositIxV22(m, user, userAta, vaultAta, 1_000_000n, quote.minShares!);
@@ -322,7 +322,7 @@ export declare function buildBondRequestWithdrawIxV22(m: Pick<MarketV22, "progra
  * @param vaultToken    Market collateral vault token account.
  * @param minOut        Slippage floor.
  * @param sourceDomain  Pot for a Resolved exit (ignored when Live).
- * @returns Instruction (13 accounts).
+ * @returns Instruction (15 accounts: 13 + the #641 NAV flow tail `[13]` vault ext w, `[14]` lev guard w; Resolved does not read them).
  * @example
  * ```ts
  * const ix = buildBondExecuteWithdrawIxV22(m, holder, holderAta, vaultAta, quote.minOut!, 0);
@@ -362,7 +362,8 @@ export declare function withInsuranceUnitsTailV22(base: TransactionInstruction, 
 /**
  * InsuranceBackstopDraw (tag 111, G9), permissionless. `tail` carries what the program searches for in `[7..]`: the units
  * account is appended automatically; pass any Hybrid-leg feed accounts and the allowlist for modes 0 and 2 on a mainnet
- * build via `extraTail`.
+ * build via `extraTail`. Modes 0 / 1 / 3 also get the #641 NAV flow tail (vault ext w, lev guard w, right after the
+ * units account; REQUIRED on a growth market); mode 2 moves nothing and takes none.
  *
  * @param m           Market context (`lpPortfolio` required).
  * @param cranker     Signer.
@@ -555,7 +556,7 @@ export declare function buildCreatePortfolioAccountIxV22(payer: PublicKey, portf
  * @returns `PORTFOLIO_ACCOUNT_LEN`.
  * @example
  * ```ts
- * portfolioAccountLenV22(); // 10603 on variant B
+ * portfolioAccountLenV22(); // 10607 on variant B (engine #299 +4 B loss_provenance)
  * ```
  */
 export declare function portfolioAccountLenV22(layout?: LayoutTable): number;
@@ -563,23 +564,28 @@ export declare function portfolioAccountLenV22(layout?: LayoutTable): number;
  * EVERY account tail the v2.2 programs read on an existing tag, in one table (index = position in the account list).
  * `bond` columns apply once the registry's bond flag is set (REQUIRED then, fail closed); `ext` once the vault-LP ext exists.
  *
- * | tag | base | bound-vault tail | ext | bond tranche | units |
- * |---|---|---|---|---|---|
+ * | tag | base | bound-vault tail | ext | bond tranche | units | NAV flow tail |
+ * |---|---|---|---|---|---|---|
  * | 75 DepositToLpVault | 11 | `[11]` vault_lp_state w, `[12]` vault LP w | - | - | - |
  * | 77 ExecuteRedemption | 13 | bound: `[13]` state w, `[14]` LP w; NON-bound: `[13..13+n]` refresh w, then oracles | - | - | - |
  * | 78 LpVaultCrankFees | 6 | `[6]` vault_lp_state w | `[7]` ext w, `[8]` vault LP **w** | `[9]` tranche w | - |
- * | 97 WithdrawJuniorTranche | 11 | - | `[11]` ext w | `[12]` tranche | - |
- * | 98 VaultLpRecall | 8 | - | `[8]` ext w | - | - |
+ * | 96 DepositJuniorTranche | 7 | - | `[8]` ext w | - | - | (`[7]` lev guard w) |
+ * | 97 WithdrawJuniorTranche | 11 | - | `[11]` ext w | `[12]` tranche (else pad) | - | (`[13]` lev guard w) |
+ * | 98 VaultLpRecall | 8 | - | `[8]` ext w | - | - | (`[9]` lev guard w) |
+ * | 102 VaultLpReleaseSurplus (Live) | 7 | - | `[12]` ext w | - | - | (`[7..11]` pads, `[13]` lev guard w) |
  * | 102 VaultLpReleaseSurplus (Resolved) | 7 + 4 | - | - | `[11]` tranche | - |
- * | 103 VaultLpAllocate | 9 | - | `[7]` ext (base) | `[9]` tranche | - |
+ * | 103 VaultLpAllocate | 9 | - | `[7]` ext (base) | `[9]` tranche (else pad) | - | (`[10]` lev guard w) |
+ * | 108 BondDeposit / 110 BondExecuteWithdraw | 13 | - | `[13]` ext w | base `[7]` | - | (`[14]` lev guard w) |
  * | 9, 56 top-ups | 5 (+ optional ledger `[5]`) | - | - | - | units LAST |
  * | 57, 41 withdraws | 6 | - | - | - | units LAST |
  * | 101 VaultLpSettleResolved | 12 | - | - | - | units LAST |
- * | 111 InsuranceBackstopDraw | 7 | - | - | - | units in `[7..]` (+ G9 legs / allowlist) |
+ * | 111 InsuranceBackstopDraw | 7 | - | by key in `[7..]` (modes 0/1/3) | - | units in `[7..]` (+ G9 legs / allowlist) | (lev guard w by key, modes 0/1/3) |
  * | 112 RescueDeposit | 11 | `[11]` state w, `[12]` LP w | - | - | - |
  *
- * The same numbers are enforced by {@link withBondTailV22}, {@link withInsuranceUnitsTailV22} and
- * `withBoundVaultLpTailP3`; `test/v22-builders.test.ts` pins the table.
+ * The last column is the #636 / #636b NAV flow tail (prog #640 + #641), REQUIRED on a growth market; see
+ * `NAV_FLOW_TAILS_V22` / `withNavFlowTailV22` (`./v22-nav-flow.ts`), which every v2.2 flow builder applies.
+ * The same numbers are enforced by {@link withBondTailV22}, {@link withInsuranceUnitsTailV22}, `withNavFlowTailV22` and
+ * `withBoundVaultLpTailP3`; `test/v22-builders.test.ts` and `test/v22-nav-flow.test.ts` pin the table.
  */
 export declare const ACCOUNT_TAILS_V22: Readonly<{
     readonly 75: {
@@ -600,24 +606,44 @@ export declare const ACCOUNT_TAILS_V22: Readonly<{
         readonly boundLp: 8;
         readonly bondTranche: 9;
     };
+    readonly 96: {
+        readonly base: 7;
+        readonly levGuard: 7;
+        readonly ext: 8;
+    };
     readonly 97: {
         readonly base: 11;
         readonly ext: 11;
         readonly bondTranche: 12;
+        readonly levGuard: 13;
     };
     readonly 98: {
         readonly base: 8;
         readonly ext: 8;
+        readonly levGuard: 9;
     };
     readonly 102: {
         readonly base: 7;
         readonly resolvedBase: 11;
         readonly bondTranche: 11;
+        readonly liveExt: 12;
+        readonly levGuard: 13;
     };
     readonly 103: {
         readonly base: 9;
         readonly ext: 7;
         readonly bondTranche: 9;
+        readonly levGuard: 10;
+    };
+    readonly 108: {
+        readonly base: 13;
+        readonly ext: 13;
+        readonly levGuard: 14;
+    };
+    readonly 110: {
+        readonly base: 13;
+        readonly ext: 13;
+        readonly levGuard: 14;
     };
     readonly 112: {
         readonly base: 11;
@@ -651,8 +677,9 @@ export declare function buildLpVaultCrankFeesIxBoundV22(m: MarketV22, cranker: P
     bond?: boolean;
 }): TransactionInstruction;
 /**
- * WithdrawJuniorTranche (tag 97), fully assembled: 11 base accounts, `[11]` ext when it exists, and on a bond market `[12]` the
- * bond tranche (the junior can never withdraw bond value).
+ * WithdrawJuniorTranche (tag 97), fully assembled: 11 base accounts, `[11]` ext (always since #640: the NAV sample reads
+ * it at its PDA), `[12]` the bond tranche on a bond market (the junior can never withdraw bond value) else a pad, `[13]` the
+ * lev guard (w; REQUIRED on a growth market). 14 accounts.
  *
  * @param m            Market context (`lpPortfolio` required; `vaultLpExt` once the ext exists, required with `bond`).
  * @param juniorOwner  Signer.

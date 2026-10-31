@@ -116,6 +116,18 @@ describe("portfolio guard + per-row geometry", () => {
     expect(code(() => resolvePortfolioLayout(stampPortfolio(new Uint8Array(LAYOUT_V22.portfolio.accountLen + 1), 19), { parser: "t", strictLength: true }))).toBe("BAD_LENGTH");
     expect(code(() => parsePortfolioV17(stampPortfolio(new Uint8Array(LAYOUT_V22.portfolio.accountLen), 20)))).toBe("UNKNOWN_VERSION");
   });
+  it("engine #299: a VERSION-19 portfolio at discriminator 19 (pre-#299, 10,603 B) is refused; disc 20 at 10,607 B is the layout", () => {
+    expect(LAYOUT_V22.engineDiscriminator).toBe(20);
+    expect(LAYOUT_V22_ROWS.stageA.engineDiscriminator).toBe(19);
+    const old = stampHeader(new Uint8Array(10_603), 2, 19, 19);
+    expect(code(() => parsePortfolioV17(old))).toBe("DISCRIMINATOR_MISMATCH");
+    expect(code(() => resolvePortfolioLayout(stampHeader(new Uint8Array(10_603), 2, 19, 20), { parser: "t", strictLength: true }))).toBe("BAD_LENGTH");
+    const now = stampHeader(new Uint8Array(10_607), 2, 19, 20);
+    expect(resolvePortfolioLayout(now, { parser: "t", strictLength: true }).portfolio.accountLen).toBe(10_607);
+    // the wrapper trailer moved +4 with the engine tail; the resolved-payout receipt did not move
+    expect(LAYOUT_V22.portfolio.matcherConfigOff).toBe(10_479);
+    expect(LAYOUT_V22.portfolio.resolvedPayoutReceiptOff).toBe(10_409);
+  });
   it("memcmp filter is VERSION-keyed", () => {
     const f = portfolioFilterForLayout(LAYOUT_V22);
     expect(f.dataSize).toBe(LAYOUT_V22.portfolio.accountLen);
@@ -127,11 +139,11 @@ describe("portfolio guard + per-row geometry", () => {
 describe("portfolio createAccount at EXACTLY PORTFOLIO_ACCOUNT_LEN (the program cannot realloc past 10,240 B)", () => {
   const pk = () => Keypair.generate().publicKey;
   it("is pinned per layout row", () => {
-    expect(LAYOUT_V22_ROWS.variantB.portfolio.accountLen).toBe(10_603);
+    expect(LAYOUT_V22_ROWS.variantB.portfolio.accountLen).toBe(10_607);
     expect(LAYOUT_V22_ROWS.stageA.portfolio.accountLen).toBe(10_091);
     expect(LAYOUT_V21.portfolio.accountLen).toBe(9_563);
-    expect(portfolioAccountLenV22()).toBe(10_603);
-    for (const [L, want] of [[LAYOUT_V22_ROWS.variantB, 10_603], [LAYOUT_V22_ROWS.stageA, 10_091]] as const) {
+    expect(portfolioAccountLenV22()).toBe(10_607);
+    for (const [L, want] of [[LAYOUT_V22_ROWS.variantB, 10_607], [LAYOUT_V22_ROWS.stageA, 10_091]] as const) {
       const ix = buildCreatePortfolioAccountIxV22(pk(), pk(), 1, pk(), L);
       expect(ix.programId.equals(SystemProgram.programId)).toBe(true);
       const dec = SystemInstruction.decodeCreateAccount(ix);
@@ -141,7 +153,8 @@ describe("portfolio createAccount at EXACTLY PORTFOLIO_ACCOUNT_LEN (the program 
   it("NEGATIVE CONTROL: the stage-A length is wrong for the default (variant B) row", () => {
     const ix = buildCreatePortfolioAccountIxV22(pk(), pk(), 1, pk());
     expect(SystemInstruction.decodeCreateAccount(ix).space).not.toBe(10_091);
-    expect(SystemInstruction.decodeCreateAccount(ix).space).toBeLessThan(0 + 10_604);
+    expect(SystemInstruction.decodeCreateAccount(ix).space).not.toBe(10_603); // pre-#299 length: the program refuses it
+    expect(SystemInstruction.decodeCreateAccount(ix).space).toBeLessThan(0 + 10_608);
   });
 });
 
@@ -150,7 +163,8 @@ describe("layout-v22.json from the combination (when present)", () => {
   it.skipIf(!existsSync(path))("every number in the file matches the default row", () => {
     const j = JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
     const flat = JSON.stringify(j);
-    for (const n of [LAYOUT_V22.assetSlotStride, LAYOUT_V22.portfolio.accountLen, LAYOUT_V22.portfolio.legStride, LAYOUT_V22.marketGroupLen]) expect(flat).toContain(String(n));
+    // The 2026-10-08 artifact predates engine #299 (+4 B loss_provenance on every portfolio): compare its portfolio length -4.
+    for (const n of [LAYOUT_V22.assetSlotStride, LAYOUT_V22.portfolio.accountLen - 4, LAYOUT_V22.portfolio.legStride, LAYOUT_V22.marketGroupLen]) expect(flat).toContain(String(n));
   });
   it("ACCOUNT_KIND carries the new PDA kinds", () => {
     expect([ACCOUNT_KIND.BondTranche, ACCOUNT_KIND.BondPosition, ACCOUNT_KIND.InsuranceUnits, ACCOUNT_KIND.G9FeedAllowlist]).toEqual([11, 12, 13, 15]);

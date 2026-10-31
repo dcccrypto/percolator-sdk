@@ -18,6 +18,7 @@ import {
   ALLOC_BUFFER_DEFAULT_BPS_P2B, ALLOC_BUFFER_MIN_BPS_P2B, ALLOC_MIN_JUNIOR_BPS_P2B, BOUND_SCALE_P2B, IX_TAG_P2B_EARN, KIND_VAULT_LP_EXT_P2B,
   LP_VAULT_REGISTRY_EXT_FLAG_OFF_P2B, P2B_SENIOR_FLOOR_RECORD_OFF, P2B_SENIOR_FLOOR_SLOT_OFF, U128_MAX_P2B, VAULT_LP_EXT_ACCOUNT_LEN_P2B,
   VAULT_LP_EXT_BODY_LEN_P2B, VAULT_LP_EXT_FIELD_OFF_P2B, VAULT_LP_EXT_TAIL_INDEX_P2B, VAULT_LP_EXT_VERSION_P2B,
+  VAULT_LP_EXT_OTHER_FLOW_OFF_P2B, VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B,
   a4CapacityLockOkP2b, allocJuniorOkP2b, allocWrittenDownP2b, assertVaultLpDialsP2b, creatorFeeVestedP2b, cushionLockedP2b, cushionSplitP2b,
   decodeSeniorFloorRecordP2b, encodeSetVaultLpRiskV19P2b, encodeVaultLpAllocateP2b, entryVsExitP2b, insuranceCoverNumP2b,
   liveBoundPrincipalPortionP2b, lpAtomsForRedemptionP2b, lpSharesForDepositP2b, nonboundPotAvailableE3P2b, nonboundPotEntryAvailableP2b,
@@ -274,12 +275,28 @@ describe("PDA and VaultLpExtV19 decoder", () => {
     expect(() => decodeVaultLpExtV19(magic)).toThrow(/magic/);
     const ver = good.slice(); ver[8] = 17;
     expect(() => decodeVaultLpExtV19(ver)).toThrow(/version/);
+    // percolator-prog #641: body 106..128 are the other_flow counters now (the program dropped the zero check), so a
+    // non-zero byte there is a counter, not an invalid record (a pre-#641 decoder threw here on every bond market).
     const pad = good.slice(); pad[16 + 106] = 1;
-    expect(() => decodeVaultLpExtV19(pad)).toThrow(/invalid record/);
+    expect(decodeVaultLpExtV19(pad).otherInAtoms).toBe(1n);
     const half = good.slice(); half.set([0xe8, 0x03], 16 + 100); // target set, share 0
     expect(() => decodeVaultLpExtV19(half)).toThrow(/invalid record/);
     const buf = good.slice(); buf.set([0xb7, 0x0b], 16 + 98); // buffer 2999
     expect(() => decodeVaultLpExtV19(buf)).toThrow(/invalid record/);
+  });
+  it("#641 other_flow: two 88-bit LE counters at body 106..117 (in) and 117..128 (out); zero on a pre-#641 ext", () => {
+    const good = unhex(FX.vaultLpExt.default.hex);
+    expect([decodeVaultLpExtV19(good).otherInAtoms, decodeVaultLpExtV19(good).otherOutAtoms]).toEqual([0n, 0n]);
+    expect(VAULT_LP_EXT_OTHER_FLOW_OFF_P2B).toEqual({ in: 106, out: 117 });
+    expect(VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B).toBe(11);
+    const x = good.slice();
+    const put = (off: number, v: bigint) => { for (let i = 0; i < 11; i++) x[16 + off + i] = Number((v >> BigInt(8 * i)) & 0xffn); };
+    const MAX88 = (1n << 88n) - 1n;
+    put(106, 3_000_000_000n); put(117, MAX88);
+    const d = decodeVaultLpExtV19(x);
+    expect([d.otherInAtoms, d.otherOutAtoms]).toEqual([3_000_000_000n, MAX88]);
+    // the counters do not bleed into the neighbouring fields
+    expect([d.version, d.bump, d.cushionShareBps]).toEqual([decodeVaultLpExtV19(good).version, decodeVaultLpExtV19(good).bump, decodeVaultLpExtV19(good).cushionShareBps]);
   });
   it("fetchVaultLpExtP2b returns null when the account does not exist and decodes when it does", async () => {
     const P = k(); const M = k();

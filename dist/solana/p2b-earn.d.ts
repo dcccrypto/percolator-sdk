@@ -73,11 +73,20 @@ export interface VaultLpExtV19 {
     cushionShareBps: number;
     version: number;
     bump: number;
+    /**
+     * #641: cumulative value that entered the vault LP's equity through flows with no counter of their own
+     * (tag 102 Live, 108, 111 DRAW). 88-bit counter carved from the former `_padding` / `_reserved` bytes.
+     */
+    otherInAtoms: bigint;
+    /** #641: cumulative value that left through tag 110 (Live) and 111 RESTORE (modes 1 / 3). 88-bit. */
+    otherOutAtoms: bigint;
 }
 /**
  * Decode a `VaultLpExtV19` account (kind 10, 144 bytes), mirroring `read_vault_lp_ext`'s header and
  * `validate_vault_lp_ext` (version 1, non-zero market, alpha <= the band maximum 7000, buffer in [3000, 10000],
- * cushion target / share <= 10000 and both-or-neither, zero padding and reserved).
+ * cushion target / share <= 10000 and both-or-neither). Since percolator-prog #641 the former zero `_padding` / `_reserved`
+ * bytes hold the two 88-bit `other_flow` counters (`otherInAtoms` / `otherOutAtoms`) and the program no longer requires
+ * them to be zero, so neither does this decoder (a pre-#641 decoder throws on any market that saw a bond deposit).
  *
  * @param data  Raw account bytes (header included).
  * @returns Decoded ext.

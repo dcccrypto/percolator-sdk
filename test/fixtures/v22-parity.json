@@ -2,6 +2,7 @@
  "prog": "8fac24e8fd67476727a5b79ec631125d57f02a5b",
  "engine": "ccc3fda4a1deb002aa185ce197189483a6db8374",
  "branch": "release/v22-wrapper-rem + release/v22-engine-rem (variant B + Wave D mainnet + #543/#544/#545/#546/#287/#288 fold 2026-10-08)",
+ "patched": "2026-10-31 by hand for engine #299 (rc23 engine c630fce4, kept by #302): portfolioAccountLen 10603->10607, portfolioMatcherConfigOff 10491->10495, engineDiscriminator 19->20 (engine size_of::<PortfolioAccountV16Account>() 10459->10463, loss_provenance appended last). Everything else as generated.",
  "vectors": {
   "initMarketGrowth4": {
    "hex": "0001000a00000000000000640000000000000040420f00000000000a00000000000000000000000000000014000000000000000000000000000000f401000000000000e80300000000000064000000000000000a00000000000000320000000000000040420f000000000000000000000000006400000000000000000000000000000004000000000000006400000000000000e80300000000000000000000000000000a000000000000000a00000000000000f40100000000000040420f000000000000000000000000000000000000000000000000000000000090012602",
@@ -1074,11 +1075,11 @@
   "wrapperSlotLen": 1024,
   "engineSlotLen": 1637,
   "assetStateLen": 627,
-  "portfolioAccountLen": 10603,
+  "portfolioAccountLen": 10607,
   "legStride": 217,
-  "portfolioMatcherConfigOff": 10491,
+  "portfolioMatcherConfigOff": 10495,
   "wrapperVersion": 19,
-  "engineDiscriminator": 19,
+  "engineDiscriminator": 20,
   "riskLimitsSlotOff": 608,
   "growthSlotOff": 672,
   "vaultLpSlotOff": 896,

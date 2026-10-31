@@ -196,6 +196,17 @@ export declare const VAULT_LP_EXT_FIELD_OFF_P2B: Readonly<{
     readonly padding: 106;
     readonly reserved: 112;
 }>;
+/**
+ * percolator-prog #641: the former `_padding[6] + _reserved[16]` (body 106..128) are `other_flow: [u8; 22]`, two 88-bit
+ * little-endian monotonic counters: `other_in` (tags 102 Live, 108, 111 DRAW) at body 106..117 and `other_out`
+ * (tags 110 Live, 111 RESTORE) at 117..128. Offsets inside the 128-byte body (add 16 for the account).
+ */
+export declare const VAULT_LP_EXT_OTHER_FLOW_OFF_P2B: Readonly<{
+    readonly in: 106;
+    readonly out: 117;
+}>;
+/** #641: width of one `other_flow` counter (88 bits, little-endian). */
+export declare const VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B = 11;
 /** Record offset (inside the 64-byte `AssetRiskLimitsV17`) of `p2b_senior_floor_code` (u16 LE). */
 export declare const P2B_SENIOR_FLOOR_RECORD_OFF = 42;
 /** Asset-slot offset of the code (`ASSET_RISK_LIMITS_OFF 608 + 42`). */

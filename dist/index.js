@@ -1022,12 +1022,12 @@ async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
   if (!Number.isInteger(shardId) || shardId < 0 || shardId > 65535) {
     throw new Error(`derivePythPriceUpdateAccount: shardId must be a u16, got ${shardId}`);
   }
-  const { PublicKey: PublicKey35 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey36 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey35.findProgramAddressSync(
+  const [pda] = PublicKey36.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey35(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey36(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -5930,7 +5930,7 @@ function v22Row(o) {
     status: "PROVISIONAL",
     source: o.source,
     version: 19,
-    engineDiscriminator: 19,
+    engineDiscriminator: o.engineDiscriminator,
     headerLen: 16,
     wrapperConfigLen: 576,
     marketGroupOff: 592,
@@ -5994,6 +5994,7 @@ var LAYOUT_V22_STAGE_A = v22Row({
   portfolioLen: 10091,
   legStride: 185,
   receiptOff: 9897,
+  engineDiscriminator: 19,
   leg: {
     ...LEG_V21_PREFIX,
     kfEpochSnap: 78,
@@ -6013,11 +6014,14 @@ var LAYOUT_V22_STAGE_A = v22Row({
 var LAYOUT_V22_VARIANT_B = v22Row({
   name: "v2.2 variant B (PROVISIONAL, launch candidate)",
   source: "percolator-prog release/v22-wrapper-rem on engine release/v22-engine-rem; numbers from the coordinator table",
+  // Engine #299 (c630fce4; engine #302 keeps it): `loss_provenance: V16PodU32` appended LAST to
+  // PortfolioAccountV16Account (10459 -> 10463 B) and V16_LAYOUT_DISCRIMINATOR 19 -> 20. Wrapper VERSION stays 19.
   slotStride: 2661,
   engineSlotLen: 1637,
-  portfolioLen: 10603,
+  portfolioLen: 10607,
   legStride: 217,
   receiptOff: 10409,
+  engineDiscriminator: 20,
   leg: {
     ...LEG_V21_PREFIX,
     kfEpochSnap: 110,
@@ -6559,8 +6563,8 @@ function depthPushUpdate(st, source, newDepthE6, nowSlot, seedE6, unitAtoms = GR
   const f = freshDepthE6(d, prev, slot, out.depthSource, nowSlot);
   if (f !== null) {
     const tw = depthTwUpdate(tw0, depthTokensFloor(f, unitAtoms), slot);
-    const wm = depthTwMinAtoms(tw, unitAtoms) ?? 0n;
-    const w3 = wm < f ? wm : f;
+    const wm2 = depthTwMinAtoms(tw, unitAtoms) ?? 0n;
+    const w3 = wm2 < f ? wm2 : f;
     const lg = depthRateLimited(depthEver(st.depthSource), st.lastGoodE6, st.lastGoodSlot, st.riseSlot64, w3, depthTwFull(tw), slot, seedE6);
     out.tw = tw;
     out.depthSource |= DEPTH_EVER;
@@ -7807,6 +7811,8 @@ var VAULT_LP_EXT_FIELD_OFF_P2B = Object.freeze({
   padding: 106,
   reserved: 112
 });
+var VAULT_LP_EXT_OTHER_FLOW_OFF_P2B = Object.freeze({ in: 106, out: 117 });
+var VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B = 11;
 var P2B_SENIOR_FLOOR_RECORD_OFF = 42;
 var P2B_SENIOR_FLOOR_SLOT_OFF = 650;
 function seniorFloorDecodeP2b(code) {
@@ -16029,6 +16035,11 @@ function dv7(d) {
 function u128At2(v, o) {
   return v.getBigUint64(o + 8, true) << 64n | v.getBigUint64(o, true);
 }
+function uLeAt(d, o, n) {
+  let x = 0n;
+  for (let i = n - 1; i >= 0; i--) x = x << 8n | BigInt(d[o + i]);
+  return x;
+}
 function decodeVaultLpExtV19(data) {
   if (data.length < VAULT_LP_EXT_ACCOUNT_LEN_P2B) throw new Error(`VaultLpExtV19: need ${VAULT_LP_EXT_ACCOUNT_LEN_P2B} bytes, got ${data.length}`);
   const v = dv7(data);
@@ -16050,10 +16061,11 @@ function decodeVaultLpExtV19(data) {
     cushionTargetBps: v.getUint16(B + F.cushionTargetBps, true),
     cushionShareBps: v.getUint16(B + F.cushionShareBps, true),
     version: data[B + F.version],
-    bump: data[B + F.bump]
+    bump: data[B + F.bump],
+    otherInAtoms: uLeAt(data, B + VAULT_LP_EXT_OTHER_FLOW_OFF_P2B.in, VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B),
+    otherOutAtoms: uLeAt(data, B + VAULT_LP_EXT_OTHER_FLOW_OFF_P2B.out, VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B)
   };
-  const zero = (o, n) => data.subarray(B + o, B + o + n).every((b) => b === 0);
-  if (out.version !== VAULT_LP_EXT_VERSION_P2B || marketGroup.equals(PublicKey26.default) || out.allocAlphaBps > ALLOC_ALPHA_MAX_BAND_BPS_P2B || out.allocBufferBps < ALLOC_BUFFER_MIN_BPS_P2B || out.allocBufferBps > 1e4 || out.cushionTargetBps > 1e4 || out.cushionShareBps > 1e4 || out.cushionTargetBps === 0 !== (out.cushionShareBps === 0) || !zero(F.padding, 6) || !zero(F.reserved, 16)) {
+  if (out.version !== VAULT_LP_EXT_VERSION_P2B || marketGroup.equals(PublicKey26.default) || out.allocAlphaBps > ALLOC_ALPHA_MAX_BAND_BPS_P2B || out.allocBufferBps < ALLOC_BUFFER_MIN_BPS_P2B || out.allocBufferBps > 1e4 || out.cushionTargetBps > 1e4 || out.cushionShareBps > 1e4 || out.cushionTargetBps === 0 !== (out.cushionShareBps === 0)) {
     throw new Error("VaultLpExtV19: invalid record \u2014 the program would reject it too");
   }
   return out;
@@ -16198,7 +16210,7 @@ function nonboundVaultPricingFromAccountsP2b(a) {
 }
 
 // src/solana/v22.ts
-import { SystemProgram as SystemProgram7, TransactionInstruction as TransactionInstruction12 } from "@solana/web3.js";
+import { SystemProgram as SystemProgram9, TransactionInstruction as TransactionInstruction14 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID10, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync as getAssociatedTokenAddressSync5 } from "@solana/spl-token";
 
 // src/runtime/tx.ts
@@ -16457,11 +16469,269 @@ function formatResult(result, jsonMode) {
   return lines.join("\n");
 }
 
+// src/solana/v22-nav-flow.ts
+import { SystemProgram as SystemProgram8, TransactionInstruction as TransactionInstruction12 } from "@solana/web3.js";
+
+// src/solana/lev-guard-v22.ts
+import { PublicKey as PublicKey28, SystemProgram as SystemProgram7, TransactionInstruction as TransactionInstruction11 } from "@solana/web3.js";
+var enc = new TextEncoder();
+var w = (pubkey) => ({ pubkey, isSigner: false, isWritable: true });
+var r = (pubkey) => ({ pubkey, isSigner: false, isWritable: false });
+function deriveLevGuardV22(programId, market) {
+  return PublicKey28.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.guard), market.toBytes()], programId);
+}
+function deriveVaultLpStateV22(programId, market) {
+  return PublicKey28.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.vaultLpState), market.toBytes()], programId);
+}
+function deriveVaultLpExtV22(programId, market) {
+  return PublicKey28.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.vaultLpExt), market.toBytes()], programId);
+}
+function deriveProgramDataV22(programId) {
+  return PublicKey28.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3);
+}
+function buildLevGuardInitIxV22(c, authority, t0 = 0n) {
+  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_INIT_V22, {
+    authority,
+    programData: deriveProgramDataV22(c.programId)[0],
+    market: c.market,
+    guard: deriveLevGuardV22(c.programId, c.market)[0],
+    systemProgram: SystemProgram7.programId
+  });
+  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardInitV22(t0)) });
+}
+function buildLevGuardSetRiskKeyIxV22(c, upgradeAuthority, key3) {
+  return adminIx(c, upgradeAuthority, encodeLevGuardSetRiskKeyV22(key3));
+}
+function buildLevGuardSetT0IxV22(c, upgradeAuthority, t0) {
+  return adminIx(c, upgradeAuthority, encodeLevGuardSetT0V22(t0));
+}
+function adminIx(c, upgradeAuthority, data) {
+  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_ADMIN_V22, {
+    upgradeAuthority,
+    programData: deriveProgramDataV22(c.programId)[0],
+    market: c.market,
+    guard: deriveLevGuardV22(c.programId, c.market)[0]
+  });
+  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(data) });
+}
+function buildLevGuardReportIxV22(c, riskKey, report) {
+  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_REPORT_V22, { riskKey, market: c.market, guard: deriveLevGuardV22(c.programId, c.market)[0] });
+  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardReportV22(report)) });
+}
+function buildLevGuardTightenIxV22(c, caller, o) {
+  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_TIGHTEN_V22, {
+    caller,
+    market: c.market,
+    guard: deriveLevGuardV22(c.programId, c.market)[0],
+    depthSource: deriveDepthSourceV22(c.programId, c.market)[0],
+    baseMint: o.baseMint,
+    poolBaseVault: o.poolBaseVault
+  });
+  if (o.holderTokenAccount) keys.push(r(o.holderTokenAccount));
+  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardTightenV22()) });
+}
+function buildLevGuardPokeIxV22(c, caller, o) {
+  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_POKE_V22, {
+    caller,
+    market: c.market,
+    guard: deriveLevGuardV22(c.programId, c.market)[0],
+    vaultLpPortfolio: o.vaultLpPortfolio
+  });
+  if (o.sampleNav) keys.push(r(deriveVaultLpStateV22(c.programId, c.market)[0]), r(deriveVaultLpExtV22(c.programId, c.market)[0]));
+  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardPokeV22()) });
+}
+function buildLevGuardLpStopIxV22(c, caller, vaultLpPortfolio, opposing = []) {
+  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_LP_STOP_V22, {
+    caller,
+    market: c.market,
+    guard: deriveLevGuardV22(c.programId, c.market)[0],
+    vaultLpPortfolio,
+    vaultLpState: deriveVaultLpStateV22(c.programId, c.market)[0],
+    vaultLpExt: deriveVaultLpExtV22(c.programId, c.market)[0]
+  });
+  for (const p of opposing) keys.push(w(p));
+  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardLpStopV22()) });
+}
+function withLevGuardTailV22(ix3, market) {
+  const tag = ix3.data[0];
+  const marketIdx = tag === IX_TAG_EXTENDED_V22.TradeCpi ? 1 : tag === IX_TAG_V22.EvictAndTradeCpi ? 2 : -1;
+  if (marketIdx < 0) throw new Error(`withLevGuardTailV22: expected TradeCpi (10) or EvictAndTradeCpi (119), got tag ${tag}`);
+  if (!ix3.keys[marketIdx]?.pubkey.equals(market)) throw new Error("withLevGuardTailV22: market is not at the expected account index of this instruction");
+  const [guard2] = deriveLevGuardV22(ix3.programId, market);
+  const last = ix3.keys[ix3.keys.length - 1];
+  if (last.pubkey.equals(guard2)) return ix3;
+  return new TransactionInstruction11({ programId: ix3.programId, keys: [...ix3.keys, w(guard2)], data: ix3.data });
+}
+
+// src/solana/v22-nav-flow.ts
+var NAV_FLOW_TAILS_V22 = Object.freeze({
+  96: Object.freeze({ base: 7, guard: 7, ext: 8, full: 9 }),
+  97: Object.freeze({ base: 11, ext: 11, bondSlot: 12, guard: 13, full: 14 }),
+  98: Object.freeze({ base: 8, ext: 8, guard: 9, full: 10 }),
+  102: Object.freeze({ base: 7, pads: Object.freeze([7, 8, 9, 10, 11]), ext: 12, guard: 13, full: 14, resolvedBase: 11 }),
+  103: Object.freeze({ base: 9, ext: 7, bondSlot: 9, guard: 10, full: 11 }),
+  108: Object.freeze({ base: 13, ext: 13, guard: 14, full: 15 }),
+  110: Object.freeze({ base: 13, ext: 13, guard: 14, full: 15 }),
+  111: Object.freeze({ base: 7, byKey: true, modes: Object.freeze([0, 1, 3]) })
+});
+var NAV_FLOW_COMPUTE_UNITS_V22 = Object.freeze({
+  96: { units: 25e4, measuredWorst: 101e3, note: "rc23 53k -> 59-62k, 89-101k on the bond path (att-640). 2.5x of 101k." },
+  97: { units: 3e5, measuredWorst: 131e3, note: "rc23 98k -> 131k (att-640). 2.3x." },
+  98: { units: 4e5, measuredWorst: 176e3, note: "rc23 131k -> 176k (PR #640), 132-135k (att-640). 2.3x of 176k." },
+  102: { units: 3e5, measuredWorst: 131e3, note: "Live: 81k -> 131k (PR #641). 2.3x." },
+  103: { units: 6e5, measuredWorst: 207e3, note: "162k -> 207k (PR #640 worst, above the 200k default), 145-148k (att-640); devnet ~230k before #640 + 45k = ~275k. 600k = 2.2x of 275k, the keeper's P2B_ALLOCATE_CU." },
+  108: { units: 6e5, measuredWorst: 185e3, note: "86k -> 121-130k, 185k on one deposit path (PR #641). Kept at the 600k bondDeposit preset (3.2x)." },
+  110: { units: 6e5, measuredWorst: 129e3, note: "86k -> 129k (PR #641). Kept at the 600k bondExecuteWithdraw preset." },
+  111: { units: 6e5, measuredWorst: 15e4, note: "RESTORE 83k -> 144-150k (PR #641); DRAW on a growth market not measured. Kept at the 600k insuranceBackstopDraw preset." }
+});
+function navFlowAccountsV22(programId, market) {
+  return { guard: deriveLevGuardV22(programId, market)[0], ext: deriveVaultLpExtP2b(programId, market)[0] };
+}
+var wm = (pubkey) => ({ pubkey, isSigner: false, isWritable: true });
+var pad = () => ({ pubkey: SystemProgram8.programId, isSigner: false, isWritable: false });
+function expectKey(keys, i, want, tag, what) {
+  const k = keys[i];
+  if (!k || !k.pubkey.equals(want)) throw new Error(`withNavFlowTailV22: tag ${tag} needs the ${what} at [${i}], found ${k ? k.pubkey.toBase58() : "nothing"}`);
+}
+function withNavFlowTailV22(base, market) {
+  const tag = base.data[0];
+  const { guard: guard2, ext } = navFlowAccountsV22(base.programId, market);
+  const keys = [...base.keys];
+  const n = keys.length;
+  const done = () => new TransactionInstruction12({ programId: base.programId, keys, data: base.data });
+  switch (tag) {
+    case 96: {
+      const t = NAV_FLOW_TAILS_V22[96];
+      if (n === t.full) {
+        expectKey(keys, t.guard, guard2, tag, "lev guard");
+        expectKey(keys, t.ext, ext, tag, "vault ext");
+        return done();
+      }
+      if (n !== t.base) throw new Error(`withNavFlowTailV22: tag 96 must have ${t.base} (or ${t.full}) accounts, got ${n}`);
+      keys.push(wm(guard2), wm(ext));
+      return done();
+    }
+    case 97: {
+      const t = NAV_FLOW_TAILS_V22[97];
+      if (n === t.full) {
+        expectKey(keys, t.ext, ext, tag, "vault ext");
+        expectKey(keys, t.guard, guard2, tag, "lev guard");
+        return done();
+      }
+      if (n < t.base || n > t.base + 2) throw new Error(`withNavFlowTailV22: tag 97 must have ${t.base}..${t.base + 2} (or ${t.full}) accounts, got ${n}`);
+      if (n === t.base) keys.push(wm(ext));
+      else {
+        expectKey(keys, t.ext, ext, tag, "vault ext");
+        keys[t.ext] = wm(ext);
+      }
+      if (keys.length === t.bondSlot) keys.push(pad());
+      keys.push(wm(guard2));
+      return done();
+    }
+    case 98: {
+      const t = NAV_FLOW_TAILS_V22[98];
+      if (n === t.full) {
+        expectKey(keys, t.ext, ext, tag, "vault ext");
+        expectKey(keys, t.guard, guard2, tag, "lev guard");
+        return done();
+      }
+      if (n !== t.base && n !== t.base + 1) throw new Error(`withNavFlowTailV22: tag 98 must have ${t.base} or ${t.base + 1} (or ${t.full}) accounts, got ${n}`);
+      if (n === t.base) keys.push(wm(ext));
+      else {
+        expectKey(keys, t.ext, ext, tag, "vault ext");
+        keys[t.ext] = wm(ext);
+      }
+      keys.push(wm(guard2));
+      return done();
+    }
+    case 102: {
+      const t = NAV_FLOW_TAILS_V22[102];
+      if (n === t.resolvedBase || n === t.resolvedBase + 1) return done();
+      if (n === t.full) {
+        expectKey(keys, t.ext, ext, tag, "vault ext");
+        expectKey(keys, t.guard, guard2, tag, "lev guard");
+        return done();
+      }
+      if (n !== t.base) throw new Error(`withNavFlowTailV22: tag 102 Live must have ${t.base} (or ${t.full}) accounts, Resolved ${t.resolvedBase} or ${t.resolvedBase + 1}; got ${n}`);
+      for (let i = 0; i < t.pads.length; i++) keys.push(pad());
+      keys.push(wm(ext), wm(guard2));
+      return done();
+    }
+    case 103: {
+      const t = NAV_FLOW_TAILS_V22[103];
+      if (n === t.full) {
+        expectKey(keys, t.ext, ext, tag, "vault ext");
+        expectKey(keys, t.guard, guard2, tag, "lev guard");
+        return done();
+      }
+      if (n !== t.base && n !== t.base + 1) throw new Error(`withNavFlowTailV22: tag 103 must have ${t.base} or ${t.base + 1} (or ${t.full}) accounts, got ${n}`);
+      expectKey(keys, t.ext, ext, tag, "vault ext");
+      if (n === t.base) keys.push(pad());
+      keys.push(wm(guard2));
+      return done();
+    }
+    case 108:
+    case 110: {
+      const t = NAV_FLOW_TAILS_V22[tag];
+      if (n === t.full) {
+        expectKey(keys, t.ext, ext, tag, "vault ext");
+        expectKey(keys, t.guard, guard2, tag, "lev guard");
+        return done();
+      }
+      if (n !== t.base) throw new Error(`withNavFlowTailV22: tag ${tag} must have ${t.base} (or ${t.full}) accounts, got ${n}`);
+      keys.push(wm(ext), wm(guard2));
+      return done();
+    }
+    case 111: {
+      const t = NAV_FLOW_TAILS_V22[111];
+      const mode = base.data[1];
+      if (n < t.base) throw new Error(`withNavFlowTailV22: tag 111 needs at least ${t.base} accounts, got ${n}`);
+      if (!t.modes.includes(mode)) return done();
+      for (const want of [ext, guard2]) {
+        const at = keys.findIndex((k, i) => i >= t.base && k.pubkey.equals(want));
+        if (at < 0) keys.push(wm(want));
+        else keys[at] = wm(want);
+      }
+      return done();
+    }
+    default:
+      throw new Error(`withNavFlowTailV22: tag ${tag} takes no NAV flow tail (only 96 / 97 / 98 / 102 / 103 / 108 / 110 / 111)`);
+  }
+}
+function requireLp(m, tag) {
+  if (!m.lpPortfolio) throw new Error(`tag ${tag} needs the vault LP portfolio (m.lpPortfolio)`);
+  return m;
+}
+function buildDepositJuniorTrancheIxV22(m, juniorOwner, sourceToken, vaultToken, amount) {
+  const c = requireLp(m, 96);
+  return withNavFlowTailV22(buildDepositJuniorTrancheIxP3(c, juniorOwner, sourceToken, vaultToken, amount), m.market);
+}
+function buildVaultLpRecallIxV22(m, cranker, amount, targetDomain) {
+  const c = requireLp(m, 98);
+  return withNavFlowTailV22(buildVaultLpRecallIxP3({ ...c, vaultLpExt: void 0 }, cranker, amount, targetDomain), m.market);
+}
+function buildVaultLpReleaseSurplusLiveIxV22(m, juniorOwner, amount, sourceDomain) {
+  const c = requireLp(m, 102);
+  return withNavFlowTailV22(buildVaultLpReleaseSurplusIxP3(c, juniorOwner, amount, sourceDomain), m.market);
+}
+function buildVaultLpAllocateIxV22(m, cranker, amount, opts = {}) {
+  const c = requireLp(m, 103);
+  return withNavFlowTailV22(buildVaultLpAllocateIxP2b(c, cranker, amount, opts), m.market);
+}
+function hasNavFlowTailV22(ix3, market) {
+  const { guard: guard2 } = navFlowAccountsV22(ix3.programId, market);
+  const tag = ix3.data[0];
+  if (tag === 111) return ix3.keys.some((k, i) => i >= 7 && k.pubkey.equals(guard2));
+  const t = NAV_FLOW_TAILS_V22[tag];
+  if (!t || t.guard === void 0) return false;
+  return ix3.keys[t.guard]?.pubkey.equals(guard2) === true;
+}
+
 // src/runtime/txv1.ts
 import { ed25519 } from "@noble/curves/ed25519";
 import {
   ComputeBudgetProgram as ComputeBudgetProgram2,
-  PublicKey as PublicKey28,
+  PublicKey as PublicKey30,
   TransactionMessage,
   VersionedTransaction,
   Transaction as Transaction2
@@ -16476,7 +16746,7 @@ var TX_MAX_COMPUTE_UNITS = 14e5;
 var TX_MAX_LOADED_ACCOUNTS_DATA_BYTES = 64 * 1024 * 1024;
 var TX_V1_MIN_HEAP_BYTES = 32 * 1024;
 var TX_V1_MAX_HEAP_BYTES = 256 * 1024;
-var TX_V1_FEATURE_ID = new PublicKey28("txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL");
+var TX_V1_FEATURE_ID = new PublicKey30("txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL");
 var MAX_PRIORITY_FEE_LAMPORTS = 10000000n;
 var SIG_LEN = 64;
 var CFG_PRIORITY_FEE = 3;
@@ -16589,7 +16859,7 @@ function compileV1Message(params) {
   if (cfg.priorityFeeLamports > 0n) mask |= CFG_PRIORITY_FEE;
   if (cfg.heapSizeBytes !== null) mask |= CFG_HEAP_SIZE;
   writeU32(out, mask);
-  out.push(...new PublicKey28(recentBlockhash).toBytes());
+  out.push(...new PublicKey30(recentBlockhash).toBytes());
   out.push(instructions.length, ordered.length);
   for (const m of ordered) out.push(...m.pubkey.toBytes());
   if (cfg.priorityFeeLamports > 0n) writeU64(out, cfg.priorityFeeLamports);
@@ -16957,10 +17227,10 @@ async function sendGroupsAdaptive(p) {
 }
 
 // src/solana/v22.ts
-var w = (pubkey, isSigner = false) => ({ pubkey, isSigner, isWritable: true });
-var r = (pubkey, isSigner = false) => ({ pubkey, isSigner, isWritable: false });
+var w2 = (pubkey, isSigner = false) => ({ pubkey, isSigner, isWritable: true });
+var r2 = (pubkey, isSigner = false) => ({ pubkey, isSigner, isWritable: false });
 function ix2(programId, keys, data) {
-  return new TransactionInstruction12({ programId, keys, data: Buffer.from(data) });
+  return new TransactionInstruction14({ programId, keys, data: Buffer.from(data) });
 }
 function ledgers2(m) {
   return {
@@ -16976,11 +17246,16 @@ var COMPUTE_PRESETS_V22 = Object.freeze({
   sweepBandDustLeg: { units: 6e5, basis: "estimated", note: "Bilateral close against the vault LP at P_last." },
   evictAndTradeCpi: { units: 1e6, basis: "estimated", note: "A forced close plus a full TradeCpi (600k each is the P3 worst case for the trade alone)." },
   initBondTranche: { units: 2e5, basis: "estimated", note: "Creates the ext (if absent) and the tranche PDA." },
-  bondDeposit: { units: 6e5, basis: "estimated", note: "Prices the vault LP equity, then an engine deposit; like tradeCpi's valuation path." },
+  bondDeposit: { units: NAV_FLOW_COMPUTE_UNITS_V22[108].units, basis: "measured", note: `Prices the vault LP equity, then an engine deposit + the #641 NAV flow sample. ${NAV_FLOW_COMPUTE_UNITS_V22[108].note}` },
   bondRequestWithdraw: { units: 6e4, basis: "estimated", note: "Writes one position." },
-  bondExecuteWithdraw: { units: 6e5, basis: "estimated", note: "Vault valuation + OI lock + engine withdraw." },
+  bondExecuteWithdraw: { units: NAV_FLOW_COMPUTE_UNITS_V22[110].units, basis: "measured", note: `Vault valuation + OI lock + engine withdraw + the #641 NAV flow sample. ${NAV_FLOW_COMPUTE_UNITS_V22[110].note}` },
   lpVaultCrankFeesBond: { units: 4e5, basis: "estimated", note: "On a bond market 78 re-certifies the vault LP before valuing the bonds (N-1)." },
-  insuranceBackstopDraw: { units: 6e5, basis: "estimated", note: "Draw-and-book plus an insurance move." },
+  insuranceBackstopDraw: { units: NAV_FLOW_COMPUTE_UNITS_V22[111].units, basis: "measured", note: `Draw-and-book plus an insurance move + the #641 NAV flow sample. ${NAV_FLOW_COMPUTE_UNITS_V22[111].note}` },
+  depositJuniorTranche: { units: NAV_FLOW_COMPUTE_UNITS_V22[96].units, basis: "measured", note: `Tag 96 with the #640 NAV flow sample. ${NAV_FLOW_COMPUTE_UNITS_V22[96].note}` },
+  withdrawJuniorTranche: { units: NAV_FLOW_COMPUTE_UNITS_V22[97].units, basis: "measured", note: `Tag 97 with the #640 NAV flow sample. ${NAV_FLOW_COMPUTE_UNITS_V22[97].note}` },
+  vaultLpRecall: { units: NAV_FLOW_COMPUTE_UNITS_V22[98].units, basis: "measured", note: `Tag 98 with the #640 NAV flow sample. ${NAV_FLOW_COMPUTE_UNITS_V22[98].note}` },
+  vaultLpReleaseSurplus: { units: NAV_FLOW_COMPUTE_UNITS_V22[102].units, basis: "measured", note: `Tag 102 (Live) with the #641 NAV flow sample. ${NAV_FLOW_COMPUTE_UNITS_V22[102].note}` },
+  vaultLpAllocate: { units: NAV_FLOW_COMPUTE_UNITS_V22[103].units, basis: "measured", note: `Tag 103 with the #640 NAV flow sample (ABOVE the 200k default). ${NAV_FLOW_COMPUTE_UNITS_V22[103].note}` },
   rescueDeposit: { units: 4e5, basis: "estimated", note: "Priced like tag 75 plus the certified value." },
   initInsuranceUnits: { units: 2e5, basis: "estimated", note: "Creates / refreshes a 208-byte PDA." },
   launchBundle: { units: 8e5, basis: "estimated", note: "74 + 94 + 107 in one transaction; 94 initialises the matcher context and a portfolio." }
@@ -17001,7 +17276,7 @@ function buildRequestRedeemLpSharesIxV22(m, redeemer, redeemerLpAta, shares, min
     escrow: deriveLpEscrow(m.programId, m.market)[0],
     redemption: deriveLpRedemption(m.programId, registry, redeemer)[0],
     tokenProgram: TOKEN_PROGRAM_ID10,
-    systemProgram: SystemProgram7.programId
+    systemProgram: SystemProgram9.programId
   });
   return ix2(m.programId, metas, encodeRequestRedeemLpSharesV22({ shares, minPayoutAtoms, keeperOk }));
 }
@@ -17029,10 +17304,10 @@ function buildExecuteRedemptionIxV22(m, cranker, redeemer, redeemerDest, vaultTo
   base[12] = { ...base[12], isSigner: o.redeemerSigns !== false };
   const keys = [...base];
   if (o.boundLpPortfolio) {
-    keys.push(w(deriveVaultLpStateP3(m.programId, m.market)[0]), w(o.boundLpPortfolio));
+    keys.push(w2(deriveVaultLpStateP3(m.programId, m.market)[0]), w2(o.boundLpPortfolio));
   } else {
-    for (const p of refresh) keys.push(w(p));
-    for (const a of o.oracleAccounts ?? []) keys.push(r(a));
+    for (const p of refresh) keys.push(w2(p));
+    for (const a of o.oracleAccounts ?? []) keys.push(r2(a));
   }
   return ix2(m.programId, keys, encodeExecuteRedemptionV22({ domain: sourceDomain, minPayoutAtoms: o.minPayoutAtoms, nRefresh: refresh.length }));
 }
@@ -17077,7 +17352,7 @@ function classifyRedemptionSimulationV22(r3) {
 function buildSettleHoldingRentIxV22(m, caller, portfolio, assetIndex, nowSlot, oracleAccounts = []) {
   if (!m.lpPortfolio) throw new Error("tag 106 needs the bound vault LP portfolio (m.lpPortfolio)");
   const metas = buildAccountMetas(ACCOUNTS_SETTLE_HOLDING_RENT_V22, { caller, market: m.market, portfolio, vaultLpPortfolio: m.lpPortfolio });
-  return ix2(m.programId, [...metas, ...oracleAccounts.map((a) => r(a))], encodeSettleHoldingRentV22(assetIndex, nowSlot));
+  return ix2(m.programId, [...metas, ...oracleAccounts.map((a) => r2(a))], encodeSettleHoldingRentV22(assetIndex, nowSlot));
 }
 function buildSweepBandDustLegIxV22(m, caller, portfolio, assetIndex) {
   if (!m.lpPortfolio) throw new Error("tag 118 needs the bound vault LP portfolio (m.lpPortfolio)");
@@ -17085,9 +17360,9 @@ function buildSweepBandDustLegIxV22(m, caller, portfolio, assetIndex) {
   return ix2(m.programId, metas, encodeSweepBandDustLegV22(assetIndex));
 }
 function buildEvictAndTradeCpiIxV22(tradeCpiIx, victim) {
-  return new TransactionInstruction12({
+  return new TransactionInstruction14({
     programId: tradeCpiIx.programId,
-    keys: [w(victim), ...tradeCpiIx.keys],
+    keys: [w2(victim), ...tradeCpiIx.keys],
     data: Buffer.from(encodeEvictAndTradeCpiV22(tradeCpiIx.data))
   });
 }
@@ -17102,9 +17377,9 @@ function buildInitBondTrancheIxV22(m, authority, payer, a, opts = {}) {
     vaultLpExt: m.vaultLpExt,
     bondTranche: deriveBondTrancheV22(m.programId, m.market)[0],
     payer,
-    systemProgram: SystemProgram7.programId
+    systemProgram: SystemProgram9.programId
   });
-  if (opts.upgradeAuthority) metas.push(r(deriveProgramDataAddressP3(m.programId)[0]));
+  if (opts.upgradeAuthority) metas.push(r2(deriveProgramDataAddressP3(m.programId)[0]));
   return ix2(m.programId, metas, encodeInitBondTrancheV22(a));
 }
 function buildBondDepositIxV22(m, depositor, sourceToken, vaultToken, amount, minShares) {
@@ -17122,9 +17397,9 @@ function buildBondDepositIxV22(m, depositor, sourceToken, vaultToken, amount, mi
     sourceToken,
     vaultToken,
     tokenProgram: TOKEN_PROGRAM_ID10,
-    systemProgram: SystemProgram7.programId
+    systemProgram: SystemProgram9.programId
   });
-  return ix2(m.programId, metas, encodeBondDepositV22(amount, minShares));
+  return withNavFlowTailV22(ix2(m.programId, metas, encodeBondDepositV22(amount, minShares)), m.market);
 }
 function buildBondRequestWithdrawIxV22(m, holder, shares) {
   const metas = buildAccountMetas(ACCOUNTS_BOND_REQUEST_WITHDRAW_V22, {
@@ -17152,7 +17427,7 @@ function buildBondExecuteWithdrawIxV22(m, holder, destToken, vaultToken, minOut,
     vaultAuthority: deriveVaultAuthority(m.programId, m.market)[0],
     tokenProgram: TOKEN_PROGRAM_ID10
   });
-  return ix2(m.programId, metas, encodeBondExecuteWithdrawV22(minOut, sourceDomain));
+  return withNavFlowTailV22(ix2(m.programId, metas, encodeBondExecuteWithdrawV22(minOut, sourceDomain)), m.market);
 }
 function withBondTailV22(base, tranche) {
   const tag = base.data[0];
@@ -17161,7 +17436,7 @@ function withBondTailV22(base, tranche) {
   if (base.keys.length !== want) throw new Error(`withBondTailV22: tag ${tag} must have exactly ${want} accounts before the tranche, got ${base.keys.length}`);
   const writable = tag === IX_TAG_EXTENDED_V22.LpVaultCrankFees;
   if (tag === IX_TAG_EXTENDED_V22.LpVaultCrankFees && base.keys[8]?.isWritable !== true) throw new Error("withBondTailV22: tag 78 on a bond market needs the vault LP at [8] WRITABLE (it is re-certified before the bonds are valued)");
-  return new TransactionInstruction12({ programId: base.programId, keys: [...base.keys, { pubkey: tranche, isSigner: false, isWritable: writable }], data: base.data });
+  return new TransactionInstruction14({ programId: base.programId, keys: [...base.keys, { pubkey: tranche, isSigner: false, isWritable: writable }], data: base.data });
 }
 function withInsuranceUnitsTailV22(base, units) {
   const tag = base.data[0];
@@ -17169,7 +17444,7 @@ function withInsuranceUnitsTailV22(base, units) {
   if (from === void 0) throw new Error(`withInsuranceUnitsTailV22: tag ${base.data[0]} takes no insurance-units account (only 9 / 56 / 57 / 41 / 101)`);
   if (base.keys.length < from) throw new Error(`withInsuranceUnitsTailV22: tag ${tag} needs at least ${from} accounts before the units account, got ${base.keys.length}`);
   if (base.keys.some((k) => k.pubkey.equals(units))) throw new Error("withInsuranceUnitsTailV22: the units account is already present");
-  return new TransactionInstruction12({ programId: base.programId, keys: [...base.keys, w(units)], data: base.data });
+  return new TransactionInstruction14({ programId: base.programId, keys: [...base.keys, w2(units)], data: base.data });
 }
 function buildInsuranceBackstopDrawIxV22(m, cranker, mode, maxAmount, extraTail = []) {
   if (!m.lpPortfolio) throw new Error("tag 111 needs the bound vault LP portfolio (m.lpPortfolio)");
@@ -17182,9 +17457,9 @@ function buildInsuranceBackstopDrawIxV22(m, cranker, mode, maxAmount, extraTail 
     lpPortfolio: m.lpPortfolio,
     ...ledgers2(m)
   });
-  metas.push(w(deriveInsuranceUnitsV22(m.programId, m.market)[0]));
-  for (const a of extraTail) metas.push(r(a));
-  return ix2(m.programId, metas, encodeInsuranceBackstopDrawV22(mode, maxAmount));
+  metas.push(w2(deriveInsuranceUnitsV22(m.programId, m.market)[0]));
+  const withTail = withNavFlowTailV22(ix2(m.programId, metas, encodeInsuranceBackstopDrawV22(mode, maxAmount)), m.market);
+  return ix2(m.programId, [...withTail.keys, ...extraTail.map((a) => r2(a))], withTail.data);
 }
 function buildRescueDepositIxV22(m, rescuer, rescuerLpAta, sourceToken, vaultToken, amount, minShares, tranche = 0) {
   const [registry] = deriveLpVaultRegistry(m.programId, m.market);
@@ -17199,14 +17474,14 @@ function buildRescueDepositIxV22(m, rescuer, rescuerLpAta, sourceToken, vaultTok
     vaultToken,
     ledger,
     tokenProgram: TOKEN_PROGRAM_ID10,
-    systemProgram: SystemProgram7.programId,
+    systemProgram: SystemProgram9.programId,
     siblingLedger
   });
-  if (m.lpPortfolio) metas.push(w(deriveVaultLpStateP3(m.programId, m.market)[0]), w(m.lpPortfolio));
+  if (m.lpPortfolio) metas.push(w2(deriveVaultLpStateP3(m.programId, m.market)[0]), w2(m.lpPortfolio));
   return ix2(m.programId, metas, encodeRescueDepositV22(tranche, amount, minShares));
 }
 function buildInitInsuranceUnitsIxV22(m, payer) {
-  const metas = buildAccountMetas(ACCOUNTS_INIT_INSURANCE_UNITS_V22, { payer, market: m.market, insuranceUnits: deriveInsuranceUnitsV22(m.programId, m.market)[0], systemProgram: SystemProgram7.programId });
+  const metas = buildAccountMetas(ACCOUNTS_INIT_INSURANCE_UNITS_V22, { payer, market: m.market, insuranceUnits: deriveInsuranceUnitsV22(m.programId, m.market)[0], systemProgram: SystemProgram9.programId });
   return ix2(m.programId, metas, encodeInitInsuranceUnitsV22());
 }
 function buildSetG9FeedAllowlistIxV22(programId, upgradeAuthority, keys) {
@@ -17214,7 +17489,7 @@ function buildSetG9FeedAllowlistIxV22(programId, upgradeAuthority, keys) {
     upgradeAuthority,
     programData: deriveProgramDataAddressP3(programId)[0],
     g9FeedAllowlist: deriveG9FeedAllowlistV22(programId)[0],
-    systemProgram: SystemProgram7.programId
+    systemProgram: SystemProgram9.programId
   });
   return ix2(programId, metas, encodeSetG9FeedAllowlistV22(keys));
 }
@@ -17241,10 +17516,10 @@ function buildDepositToLpVaultIxBoundV22(m, depositor, lpAta, sourceToken, vault
     vaultToken,
     ledger: ledgers2(m).ledger,
     tokenProgram: TOKEN_PROGRAM_ID10,
-    systemProgram: SystemProgram7.programId,
+    systemProgram: SystemProgram9.programId,
     siblingLedger: ledgers2(m).siblingLedger
   });
-  const base = new TransactionInstruction12({ programId: m.programId, keys: metas, data: Buffer.from(encodeDepositToLpVault({ amount, domain })) });
+  const base = new TransactionInstruction14({ programId: m.programId, keys: metas, data: Buffer.from(encodeDepositToLpVault({ amount, domain })) });
   return withBoundVaultLpTailP3(base, deriveVaultLpStateP3(m.programId, m.market)[0], m.lpPortfolio);
 }
 function buildLaunchBundleV22(i) {
@@ -17278,10 +17553,10 @@ function buildLaunchBundleV22(i) {
   return { format: "legacy", instructions, bytes, limit: TX_LEGACY_MAX_BYTES, budget };
 }
 function buildCreateLpPortfolioIxV22(payer, portfolio, lamports, programId, layout = LAYOUT_V22) {
-  return SystemProgram7.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
+  return SystemProgram9.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
 }
 function buildCreatePortfolioAccountIxV22(payer, portfolio, lamports, programId, layout = LAYOUT_V22) {
-  return SystemProgram7.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
+  return SystemProgram9.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
 }
 function portfolioAccountLenV22(layout = LAYOUT_V22) {
   return layout.portfolio.accountLen;
@@ -17290,10 +17565,13 @@ var ACCOUNT_TAILS_V22 = Object.freeze({
   75: { base: 11, boundState: 11, boundLp: 12 },
   77: { base: 13, boundState: 13, boundLp: 14, refreshStart: 13 },
   78: { base: 6, boundState: 6, ext: 7, boundLp: 8, bondTranche: 9 },
-  97: { base: 11, ext: 11, bondTranche: 12 },
-  98: { base: 8, ext: 8 },
-  102: { base: 7, resolvedBase: 11, bondTranche: 11 },
-  103: { base: 9, ext: 7, bondTranche: 9 },
+  96: { base: 7, levGuard: 7, ext: 8 },
+  97: { base: 11, ext: 11, bondTranche: 12, levGuard: 13 },
+  98: { base: 8, ext: 8, levGuard: 9 },
+  102: { base: 7, resolvedBase: 11, bondTranche: 11, liveExt: 12, levGuard: 13 },
+  103: { base: 9, ext: 7, bondTranche: 9, levGuard: 10 },
+  108: { base: 13, ext: 13, levGuard: 14 },
+  110: { base: 13, ext: 13, levGuard: 14 },
   112: { base: 11, boundState: 11, boundLp: 12 },
   units: { 9: 5, 56: 5, 57: 6, 41: 6, 101: 12 }
 });
@@ -17302,10 +17580,10 @@ function buildLpVaultCrankFeesIxBoundV22(m, cranker, domain, opts = {}) {
   if (opts.bond && !m.vaultLpExt) throw new Error("a bond market always has the vault LP ext: set m.vaultLpExt");
   const [registry] = deriveLpVaultRegistry(m.programId, m.market);
   const { ledger, siblingLedger } = ledgers2(m);
-  const base = new TransactionInstruction12({
+  const base = new TransactionInstruction14({
     programId: m.programId,
     data: Buffer.from(encodeLpVaultCrankFees({ domain })),
-    keys: [w(cranker, true), w(m.market), w(registry), w(ledger), w(siblingLedger), r(SystemProgram7.programId)]
+    keys: [w2(cranker, true), w2(m.market), w2(registry), w2(ledger), w2(siblingLedger), r2(SystemProgram9.programId)]
   });
   const withState = withBoundVaultLpTailP3(base, deriveVaultLpStateP3(m.programId, m.market)[0], m.lpPortfolio, { vaultLpExt: m.vaultLpExt });
   return opts.bond ? withBondTailV22(withState, deriveBondTrancheV22(m.programId, m.market)[0]) : withState;
@@ -17314,17 +17592,17 @@ function buildWithdrawJuniorTrancheIxV22(m, juniorOwner, destToken, vaultToken, 
   if (!m.lpPortfolio) throw new Error("tag 97 needs the vault LP portfolio (m.lpPortfolio)");
   if (opts.bond && !m.vaultLpExt) throw new Error("a bond market always has the vault LP ext: set m.vaultLpExt");
   const base = buildWithdrawJuniorTrancheIxP3({ programId: m.programId, market: m.market, registryDomain: m.registryDomain, lpPortfolio: m.lpPortfolio, vaultLpExt: m.vaultLpExt }, juniorOwner, destToken, vaultToken, amount);
-  return opts.bond ? withBondTailV22(base, deriveBondTrancheV22(m.programId, m.market)[0]) : base;
+  return withNavFlowTailV22(opts.bond ? withBondTailV22(base, deriveBondTrancheV22(m.programId, m.market)[0]) : base, m.market);
 }
 
 // src/solana/v22-lp-share.ts
-import { PublicKey as PublicKey30, SystemProgram as SystemProgram8, TransactionInstruction as TransactionInstruction13 } from "@solana/web3.js";
+import { PublicKey as PublicKey32, SystemProgram as SystemProgram10, TransactionInstruction as TransactionInstruction15 } from "@solana/web3.js";
 var te = new TextEncoder();
 function deriveLpShareMetadataPdaV22(mint) {
-  return PublicKey30.findProgramAddressSync([te.encode("metadata"), METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22.toBytes(), mint.toBytes()], METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22);
+  return PublicKey32.findProgramAddressSync([te.encode("metadata"), METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22.toBytes(), mint.toBytes()], METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22);
 }
 function deriveLpShareMetaPayerPdaV22(programId, mint) {
-  return PublicKey30.findProgramAddressSync([te.encode("lp_share_meta_payer"), mint.toBytes()], programId);
+  return PublicKey32.findProgramAddressSync([te.encode("lp_share_meta_payer"), mint.toBytes()], programId);
 }
 function buildInitLpShareMetadataIxV22(a) {
   const ticker = a.ticker ?? "";
@@ -17340,20 +17618,20 @@ function buildInitLpShareMetadataIxV22(a) {
     lpMint,
     metadata,
     metaplexProgram: METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22,
-    systemProgram: SystemProgram8.programId,
+    systemProgram: SystemProgram10.programId,
     feePayerPda
   });
   if (ticker !== "") keys.push(...buildAccountMetas(ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL, { market: a.market, marketauth: a.marketauth }));
-  return new TransactionInstruction13({ programId: a.programId, keys, data: Buffer.from(encodeInitLpShareMetadataV22(ticker)) });
+  return new TransactionInstruction15({ programId: a.programId, keys, data: Buffer.from(encodeInitLpShareMetadataV22(ticker)) });
 }
 
 // src/solana/v22-multi-asset-trade.ts
-import { TransactionInstruction as TransactionInstruction14 } from "@solana/web3.js";
+import { TransactionInstruction as TransactionInstruction16 } from "@solana/web3.js";
 var WRAPPER_PRE_CRANK_MIN_LEGS_V22 = WRAPPER_MAX_PORTFOLIO_ASSETS_V22 > 1 ? WRAPPER_MAX_PORTFOLIO_ASSETS_V22 - 1 : 1;
 var MULTI_ASSET_TRADE_COMPUTE_UNITS_V22 = 14e5;
 var MULTI_ASSET_TRADE_MAX_EXTRA_CRANKS_V22 = 4;
 function buildRefreshCrankIxV22(programId, market, cranker, portfolio, observations = []) {
-  return new TransactionInstruction14({
+  return new TransactionInstruction16({
     programId,
     keys: buildAccountMetas(ACCOUNTS_PERMISSIONLESS_CRANK_BASE, { owner: cranker, market, portfolio }),
     data: Buffer.from(encodePermissionlessCrank({ nowSlot: 0n, observations: observations.map((assetIndex) => ({ assetIndex, oracleAccounts: 0 })) }))
@@ -17448,100 +17726,9 @@ function buildCatchUpAndRefreshIxsV22(input) {
   return { txs, gapSlots: gap, maxAccrualDtSlots: dt, totalObserveCranks: total };
 }
 
-// src/solana/lev-guard-v22.ts
-import { PublicKey as PublicKey32, SystemProgram as SystemProgram9, TransactionInstruction as TransactionInstruction15 } from "@solana/web3.js";
-var enc = new TextEncoder();
-var w2 = (pubkey) => ({ pubkey, isSigner: false, isWritable: true });
-var r2 = (pubkey) => ({ pubkey, isSigner: false, isWritable: false });
-function deriveLevGuardV22(programId, market) {
-  return PublicKey32.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.guard), market.toBytes()], programId);
-}
-function deriveVaultLpStateV22(programId, market) {
-  return PublicKey32.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.vaultLpState), market.toBytes()], programId);
-}
-function deriveVaultLpExtV22(programId, market) {
-  return PublicKey32.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.vaultLpExt), market.toBytes()], programId);
-}
-function deriveProgramDataV22(programId) {
-  return PublicKey32.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3);
-}
-function buildLevGuardInitIxV22(c, authority, t0 = 0n) {
-  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_INIT_V22, {
-    authority,
-    programData: deriveProgramDataV22(c.programId)[0],
-    market: c.market,
-    guard: deriveLevGuardV22(c.programId, c.market)[0],
-    systemProgram: SystemProgram9.programId
-  });
-  return new TransactionInstruction15({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardInitV22(t0)) });
-}
-function buildLevGuardSetRiskKeyIxV22(c, upgradeAuthority, key3) {
-  return adminIx(c, upgradeAuthority, encodeLevGuardSetRiskKeyV22(key3));
-}
-function buildLevGuardSetT0IxV22(c, upgradeAuthority, t0) {
-  return adminIx(c, upgradeAuthority, encodeLevGuardSetT0V22(t0));
-}
-function adminIx(c, upgradeAuthority, data) {
-  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_ADMIN_V22, {
-    upgradeAuthority,
-    programData: deriveProgramDataV22(c.programId)[0],
-    market: c.market,
-    guard: deriveLevGuardV22(c.programId, c.market)[0]
-  });
-  return new TransactionInstruction15({ programId: c.programId, keys, data: Buffer.from(data) });
-}
-function buildLevGuardReportIxV22(c, riskKey, report) {
-  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_REPORT_V22, { riskKey, market: c.market, guard: deriveLevGuardV22(c.programId, c.market)[0] });
-  return new TransactionInstruction15({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardReportV22(report)) });
-}
-function buildLevGuardTightenIxV22(c, caller, o) {
-  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_TIGHTEN_V22, {
-    caller,
-    market: c.market,
-    guard: deriveLevGuardV22(c.programId, c.market)[0],
-    depthSource: deriveDepthSourceV22(c.programId, c.market)[0],
-    baseMint: o.baseMint,
-    poolBaseVault: o.poolBaseVault
-  });
-  if (o.holderTokenAccount) keys.push(r2(o.holderTokenAccount));
-  return new TransactionInstruction15({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardTightenV22()) });
-}
-function buildLevGuardPokeIxV22(c, caller, o) {
-  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_POKE_V22, {
-    caller,
-    market: c.market,
-    guard: deriveLevGuardV22(c.programId, c.market)[0],
-    vaultLpPortfolio: o.vaultLpPortfolio
-  });
-  if (o.sampleNav) keys.push(r2(deriveVaultLpStateV22(c.programId, c.market)[0]), r2(deriveVaultLpExtV22(c.programId, c.market)[0]));
-  return new TransactionInstruction15({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardPokeV22()) });
-}
-function buildLevGuardLpStopIxV22(c, caller, vaultLpPortfolio, opposing = []) {
-  const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_LP_STOP_V22, {
-    caller,
-    market: c.market,
-    guard: deriveLevGuardV22(c.programId, c.market)[0],
-    vaultLpPortfolio,
-    vaultLpState: deriveVaultLpStateV22(c.programId, c.market)[0],
-    vaultLpExt: deriveVaultLpExtV22(c.programId, c.market)[0]
-  });
-  for (const p of opposing) keys.push(w2(p));
-  return new TransactionInstruction15({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardLpStopV22()) });
-}
-function withLevGuardTailV22(ix3, market) {
-  const tag = ix3.data[0];
-  const marketIdx = tag === IX_TAG_EXTENDED_V22.TradeCpi ? 1 : tag === IX_TAG_V22.EvictAndTradeCpi ? 2 : -1;
-  if (marketIdx < 0) throw new Error(`withLevGuardTailV22: expected TradeCpi (10) or EvictAndTradeCpi (119), got tag ${tag}`);
-  if (!ix3.keys[marketIdx]?.pubkey.equals(market)) throw new Error("withLevGuardTailV22: market is not at the expected account index of this instruction");
-  const [guard2] = deriveLevGuardV22(ix3.programId, market);
-  const last = ix3.keys[ix3.keys.length - 1];
-  if (last.pubkey.equals(guard2)) return ix3;
-  return new TransactionInstruction15({ programId: ix3.programId, keys: [...ix3.keys, w2(guard2)], data: ix3.data });
-}
-
 // src/runtime/lighthouse.ts
-import { PublicKey as PublicKey33, Transaction as Transaction3 } from "@solana/web3.js";
-var LIGHTHOUSE_PROGRAM_ID = new PublicKey33(
+import { PublicKey as PublicKey34, Transaction as Transaction3 } from "@solana/web3.js";
+var LIGHTHOUSE_PROGRAM_ID = new PublicKey34(
   "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"
 );
 var LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
@@ -17808,7 +17995,7 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey34 } from "@solana/web3.js";
+import { PublicKey as PublicKey35 } from "@solana/web3.js";
 var U16_MAX4 = 65535;
 var U64_MAX6 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
@@ -17849,7 +18036,7 @@ function safeBigInt(val, caller) {
 }
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey34(value);
+    return new PublicKey35(value);
   } catch {
     throw new ValidationError(
       field,
@@ -18757,6 +18944,8 @@ export {
   MPL_MAX_URI_LEN_V22,
   MULTI_ASSET_TRADE_COMPUTE_UNITS_V22,
   MULTI_ASSET_TRADE_MAX_EXTRA_CRANKS_V22,
+  NAV_FLOW_COMPUTE_UNITS_V22,
+  NAV_FLOW_TAILS_V22,
   NFT_ERRORS,
   NFT_IX_TAG,
   NFT_PROGRAM_ID,
@@ -18930,6 +19119,8 @@ export {
   VAULT_LP_EXT_ACCOUNT_LEN_P2B,
   VAULT_LP_EXT_BODY_LEN_P2B,
   VAULT_LP_EXT_FIELD_OFF_P2B,
+  VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B,
+  VAULT_LP_EXT_OTHER_FLOW_OFF_P2B,
   VAULT_LP_EXT_SEED_P2B,
   VAULT_LP_EXT_TAIL_INDEX_P2B,
   VAULT_LP_EXT_VERSION_P2B,
@@ -19029,6 +19220,7 @@ export {
   buildCreatePortfolioAccountIxV22,
   buildCreateVaultLpMatcherCtxIxP3,
   buildDepositJuniorTrancheIxP3,
+  buildDepositJuniorTrancheIxV22,
   buildDepositToLpVaultIxBoundV22,
   buildEvictAndTradeCpiIxV22,
   buildExecuteRedemptionIxNonBoundP2b,
@@ -19069,10 +19261,13 @@ export {
   buildSettleHoldingRentIxV22,
   buildSweepBandDustLegIxV22,
   buildVaultLpAllocateIxP2b,
+  buildVaultLpAllocateIxV22,
   buildVaultLpConvertPnlIxP3,
   buildVaultLpRecallIxP3,
+  buildVaultLpRecallIxV22,
   buildVaultLpRefreshCrankIxP3,
   buildVaultLpReleaseSurplusIxP3,
+  buildVaultLpReleaseSurplusLiveIxV22,
   buildVaultLpSetMatcherIxP3,
   buildVaultLpSettleResolvedIxP3,
   buildWithdrawJuniorTrancheIxP3,
@@ -19530,6 +19725,7 @@ export {
   growthLVolX100,
   growthMatcherCapsG8,
   growthMatcherCapsV3,
+  hasNavFlowTailV22,
   impliedFundingRateE9V22,
   imrBpsForLeverageX100,
   initPoolAccounts,
@@ -19629,6 +19825,7 @@ export {
   mulDivFloorV22,
   nCapG8Q,
   nCapQ,
+  navFlowAccountsV22,
   nonboundPotAvailableE3P2b,
   nonboundPotEntryAvailableP2b,
   nonboundPotFromRecordsP2b,
@@ -19811,6 +20008,7 @@ export {
   withCrankFeesBoundTailP2b,
   withInsuranceUnitsTailV22,
   withLevGuardTailV22,
+  withNavFlowTailV22,
   withNftEscrowProof,
   withNftHolderAuth,
   withRetry,
