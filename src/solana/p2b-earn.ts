@@ -27,6 +27,8 @@ import {
   U128_MAX_P2B,
   VAULT_LP_EXT_ACCOUNT_LEN_P2B,
   VAULT_LP_EXT_FIELD_OFF_P2B,
+  VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B,
+  VAULT_LP_EXT_OTHER_FLOW_OFF_P2B,
   VAULT_LP_EXT_SEED_P2B,
   VAULT_LP_EXT_VERSION_P2B,
   ALLOC_ALPHA_MAX_BAND_BPS_P2B,
@@ -127,6 +129,13 @@ export interface VaultLpExtV19 {
   cushionShareBps: number;
   version: number;
   bump: number;
+  /**
+   * #641: cumulative value that entered the vault LP's equity through flows with no counter of their own
+   * (tag 102 Live, 108, 111 DRAW). 88-bit counter carved from the former `_padding` / `_reserved` bytes.
+   */
+  otherInAtoms: bigint;
+  /** #641: cumulative value that left through tag 110 (Live) and 111 RESTORE (modes 1 / 3). 88-bit. */
+  otherOutAtoms: bigint;
 }
 
 function dv(d: Uint8Array): DataView {
@@ -135,11 +144,18 @@ function dv(d: Uint8Array): DataView {
 function u128At(v: DataView, o: number): bigint {
   return (v.getBigUint64(o + 8, true) << 64n) | v.getBigUint64(o, true);
 }
+function uLeAt(d: Uint8Array, o: number, n: number): bigint {
+  let x = 0n;
+  for (let i = n - 1; i >= 0; i--) x = (x << 8n) | BigInt(d[o + i]);
+  return x;
+}
 
 /**
  * Decode a `VaultLpExtV19` account (kind 10, 144 bytes), mirroring `read_vault_lp_ext`'s header and
  * `validate_vault_lp_ext` (version 1, non-zero market, alpha <= the band maximum 7000, buffer in [3000, 10000],
- * cushion target / share <= 10000 and both-or-neither, zero padding and reserved).
+ * cushion target / share <= 10000 and both-or-neither). Since percolator-prog #641 the former zero `_padding` / `_reserved`
+ * bytes hold the two 88-bit `other_flow` counters (`otherInAtoms` / `otherOutAtoms`) and the program no longer requires
+ * them to be zero, so neither does this decoder (a pre-#641 decoder throws on any market that saw a bond deposit).
  *
  * @param data  Raw account bytes (header included).
  * @returns Decoded ext.
@@ -172,13 +188,13 @@ export function decodeVaultLpExtV19(data: Uint8Array): VaultLpExtV19 {
     cushionShareBps: v.getUint16(B + F.cushionShareBps, true),
     version: data[B + F.version],
     bump: data[B + F.bump],
+    otherInAtoms: uLeAt(data, B + VAULT_LP_EXT_OTHER_FLOW_OFF_P2B.in, VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B),
+    otherOutAtoms: uLeAt(data, B + VAULT_LP_EXT_OTHER_FLOW_OFF_P2B.out, VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B),
   };
-  const zero = (o: number, n: number): boolean => data.subarray(B + o, B + o + n).every((b) => b === 0);
   if (
     out.version !== VAULT_LP_EXT_VERSION_P2B || marketGroup.equals(PublicKey.default) ||
     out.allocAlphaBps > ALLOC_ALPHA_MAX_BAND_BPS_P2B || out.allocBufferBps < ALLOC_BUFFER_MIN_BPS_P2B || out.allocBufferBps > 10_000 ||
-    out.cushionTargetBps > 10_000 || out.cushionShareBps > 10_000 || (out.cushionTargetBps === 0) !== (out.cushionShareBps === 0) ||
-    !zero(F.padding, 6) || !zero(F.reserved, 16)
+    out.cushionTargetBps > 10_000 || out.cushionShareBps > 10_000 || (out.cushionTargetBps === 0) !== (out.cushionShareBps === 0)
   ) {
     throw new Error("VaultLpExtV19: invalid record — the program would reject it too");
   }

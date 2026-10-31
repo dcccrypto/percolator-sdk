@@ -340,14 +340,14 @@ const BAND_RENT_V22: BandRentOffsets = Object.freeze({
 
 function v22Row(o: {
   name: string; source: string; slotStride: number; engineSlotLen: number; portfolioLen: number; legStride: number;
-  leg: LegOffsets; receiptOff: number;
+  leg: LegOffsets; receiptOff: number; engineDiscriminator: number;
 }): LayoutTable {
   return Object.freeze({
     name: o.name,
     status: "PROVISIONAL" as const,
     source: o.source,
     version: 19,
-    engineDiscriminator: 19,
+    engineDiscriminator: o.engineDiscriminator,
     headerLen: 16,
     wrapperConfigLen: 576,
     marketGroupOff: 592,
@@ -397,7 +397,7 @@ const LEG_V21_PREFIX = { active: 0, assetIndex: 1, marketId: 5, side: 13, basisP
 export const LAYOUT_V22_STAGE_A: LayoutTable = v22Row({
   name: "v2.2 stage A (PROVISIONAL)",
   source: "percolator-prog release/v22-wrapper b4390fe0 on engine release/v22-engine 73ef2c32",
-  slotStride: 2597, engineSlotLen: 1573, portfolioLen: 10091, legStride: 185, receiptOff: 9897,
+  slotStride: 2597, engineSlotLen: 1573, portfolioLen: 10091, legStride: 185, receiptOff: 9897, engineDiscriminator: 19,
   leg: {
     ...LEG_V21_PREFIX, kfEpochSnap: 78, epochSnap: 86, lossWeight: 94, bSnap: 110, bRem: 126, bEpochSnap: 142, bStale: 150, stale: 151,
     bandEpochSnap: 152, bandLiqPending: 160, rentSnap: 161, rentCarry: 177,
@@ -408,6 +408,9 @@ export const LAYOUT_V22_STAGE_A: LayoutTable = v22Row({
  * Wrapper VERSION 19, VARIANT B: the v2.2 LAUNCH CANDIDATE (branches release/v22-engine-rem and
  * release/v22-wrapper-rem, coordinator report 2026-10-06): per-leg K/F remainders (`k_rem_num` @78, `f_rem_num` @94,
  * every later leg field +32), a second 32 B slot tail, and (fold 2026-10-08, engine #287) a third: provider-principal mirror. Leg 217, portfolio 10,603, slot 2,661.
+ * Engine #299 (rc23 engine c630fce4, kept by #302): +4 B `loss_provenance` appended after the resolved-payout receipt, so the
+ * portfolio is 10,607 B (engine 10,463 + 16 header + 128 wrapper trailer), the trailer (matcher config, id, sequence,
+ * expiry) moves +4 to 10,479, the receipt stays at 10,409, and the engine discriminator is 20.
  *
  * The in-slot ENGINE offsets below assume the extra 32 B slot tail sits after the existing fields (so no offset moves);
  * `test/layout-guard.test.ts` verifies the whole row against `layout-v22.json` when that file is present. PROVISIONAL:
@@ -416,7 +419,9 @@ export const LAYOUT_V22_STAGE_A: LayoutTable = v22Row({
 export const LAYOUT_V22_VARIANT_B: LayoutTable = v22Row({
   name: "v2.2 variant B (PROVISIONAL, launch candidate)",
   source: "percolator-prog release/v22-wrapper-rem on engine release/v22-engine-rem; numbers from the coordinator table",
-  slotStride: 2661, engineSlotLen: 1637, portfolioLen: 10603, legStride: 217, receiptOff: 10409,
+  // Engine #299 (c630fce4; engine #302 keeps it): `loss_provenance: V16PodU32` appended LAST to
+  // PortfolioAccountV16Account (10459 -> 10463 B) and V16_LAYOUT_DISCRIMINATOR 19 -> 20. Wrapper VERSION stays 19.
+  slotStride: 2661, engineSlotLen: 1637, portfolioLen: 10607, legStride: 217, receiptOff: 10409, engineDiscriminator: 20,
   leg: {
     ...LEG_V21_PREFIX, kfEpochSnap: 110, epochSnap: 118, lossWeight: 126, bSnap: 142, bRem: 158, bEpochSnap: 174, bStale: 182, stale: 183,
     bandEpochSnap: 184, bandLiqPending: 192, rentSnap: 193, rentCarry: 209,

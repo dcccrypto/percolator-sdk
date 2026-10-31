@@ -13,10 +13,15 @@ import { encodeCreateLpVaultV17 } from "../src/abi/instructions.js";
 import { CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3 } from "../src/abi/p3.js";
 import { buildInitVaultLpIxP3, deriveVaultLpStateP3 } from "../src/solana/p3-vault-lp.js";
 import { deriveInsuranceLpMint, deriveLpVaultRegistry } from "../src/solana/pda.js";
+import { deriveVaultLpExtP2b } from "../src/solana/p2b-earn.js";
+import { deriveLevGuardV22 } from "../src/solana/lev-guard-v22.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 const pk = () => Keypair.generate().publicKey;
-const P = pk(), MARKET = pk(), LP = pk(), EXT = pk();
+const P = pk(), MARKET = pk(), LP = pk();
+// The ext is REQUIRED at its PDA (#640 flow tails check it): use the real one.
+const EXT = deriveVaultLpExtP2b(P, MARKET)[0];
+const GUARD = deriveLevGuardV22(P, MARKET)[0];
 const m: B.MarketV22 = { programId: P, market: MARKET, registryDomain: 0, lpPortfolio: LP, vaultLpExt: EXT };
 const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 
@@ -26,11 +31,12 @@ describe("account counts and flags (Rust handler `account(accounts, i)` order)",
     expect(B.buildInitBondTrancheIxV22(m, u, u, { couponBps: 800, utilBonusBps: 0, cooldownSlots: 9000, capBps: 5000 }).keys).toHaveLength(8);
     expect(B.buildInitBondTrancheIxV22(m, u, u, { couponBps: 800, utilBonusBps: 0, cooldownSlots: 9000, capBps: 5000 }, { upgradeAuthority: true }).keys).toHaveLength(9);
     const dep = B.buildBondDepositIxV22(m, u, t, t, 5n, 1n);
-    expect(dep.keys).toHaveLength(13);
+    expect(dep.keys).toHaveLength(15); // 13 + #641 NAV flow tail
+    expect([dep.keys[13].pubkey.equals(EXT), dep.keys[13].isWritable, dep.keys[14].pubkey.equals(GUARD), dep.keys[14].isWritable]).toEqual([true, true, true, true]);
     expect(dep.keys[7].pubkey.equals(W.deriveBondTrancheV22(P, MARKET)[0])).toBe(true);
     expect(dep.keys[8].pubkey.equals(W.deriveBondPositionV22(P, MARKET, u)[0])).toBe(true);
     expect(B.buildBondRequestWithdrawIxV22(m, u, 5n).keys).toHaveLength(4);
-    expect(B.buildBondExecuteWithdrawIxV22(m, u, t, t, 1n, 0).keys).toHaveLength(13);
+    expect(B.buildBondExecuteWithdrawIxV22(m, u, t, t, 1n, 0).keys).toHaveLength(15);
   });
   it("bond tails: 78 [9] (needs a writable vault LP at [8]), 97 [12], 102 [11], 103 [9]", () => {
     const tr = W.deriveBondTrancheV22(P, MARKET)[0];
@@ -123,9 +129,10 @@ describe("Earn exit (tags 76 / 77 v2.2)", () => {
     expect(B.payoutFromBalancesV22(10n, 25n)).toBe(15n);
     expect(() => B.payoutFromBalancesV22(10n, 10n)).toThrow();
   });
-  it("compute presets: only the 77 numbers are marked measured; prelude includes the heap", () => {
+  it("compute presets: 77 and (since #640 / #641) the NAV flow tags are measured; prelude includes the heap", () => {
     expect(B.COMPUTE_PRESETS_V22.executeRedemptionRefresh).toMatchObject({ units: 1_300_000, basis: "measured" });
-    expect(B.COMPUTE_PRESETS_V22.bondDeposit.basis).toBe("estimated");
+    expect(B.COMPUTE_PRESETS_V22.bondDeposit).toMatchObject({ units: 600_000, basis: "measured" });
+    expect(B.COMPUTE_PRESETS_V22.rescueDeposit.basis).toBe("estimated");
     const ixs = B.computeBudgetPrelude("executeRedemptionRefresh");
     expect(ixs.every((i) => i.programId.equals(ComputeBudgetProgram.programId))).toBe(true);
     expect(ixs.length).toBe(2);
@@ -192,13 +199,18 @@ describe("tails table and the 78 / 97 builders", () => {
     expect(B.buildLpVaultCrankFeesIxBoundV22({ ...m, vaultLpExt: undefined }, pk(), 0).keys).toHaveLength(7);
     expect(() => B.buildLpVaultCrankFeesIxBoundV22({ ...m, vaultLpExt: undefined }, pk(), 0, { bond: true })).toThrow();
   });
-  it("97: [11] ext, [12] tranche", () => {
+  it("97: [11] ext, [12] tranche (else a pad), [13] lev guard", () => {
     const ix = B.buildWithdrawJuniorTrancheIxV22(m, pk(), pk(), pk(), 5n, { bond: true });
     const T = B.ACCOUNT_TAILS_V22[97];
-    expect(ix.keys).toHaveLength(13);
+    expect(ix.keys).toHaveLength(14);
     expect(ix.keys[T.ext].pubkey.equals(EXT)).toBe(true);
     expect(ix.keys[T.bondTranche].pubkey.equals(W.deriveBondTrancheV22(P, MARKET)[0])).toBe(true);
-    expect(B.buildWithdrawJuniorTrancheIxV22(m, pk(), pk(), pk(), 5n).keys).toHaveLength(12);
+    expect(ix.keys[T.levGuard].pubkey.equals(GUARD)).toBe(true);
+    const noBond = B.buildWithdrawJuniorTrancheIxV22(m, pk(), pk(), pk(), 5n);
+    expect(noBond.keys).toHaveLength(14);
+    expect(noBond.keys[T.bondTranche].pubkey.equals(SystemProgram.programId)).toBe(true);
+    // no ext known to the caller: the ext PDA is still passed (the NAV sample reads it at its PDA)
+    expect(B.buildWithdrawJuniorTrancheIxV22({ ...m, vaultLpExt: undefined }, pk(), pk(), pk(), 5n).keys[T.ext].pubkey.equals(EXT)).toBe(true);
   });
   it("table agrees with the tail helpers", () => {
     expect(W.BOND_TAIL_INDEX_V22).toEqual({ 78: B.ACCOUNT_TAILS_V22[78].bondTranche, 97: B.ACCOUNT_TAILS_V22[97].bondTranche, 102: B.ACCOUNT_TAILS_V22[102].bondTranche, 103: B.ACCOUNT_TAILS_V22[103].bondTranche });

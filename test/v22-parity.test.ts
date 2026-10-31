@@ -25,7 +25,10 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const unhex = (s: string) => Uint8Array.from(Buffer.from(s, "hex"));
 
 describe("pinned oracle", () => {
-  it("is variant B", () => expect(FX.prog).toBe("8fac24e8fd67476727a5b79ec631125d57f02a5b"));
+  it("is variant B (rc23 + repin #642 at prog f1204c93, engine a100d54d)", () => {
+    expect(FX.prog).toBe("f1204c932b4d2b00b08b1887975f36d2c28cea93");
+    expect(FX.engine).toBe("a100d54ddd6fe9cdf18a7170075b707dff1b2f6f");
+  });
 });
 
 describe("instruction golden vectors (encoder == real decoder; real re-encode == SDK bytes)", () => {
@@ -203,6 +206,12 @@ describe("account decoders vs the program's own writes", () => {
     expect(unhex(A.redemptionV22.hex).length).toBe(128);
     void stamp;
   });
+});
+
+describe("rescue NAV floor (D23 / prog #595: 50% of par, was 5%)", () => {
+  // 40% of par: admitted under the old 500 bps floor, refused by the program since #624 (cb5bfcf2).
+  it("refuses a rescue at 40% of par", () => expect(M.rescueAdmittedV22(100_000_000n, 400_000_000n, 1_000_000_000n, 1_000n)).toBe("NavFloor"));
+  it("admits a rescue at exactly 50% of par", () => expect(M.rescueAdmittedV22(100_000_000n, 500_000_000n, 1_000_000_000n, 1_000n)).toBeNull());
 });
 
 describe("pure rules == the crate", () => {
