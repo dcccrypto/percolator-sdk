@@ -240,6 +240,9 @@ export declare const LAYOUT_V22_STAGE_A: LayoutTable;
  * Wrapper VERSION 19, VARIANT B: the v2.2 LAUNCH CANDIDATE (branches release/v22-engine-rem and
  * release/v22-wrapper-rem, coordinator report 2026-10-06): per-leg K/F remainders (`k_rem_num` @78, `f_rem_num` @94,
  * every later leg field +32), a second 32 B slot tail, and (fold 2026-10-08, engine #287) a third: provider-principal mirror. Leg 217, portfolio 10,603, slot 2,661.
+ * Engine #299 (rc23 engine c630fce4, kept by #302): +4 B `loss_provenance` appended after the resolved-payout receipt, so the
+ * portfolio is 10,607 B (engine 10,463 + 16 header + 128 wrapper trailer), the trailer (matcher config, id, sequence,
+ * expiry) moves +4 to 10,479, the receipt stays at 10,409, and the engine discriminator is 20.
  *
  * The in-slot ENGINE offsets below assume the extra 32 B slot tail sits after the existing fields (so no offset moves);
  * `test/layout-guard.test.ts` verifies the whole row against `layout-v22.json` when that file is present. PROVISIONAL:

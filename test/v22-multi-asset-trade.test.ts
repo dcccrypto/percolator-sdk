@@ -10,6 +10,7 @@ import {
   buildMultiAssetTradeIxsV22, refineMultiAssetTradePlanV22, buildRefreshCrankIxV22, parseErrorFromLogs, getContextualErrorHint, PERCOLATOR_ERRORS,
   WRAPPER_PRE_CRANK_MIN_LEGS_V22, MULTI_ASSET_TRADE_COMPUTE_UNITS_V22, MULTI_ASSET_TRADE_MAX_EXTRA_CRANKS_V22, PROGRAM_IDS_DEVNET_V22,
 } from "../src/index.js";
+import { toEngineDisc20Portfolio } from "./helpers/portfolio-disc20.js";
 
 interface Ser { programId: string; keys: string[]; data: string }
 const FX = JSON.parse(readFileSync(new URL("./fixtures/v22-q7-devnet-2026-10-12.json", import.meta.url), "utf8")) as {
@@ -19,10 +20,12 @@ const FX = JSON.parse(readFileSync(new URL("./fixtures/v22-q7-devnet-2026-10-12.
 };
 const QA = JSON.parse(readFileSync(new URL("./fixtures/v22-qa-devnet-2026-10-11.json", import.meta.url), "utf8")) as { accounts: { accounts: Record<string, { dataBase64: string }> } };
 const b64 = (s: string): Uint8Array => new Uint8Array(Buffer.from(s, "base64"));
+// Recorded before engine #299: lift the portfolios to the rc23 layout (disc 20, 10,607 B); see helpers/portfolio-disc20.ts.
+const pf = (s: string): Uint8Array => toEngineDisc20Portfolio(b64(s));
 const W = new PublicKey(PROGRAM_IDS_DEVNET_V22.percolator), MKT = new PublicKey(FX.market), P = new PublicKey(FX.portfolio), LP = new PublicKey(FX.lp), OWNER = new PublicKey(FX.owner);
 const ser = (ix: TransactionInstruction): Ser => ({ programId: ix.programId.toBase58(), keys: ix.keys.map((k) => `${k.pubkey.toBase58()}:${k.isSigner ? "s" : "-"}${k.isWritable ? "w" : "-"}`), data: Buffer.from(ix.data).toString("hex") });
 const unser = (s: Ser): TransactionInstruction => new TransactionInstruction({ programId: new PublicKey(s.programId), keys: s.keys.map((k) => { const [pk, f] = k.split(":"); return { pubkey: new PublicKey(pk!), isSigner: f![0] === "s", isWritable: f![1] === "w" }; }), data: Buffer.from(s.data, "hex") });
-const input = (tradeIx: TransactionInstruction) => ({ programId: W, market: MKT, marketData: b64(FX.accounts.market), cranker: OWNER, takerPortfolio: P, takerData: b64(FX.accounts.taker), lpPortfolio: LP, lpData: b64(FX.accounts.lp), tradeIx });
+const input = (tradeIx: TransactionInstruction) => ({ programId: W, market: MKT, marketData: b64(FX.accounts.market), cranker: OWNER, takerPortfolio: P, takerData: pf(FX.accounts.taker), lpPortfolio: LP, lpData: pf(FX.accounts.lp), tradeIx });
 const tradeOf = (c: (typeof FX.cases)[number]): TransactionInstruction => unser(c.scriptIxs[c.scriptIxs.length - 1]!);
 
 describe("Q-7 buildMultiAssetTradeIxsV22 (real devnet state)", () => {
@@ -64,13 +67,13 @@ describe("Q-7 buildMultiAssetTradeIxsV22 (real devnet state)", () => {
     expect(plan.computeUnitLimit).toBeUndefined();
   });
   it("simple path: a multi-asset market with both portfolios below 3 legs", () => {
-    const flat = b64(FX.accounts.flatPortfolio);
+    const flat = pf(FX.accounts.flatPortfolio);
     const plan = buildMultiAssetTradeIxsV22({ ...input(tradeOf(FX.cases[0]!)), takerData: flat, lpData: flat });
     expect(plan).toMatchObject({ path: "simple", marketSlots: 5, takerActiveLegs: 0, lpActiveLegs: 0 });
     expect(plan.instructions).toHaveLength(1);
   });
   it("the LP alone at 3 legs is enough to need the multi-asset shape (the check is on both trade portfolios)", () => {
-    const plan = buildMultiAssetTradeIxsV22({ ...input(tradeOf(FX.cases[0]!)), takerData: b64(FX.accounts.flatPortfolio) });
+    const plan = buildMultiAssetTradeIxsV22({ ...input(tradeOf(FX.cases[0]!)), takerData: pf(FX.accounts.flatPortfolio) });
     expect(plan).toMatchObject({ path: "multiAsset", takerActiveLegs: 0, lpActiveLegs: 3 });
   });
   it("an open's stale peers are refreshed between the LP observe crank and the taker; taker/LP are not duplicated", () => {

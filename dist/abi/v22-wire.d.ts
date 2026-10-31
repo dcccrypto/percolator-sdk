@@ -144,8 +144,8 @@ export declare const BATCH_MAX_LEGS_V22 = 4;
 export declare function assertBatchLegsV22(n: number): void;
 /** `bond_v20::SLOTS_PER_YEAR` (400 ms slots). */
 export declare const SLOTS_PER_YEAR_V22 = 78840000n;
-/** `p4_rescue_ins` constants. */
-export declare const RESCUE_NAV_FLOOR_BPS_V22 = 500;
+/** `p4_rescue_ins` constants. `RESCUE_NAV_FLOOR_BPS` is 5,000 (50% of par) since D23 / prog #595 (#624, cb5bfcf2); it was 500. */
+export declare const RESCUE_NAV_FLOOR_BPS_V22 = 5000;
 export declare const RESCUE_MIN_ATOMS_V22 = 100000000n;
 export declare const RESCUE_MAX_MULT_V22 = 10n;
 export declare const INS_UNITS_GENESIS_MIN_ATOMS_V22 = 1000000n;

@@ -69,6 +69,8 @@ export default defineConfig({
       "test/deps-advisories.test.ts",
       "test/init-matcher-ctx-range.test.ts",
       "test/sdk421-backstop-mode3.test.ts",
+      // #636 / #636b (prog #640 + #641): flow-tag account lists + CU limits
+      "test/v22-nav-flow.test.ts",
       "test/v22-launch-settings.test.ts", "test/v22-init-signer.test.ts",
     ],
   },
