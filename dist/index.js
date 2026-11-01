@@ -5836,7 +5836,8 @@ var STANDALONE_V22 = Object.freeze({
   headerLen: 16,
   redemptionBody: 96,
   redemptionExtBody: 16,
-  bondTrancheBody: 128,
+  bondTrancheBody: 176,
+  // GH#571 layout v2 (prog #649); v1 was 128
   bondPositionBody: 96,
   insuranceUnitsBody: 192,
   g9FeedAllowlistBody: 2064,
@@ -8445,6 +8446,8 @@ function guard(data, parser, kind, bodyLen, table) {
 function bad(parser, msg, kind) {
   return new UnknownLayoutError("INVALID_RECORD", parser, `invalid account data: ${msg}`, { kind });
 }
+var BOND_TRANCHE_VERSION_V22 = 2;
+var BOND_COUPON_DENOM_V22 = 10000n * 78840000n;
 var BOND_TRANCHE_FIELD_OFF_V22 = Object.freeze({
   marketGroup: 0,
   cBAtoms: 32,
@@ -8460,7 +8463,11 @@ var BOND_TRANCHE_FIELD_OFF_V22 = Object.freeze({
   bump: 115,
   lastUtilBps: 116,
   padding: 118,
-  couponPaidTotalAtoms: 120
+  couponPaidTotalAtoms: 120,
+  couponArrearsAtoms: 128,
+  couponUnfundedAtoms: 144,
+  couponAccrualRem: 160,
+  couponGateSeen: 168
 });
 function decodeBondTrancheV20(data, table = LAYOUT_V22) {
   const parser = "decodeBondTrancheV20";
@@ -8481,10 +8488,14 @@ function decodeBondTrancheV20(data, table = LAYOUT_V22) {
     version: data[b + F.version],
     bump: data[b + F.bump],
     lastUtilBps: v.getUint16(b + F.lastUtilBps, true),
-    couponPaidTotalAtoms: v.getBigUint64(b + F.couponPaidTotalAtoms, true)
+    couponPaidTotalAtoms: v.getBigUint64(b + F.couponPaidTotalAtoms, true),
+    couponArrearsAtoms: u128(v, b + F.couponArrearsAtoms),
+    couponUnfundedAtoms: u128(v, b + F.couponUnfundedAtoms),
+    couponAccrualRem: v.getBigUint64(b + F.couponAccrualRem, true),
+    couponGateSeen: v.getBigUint64(b + F.couponGateSeen, true)
   };
   const dialsOk = t.couponBpsPerYear <= 2e3 && t.couponUtilBonusBps === 0 && t.bondCooldownSlots >= 9e3 && t.bondCooldownSlots <= 1512e3 && t.bondCapBpsOfC >= 1 && t.bondCapBpsOfC <= 5e3;
-  if (t.version !== 1 || isZero(data.subarray(b, b + 32)) || !dialsOk || t.lastUtilBps > 1e4 || !isZero(data.subarray(b + F.padding, b + F.padding + 2)) || t.cBAtoms === 0n !== (t.bSharesTotal === 0n)) {
+  if (t.version !== BOND_TRANCHE_VERSION_V22 || isZero(data.subarray(b, b + 32)) || !dialsOk || t.lastUtilBps > 1e4 || !isZero(data.subarray(b + F.padding, b + F.padding + 2)) || t.cBAtoms === 0n !== (t.bSharesTotal === 0n) || t.couponAccrualRem >= BOND_COUPON_DENOM_V22 || t.couponUnfundedAtoms > t.cBAtoms) {
     throw bad(parser, "bond tranche fails the program's validate_bond_tranche", ACCOUNT_KIND.BondTranche);
   }
   return t;
@@ -8913,26 +8924,195 @@ function bondCouponSplitV22(available, due) {
   const coupon = due < cap ? due : cap;
   return [coupon, available - coupon];
 }
+var COUPON_DENOM_V22 = BPS2 * SLOTS_PER_YEAR_V22;
+var BIT63 = 1n << 63n;
+function bondFundedClaimV22(bondClaim, unfunded) {
+  return bondClaim > unfunded ? bondClaim - unfunded : 0n;
+}
+function couponArrearsCapV22(fundedClaim, rateBps) {
+  return couponDueV22(fundedClaim, rateBps, SLOTS_PER_YEAR_V22);
+}
+function couponSettleV22(bondClaim, unfunded, rem, rateBps, dslots, open, bondValue) {
+  if (!open) return [0n, rem];
+  const dt = dslots > SLOTS_PER_YEAR_V22 ? SLOTS_PER_YEAR_V22 : dslots;
+  const r3 = BigInt(rateBps);
+  const n1 = couponBaseV22(bondClaim, bondValue) * r3;
+  if (n1 > U128_MAX4) return null;
+  const n2 = n1 * dt;
+  if (n2 > U128_MAX4) return null;
+  const num = n2 + rem;
+  if (num > U128_MAX4) return null;
+  const due = num / COUPON_DENOM_V22;
+  const c1 = bondFundedClaimV22(bondClaim, unfunded) * r3;
+  if (c1 > U128_MAX4) return null;
+  const c2 = c1 * SLOTS_PER_YEAR_V22;
+  if (c2 > U128_MAX4) return null;
+  const cap = c2 / COUPON_DENOM_V22;
+  const room = cap > unfunded ? cap - unfunded : 0n;
+  if (due > room) return [room, 0n];
+  return [due, num % COUPON_DENOM_V22];
+}
+function couponGateSeenV22(seniorDrawnAtoms, openNow) {
+  const drawn = seniorDrawnAtoms & U64_MAX4 & ~BIT63;
+  return openNow ? drawn : drawn | BIT63;
+}
+function couponIntervalCleanV22(seen, seniorDrawnAtoms) {
+  return seen === couponGateSeenV22(seniorDrawnAtoms, true);
+}
+function couponPayFromLegV22(available, receivable) {
+  const [coupon, rest] = bondCouponSplitV22(available, receivable);
+  return [coupon, rest, receivable - coupon];
+}
+function couponMeterAfterDepositV22(unfunded, bondClaim, amount) {
+  if (bondClaim === 0n) return unfunded;
+  const p = amount * unfunded;
+  if (p > U128_MAX4) return null;
+  const label = p / bondClaim + (p % bondClaim !== 0n ? 1n : 0n);
+  const out = unfunded + label;
+  return out > U128_MAX4 ? null : out;
+}
+function couponMeterAfterRedemptionV22(unfunded, shares, totalShares) {
+  if (totalShares === 0n || shares > totalShares) return null;
+  const slice = mulDivFloorV22(shares, unfunded, totalShares);
+  if (slice === null || slice > unfunded) return null;
+  return unfunded - slice;
+}
+function couponPayOpenV22(accrualOpen, live, bondClaim, seniorDrawOutstanding) {
+  return accrualOpen || live && bondClaim === 0n && seniorDrawOutstanding === 0n;
+}
+function bondSettleCouponToV22(t, seniorDrawnAtoms, nowSlot, openNow, zeroRem) {
+  const open = openNow && couponIntervalCleanV22(t.couponGateSeen, seniorDrawnAtoms);
+  const rate = bondCouponRateBpsV22(t.couponBpsPerYear, t.couponUtilBonusBps, 0);
+  const dslots = nowSlot > t.lastCouponSlot ? nowSlot - t.lastCouponSlot : 0n;
+  const s = couponSettleV22(t.cBAtoms, t.couponUnfundedAtoms, t.couponAccrualRem, rate, dslots, open, t.cBAtoms);
+  if (s === null) return null;
+  const [x, rem] = s;
+  const u = t.couponUnfundedAtoms + x;
+  const k = t.cBAtoms + x;
+  const r3 = t.couponArrearsAtoms + x;
+  if (u > U128_MAX4 || k > U128_MAX4 || r3 > U128_MAX4) return null;
+  return {
+    tranche: {
+      ...t,
+      cBAtoms: k,
+      couponArrearsAtoms: r3,
+      couponUnfundedAtoms: u,
+      couponAccrualRem: zeroRem ? 0n : rem,
+      couponGateSeen: couponGateSeenV22(seniorDrawnAtoms, openNow),
+      lastCouponSlot: nowSlot > t.lastCouponSlot ? nowSlot : t.lastCouponSlot
+    },
+    accrued: x
+  };
+}
+function bondClaimUpperBoundAtV22(t, nowSlot) {
+  const rate = bondCouponRateBpsV22(t.couponBpsPerYear, t.couponUtilBonusBps, Number(BPS2));
+  const dslots = nowSlot > t.lastCouponSlot ? nowSlot - t.lastCouponSlot : 0n;
+  const s = couponSettleV22(t.cBAtoms, t.couponUnfundedAtoms, t.couponAccrualRem, rate, dslots, t.cBAtoms > 0n, t.cBAtoms);
+  if (s === null) return null;
+  const k = t.cBAtoms + s[0];
+  return k > U128_MAX4 ? null : k;
+}
+function bondCouponTakeV22(i) {
+  const t = i.tranche;
+  const k = t.cBAtoms;
+  const draw = i.seniorDrawOutstandingAtoms;
+  const preOpen = i.live && k > 0n && draw === 0n;
+  const bondValue = preOpen ? i.bondValueBeforeLeg : 0n;
+  const openNow = couponGateOpenV22(i.live, k, draw, bondValue);
+  const open = openNow && couponIntervalCleanV22(t.couponGateSeen, i.seniorDrawnAtoms);
+  const uNow = open && t.couponUtilBonusBps !== 0 ? i.utilNowBps ?? 0 : 0;
+  const uEff = uNow < t.lastUtilBps ? uNow : t.lastUtilBps;
+  const rate = bondCouponRateBpsV22(t.couponBpsPerYear, t.couponUtilBonusBps, uEff);
+  const dslots = i.nowSlot > t.lastCouponSlot ? i.nowSlot - t.lastCouponSlot : 0n;
+  const s = couponSettleV22(k, t.couponUnfundedAtoms, t.couponAccrualRem, rate, dslots, open, bondValue);
+  if (s === null) return null;
+  const [accrued, rem] = s;
+  const kAfter = k + accrued;
+  const r3 = t.couponArrearsAtoms + accrued;
+  const u = t.couponUnfundedAtoms + accrued;
+  if (kAfter > U128_MAX4 || r3 > U128_MAX4 || u > U128_MAX4) return null;
+  const [coupon, rest, rAfter] = couponPayOpenV22(openNow, i.live, k, draw) ? couponPayFromLegV22(i.available, r3) : [0n, i.available, r3];
+  const paid = t.couponPaidTotalAtoms + (coupon > U64_MAX4 ? U64_MAX4 : coupon);
+  return {
+    coupon,
+    rest,
+    accrued,
+    openNow,
+    open,
+    tranche: {
+      ...t,
+      cBAtoms: kAfter,
+      couponArrearsAtoms: rAfter,
+      couponUnfundedAtoms: u > coupon ? u - coupon : 0n,
+      couponAccrualRem: rem,
+      couponPaidTotalAtoms: paid > U64_MAX4 ? U64_MAX4 : paid,
+      lastCouponSlot: i.nowSlot > t.lastCouponSlot ? i.nowSlot : t.lastCouponSlot,
+      couponGateSeen: couponGateSeenV22(i.seniorDrawnAtoms, openNow),
+      lastUtilBps: uNow
+    }
+  };
+}
 function quoteBondDepositV22(i) {
-  const split = trancheSplit3V22(i.vaultValue, i.seniorClaimEff, i.cBAtoms);
-  if (split.bond < i.cBAtoms) return { shares: null, minShares: null, refusal: { code: 107, name: "BondTrancheImpaired" } };
-  if (!bondCapOkV22(i.cBAtoms + i.amount, i.seniorClaimEff, split.junior, i.capBps)) return { shares: null, minShares: null, refusal: { code: 123, name: "BondDepositAboveCap" } };
-  const shares = bondSharesForDepositV22(i.amount, i.bSharesTotal, split.bond);
-  if (shares === null) return { shares: null, minShares: null, refusal: { code: 107, name: "BondTrancheImpaired" } };
-  if (shares === 0n) return { shares: 0n, minShares: null, refusal: { code: 124, name: "BondSlippage" } };
+  const none = { shares: null, minShares: null, settledCoupon: null, claimAtPrice: null, trancheAfter: null };
+  if ((i.seniorDrawOutstandingAtoms ?? 0n) !== 0n || (i.backstopOutstandingAtoms ?? 0n) !== 0n) {
+    return { ...none, refusal: { code: 89, name: "VaultLpPausedForSeniorDraw" } };
+  }
+  const t0 = i.tranche;
+  if (i.vaultValue < i.seniorClaimEff || bondImpairedV22(i.vaultValue, i.seniorClaimEff, t0.cBAtoms)) {
+    return { ...none, refusal: { code: 107, name: "BondTrancheImpaired" } };
+  }
+  const settled = bondSettleCouponToV22(t0, i.seniorDrawnAtoms, i.nowSlot, t0.cBAtoms > 0n, true);
+  if (settled === null) return { ...none, refusal: { code: 15, name: "EngineArithmeticOverflow" } };
+  const t1 = { ...settled.tranche, couponGateSeen: couponGateSeenV22(i.seniorDrawnAtoms, true) };
+  const k = t1.cBAtoms;
+  const at = { settledCoupon: settled.accrued, claimAtPrice: k };
+  if (bondImpairedV22(i.vaultValue, i.seniorClaimEff, k)) {
+    return { ...none, ...at, refusal: { code: 107, name: "BondTrancheImpaired" } };
+  }
+  const split = trancheSplit3V22(i.vaultValue, i.seniorClaimEff, k);
+  const kAfter = k + i.amount;
+  if (kAfter > U128_MAX4) return { ...none, ...at, refusal: { code: 15, name: "EngineArithmeticOverflow" } };
+  if (!bondCapOkV22(kAfter, i.seniorClaimEff, split.junior, t1.bondCapBpsOfC)) {
+    return { ...none, ...at, refusal: { code: 123, name: "BondDepositAboveCap" } };
+  }
+  const shares = bondSharesForDepositV22(i.amount, t1.bSharesTotal, split.bond);
+  if (shares === null) return { ...none, ...at, refusal: { code: 107, name: "BondTrancheImpaired" } };
+  if (shares === 0n) return { ...none, ...at, shares: 0n, refusal: { code: 124, name: "BondSlippage" } };
+  const u = couponMeterAfterDepositV22(t1.couponUnfundedAtoms, k, i.amount);
+  const b = t1.bSharesTotal + shares;
+  if (u === null || b > U128_MAX4) return { ...none, ...at, refusal: { code: 15, name: "EngineArithmeticOverflow" } };
   const slip = BigInt(i.slippageBps ?? 0);
-  return { shares, minShares: shares * (BPS2 - slip) / BPS2, refusal: null };
+  return {
+    shares,
+    minShares: shares * (BPS2 - slip) / BPS2,
+    ...at,
+    trancheAfter: { ...t1, couponUnfundedAtoms: u, cBAtoms: kAfter, bSharesTotal: b },
+    refusal: null
+  };
 }
 function quoteBondWithdrawV22(i) {
-  const bondValue = trancheSplit3V22(i.vaultValue, i.seniorClaimEff, i.cBAtoms).bond;
-  const atoms = bondAtomsForRedemptionV22(i.shares, i.bSharesTotal, bondValue);
-  const claimAfter = bondClaimAfterRedemptionV22(i.cBAtoms, i.shares, i.bSharesTotal);
-  if (atoms === null || claimAfter === null || i.shares === 0n) return { atoms: null, minOut: null, claimAfter: null, refusal: { code: 110, name: "BondConfigInvalid" } };
+  const none = { atoms: null, minOut: null, claimAfter: null, settledCoupon: null, trancheAfter: null };
+  if (i.shares === 0n) return { ...none, refusal: { code: 109, name: "BondWithdrawCooldown" } };
+  const halt = (i.seniorDrawOutstandingAtoms ?? 0n) + (i.live ? i.backstopOutstandingAtoms ?? 0n : 0n);
+  if (halt > 0n) return { ...none, refusal: { code: 89, name: "VaultLpPausedForSeniorDraw" } };
+  const t0 = i.tranche;
+  const openNow = i.live !== void 0 && t0.cBAtoms > 0n && !bondImpairedV22(i.vaultValue, i.seniorClaimEff, t0.cBAtoms);
+  const settled = bondSettleCouponToV22(t0, i.seniorDrawnAtoms, i.nowSlot, openNow, false);
+  if (settled === null) return { ...none, refusal: { code: 15, name: "EngineArithmeticOverflow" } };
+  const t1 = settled.tranche;
+  const k = t1.cBAtoms;
+  const bondValue = trancheSplit3V22(i.vaultValue, i.seniorClaimEff, k).bond;
+  const atoms = bondAtomsForRedemptionV22(i.shares, t1.bSharesTotal, bondValue);
+  if (atoms === null) return { ...none, settledCoupon: settled.accrued, refusal: { code: 110, name: "BondConfigInvalid" } };
+  const claimAfter = bondClaimAfterRedemptionV22(k, i.shares, t1.bSharesTotal);
+  const uAfter = couponMeterAfterRedemptionV22(t1.couponUnfundedAtoms, i.shares, t1.bSharesTotal);
+  if (claimAfter === null || uAfter === null) return { ...none, settledCoupon: settled.accrued, refusal: { code: 110, name: "BondConfigInvalid" } };
+  const trancheAfter = { ...t1, cBAtoms: claimAfter, couponUnfundedAtoms: uAfter, bSharesTotal: t1.bSharesTotal - i.shares };
   if (i.live && !bondWithdrawLockOkV22(i.live.nCapAfter, i.live.oiLongQ, i.live.oiShortQ, i.live.lpEffAbsQ)) {
-    return { atoms, minOut: null, claimAfter, refusal: { code: 108, name: "BondCapacityLocked" } };
+    return { atoms, minOut: null, claimAfter, settledCoupon: settled.accrued, trancheAfter: null, refusal: { code: 108, name: "BondCapacityLocked" } };
   }
   const slip = BigInt(i.slippageBps ?? 0);
-  return { atoms, minOut: atoms * (BPS2 - slip) / BPS2, claimAfter, refusal: null };
+  return { atoms, minOut: atoms * (BPS2 - slip) / BPS2, claimAfter, settledCoupon: settled.accrued, trancheAfter, refusal: null };
 }
 function assertUtilBonusZeroV22(utilBonusBps) {
   if (utilBonusBps > BOND_UTIL_BONUS_MAX_BPS_V22) throw new Error("the utilisation bonus must be 0 (review L-2)");
@@ -18892,11 +19072,13 @@ export {
   BOND_CAP_MAX_BPS_V22,
   BOND_COOLDOWN_MAX_SLOTS_V22,
   BOND_COOLDOWN_MIN_SLOTS_V22,
+  BOND_COUPON_DENOM_V22,
   BOND_COUPON_MAX_BPS_V22,
   BOND_COUPON_MAX_LEG_BPS_V22,
   BOND_POSITION_FIELD_OFF_V22,
   BOND_TAIL_INDEX_V22,
   BOND_TRANCHE_FIELD_OFF_V22,
+  BOND_TRANCHE_VERSION_V22,
   BOND_UTIL_BONUS_MAX_BPS_V22,
   BOOK_DEPTH_BAND_BPS,
   BOUND_SCALE_P2B,
@@ -18913,6 +19095,7 @@ export {
   CHAINLINK_TIMESTAMP_OFFSET,
   COMPUTE_PRESETS_V22,
   CONSENT_VERSION_FIRST_LOSS_V5,
+  COUPON_DENOM_V22,
   CRANK_OBSERVATION_DECODE_MAX,
   CREATOR_FEE_PAYEE_ACCOUNT_LEN_V22,
   CREATOR_FEE_PAYEE_BODY_LEN_V22,
@@ -19453,10 +19636,14 @@ export {
   bondAtomsForRedemptionV22,
   bondCapOkV22,
   bondClaimAfterRedemptionV22,
+  bondClaimUpperBoundAtV22,
   bondCooldownElapsedV22,
   bondCouponRateBpsV22,
   bondCouponSplitV22,
+  bondCouponTakeV22,
+  bondFundedClaimV22,
   bondImpairedV22,
+  bondSettleCouponToV22,
   bondSharesForDepositV22,
   bondUtilBpsV22,
   bondWithdrawLockOkV22,
@@ -19587,9 +19774,17 @@ export {
   consentParamsForPoolV5,
   conservativeEquity,
   countLighthouseInstructions,
+  couponArrearsCapV22,
   couponBaseV22,
   couponDueV22,
   couponGateOpenV22,
+  couponGateSeenV22,
+  couponIntervalCleanV22,
+  couponMeterAfterDepositV22,
+  couponMeterAfterRedemptionV22,
+  couponPayFromLegV22,
+  couponPayOpenV22,
+  couponSettleV22,
   creatorCollateralAtaV5,
   creatorFeeClaimRouteV22,
   creatorFeePayeeDestinationV22,

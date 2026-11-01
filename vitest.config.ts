@@ -73,6 +73,7 @@ export default defineConfig({
       "test/v22-nav-flow.test.ts",
       "test/v22-launch-settings.test.ts", "test/v22-init-signer.test.ts",
       "test/creator-fee-payee-v22.test.ts",
+      "test/bond-carry-571.test.ts",
     ],
   },
 });

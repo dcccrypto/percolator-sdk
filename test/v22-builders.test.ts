@@ -222,11 +222,16 @@ describe("tails table and the 78 / 97 builders", () => {
 
 describe("quotes", () => {
   it("bond deposit / withdraw / rescue refusals carry the on-chain codes", () => {
-    expect(M.quoteBondDepositV22({ amount: 100n, bSharesTotal: 100n, cBAtoms: 100n, capBps: 5000, vaultValue: 850n, seniorClaimEff: 800n }).refusal?.code).toBe(107);
-    expect(M.quoteBondDepositV22({ amount: 1_000n, bSharesTotal: 100n, cBAtoms: 100n, capBps: 100, vaultValue: 5_000n, seniorClaimEff: 800n }).refusal?.code).toBe(123);
-    const ok = M.quoteBondDepositV22({ amount: 100n, bSharesTotal: 0n, cBAtoms: 0n, capBps: 5000, vaultValue: 2_000n, seniorClaimEff: 1_000n, slippageBps: 100 });
+    const tr = (k: bigint, b: bigint, cap = 5000) => ({ cBAtoms: k, bSharesTotal: b, couponArrearsAtoms: 0n, couponUnfundedAtoms: 0n, couponAccrualRem: 0n, couponGateSeen: 0n, lastCouponSlot: 0n, couponBpsPerYear: 800, couponUtilBonusBps: 0, bondCapBpsOfC: cap });
+    const at = { nowSlot: 0n, seniorDrawnAtoms: 0n };
+    expect(M.quoteBondDepositV22({ amount: 100n, tranche: tr(100n, 100n), ...at, vaultValue: 850n, seniorClaimEff: 800n }).refusal?.code).toBe(107);
+    expect(M.quoteBondDepositV22({ amount: 1_000n, tranche: tr(100n, 100n, 100), ...at, vaultValue: 5_000n, seniorClaimEff: 800n }).refusal?.code).toBe(123);
+    expect(M.quoteBondDepositV22({ amount: 100n, tranche: tr(0n, 0n), ...at, vaultValue: 999n, seniorClaimEff: 1_000n }).refusal?.code).toBe(107);
+    expect(M.quoteBondDepositV22({ amount: 100n, tranche: tr(0n, 0n), ...at, vaultValue: 2_000n, seniorClaimEff: 1_000n, backstopOutstandingAtoms: 1n }).refusal?.code).toBe(89);
+    const ok = M.quoteBondDepositV22({ amount: 100n, tranche: tr(0n, 0n), ...at, vaultValue: 2_000n, seniorClaimEff: 1_000n, slippageBps: 100 });
     expect([ok.shares, ok.minShares, ok.refusal]).toEqual([100n, 99n, null]);
-    expect(M.quoteBondWithdrawV22({ shares: 100n, bSharesTotal: 1000n, cBAtoms: 1000n, vaultValue: 3000n, seniorClaimEff: 1000n, live: { nCapAfter: 1n, oiLongQ: 5n, oiShortQ: 0n, lpEffAbsQ: 0n } }).refusal?.code).toBe(108);
+    expect(M.quoteBondWithdrawV22({ shares: 100n, tranche: tr(1000n, 1000n), ...at, vaultValue: 3000n, seniorClaimEff: 1000n, live: { nCapAfter: 1n, oiLongQ: 5n, oiShortQ: 0n, lpEffAbsQ: 0n } }).refusal?.code).toBe(108);
+    expect(M.quoteBondWithdrawV22({ shares: 0n, tranche: tr(1000n, 1000n), ...at, vaultValue: 3000n, seniorClaimEff: 1000n }).refusal?.code).toBe(109);
     expect(M.quoteRescueV22({ amount: 100_000_000n, v: 40_000_000n, par: 1_000_000_000n, shares: 1000n }).refusal).toMatchObject({ code: 115 });
     expect(M.quoteRescueV22({ amount: 1n, v: 800_000_000n, par: 1_000_000_000n, shares: 1000n }).refusal).toMatchObject({ code: 114 });
     expect(M.quoteRescueV22({ amount: 100_000_000n, v: 800_000_000n, par: 1_000_000_000n, shares: 1000n, seniorClaim: 1_000_000_000n }).claimDelta).toBe(125_000_000n);
