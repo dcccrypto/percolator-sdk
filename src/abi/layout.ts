@@ -463,6 +463,8 @@ export const ACCOUNT_KIND = Object.freeze({
   DepthSource: 16,
   /** `LevGuardV22` (`["lev_guard", market]`, 16 + 344 + 4096). */
   LevGuard: 17,
+  /** prog#587 (#644): `CreatorFeePayeeV22` (`["creator_fee_payee", market, asset_index u16 LE]`, 16 + 72). */
+  CreatorFeePayee: 19,
 } as const);
 
 // ============================================================================

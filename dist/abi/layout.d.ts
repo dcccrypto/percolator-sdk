@@ -280,6 +280,8 @@ export declare const ACCOUNT_KIND: Readonly<{
     readonly DepthSource: 16;
     /** `LevGuardV22` (`["lev_guard", market]`, 16 + 344 + 4096). */
     readonly LevGuard: 17;
+    /** prog#587 (#644): `CreatorFeePayeeV22` (`["creator_fee_payee", market, asset_index u16 LE]`, 16 + 72). */
+    readonly CreatorFeePayee: 19;
 }>;
 /**
  * Read the 16-byte wrapper header.

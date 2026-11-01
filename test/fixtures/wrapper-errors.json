@@ -1,6 +1,6 @@
 {
-  "prog": "aa55dfde7ced6ae29216fa516677cd78d15745cf",
-  "count": 131,
+  "prog": "2b5dce8a11ed1b3d21e9a56db0144feef99b17e4",
+  "count": 137,
   "errors": {
     "0": "InvalidMagic",
     "1": "InvalidVersion",
@@ -132,6 +132,12 @@
     "127": "CounterpartyPositionCapReached",
     "128": "DepthInputInvalid",
     "129": "DepthSourceInvalid",
-    "130": "GrowthTierConfigInvalid"
+    "130": "GrowthTierConfigInvalid",
+    "131": "CreatorStakeBelowMinimum",
+    "132": "LevGuardRequired",
+    "133": "LevGuardRefused",
+    "134": "LevGuardInvalid",
+    "135": "LpStopNotTriggered",
+    "136": "CreatorFeePayeeInvalid"
   }
 }
