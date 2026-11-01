@@ -408,7 +408,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   71: {
     name: "CloseSlabFeesOutstanding",
-    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first — tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee — and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you.",
+    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first — tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee (on an asset whose admin was burned after recording a payee, anyone may send it and it pays the payee) — and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you.",
   },
 
   // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──
@@ -683,6 +683,11 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   135: {
     name: "LpStopNotTriggered",
     hint: "The liquidity-provider stop does not hold right now, or there is nothing left to cut.",
+  },
+  // prog#587 (#644): tag 125 SetCreatorFeePayee and the tag 90 payee route.
+  136: {
+    name: "CreatorFeePayeeInvalid",
+    hint: "The creator fee payee was refused: only the live asset admin can set it, to a new non-zero wallet that is not the market vault; a payout must go to the recorded payee's own token account for the market's collateral, with no delegate or close authority.",
   },
   // P2b E7 (percolator-prog #525, engine #276): explicit discriminants 120..=122; each was Custom(21).
   120: {

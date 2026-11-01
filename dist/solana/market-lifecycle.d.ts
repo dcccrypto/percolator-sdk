@@ -3,7 +3,7 @@
  *   - {@link buildRebalanceReduceIx} / {@link planReduceOnlyExit}: tag 44 RebalanceReduce,
  *     the owner-signed exit that works while a side is in the engine's ADL reduce-only state.
  *   - {@link planCloseSlabAttempt} / {@link isClosedMarketTombstone}: the safe CloseSlab
- *     retirement sequence (tag 84 → [tag 41] → tag 13).
+ *     retirement sequence (tag 84 → [tag 41] → [tag 90 to a creator-fee payee] → tag 13).
  *
  * Wire + account orders verified against the deployed wrapper `6377376a`
  * (`src/v16_program.rs`: decode arms 13/41/44/84, `handle_close_slab`,
@@ -13,6 +13,7 @@
  */
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import type { AccountSpec } from "../abi/accounts.js";
+import type { CreatorFeeClaimRouteV22 } from "../abi/creator-fee-payee-v22.js";
 /**
  * RebalanceReduce (tag 44): 3 accounts, from `with_one_portfolio_view(owner_must_sign = true)`:
  *   [0] owner     signer (the portfolio owner)
@@ -129,18 +130,49 @@ export interface CloseSlabAttemptArgs {
      */
     hasLpVault: boolean;
     tokenProgram?: PublicKey;
+    /**
+     * prog#587 (#644): every asset's creator-fee pot, as read by `readCreatorFeeClaimStateV22`. CloseSlab re-books a pot
+     * only when it has NO claim path (burned admin, no payee); a pot with a recorded payee stays owed and CloseSlab
+     * refuses (71) until tag 90 pays it. For each leg with `owed > 0`:
+     *   - route "Payee": the planner adds the permissionless claim (idempotent payee-ATA create + tag 90, signed by
+     *     `closer`) BEFORE CloseSlab; `payee` and `vaultMint` are required;
+     *   - route "AdminSigned": the planner THROWS (only the live asset_admin can claim; CloseSlab would refuse 71);
+     *   - route "Refused": nothing to plan (CloseSlab re-books it to the protocol leg).
+     * Omit to keep the pre-#587 plan (no creator-leg handling).
+     */
+    creatorFees?: readonly CloseSlabCreatorFeeLegV22[];
+}
+/** One asset's creator-fee leg for {@link planCloseSlabAttempt}. */
+export interface CloseSlabCreatorFeeLegV22 {
+    assetIndex: number;
+    route: CreatorFeeClaimRouteV22;
+    /** Owed atoms (asset 0 includes the legacy market-wide counter). */
+    owed: bigint;
+    /** Current `authority_epoch` of this asset (tag 90 checks it). */
+    authorityEpoch: bigint;
+    /** The recorded payee wallet (route "Payee"). */
+    payee?: PublicKey;
+    /** The market's collateral mint (route "Payee"). */
+    vaultMint?: PublicKey;
+    /**
+     * Atoms to claim; default `owed`. Lower it only when the insurance surplus no longer backs the whole pot (tag 90
+     * refuses an amount above it; CloseSlab then treats the unbacked remainder as unpayable).
+     */
+    amount?: bigint;
 }
 /**
  * Plan ONE CloseSlab attempt as an ordered instruction list for a single transaction:
  *   1. tag 84 WithdrawProtocolFee(amount 0) — if a protocol fee is owed;
  *   2. tag 41 WithdrawInsurance(amount) — if a prior attempt re-credited the insurance budget;
- *   3. tag 13 CloseSlab(authority_epoch).
+ *   3. per creator-fee leg routed to a payee with a non-zero pot: create the payee ATA (idempotent) + tag 90 to it;
+ *   4. tag 13 CloseSlab(authority_epoch).
  * After sending, check {@link isClosedMarketTombstone}; if it is false, re-read the owed
  * protocol fee and the re-credited insurance budget and plan the next attempt.
  *
  * @param a  Attempt inputs (live-read CAS values and owed amounts).
- * @returns Ordered instructions (1–3).
- * @throws If `hasLpVault` is true (not retirable), or a leg has a non-positive amount.
+ * @returns Ordered instructions (CloseSlab last).
+ * @throws If `hasLpVault` is true (not retirable), a creator-fee leg is owed under a LIVE asset_admin (only that key can
+ *   claim it), a payee leg lacks `payee` / `vaultMint`, or a claim amount is non-positive or above `owed`.
  * @example
  * ```ts
  * const ixs = planCloseSlabAttempt({ programId, market, vaultToken, closer, closerDestToken, closeAuthorityEpoch,

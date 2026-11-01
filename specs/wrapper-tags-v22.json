@@ -426,6 +426,14 @@
     {
       "name": "SetDepthSource",
       "tag": 123
+    },
+    {
+      "name": "LevGuard",
+      "tag": 124
+    },
+    {
+      "name": "SetCreatorFeePayee",
+      "tag": 125
     }
   ],
   "version": "v17"

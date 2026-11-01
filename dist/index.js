@@ -1022,12 +1022,12 @@ async function derivePythPriceUpdateAccount(feedId, shardId = 0) {
   if (!Number.isInteger(shardId) || shardId < 0 || shardId > 65535) {
     throw new Error(`derivePythPriceUpdateAccount: shardId must be a u16, got ${shardId}`);
   }
-  const { PublicKey: PublicKey36 } = await import("@solana/web3.js");
+  const { PublicKey: PublicKey38 } = await import("@solana/web3.js");
   const shardBuf = new Uint8Array(2);
   new DataView(shardBuf.buffer).setUint16(0, shardId, true);
-  const [pda] = PublicKey36.findProgramAddressSync(
+  const [pda] = PublicKey38.findProgramAddressSync(
     [shardBuf, feedId],
-    new PublicKey36(PYTH_RECEIVER_PROGRAM_ID)
+    new PublicKey38(PYTH_RECEIVER_PROGRAM_ID)
   );
   return pda.toBase58();
 }
@@ -4929,7 +4929,7 @@ var PERCOLATOR_ERRORS = {
   },
   71: {
     name: "CloseSlabFeesOutstanding",
-    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first \u2014 tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee \u2014 and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you."
+    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first \u2014 tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee (on an asset whose admin was burned after recording a payee, anyone may send it and it pays the payee) \u2014 and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you."
   },
   // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──
   // Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
@@ -5203,6 +5203,11 @@ var PERCOLATOR_ERRORS = {
   135: {
     name: "LpStopNotTriggered",
     hint: "The liquidity-provider stop does not hold right now, or there is nothing left to cut."
+  },
+  // prog#587 (#644): tag 125 SetCreatorFeePayee and the tag 90 payee route.
+  136: {
+    name: "CreatorFeePayeeInvalid",
+    hint: "The creator fee payee was refused: only the live asset admin can set it, to a new non-zero wallet that is not the market vault; a payout must go to the recorded payee's own token account for the market's collateral, with no delegate or close authority."
   },
   // P2b E7 (percolator-prog #525, engine #276): explicit discriminants 120..=122; each was Custom(21).
   120: {
@@ -6063,7 +6068,9 @@ var ACCOUNT_KIND = Object.freeze({
   /** R2.1 item 4: `DepthSourceV22`, `["depth_src", market]`. */
   DepthSource: 16,
   /** `LevGuardV22` (`["lev_guard", market]`, 16 + 344 + 4096). */
-  LevGuard: 17
+  LevGuard: 17,
+  /** prog#587 (#644): `CreatorFeePayeeV22` (`["creator_fee_payee", market, asset_index u16 LE]`, 16 + 72). */
+  CreatorFeePayee: 19
 });
 function dv(data) {
   return new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -8100,6 +8107,7 @@ var RESTORE_IM_BUFFER_BPS_V22 = 1e3;
 var G9_FEED_ALLOWLIST_CAP_V22 = 16;
 var P4_FLAG_INS_UNITS_REQUIRED_V22 = 1;
 var P4_FLAG_EXIT_REQUIRES_LOSS_CURRENT_V22 = 1 << 2;
+var P4_FLAG_CREATOR_FEE_PAYEE_V22 = 1 << 3;
 var INS_UNIT_CLASS_STAKE_V22 = 0;
 var INS_UNIT_CLASS_CREATOR_V22 = 1;
 var BackstopMode = Object.freeze({ Draw: 0, Restore: 1, Propose: 2, RestoreFromPnl: 3 });
@@ -12930,6 +12938,129 @@ function levW1RoundLiveV22(g, nowSlot) {
   return d <= LEV_W1_ROUND_SLOTS_V22;
 }
 
+// src/abi/creator-fee-payee-v22.ts
+import { PublicKey as PublicKey18 } from "@solana/web3.js";
+var TAG_SET_CREATOR_FEE_PAYEE_V22 = 125;
+var SET_CREATOR_FEE_PAYEE_LEN_V22 = 51;
+var CREATOR_FEE_PAYEE_SEED_V22 = "creator_fee_payee";
+var CREATOR_FEE_PAYEE_VERSION_V22 = 1;
+var CREATOR_FEE_PAYEE_BODY_LEN_V22 = 72;
+var CREATOR_FEE_PAYEE_ACCOUNT_LEN_V22 = 16 + CREATOR_FEE_PAYEE_BODY_LEN_V22;
+var CREATOR_FEE_PAYEE_INVALID_ERROR_V22 = 136;
+var WITHDRAW_CREATOR_FEE_PAYEE_ACCOUNT_INDEX_V22 = 6;
+var CREATOR_FEE_PAYEE_FIELD_OFF_V22 = Object.freeze({
+  market: 0,
+  payee: 32,
+  assetIndex: 64,
+  version: 66,
+  bump: 67,
+  reserved: 68
+});
+var ZERO32 = new Uint8Array(32);
+function toBytes32(k, what) {
+  const b = k instanceof PublicKey18 ? k.toBytes() : k;
+  if (b.length !== 32) throw new Error(`${what}: expected 32 bytes, got ${b.length}`);
+  return b;
+}
+function eq32(a, b) {
+  for (let i = 0; i < 32; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+function checkAssetIndex(assetIndex, fn) {
+  if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex > 65535) {
+    throw new Error(`${fn}: assetIndex ${assetIndex} is not a u16`);
+  }
+}
+function encodeSetCreatorFeePayeeV22(args) {
+  checkAssetIndex(args.assetIndex, "encodeSetCreatorFeePayeeV22");
+  const payee = toBytes32(args.payee, "encodeSetCreatorFeePayeeV22 payee");
+  if (eq32(payee, ZERO32)) throw new Error("encodeSetCreatorFeePayeeV22: payee must not be zero (the program refuses it with 136)");
+  return concatBytes(
+    encU8(TAG_SET_CREATOR_FEE_PAYEE_V22),
+    encU16(args.assetIndex),
+    encU64(args.marketId),
+    encPubkey(new PublicKey18(payee)),
+    encU64(args.authorityEpoch)
+  );
+}
+var ACCOUNTS_SET_CREATOR_FEE_PAYEE_V22 = [
+  { name: "assetAdmin", signer: true, writable: true },
+  { name: "market", signer: false, writable: true },
+  { name: "payeeRecord", signer: false, writable: true },
+  { name: "systemProgram", signer: false, writable: false }
+];
+var ACCOUNTS_WITHDRAW_CREATOR_FEE_TO_PAYEE_V22 = [
+  { name: "caller", signer: true, writable: false },
+  { name: "market", signer: false, writable: true },
+  { name: "payeeToken", signer: false, writable: true },
+  { name: "vaultToken", signer: false, writable: true },
+  { name: "vaultAuthority", signer: false, writable: false },
+  { name: "tokenProgram", signer: false, writable: false },
+  { name: "payeeRecord", signer: false, writable: false }
+];
+function deriveCreatorFeePayeeV22(programId, market, assetIndex) {
+  checkAssetIndex(assetIndex, "deriveCreatorFeePayeeV22");
+  const idx = new Uint8Array(2);
+  new DataView(idx.buffer).setUint16(0, assetIndex, true);
+  return PublicKey18.findProgramAddressSync([Buffer.from(CREATOR_FEE_PAYEE_SEED_V22), market.toBuffer(), Buffer.from(idx)], programId);
+}
+var ASSOCIATED_TOKEN_PROGRAM_ID_V22 = new PublicKey18("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+var SPL_TOKEN_PROGRAM_ID_V22 = new PublicKey18("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+function creatorFeePayeeDestinationV22(payee, vaultMint) {
+  return PublicKey18.findProgramAddressSync(
+    [payee.toBuffer(), SPL_TOKEN_PROGRAM_ID_V22.toBuffer(), vaultMint.toBuffer()],
+    ASSOCIATED_TOKEN_PROGRAM_ID_V22
+  )[0];
+}
+function decodeCreatorFeePayeeV22(data, table = LAYOUT_V22) {
+  const parser = "decodeCreatorFeePayeeV22";
+  const kind = ACCOUNT_KIND.CreatorFeePayee;
+  const L = resolveLayout(data, { parser, kind, versions: [table.version] });
+  if (data.length !== CREATOR_FEE_PAYEE_ACCOUNT_LEN_V22) {
+    throw new UnknownLayoutError(
+      data.length < CREATOR_FEE_PAYEE_ACCOUNT_LEN_V22 ? "TOO_SHORT" : "BAD_LENGTH",
+      parser,
+      `creator fee payee account length ${data.length} != ${CREATOR_FEE_PAYEE_ACCOUNT_LEN_V22}`,
+      { version: L.version, kind }
+    );
+  }
+  const b = 16;
+  const F = CREATOR_FEE_PAYEE_FIELD_OFF_V22;
+  const market = data.subarray(b + F.market, b + F.market + 32);
+  const payee = data.subarray(b + F.payee, b + F.payee + 32);
+  const version = data[b + F.version];
+  const reserved = data.subarray(b + F.reserved, b + F.reserved + 4);
+  const bad3 = (why) => {
+    throw new UnknownLayoutError("INVALID_RECORD", parser, `invalid creator fee payee record: ${why}`, { version: L.version, kind });
+  };
+  if (version !== CREATOR_FEE_PAYEE_VERSION_V22) bad3(`version ${version}`);
+  if (eq32(market, ZERO32)) bad3("zero market");
+  if (eq32(payee, ZERO32)) bad3("zero payee");
+  if (reserved.some((x) => x !== 0)) bad3("reserved bytes not zero");
+  return {
+    market: new PublicKey18(market.slice()),
+    payee: new PublicKey18(payee.slice()),
+    assetIndex: data[b + F.assetIndex] | data[b + F.assetIndex + 1] << 8,
+    version,
+    bump: data[b + F.bump]
+  };
+}
+function hasCreatorFeePayeeFlagV22(p4Flags) {
+  return (p4Flags & P4_FLAG_CREATOR_FEE_PAYEE_V22) !== 0;
+}
+function creatorFeeClaimRouteV22(assetAdmin, payeeFlag) {
+  if (!eq32(toBytes32(assetAdmin, "creatorFeeClaimRouteV22 assetAdmin"), ZERO32)) return "AdminSigned";
+  return payeeFlag ? "Payee" : "Refused";
+}
+function creatorPotOrphanedV22(assetAdmin, payeeFlag, pot) {
+  return pot !== 0n && creatorFeeClaimRouteV22(assetAdmin, payeeFlag) === "Refused";
+}
+function payeeUpdateAllowedV22(assetAdmin, signer, currentPayee, newPayee, vaultAuthority) {
+  const admin = toBytes32(assetAdmin, "assetAdmin");
+  const next = toBytes32(newPayee, "newPayee");
+  return !eq32(admin, ZERO32) && eq32(admin, toBytes32(signer, "signer")) && !eq32(next, ZERO32) && !eq32(next, toBytes32(vaultAuthority, "vaultAuthority")) && !(currentPayee !== null && eq32(toBytes32(currentPayee, "currentPayee"), next));
+}
+
 // src/abi/lev-guard-limits-v22.ts
 var BPS4 = 10000n;
 var U16_MAX3 = 65535;
@@ -13242,7 +13373,7 @@ function classifyV22Asset(mint) {
 }
 
 // src/solana/pda.ts
-import { PublicKey as PublicKey18 } from "@solana/web3.js";
+import { PublicKey as PublicKey19 } from "@solana/web3.js";
 var textEncoder = new TextEncoder();
 function u16LE(value) {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 65535) {
@@ -13258,15 +13389,15 @@ function u16LE(value) {
   return buf;
 }
 function deriveVaultAuthority(programId, slab) {
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [textEncoder.encode("vault"), slab.toBytes()],
     programId
   );
 }
-var ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey18(
+var ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey19(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 );
-var PERCOLATOR_VAULT_TOKEN_PROGRAM_ID = new PublicKey18(
+var PERCOLATOR_VAULT_TOKEN_PROGRAM_ID = new PublicKey19(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 );
 function deriveCanonicalVault(programId, market, mint) {
@@ -13274,7 +13405,7 @@ function deriveCanonicalVault(programId, market, mint) {
   return deriveCanonicalVaultForAuthority(vaultAuthority, mint);
 }
 function deriveCanonicalVaultForAuthority(vaultAuthority, mint) {
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [
       vaultAuthority.toBytes(),
       PERCOLATOR_VAULT_TOKEN_PROGRAM_ID.toBytes(),
@@ -13298,7 +13429,7 @@ function deriveMarketVaultAccounts(programId, market, mint) {
   };
 }
 function deriveInsuranceLpMint(programId, slab) {
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [textEncoder.encode("lp_vault_mint"), slab.toBytes()],
     programId
   );
@@ -13312,38 +13443,38 @@ function deriveLpPda(programId, slab, lpIdx) {
   }
   const idxBuf = new Uint8Array(2);
   new DataView(idxBuf.buffer).setUint16(0, lpIdx, true);
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [textEncoder.encode("lp"), slab.toBytes(), idxBuf],
     programId
   );
 }
-var PUMPSWAP_PROGRAM_ID = new PublicKey18(
+var PUMPSWAP_PROGRAM_ID = new PublicKey19(
   "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 );
-var RAYDIUM_CLMM_PROGRAM_ID = new PublicKey18(
+var RAYDIUM_CLMM_PROGRAM_ID = new PublicKey19(
   "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
 );
-var METEORA_DLMM_PROGRAM_ID = new PublicKey18(
+var METEORA_DLMM_PROGRAM_ID = new PublicKey19(
   "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
 );
-var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey18(
+var PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey19(
   "pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT"
 );
 var CREATOR_LOCK_SEED = "creator_lock";
 function deriveCreatorLockPda(programId, slab) {
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [textEncoder.encode(CREATOR_LOCK_SEED), slab.toBytes()],
     programId
   );
 }
 function deriveLpVaultRegistry(programId, marketGroup) {
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [textEncoder.encode("lp_vault"), marketGroup.toBytes()],
     programId
   );
 }
 function deriveLpRedemption(programId, registry, redeemer) {
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [
       textEncoder.encode("lp_redemption"),
       registry.toBytes(),
@@ -13353,7 +13484,7 @@ function deriveLpRedemption(programId, registry, redeemer) {
   );
 }
 function deriveLpBackingLedger(programId, marketGroup, domainIdx) {
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [
       textEncoder.encode("lp_backing_ledger"),
       marketGroup.toBytes(),
@@ -13363,19 +13494,19 @@ function deriveLpBackingLedger(programId, marketGroup, domainIdx) {
   );
 }
 function deriveLpEscrow(programId, marketGroup) {
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [textEncoder.encode("lp_escrow"), marketGroup.toBytes()],
     programId
   );
 }
 function deriveNftRegistry(programId, marketGroup) {
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [textEncoder.encode("nft_registry"), marketGroup.toBytes()],
     programId
   );
 }
 function deriveMatcherDelegate(programId, market, accountB, accountBOwner, matcherProg, matcherCtx) {
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [
       textEncoder.encode("matcher"),
       market.toBytes(),
@@ -13407,7 +13538,7 @@ function derivePythPushOraclePDA(feedIdHex) {
     feedId[i] = parseInt(normalized.substring(i * 2, i * 2 + 2), 16);
   }
   const shardBuf = new Uint8Array(2);
-  return PublicKey18.findProgramAddressSync(
+  return PublicKey19.findProgramAddressSync(
     [shardBuf, feedId],
     PYTH_PUSH_ORACLE_PROGRAM_ID
   );
@@ -13431,10 +13562,10 @@ async function fetchTokenAccount(connection, address, tokenProgramId = TOKEN_PRO
 }
 
 // src/solana/discovery.ts
-import { PublicKey as PublicKey20 } from "@solana/web3.js";
+import { PublicKey as PublicKey21 } from "@solana/web3.js";
 
 // src/solana/static-markets.ts
-import { PublicKey as PublicKey19 } from "@solana/web3.js";
+import { PublicKey as PublicKey20 } from "@solana/web3.js";
 var MAINNET_MARKETS = [
   { slabAddress: "7psyeWRts4pRX2cyAWD1NH87bR9ugXP7pe6ARgfG79Do", symbol: "SOL-PERP", name: "SOL/USDC Perpetual" }
 ];
@@ -13470,7 +13601,7 @@ function registerStaticMarkets(network, entries) {
     if (!entry.slabAddress) continue;
     if (seen.has(entry.slabAddress)) continue;
     try {
-      new PublicKey19(entry.slabAddress);
+      new PublicKey20(entry.slabAddress);
     } catch {
       console.warn(
         `[registerStaticMarkets] Skipping invalid slabAddress: ${entry.slabAddress}`
@@ -14126,7 +14257,7 @@ async function discoverMarketsViaApi(connection, programId, apiBaseUrl, options 
   for (const entry of apiMarkets) {
     if (!entry.slab_address || typeof entry.slab_address !== "string") continue;
     try {
-      addresses.push(new PublicKey20(entry.slab_address));
+      addresses.push(new PublicKey21(entry.slab_address));
     } catch {
       console.warn(
         `[discoverMarketsViaApi] Skipping invalid slab address: ${entry.slab_address}`
@@ -14148,7 +14279,7 @@ async function discoverMarketsViaStaticBundle(connection, programId, entries, op
   for (const entry of entries) {
     if (!entry.slabAddress || typeof entry.slabAddress !== "string") continue;
     try {
-      addresses.push(new PublicKey20(entry.slabAddress));
+      addresses.push(new PublicKey21(entry.slabAddress));
     } catch {
       console.warn(
         `[discoverMarketsViaStaticBundle] Skipping invalid slab address: ${entry.slabAddress}`
@@ -14166,7 +14297,7 @@ async function discoverMarketsViaStaticBundle(connection, programId, entries, op
 }
 
 // src/solana/dex-oracle.ts
-import { PublicKey as PublicKey21 } from "@solana/web3.js";
+import { PublicKey as PublicKey22 } from "@solana/web3.js";
 function detectDexType(ownerProgramId) {
   if (ownerProgramId.equals(PUMPSWAP_PROGRAM_ID)) return "pumpswap";
   if (ownerProgramId.equals(RAYDIUM_CLMM_PROGRAM_ID)) return "raydium-clmm";
@@ -14213,7 +14344,7 @@ async function fetchMintDecimals(connection, mint) {
   }
   return info.data[SPL_MINT_DECIMALS_OFFSET];
 }
-var WSOL_MINT = new PublicKey21("So11111111111111111111111111111111111111112");
+var WSOL_MINT = new PublicKey22("So11111111111111111111111111111111111111112");
 var PUMPSWAP_MIN_LEN = 203;
 function parsePumpSwapPool(poolAddress, data) {
   if (data.length < PUMPSWAP_MIN_LEN) {
@@ -14222,10 +14353,10 @@ function parsePumpSwapPool(poolAddress, data) {
   return {
     dexType: "pumpswap",
     poolAddress,
-    baseMint: new PublicKey21(data.slice(43, 75)),
-    quoteMint: new PublicKey21(data.slice(75, 107)),
-    baseVault: new PublicKey21(data.slice(139, 171)),
-    quoteVault: new PublicKey21(data.slice(171, 203))
+    baseMint: new PublicKey22(data.slice(43, 75)),
+    quoteMint: new PublicKey22(data.slice(75, 107)),
+    baseVault: new PublicKey22(data.slice(139, 171)),
+    quoteVault: new PublicKey22(data.slice(171, 203))
   };
 }
 var SPL_TOKEN_AMOUNT_MIN_LEN = 72;
@@ -14253,7 +14384,7 @@ function computePumpSwapPriceE6(poolData, vaultData, decimals, solPriceE6) {
   const baseScale = 10n ** BigInt(decimals.base);
   const quoteScale = 10n ** BigInt(decimals.quote);
   const quotePerBaseE6 = quoteAmount * baseScale * 1000000n / (quoteScale * baseAmount);
-  const quoteMint = new PublicKey21(poolData.slice(75, 107));
+  const quoteMint = new PublicKey22(poolData.slice(75, 107));
   if (quoteMint.equals(WSOL_MINT)) {
     if (solPriceE6 === void 0) {
       throw new Error(
@@ -14272,8 +14403,8 @@ function parseRaydiumClmmPool(poolAddress, data) {
   return {
     dexType: "raydium-clmm",
     poolAddress,
-    baseMint: new PublicKey21(data.slice(73, 105)),
-    quoteMint: new PublicKey21(data.slice(105, 137))
+    baseMint: new PublicKey22(data.slice(73, 105)),
+    quoteMint: new PublicKey22(data.slice(105, 137))
   };
 }
 var MAX_TOKEN_DECIMALS = 24;
@@ -14319,8 +14450,8 @@ function parseMeteoraPool(poolAddress, data) {
   return {
     dexType: "meteora-dlmm",
     poolAddress,
-    baseMint: new PublicKey21(data.slice(88, 120)),
-    quoteMint: new PublicKey21(data.slice(120, 152))
+    baseMint: new PublicKey22(data.slice(88, 120)),
+    quoteMint: new PublicKey22(data.slice(120, 152))
   };
 }
 var MAX_BIN_STEP = 1e4;
@@ -14463,9 +14594,9 @@ function isValidChainlinkOracle(data) {
 }
 
 // src/solana/token-program.ts
-import { PublicKey as PublicKey22 } from "@solana/web3.js";
+import { PublicKey as PublicKey23 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID5 } from "@solana/spl-token";
-var TOKEN_2022_PROGRAM_ID2 = new PublicKey22(
+var TOKEN_2022_PROGRAM_ID2 = new PublicKey23(
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 );
 async function detectTokenProgram(connection, mint) {
@@ -15256,8 +15387,75 @@ var _internal = {
 };
 
 // src/solana/market-lifecycle.ts
-import { TransactionInstruction as TransactionInstruction6 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID6 } from "@solana/spl-token";
+import { TransactionInstruction as TransactionInstruction7 } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID7 } from "@solana/spl-token";
+
+// src/solana/creator-fee-payee-v22.ts
+import { SystemProgram as SystemProgram5, TransactionInstruction as TransactionInstruction6 } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID6, createAssociatedTokenAccountIdempotentInstruction } from "@solana/spl-token";
+function buildSetCreatorFeePayeeIxV22(a) {
+  const [payeeRecord] = deriveCreatorFeePayeeV22(a.programId, a.market, a.assetIndex);
+  return new TransactionInstruction6({
+    programId: a.programId,
+    keys: buildAccountMetas(ACCOUNTS_SET_CREATOR_FEE_PAYEE_V22, {
+      assetAdmin: a.assetAdmin,
+      market: a.market,
+      payeeRecord,
+      systemProgram: SystemProgram5.programId
+    }),
+    data: Buffer.from(encodeSetCreatorFeePayeeV22({
+      assetIndex: a.assetIndex,
+      marketId: a.marketId,
+      payee: a.payee,
+      authorityEpoch: a.authorityEpoch
+    }))
+  });
+}
+function buildClaimCreatorFeeToPayeeIxsV22(a) {
+  if (a.amount <= 0n) throw new Error("buildClaimCreatorFeeToPayeeIxsV22: amount must be > 0 (tag 90 refuses a zero claim)");
+  const [payeeRecord] = deriveCreatorFeePayeeV22(a.programId, a.market, a.assetIndex);
+  const [vaultAuthority] = deriveVaultAuthority(a.programId, a.market);
+  const payeeToken = creatorFeePayeeDestinationV22(a.payee, a.vaultMint);
+  const ixs = [];
+  if (a.createPayeeAta ?? true) {
+    ixs.push(createAssociatedTokenAccountIdempotentInstruction(a.caller, payeeToken, a.payee, a.vaultMint, TOKEN_PROGRAM_ID6));
+  }
+  ixs.push(new TransactionInstruction6({
+    programId: a.programId,
+    keys: buildAccountMetas(ACCOUNTS_WITHDRAW_CREATOR_FEE_TO_PAYEE_V22, {
+      caller: a.caller,
+      market: a.market,
+      payeeToken,
+      vaultToken: a.vaultToken,
+      vaultAuthority,
+      tokenProgram: TOKEN_PROGRAM_ID6,
+      payeeRecord
+    }),
+    data: Buffer.from(encodeWithdrawCreatorFee({ amount: a.amount, assetIndex: a.assetIndex, authorityEpoch: a.authorityEpoch }))
+  }));
+  return ixs;
+}
+function readCreatorFeeClaimStateV22(marketData, assetIndex) {
+  const g = resolveMarketGeometry(marketData, { parser: "readCreatorFeeClaimStateV22", strictLength: false });
+  if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex >= g.slotCount) {
+    throw new Error(`readCreatorFeeClaimStateV22: asset ${assetIndex} is not present (${g.slotCount} slots)`);
+  }
+  const slot = g.slotOff(assetIndex);
+  const profileOff = slot + g.layout.wrapperSlot.oracleProfile;
+  const profile = parseAssetOracleProfileV17(marketData, profileOff);
+  const payeeFlag = hasCreatorFeePayeeFlagV22(marketData[profileOff + g.layout.wrapperSlot.profileP4Flags]);
+  const legacy = assetIndex === 0 ? parseWrapperConfigV17(marketData).creatorFeeClaimableAtoms : 0n;
+  return {
+    assetIndex,
+    assetAdmin: profile.assetAdmin,
+    payeeFlag,
+    route: creatorFeeClaimRouteV22(profile.assetAdmin, payeeFlag),
+    owed: profile.creatorFeeClaimableAtoms + legacy,
+    authorityEpoch: parseAssetControlSequencesV17(marketData, slot).authorityEpoch
+  };
+}
+
+// src/solana/market-lifecycle.ts
 var ACCOUNTS_REBALANCE_REDUCE = [
   { name: "owner", signer: true, writable: false },
   { name: "market", signer: false, writable: true },
@@ -15265,7 +15463,7 @@ var ACCOUNTS_REBALANCE_REDUCE = [
 ];
 function buildRebalanceReduceIx(a) {
   if (a.reduceQ <= 0n) throw new Error("buildRebalanceReduceIx: reduceQ must be > 0");
-  return new TransactionInstruction6({
+  return new TransactionInstruction7({
     programId: a.programId,
     keys: buildAccountMetas(ACCOUNTS_REBALANCE_REDUCE, { owner: a.owner, market: a.market, portfolio: a.portfolio }),
     data: Buffer.from(
@@ -15295,11 +15493,11 @@ function planCloseSlabAttempt(a) {
       "planCloseSlabAttempt: this market has an Earn LP vault \u2014 CloseSlab can never retire it (LP-vault dead-share floor, by design). Its slab rent is unrecoverable; do not promise reclaim."
     );
   }
-  const tokenProgram = a.tokenProgram ?? TOKEN_PROGRAM_ID6;
+  const tokenProgram = a.tokenProgram ?? TOKEN_PROGRAM_ID7;
   const [vaultAuthority] = deriveVaultAuthority(a.programId, a.market);
   const ixs = [];
   if (a.protocolFee && a.protocolFee.owed > 0n) {
-    ixs.push(new TransactionInstruction6({
+    ixs.push(new TransactionInstruction7({
       programId: a.programId,
       keys: buildAccountMetas(ACCOUNTS_WITHDRAW_PROTOCOL_FEE, {
         authority: a.protocolFee.authority,
@@ -15322,13 +15520,39 @@ function planCloseSlabAttempt(a) {
       tokenProgram
     });
     if (a.insuranceRecredit.ledger) keys.push({ pubkey: a.insuranceRecredit.ledger, isSigner: false, isWritable: true });
-    ixs.push(new TransactionInstruction6({
+    ixs.push(new TransactionInstruction7({
       programId: a.programId,
       keys,
       data: Buffer.from(encodeWithdrawInsurance({ amount: a.insuranceRecredit.amount }))
     }));
   }
-  ixs.push(new TransactionInstruction6({
+  for (const leg of a.creatorFees ?? []) {
+    if (leg.owed <= 0n || leg.route === "Refused") continue;
+    if (leg.route === "AdminSigned") {
+      throw new Error(
+        `planCloseSlabAttempt: asset ${leg.assetIndex} owes ${leg.owed} creator-fee atoms under a live asset_admin. Only that key can claim them (tag 90); CloseSlab refuses (71) until it does.`
+      );
+    }
+    if (!leg.payee || !leg.vaultMint) {
+      throw new Error(`planCloseSlabAttempt: asset ${leg.assetIndex} routes its creator fee to a payee; pass payee and vaultMint`);
+    }
+    const amount = leg.amount ?? leg.owed;
+    if (amount <= 0n || amount > leg.owed) {
+      throw new Error(`planCloseSlabAttempt: asset ${leg.assetIndex} creator-fee claim ${amount} must be in (0, ${leg.owed}]`);
+    }
+    ixs.push(...buildClaimCreatorFeeToPayeeIxsV22({
+      programId: a.programId,
+      market: a.market,
+      caller: a.closer,
+      assetIndex: leg.assetIndex,
+      payee: leg.payee,
+      vaultMint: leg.vaultMint,
+      vaultToken: a.vaultToken,
+      amount,
+      authorityEpoch: leg.authorityEpoch
+    }));
+  }
+  ixs.push(new TransactionInstruction7({
     programId: a.programId,
     keys: buildAccountMetas(ACCOUNTS_CLOSE_SLAB, {
       dest: a.closer,
@@ -15344,8 +15568,8 @@ function planCloseSlabAttempt(a) {
 }
 
 // src/solana/p3-vault-lp.ts
-import { PublicKey as PublicKey24, SystemProgram as SystemProgram5, TransactionInstruction as TransactionInstruction7 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID7, getAssociatedTokenAddressSync as getAssociatedTokenAddressSync3 } from "@solana/spl-token";
+import { PublicKey as PublicKey26, SystemProgram as SystemProgram6, TransactionInstruction as TransactionInstruction8 } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID8, getAssociatedTokenAddressSync as getAssociatedTokenAddressSync3 } from "@solana/spl-token";
 var V18_KIND_VAULT_LP_STATE_P3 = 9;
 var VAULT_LP_STATE_BODY_LEN_P3 = 256;
 var VAULT_LP_STATE_ACCOUNT_LEN_P3 = V17_HEADER_LEN + VAULT_LP_STATE_BODY_LEN_P3;
@@ -15431,7 +15655,7 @@ function i1284(v, o) {
   return x >= 1n << 127n ? x - (1n << 128n) : x;
 }
 function key2(d, o) {
-  return new PublicKey24(d.subarray(o, o + 32));
+  return new PublicKey26(d.subarray(o, o + 32));
 }
 function decodeVaultLpStateP3(data) {
   if (data.length < VAULT_LP_STATE_ACCOUNT_LEN_P3) throw new Error(`VaultLpStateV18: need ${VAULT_LP_STATE_ACCOUNT_LEN_P3} bytes, got ${data.length}`);
@@ -15514,11 +15738,11 @@ function isLpVaultRegistryBoundP3(registryData) {
   return b === 1;
 }
 function deriveVaultLpStateP3(programId, market) {
-  return PublicKey24.findProgramAddressSync([new TextEncoder().encode("vault_lp"), market.toBytes()], programId);
+  return PublicKey26.findProgramAddressSync([new TextEncoder().encode("vault_lp"), market.toBytes()], programId);
 }
-var BPF_LOADER_UPGRADEABLE_ID_P3 = new PublicKey24("BPFLoaderUpgradeab1e11111111111111111111111");
+var BPF_LOADER_UPGRADEABLE_ID_P3 = new PublicKey26("BPFLoaderUpgradeab1e11111111111111111111111");
 function deriveProgramDataAddressP3(programId) {
-  return PublicKey24.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3);
+  return PublicKey26.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3);
 }
 function ledgers(programId, market, registryDomain) {
   return {
@@ -15527,13 +15751,13 @@ function ledgers(programId, market, registryDomain) {
   };
 }
 function ix(programId, spec, keys, data, extra = []) {
-  return new TransactionInstruction7({ programId, keys: [...buildAccountMetas(spec, keys), ...extra], data: Buffer.from(data) });
+  return new TransactionInstruction8({ programId, keys: [...buildAccountMetas(spec, keys), ...extra], data: Buffer.from(data) });
 }
 var VAULT_LP_MATCHER_CTX_LEN_P3 = 320;
-function buildCreateVaultLpMatcherCtxIxP3(payer, matcherCtx, lamports, matcherProgram = new PublicKey24(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3)) {
-  return SystemProgram5.createAccount({ fromPubkey: payer, newAccountPubkey: matcherCtx, lamports, space: VAULT_LP_MATCHER_CTX_LEN_P3, programId: matcherProgram });
+function buildCreateVaultLpMatcherCtxIxP3(payer, matcherCtx, lamports, matcherProgram = new PublicKey26(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3)) {
+  return SystemProgram6.createAccount({ fromPubkey: payer, newAccountPubkey: matcherCtx, lamports, space: VAULT_LP_MATCHER_CTX_LEN_P3, programId: matcherProgram });
 }
-function buildInitVaultLpIxP3(m, marketauth, juniorFloorBps, matcherCtx, matcherProgram = new PublicKey24(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3), opts = {}) {
+function buildInitVaultLpIxP3(m, marketauth, juniorFloorBps, matcherCtx, matcherProgram = new PublicKey26(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3), opts = {}) {
   const [registry] = deriveLpVaultRegistry(m.programId, m.market);
   const [matcherDelegate] = deriveMatcherDelegate(m.programId, m.market, m.lpPortfolio, registry, matcherProgram, matcherCtx);
   const withExt = opts.withVaultLpExt !== false;
@@ -15545,12 +15769,12 @@ function buildInitVaultLpIxP3(m, marketauth, juniorFloorBps, matcherCtx, matcher
     registry,
     vaultLpState: deriveVaultLpStateP3(m.programId, m.market)[0],
     lpPortfolio: m.lpPortfolio,
-    systemProgram: SystemProgram5.programId,
+    systemProgram: SystemProgram6.programId,
     ...ledgers(m.programId, m.market, m.registryDomain),
     matcherProgram,
     matcherCtx,
     matcherDelegate,
-    ...withExt ? { vaultLpExt: PublicKey24.findProgramAddressSync([new TextEncoder().encode(VAULT_LP_EXT_SEED_P2B), m.market.toBytes()], m.programId)[0] } : {}
+    ...withExt ? { vaultLpExt: PublicKey26.findProgramAddressSync([new TextEncoder().encode(VAULT_LP_EXT_SEED_P2B), m.market.toBytes()], m.programId)[0] } : {}
   }, data);
 }
 function buildVaultLpSetMatcherIxP3(m, upgradeAuthority, matcherProgram, matcherCtx, args) {
@@ -15575,7 +15799,7 @@ function buildDepositJuniorTrancheIxP3(m, juniorOwner, sourceToken, vaultToken, 
     lpPortfolio: m.lpPortfolio,
     sourceToken,
     vaultToken,
-    tokenProgram: TOKEN_PROGRAM_ID7
+    tokenProgram: TOKEN_PROGRAM_ID8
   }, encodeDepositJuniorTrancheP3(amount));
 }
 function buildWithdrawJuniorTrancheIxP3(m, juniorOwner, destToken, vaultToken, amount) {
@@ -15589,7 +15813,7 @@ function buildWithdrawJuniorTrancheIxP3(m, juniorOwner, destToken, vaultToken, a
     destToken,
     vaultToken,
     vaultAuthority: deriveVaultAuthority(m.programId, m.market)[0],
-    tokenProgram: TOKEN_PROGRAM_ID7
+    tokenProgram: TOKEN_PROGRAM_ID8
   }, encodeWithdrawJuniorTrancheP3(amount), m.vaultLpExt ? [{ pubkey: m.vaultLpExt, isSigner: false, isWritable: true }] : []);
 }
 function buildVaultLpRecallIxP3(m, cranker, amount, targetDomain) {
@@ -15600,7 +15824,7 @@ function buildVaultLpRecallIxP3(m, cranker, amount, targetDomain) {
     vaultLpState: deriveVaultLpStateP3(m.programId, m.market)[0],
     lpPortfolio: m.lpPortfolio,
     ...ledgers(m.programId, m.market, m.registryDomain),
-    systemProgram: SystemProgram5.programId
+    systemProgram: SystemProgram6.programId
   }, encodeVaultLpRecallP3(amount, targetDomain), m.vaultLpExt ? [{ pubkey: m.vaultLpExt, isSigner: false, isWritable: true }] : []);
 }
 function buildSetVaultLpRiskIxP3(programId, market, upgradeAuthority, args) {
@@ -15629,8 +15853,8 @@ function buildVaultLpSettleResolvedIxP3(m, caller, juniorDestToken, vaultToken, 
     juniorDestToken,
     vaultToken,
     vaultAuthority: deriveVaultAuthority(m.programId, m.market)[0],
-    tokenProgram: TOKEN_PROGRAM_ID7,
-    systemProgram: SystemProgram5.programId
+    tokenProgram: TOKEN_PROGRAM_ID8,
+    systemProgram: SystemProgram6.programId
   }, encodeVaultLpSettleResolvedP3(topup));
 }
 function buildVaultLpReleaseSurplusIxP3(m, juniorOwner, amount, sourceDomain, resolved) {
@@ -15638,7 +15862,7 @@ function buildVaultLpReleaseSurplusIxP3(m, juniorOwner, amount, sourceDomain, re
     juniorDestToken: resolved.juniorDestToken,
     vaultToken: resolved.vaultToken,
     vaultAuthority: deriveVaultAuthority(m.programId, m.market)[0],
-    tokenProgram: TOKEN_PROGRAM_ID7
+    tokenProgram: TOKEN_PROGRAM_ID8
   }) : [];
   return ix(m.programId, ACCOUNTS_VAULT_LP_RELEASE_SURPLUS_P3, {
     juniorOwner,
@@ -15664,14 +15888,14 @@ function withBoundVaultLpTailP3(base, vaultLpState, lpPortfolio, opts = {}) {
     keys.push({ pubkey: opts.vaultLpExt, isSigner: false, isWritable: true });
     keys.push({ pubkey: lpPortfolio, isSigner: false, isWritable: true });
   }
-  return new TransactionInstruction7({ programId: base.programId, keys, data: base.data });
+  return new TransactionInstruction8({ programId: base.programId, keys, data: base.data });
 }
 function buildExecuteRedemptionIxP3(m, cranker, redeemer, redeemerDest, vaultToken, sourceDomain, opts = {}) {
   const [registry] = deriveLpVaultRegistry(m.programId, m.market);
   const { ledger, siblingLedger } = ledgers(m.programId, m.market, m.registryDomain);
   const w3 = (pubkey, isSigner = false) => ({ pubkey, isSigner, isWritable: true });
   const r3 = (pubkey) => ({ pubkey, isSigner: false, isWritable: false });
-  const base = new TransactionInstruction7({
+  const base = new TransactionInstruction8({
     programId: m.programId,
     data: Buffer.from(encodeExecuteRedemption({ domain: sourceDomain })),
     keys: [
@@ -15685,7 +15909,7 @@ function buildExecuteRedemptionIxP3(m, cranker, redeemer, redeemerDest, vaultTok
       r3(deriveVaultAuthority(m.programId, m.market)[0]),
       w3(ledger),
       w3(redeemerDest),
-      r3(TOKEN_PROGRAM_ID7),
+      r3(TOKEN_PROGRAM_ID8),
       w3(siblingLedger),
       w3(redeemer, opts.redeemerSigns === true)
     ]
@@ -15695,7 +15919,7 @@ function buildExecuteRedemptionIxP3(m, cranker, redeemer, redeemerDest, vaultTok
 function buildVaultLpRefreshCrankIxP3(a) {
   const want = a.observations.reduce((s, o) => s + o.oracleAccounts, 0);
   if (want !== a.oracleAccounts.length) throw new Error(`observations name ${want} oracle accounts, got ${a.oracleAccounts.length}`);
-  return new TransactionInstruction7({
+  return new TransactionInstruction8({
     programId: a.programId,
     keys: [
       { pubkey: a.cranker, isSigner: true, isWritable: true },
@@ -15816,13 +16040,13 @@ function buildClaimResolvedPayoutTopupIxP3(a) {
     destToken: a.destToken,
     vaultToken: a.vaultToken,
     vaultAuthority: deriveVaultAuthority(a.programId, a.market)[0],
-    tokenProgram: TOKEN_PROGRAM_ID7
+    tokenProgram: TOKEN_PROGRAM_ID8
   });
   if (!a.signed) {
     keys[0] = { pubkey: a.owner, isSigner: false, isWritable: false };
     keys.push({ pubkey: deriveNftRegistry(a.programId, a.market)[0], isSigner: false, isWritable: false });
   }
-  return new TransactionInstruction7({ programId: a.programId, keys, data: Buffer.from([46]) });
+  return new TransactionInstruction8({ programId: a.programId, keys, data: Buffer.from([46]) });
 }
 async function listOpenResolvedReceiptsP3(conn, programId, market, layout = LAYOUT_V21) {
   const accs = await conn.getProgramAccounts(programId, {
@@ -15835,14 +16059,14 @@ async function listOpenResolvedReceiptsP3(conn, programId, market, layout = LAYO
     const data = new Uint8Array(account.data);
     const receipt = decodeResolvedPayoutReceiptP3(data);
     if (!receipt.open) continue;
-    const owner = new PublicKey24(data.subarray(80, 112));
-    out.push({ portfolio: pubkey, owner, receipt, isVaultLp: owner.equals(registry), needsHolder: !PublicKey24.isOnCurve(owner.toBytes()) && !owner.equals(registry) });
+    const owner = new PublicKey26(data.subarray(80, 112));
+    out.push({ portfolio: pubkey, owner, receipt, isVaultLp: owner.equals(registry), needsHolder: !PublicKey26.isOnCurve(owner.toBytes()) && !owner.equals(registry) });
   }
   return out;
 }
 function buildCloseResolvedUnsignedIxP3(a) {
   const ix3 = buildClaimResolvedPayoutTopupIxP3(a);
-  return new TransactionInstruction7({ programId: a.programId, keys: ix3.keys, data: Buffer.alloc(17, 0).fill(30, 0, 1) });
+  return new TransactionInstruction8({ programId: a.programId, keys: ix3.keys, data: Buffer.alloc(17, 0).fill(30, 0, 1) });
 }
 function planResolvedReceiptRevisitP3(a) {
   const steps = [];
@@ -15853,7 +16077,7 @@ function planResolvedReceiptRevisitP3(a) {
       needsHolder.push(r3);
       continue;
     }
-    const destToken = getAssociatedTokenAddressSync3(a.collateralMint, r3.owner, false, TOKEN_PROGRAM_ID7);
+    const destToken = getAssociatedTokenAddressSync3(a.collateralMint, r3.owner, false, TOKEN_PROGRAM_ID8);
     const base = { programId: a.programId, market: a.market, portfolio: r3.portfolio, owner: r3.owner, destToken, vaultToken: a.vaultToken };
     steps.push({ portfolio: r3.portfolio, owner: r3.owner, topup46: buildClaimResolvedPayoutTopupIxP3(base), closeResolved: buildCloseResolvedUnsignedIxP3(base) });
   }
@@ -15861,8 +16085,8 @@ function planResolvedReceiptRevisitP3(a) {
 }
 
 // src/solana/stake-wind-down.ts
-import { TransactionInstruction as TransactionInstruction8 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID8 } from "@solana/spl-token";
+import { TransactionInstruction as TransactionInstruction9 } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID9 } from "@solana/spl-token";
 import { getAssociatedTokenAddressSync as getAssociatedTokenAddressSync4 } from "@solana/spl-token";
 var MARKET_GROUP_HEADER_OFF_V18 = Object.freeze({
   vault: 285,
@@ -15952,14 +16176,14 @@ function decodeTerminalInsuranceCapacity(marketData, assetIndex = 0) {
   };
 }
 function buildRecoverTerminalInsuranceIx(a, amount) {
-  return new TransactionInstruction8({
+  return new TransactionInstruction9({
     programId: a.stakeProgram,
     keys: recoverTerminalInsuranceAccounts(a),
     data: Buffer.from(encodeStakeRecoverTerminalInsurance(amount))
   });
 }
 function buildAdminCloseSlabIx(a) {
-  return new TransactionInstruction8({
+  return new TransactionInstruction9({
     programId: a.stakeProgram,
     keys: adminCloseSlabAccounts(a),
     data: Buffer.from(encodeStakeAdminCloseSlab())
@@ -15968,7 +16192,7 @@ function buildAdminCloseSlabIx(a) {
 function planStakeWindDown(a) {
   const cap = decodeTerminalInsuranceCapacity(a.marketData, 0);
   if (!cap.resolved) throw new Error(`planStakeWindDown: market mode ${cap.mode} is not Resolved (1)`);
-  const tokenProgram = a.tokenProgram ?? TOKEN_PROGRAM_ID8;
+  const tokenProgram = a.tokenProgram ?? TOKEN_PROGRAM_ID9;
   const [wrapperVaultAuthority] = deriveVaultAuthority(a.wrapperProgram, a.market);
   const riskMode = a.riskMode;
   if (riskMode !== 0 && riskMode !== 1 && riskMode !== 2) {
@@ -16005,7 +16229,7 @@ function planStakeWindDown(a) {
     ix: buildRecoverTerminalInsuranceIx({ ...base, stray: a.stray }, 0n),
     onCustomError: Object.freeze({ 31: "done" })
   });
-  const claim = a.protocolFee ? new TransactionInstruction8({
+  const claim = a.protocolFee ? new TransactionInstruction9({
     programId: a.wrapperProgram,
     keys: buildAccountMetas(ACCOUNTS_WITHDRAW_PROTOCOL_FEE, {
       authority: a.protocolFee.authority,
@@ -16039,10 +16263,10 @@ function planStakeWindDown(a) {
 }
 
 // src/solana/p2b-earn.ts
-import { PublicKey as PublicKey26, SystemProgram as SystemProgram6, TransactionInstruction as TransactionInstruction9 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID9 } from "@solana/spl-token";
+import { PublicKey as PublicKey28, SystemProgram as SystemProgram7, TransactionInstruction as TransactionInstruction10 } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID10 } from "@solana/spl-token";
 function deriveVaultLpExtP2b(programId, market) {
-  return PublicKey26.findProgramAddressSync([new TextEncoder().encode(VAULT_LP_EXT_SEED_P2B), market.toBytes()], programId);
+  return PublicKey28.findProgramAddressSync([new TextEncoder().encode(VAULT_LP_EXT_SEED_P2B), market.toBytes()], programId);
 }
 function isLpVaultRegistryExtP2b(registryData) {
   if (registryData.length <= LP_VAULT_REGISTRY_EXT_FLAG_OFF_P2B) throw new Error("registry account too short for the ext flag");
@@ -16075,7 +16299,7 @@ function decodeVaultLpExtV19(data) {
   if (data[V17_KIND_OFF] !== KIND_VAULT_LP_EXT_P2B) throw new Error(`VaultLpExtV19: kind ${data[V17_KIND_OFF]} != ${KIND_VAULT_LP_EXT_P2B}`);
   const B = 16;
   const F = VAULT_LP_EXT_FIELD_OFF_P2B;
-  const marketGroup = new PublicKey26(data.subarray(B + F.marketGroup, B + F.marketGroup + 32));
+  const marketGroup = new PublicKey28(data.subarray(B + F.marketGroup, B + F.marketGroup + 32));
   const out = {
     marketGroup,
     allocatedAtoms: u128At2(v, B + F.allocatedAtoms),
@@ -16092,7 +16316,7 @@ function decodeVaultLpExtV19(data) {
     otherInAtoms: uLeAt(data, B + VAULT_LP_EXT_OTHER_FLOW_OFF_P2B.in, VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B),
     otherOutAtoms: uLeAt(data, B + VAULT_LP_EXT_OTHER_FLOW_OFF_P2B.out, VAULT_LP_EXT_OTHER_FLOW_BYTES_P2B)
   };
-  if (out.version !== VAULT_LP_EXT_VERSION_P2B || marketGroup.equals(PublicKey26.default) || out.allocAlphaBps > ALLOC_ALPHA_MAX_BAND_BPS_P2B || out.allocBufferBps < ALLOC_BUFFER_MIN_BPS_P2B || out.allocBufferBps > 1e4 || out.cushionTargetBps > 1e4 || out.cushionShareBps > 1e4 || out.cushionTargetBps === 0 !== (out.cushionShareBps === 0)) {
+  if (out.version !== VAULT_LP_EXT_VERSION_P2B || marketGroup.equals(PublicKey28.default) || out.allocAlphaBps > ALLOC_ALPHA_MAX_BAND_BPS_P2B || out.allocBufferBps < ALLOC_BUFFER_MIN_BPS_P2B || out.allocBufferBps > 1e4 || out.cushionTargetBps > 1e4 || out.cushionShareBps > 1e4 || out.cushionTargetBps === 0 !== (out.cushionShareBps === 0)) {
     throw new Error("VaultLpExtV19: invalid record \u2014 the program would reject it too");
   }
   return out;
@@ -16104,7 +16328,7 @@ async function fetchVaultLpExtP2b(conn, programId, market) {
 }
 function buildVaultLpAllocateIxP2b(m, cranker, amount = U128_MAX_P2B, opts = {}) {
   const bond = opts.bondTranche === true;
-  return new TransactionInstruction9({
+  return new TransactionInstruction10({
     programId: m.programId,
     keys: buildAccountMetas(bond ? ACCOUNTS_VAULT_LP_ALLOCATE_BOND_P2B : ACCOUNTS_VAULT_LP_ALLOCATE_P2B, {
       cranker,
@@ -16115,14 +16339,14 @@ function buildVaultLpAllocateIxP2b(m, cranker, amount = U128_MAX_P2B, opts = {})
       ledger: deriveLpBackingLedger(m.programId, m.market, m.registryDomain)[0],
       siblingLedger: deriveLpBackingLedger(m.programId, m.market, m.registryDomain ^ 1)[0],
       vaultLpExt: deriveVaultLpExtP2b(m.programId, m.market)[0],
-      systemProgram: SystemProgram6.programId,
+      systemProgram: SystemProgram7.programId,
       ...bond ? { bondTranche: deriveBondTrancheV22(m.programId, m.market)[0] } : {}
     }),
     data: Buffer.from(encodeVaultLpAllocateP2b(amount))
   });
 }
 function buildSetVaultLpRiskV19IxP2b(programId, market, upgradeAuthority, args) {
-  return new TransactionInstruction9({
+  return new TransactionInstruction10({
     programId,
     keys: buildAccountMetas(ACCOUNTS_SET_VAULT_LP_RISK_V19_P2B, {
       upgradeAuthority,
@@ -16130,7 +16354,7 @@ function buildSetVaultLpRiskV19IxP2b(programId, market, upgradeAuthority, args) 
       market,
       registry: deriveLpVaultRegistry(programId, market)[0],
       vaultLpExt: deriveVaultLpExtP2b(programId, market)[0],
-      systemProgram: SystemProgram6.programId
+      systemProgram: SystemProgram7.programId
     }),
     data: Buffer.from(encodeSetVaultLpRiskV19P2b(args))
   });
@@ -16142,7 +16366,7 @@ function buildExecuteRedemptionIxNonBoundP2b(m, cranker, redeemer, redeemerDest,
   const [registry] = deriveLpVaultRegistry(m.programId, m.market);
   const w3 = (pubkey, isSigner = false) => ({ pubkey, isSigner, isWritable: true });
   const r3 = (pubkey) => ({ pubkey, isSigner: false, isWritable: false });
-  return new TransactionInstruction9({
+  return new TransactionInstruction10({
     programId: m.programId,
     data: Buffer.from(encodeExecuteRedemption({ domain: sourceDomain })),
     keys: [
@@ -16156,7 +16380,7 @@ function buildExecuteRedemptionIxNonBoundP2b(m, cranker, redeemer, redeemerDest,
       r3(deriveVaultAuthority(m.programId, m.market)[0]),
       w3(deriveLpBackingLedger(m.programId, m.market, m.registryDomain)[0]),
       w3(redeemerDest),
-      r3(TOKEN_PROGRAM_ID9),
+      r3(TOKEN_PROGRAM_ID10),
       w3(deriveLpBackingLedger(m.programId, m.market, m.registryDomain ^ 1)[0]),
       w3(redeemer, opts.redeemerSigns !== false)
     ]
@@ -16170,9 +16394,9 @@ function decodeBackingDomainLedgerP2b(data) {
   if (data[V17_KIND_OFF] !== KIND_BACKING_DOMAIN_LEDGER_P2B) throw new Error(`BackingDomainLedger: kind ${data[V17_KIND_OFF]} != ${KIND_BACKING_DOMAIN_LEDGER_P2B}`);
   const B = 16;
   const F = BACKING_DOMAIN_LEDGER_FIELD_OFF_P2B;
-  const marketGroup = new PublicKey26(data.subarray(B + F.marketGroup, B + F.marketGroup + 32));
-  const authority = new PublicKey26(data.subarray(B + F.authority, B + F.authority + 32));
-  if (marketGroup.equals(PublicKey26.default) || authority.equals(PublicKey26.default) || !data.subarray(B + F.padding, B + F.padding + 6).every((b) => b === 0)) {
+  const marketGroup = new PublicKey28(data.subarray(B + F.marketGroup, B + F.marketGroup + 32));
+  const authority = new PublicKey28(data.subarray(B + F.authority, B + F.authority + 32));
+  if (marketGroup.equals(PublicKey28.default) || authority.equals(PublicKey28.default) || !data.subarray(B + F.padding, B + F.padding + 6).every((b) => b === 0)) {
     throw new Error("BackingDomainLedger: invalid record \u2014 the program would reject it too");
   }
   return {
@@ -16237,12 +16461,12 @@ function nonboundVaultPricingFromAccountsP2b(a) {
 }
 
 // src/solana/v22.ts
-import { SystemProgram as SystemProgram9, TransactionInstruction as TransactionInstruction14 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID10, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync as getAssociatedTokenAddressSync5 } from "@solana/spl-token";
+import { SystemProgram as SystemProgram10, TransactionInstruction as TransactionInstruction15 } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID11, createAssociatedTokenAccountIdempotentInstruction as createAssociatedTokenAccountIdempotentInstruction2, getAssociatedTokenAddressSync as getAssociatedTokenAddressSync5 } from "@solana/spl-token";
 
 // src/runtime/tx.ts
 import {
-  TransactionInstruction as TransactionInstruction10,
+  TransactionInstruction as TransactionInstruction11,
   Transaction,
   ComputeBudgetProgram
 } from "@solana/web3.js";
@@ -16272,7 +16496,7 @@ function meetsCommitment(observed, required) {
   return CONFIRMATION_RANK[observed] >= requiredConfirmationRank(required);
 }
 function buildIx(params) {
-  return new TransactionInstruction10({
+  return new TransactionInstruction11({
     programId: params.programId,
     keys: params.keys,
     // TransactionInstruction types expect Buffer, but Uint8Array works at runtime.
@@ -16497,24 +16721,24 @@ function formatResult(result, jsonMode) {
 }
 
 // src/solana/v22-nav-flow.ts
-import { SystemProgram as SystemProgram8, TransactionInstruction as TransactionInstruction12 } from "@solana/web3.js";
+import { SystemProgram as SystemProgram9, TransactionInstruction as TransactionInstruction13 } from "@solana/web3.js";
 
 // src/solana/lev-guard-v22.ts
-import { PublicKey as PublicKey28, SystemProgram as SystemProgram7, TransactionInstruction as TransactionInstruction11 } from "@solana/web3.js";
+import { PublicKey as PublicKey30, SystemProgram as SystemProgram8, TransactionInstruction as TransactionInstruction12 } from "@solana/web3.js";
 var enc = new TextEncoder();
 var w = (pubkey) => ({ pubkey, isSigner: false, isWritable: true });
 var r = (pubkey) => ({ pubkey, isSigner: false, isWritable: false });
 function deriveLevGuardV22(programId, market) {
-  return PublicKey28.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.guard), market.toBytes()], programId);
+  return PublicKey30.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.guard), market.toBytes()], programId);
 }
 function deriveVaultLpStateV22(programId, market) {
-  return PublicKey28.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.vaultLpState), market.toBytes()], programId);
+  return PublicKey30.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.vaultLpState), market.toBytes()], programId);
 }
 function deriveVaultLpExtV22(programId, market) {
-  return PublicKey28.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.vaultLpExt), market.toBytes()], programId);
+  return PublicKey30.findProgramAddressSync([enc.encode(LEV_GUARD_SEEDS_V22.vaultLpExt), market.toBytes()], programId);
 }
 function deriveProgramDataV22(programId) {
-  return PublicKey28.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3);
+  return PublicKey30.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3);
 }
 function buildLevGuardInitIxV22(c, authority, t0 = 0n) {
   const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_INIT_V22, {
@@ -16522,9 +16746,9 @@ function buildLevGuardInitIxV22(c, authority, t0 = 0n) {
     programData: deriveProgramDataV22(c.programId)[0],
     market: c.market,
     guard: deriveLevGuardV22(c.programId, c.market)[0],
-    systemProgram: SystemProgram7.programId
+    systemProgram: SystemProgram8.programId
   });
-  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardInitV22(t0)) });
+  return new TransactionInstruction12({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardInitV22(t0)) });
 }
 function buildLevGuardSetRiskKeyIxV22(c, upgradeAuthority, key3) {
   return adminIx(c, upgradeAuthority, encodeLevGuardSetRiskKeyV22(key3));
@@ -16539,11 +16763,11 @@ function adminIx(c, upgradeAuthority, data) {
     market: c.market,
     guard: deriveLevGuardV22(c.programId, c.market)[0]
   });
-  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(data) });
+  return new TransactionInstruction12({ programId: c.programId, keys, data: Buffer.from(data) });
 }
 function buildLevGuardReportIxV22(c, riskKey, report) {
   const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_REPORT_V22, { riskKey, market: c.market, guard: deriveLevGuardV22(c.programId, c.market)[0] });
-  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardReportV22(report)) });
+  return new TransactionInstruction12({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardReportV22(report)) });
 }
 function buildLevGuardTightenIxV22(c, caller, o) {
   const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_TIGHTEN_V22, {
@@ -16555,7 +16779,7 @@ function buildLevGuardTightenIxV22(c, caller, o) {
     poolBaseVault: o.poolBaseVault
   });
   if (o.holderTokenAccount) keys.push(r(o.holderTokenAccount));
-  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardTightenV22()) });
+  return new TransactionInstruction12({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardTightenV22()) });
 }
 function buildLevGuardPokeIxV22(c, caller, o) {
   const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_POKE_V22, {
@@ -16565,7 +16789,7 @@ function buildLevGuardPokeIxV22(c, caller, o) {
     vaultLpPortfolio: o.vaultLpPortfolio
   });
   if (o.sampleNav) keys.push(r(deriveVaultLpStateV22(c.programId, c.market)[0]), r(deriveVaultLpExtV22(c.programId, c.market)[0]));
-  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardPokeV22()) });
+  return new TransactionInstruction12({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardPokeV22()) });
 }
 function buildLevGuardLpStopIxV22(c, caller, vaultLpPortfolio, opposing = []) {
   const keys = buildAccountMetas(ACCOUNTS_LEV_GUARD_LP_STOP_V22, {
@@ -16577,7 +16801,7 @@ function buildLevGuardLpStopIxV22(c, caller, vaultLpPortfolio, opposing = []) {
     vaultLpExt: deriveVaultLpExtV22(c.programId, c.market)[0]
   });
   for (const p of opposing) keys.push(w(p));
-  return new TransactionInstruction11({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardLpStopV22()) });
+  return new TransactionInstruction12({ programId: c.programId, keys, data: Buffer.from(encodeLevGuardLpStopV22()) });
 }
 function withLevGuardTailV22(ix3, market) {
   const tag = ix3.data[0];
@@ -16587,7 +16811,7 @@ function withLevGuardTailV22(ix3, market) {
   const [guard2] = deriveLevGuardV22(ix3.programId, market);
   const last = ix3.keys[ix3.keys.length - 1];
   if (last.pubkey.equals(guard2)) return ix3;
-  return new TransactionInstruction11({ programId: ix3.programId, keys: [...ix3.keys, w(guard2)], data: ix3.data });
+  return new TransactionInstruction12({ programId: ix3.programId, keys: [...ix3.keys, w(guard2)], data: ix3.data });
 }
 
 // src/solana/v22-nav-flow.ts
@@ -16615,7 +16839,7 @@ function navFlowAccountsV22(programId, market) {
   return { guard: deriveLevGuardV22(programId, market)[0], ext: deriveVaultLpExtP2b(programId, market)[0] };
 }
 var wm = (pubkey) => ({ pubkey, isSigner: false, isWritable: true });
-var pad = () => ({ pubkey: SystemProgram8.programId, isSigner: false, isWritable: false });
+var pad = () => ({ pubkey: SystemProgram9.programId, isSigner: false, isWritable: false });
 function expectKey(keys, i, want, tag, what) {
   const k = keys[i];
   if (!k || !k.pubkey.equals(want)) throw new Error(`withNavFlowTailV22: tag ${tag} needs the ${what} at [${i}], found ${k ? k.pubkey.toBase58() : "nothing"}`);
@@ -16625,7 +16849,7 @@ function withNavFlowTailV22(base, market) {
   const { guard: guard2, ext } = navFlowAccountsV22(base.programId, market);
   const keys = [...base.keys];
   const n = keys.length;
-  const done = () => new TransactionInstruction12({ programId: base.programId, keys, data: base.data });
+  const done = () => new TransactionInstruction13({ programId: base.programId, keys, data: base.data });
   switch (tag) {
     case 96: {
       const t = NAV_FLOW_TAILS_V22[96];
@@ -16758,7 +16982,7 @@ function hasNavFlowTailV22(ix3, market) {
 import { ed25519 } from "@noble/curves/ed25519";
 import {
   ComputeBudgetProgram as ComputeBudgetProgram2,
-  PublicKey as PublicKey30,
+  PublicKey as PublicKey32,
   TransactionMessage,
   VersionedTransaction,
   Transaction as Transaction2
@@ -16773,7 +16997,7 @@ var TX_MAX_COMPUTE_UNITS = 14e5;
 var TX_MAX_LOADED_ACCOUNTS_DATA_BYTES = 64 * 1024 * 1024;
 var TX_V1_MIN_HEAP_BYTES = 32 * 1024;
 var TX_V1_MAX_HEAP_BYTES = 256 * 1024;
-var TX_V1_FEATURE_ID = new PublicKey30("txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL");
+var TX_V1_FEATURE_ID = new PublicKey32("txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL");
 var MAX_PRIORITY_FEE_LAMPORTS = 10000000n;
 var SIG_LEN = 64;
 var CFG_PRIORITY_FEE = 3;
@@ -16886,7 +17110,7 @@ function compileV1Message(params) {
   if (cfg.priorityFeeLamports > 0n) mask |= CFG_PRIORITY_FEE;
   if (cfg.heapSizeBytes !== null) mask |= CFG_HEAP_SIZE;
   writeU32(out, mask);
-  out.push(...new PublicKey30(recentBlockhash).toBytes());
+  out.push(...new PublicKey32(recentBlockhash).toBytes());
   out.push(instructions.length, ordered.length);
   for (const m of ordered) out.push(...m.pubkey.toBytes());
   if (cfg.priorityFeeLamports > 0n) writeU64(out, cfg.priorityFeeLamports);
@@ -17257,7 +17481,7 @@ async function sendGroupsAdaptive(p) {
 var w2 = (pubkey, isSigner = false) => ({ pubkey, isSigner, isWritable: true });
 var r2 = (pubkey, isSigner = false) => ({ pubkey, isSigner, isWritable: false });
 function ix2(programId, keys, data) {
-  return new TransactionInstruction14({ programId, keys, data: Buffer.from(data) });
+  return new TransactionInstruction15({ programId, keys, data: Buffer.from(data) });
 }
 function ledgers2(m) {
   return {
@@ -17302,8 +17526,8 @@ function buildRequestRedeemLpSharesIxV22(m, redeemer, redeemerLpAta, shares, min
     redeemerLpAta,
     escrow: deriveLpEscrow(m.programId, m.market)[0],
     redemption: deriveLpRedemption(m.programId, registry, redeemer)[0],
-    tokenProgram: TOKEN_PROGRAM_ID10,
-    systemProgram: SystemProgram9.programId
+    tokenProgram: TOKEN_PROGRAM_ID11,
+    systemProgram: SystemProgram10.programId
   });
   return ix2(m.programId, metas, encodeRequestRedeemLpSharesV22({ shares, minPayoutAtoms, keeperOk }));
 }
@@ -17324,7 +17548,7 @@ function buildExecuteRedemptionIxV22(m, cranker, redeemer, redeemerDest, vaultTo
     vaultAuthority: deriveVaultAuthority(m.programId, m.market)[0],
     ledger,
     redeemerDest,
-    tokenProgram: TOKEN_PROGRAM_ID10,
+    tokenProgram: TOKEN_PROGRAM_ID11,
     siblingLedger,
     redeemer
   });
@@ -17387,7 +17611,7 @@ function buildSweepBandDustLegIxV22(m, caller, portfolio, assetIndex) {
   return ix2(m.programId, metas, encodeSweepBandDustLegV22(assetIndex));
 }
 function buildEvictAndTradeCpiIxV22(tradeCpiIx, victim) {
-  return new TransactionInstruction14({
+  return new TransactionInstruction15({
     programId: tradeCpiIx.programId,
     keys: [w2(victim), ...tradeCpiIx.keys],
     data: Buffer.from(encodeEvictAndTradeCpiV22(tradeCpiIx.data))
@@ -17404,7 +17628,7 @@ function buildInitBondTrancheIxV22(m, authority, payer, a, opts = {}) {
     vaultLpExt: m.vaultLpExt,
     bondTranche: deriveBondTrancheV22(m.programId, m.market)[0],
     payer,
-    systemProgram: SystemProgram9.programId
+    systemProgram: SystemProgram10.programId
   });
   if (opts.upgradeAuthority) metas.push(r2(deriveProgramDataAddressP3(m.programId)[0]));
   return ix2(m.programId, metas, encodeInitBondTrancheV22(a));
@@ -17423,8 +17647,8 @@ function buildBondDepositIxV22(m, depositor, sourceToken, vaultToken, amount, mi
     bondPosition: deriveBondPositionV22(m.programId, m.market, depositor)[0],
     sourceToken,
     vaultToken,
-    tokenProgram: TOKEN_PROGRAM_ID10,
-    systemProgram: SystemProgram9.programId
+    tokenProgram: TOKEN_PROGRAM_ID11,
+    systemProgram: SystemProgram10.programId
   });
   return withNavFlowTailV22(ix2(m.programId, metas, encodeBondDepositV22(amount, minShares)), m.market);
 }
@@ -17452,7 +17676,7 @@ function buildBondExecuteWithdrawIxV22(m, holder, destToken, vaultToken, minOut,
     destToken,
     vaultToken,
     vaultAuthority: deriveVaultAuthority(m.programId, m.market)[0],
-    tokenProgram: TOKEN_PROGRAM_ID10
+    tokenProgram: TOKEN_PROGRAM_ID11
   });
   return withNavFlowTailV22(ix2(m.programId, metas, encodeBondExecuteWithdrawV22(minOut, sourceDomain)), m.market);
 }
@@ -17463,7 +17687,7 @@ function withBondTailV22(base, tranche) {
   if (base.keys.length !== want) throw new Error(`withBondTailV22: tag ${tag} must have exactly ${want} accounts before the tranche, got ${base.keys.length}`);
   const writable = tag === IX_TAG_EXTENDED_V22.LpVaultCrankFees;
   if (tag === IX_TAG_EXTENDED_V22.LpVaultCrankFees && base.keys[8]?.isWritable !== true) throw new Error("withBondTailV22: tag 78 on a bond market needs the vault LP at [8] WRITABLE (it is re-certified before the bonds are valued)");
-  return new TransactionInstruction14({ programId: base.programId, keys: [...base.keys, { pubkey: tranche, isSigner: false, isWritable: writable }], data: base.data });
+  return new TransactionInstruction15({ programId: base.programId, keys: [...base.keys, { pubkey: tranche, isSigner: false, isWritable: writable }], data: base.data });
 }
 function withInsuranceUnitsTailV22(base, units) {
   const tag = base.data[0];
@@ -17471,7 +17695,7 @@ function withInsuranceUnitsTailV22(base, units) {
   if (from === void 0) throw new Error(`withInsuranceUnitsTailV22: tag ${base.data[0]} takes no insurance-units account (only 9 / 56 / 57 / 41 / 101)`);
   if (base.keys.length < from) throw new Error(`withInsuranceUnitsTailV22: tag ${tag} needs at least ${from} accounts before the units account, got ${base.keys.length}`);
   if (base.keys.some((k) => k.pubkey.equals(units))) throw new Error("withInsuranceUnitsTailV22: the units account is already present");
-  return new TransactionInstruction14({ programId: base.programId, keys: [...base.keys, w2(units)], data: base.data });
+  return new TransactionInstruction15({ programId: base.programId, keys: [...base.keys, w2(units)], data: base.data });
 }
 function buildInsuranceBackstopDrawIxV22(m, cranker, mode, maxAmount, extraTail = []) {
   if (!m.lpPortfolio) throw new Error("tag 111 needs the bound vault LP portfolio (m.lpPortfolio)");
@@ -17500,15 +17724,15 @@ function buildRescueDepositIxV22(m, rescuer, rescuerLpAta, sourceToken, vaultTok
     sourceToken,
     vaultToken,
     ledger,
-    tokenProgram: TOKEN_PROGRAM_ID10,
-    systemProgram: SystemProgram9.programId,
+    tokenProgram: TOKEN_PROGRAM_ID11,
+    systemProgram: SystemProgram10.programId,
     siblingLedger
   });
   if (m.lpPortfolio) metas.push(w2(deriveVaultLpStateP3(m.programId, m.market)[0]), w2(m.lpPortfolio));
   return ix2(m.programId, metas, encodeRescueDepositV22(tranche, amount, minShares));
 }
 function buildInitInsuranceUnitsIxV22(m, payer) {
-  const metas = buildAccountMetas(ACCOUNTS_INIT_INSURANCE_UNITS_V22, { payer, market: m.market, insuranceUnits: deriveInsuranceUnitsV22(m.programId, m.market)[0], systemProgram: SystemProgram9.programId });
+  const metas = buildAccountMetas(ACCOUNTS_INIT_INSURANCE_UNITS_V22, { payer, market: m.market, insuranceUnits: deriveInsuranceUnitsV22(m.programId, m.market)[0], systemProgram: SystemProgram10.programId });
   return ix2(m.programId, metas, encodeInitInsuranceUnitsV22());
 }
 function buildSetG9FeedAllowlistIxV22(programId, upgradeAuthority, keys) {
@@ -17516,7 +17740,7 @@ function buildSetG9FeedAllowlistIxV22(programId, upgradeAuthority, keys) {
     upgradeAuthority,
     programData: deriveProgramDataAddressP3(programId)[0],
     g9FeedAllowlist: deriveG9FeedAllowlistV22(programId)[0],
-    systemProgram: SystemProgram9.programId
+    systemProgram: SystemProgram10.programId
   });
   return ix2(programId, metas, encodeSetG9FeedAllowlistV22(keys));
 }
@@ -17542,11 +17766,11 @@ function buildDepositToLpVaultIxBoundV22(m, depositor, lpAta, sourceToken, vault
     sourceToken,
     vaultToken,
     ledger: ledgers2(m).ledger,
-    tokenProgram: TOKEN_PROGRAM_ID10,
-    systemProgram: SystemProgram9.programId,
+    tokenProgram: TOKEN_PROGRAM_ID11,
+    systemProgram: SystemProgram10.programId,
     siblingLedger: ledgers2(m).siblingLedger
   });
-  const base = new TransactionInstruction14({ programId: m.programId, keys: metas, data: Buffer.from(encodeDepositToLpVault({ amount, domain })) });
+  const base = new TransactionInstruction15({ programId: m.programId, keys: metas, data: Buffer.from(encodeDepositToLpVault({ amount, domain })) });
   return withBoundVaultLpTailP3(base, deriveVaultLpStateP3(m.programId, m.market)[0], m.lpPortfolio);
 }
 function buildLaunchBundleV22(i) {
@@ -17558,7 +17782,7 @@ function buildLaunchBundleV22(i) {
   const seedIxs = [];
   for (const sd of i.earnSeeds ?? []) {
     const ata = sd.depositorLpAta ?? getAssociatedTokenAddressSync5(lpMint, sd.depositor, true);
-    seedIxs.push(createAssociatedTokenAccountIdempotentInstruction(i.payer, ata, sd.depositor, lpMint));
+    seedIxs.push(createAssociatedTokenAccountIdempotentInstruction2(i.payer, ata, sd.depositor, lpMint));
     seedIxs.push(buildDepositToLpVaultIxBoundV22(i.market, sd.depositor, ata, sd.sourceToken, sd.vaultToken, sd.amount, sd.domain ?? 0));
   }
   const instructions = [i.createVaultLp, ...i.createAccounts, i.initVaultLp, i.initBondTranche, ...seedIxs];
@@ -17580,10 +17804,10 @@ function buildLaunchBundleV22(i) {
   return { format: "legacy", instructions, bytes, limit: TX_LEGACY_MAX_BYTES, budget };
 }
 function buildCreateLpPortfolioIxV22(payer, portfolio, lamports, programId, layout = LAYOUT_V22) {
-  return SystemProgram9.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
+  return SystemProgram10.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
 }
 function buildCreatePortfolioAccountIxV22(payer, portfolio, lamports, programId, layout = LAYOUT_V22) {
-  return SystemProgram9.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
+  return SystemProgram10.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
 }
 function portfolioAccountLenV22(layout = LAYOUT_V22) {
   return layout.portfolio.accountLen;
@@ -17607,10 +17831,10 @@ function buildLpVaultCrankFeesIxBoundV22(m, cranker, domain, opts = {}) {
   if (opts.bond && !m.vaultLpExt) throw new Error("a bond market always has the vault LP ext: set m.vaultLpExt");
   const [registry] = deriveLpVaultRegistry(m.programId, m.market);
   const { ledger, siblingLedger } = ledgers2(m);
-  const base = new TransactionInstruction14({
+  const base = new TransactionInstruction15({
     programId: m.programId,
     data: Buffer.from(encodeLpVaultCrankFees({ domain })),
-    keys: [w2(cranker, true), w2(m.market), w2(registry), w2(ledger), w2(siblingLedger), r2(SystemProgram9.programId)]
+    keys: [w2(cranker, true), w2(m.market), w2(registry), w2(ledger), w2(siblingLedger), r2(SystemProgram10.programId)]
   });
   const withState = withBoundVaultLpTailP3(base, deriveVaultLpStateP3(m.programId, m.market)[0], m.lpPortfolio, { vaultLpExt: m.vaultLpExt });
   return opts.bond ? withBondTailV22(withState, deriveBondTrancheV22(m.programId, m.market)[0]) : withState;
@@ -17623,13 +17847,13 @@ function buildWithdrawJuniorTrancheIxV22(m, juniorOwner, destToken, vaultToken, 
 }
 
 // src/solana/v22-lp-share.ts
-import { PublicKey as PublicKey32, SystemProgram as SystemProgram10, TransactionInstruction as TransactionInstruction15 } from "@solana/web3.js";
+import { PublicKey as PublicKey34, SystemProgram as SystemProgram11, TransactionInstruction as TransactionInstruction16 } from "@solana/web3.js";
 var te = new TextEncoder();
 function deriveLpShareMetadataPdaV22(mint) {
-  return PublicKey32.findProgramAddressSync([te.encode("metadata"), METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22.toBytes(), mint.toBytes()], METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22);
+  return PublicKey34.findProgramAddressSync([te.encode("metadata"), METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22.toBytes(), mint.toBytes()], METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22);
 }
 function deriveLpShareMetaPayerPdaV22(programId, mint) {
-  return PublicKey32.findProgramAddressSync([te.encode("lp_share_meta_payer"), mint.toBytes()], programId);
+  return PublicKey34.findProgramAddressSync([te.encode("lp_share_meta_payer"), mint.toBytes()], programId);
 }
 function buildInitLpShareMetadataIxV22(a) {
   const ticker = a.ticker ?? "";
@@ -17645,20 +17869,20 @@ function buildInitLpShareMetadataIxV22(a) {
     lpMint,
     metadata,
     metaplexProgram: METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22,
-    systemProgram: SystemProgram10.programId,
+    systemProgram: SystemProgram11.programId,
     feePayerPda
   });
   if (ticker !== "") keys.push(...buildAccountMetas(ACCOUNTS_INIT_LP_SHARE_METADATA_TICKER_TAIL, { market: a.market, marketauth: a.marketauth }));
-  return new TransactionInstruction15({ programId: a.programId, keys, data: Buffer.from(encodeInitLpShareMetadataV22(ticker)) });
+  return new TransactionInstruction16({ programId: a.programId, keys, data: Buffer.from(encodeInitLpShareMetadataV22(ticker)) });
 }
 
 // src/solana/v22-multi-asset-trade.ts
-import { TransactionInstruction as TransactionInstruction16 } from "@solana/web3.js";
+import { TransactionInstruction as TransactionInstruction17 } from "@solana/web3.js";
 var WRAPPER_PRE_CRANK_MIN_LEGS_V22 = WRAPPER_MAX_PORTFOLIO_ASSETS_V22 > 1 ? WRAPPER_MAX_PORTFOLIO_ASSETS_V22 - 1 : 1;
 var MULTI_ASSET_TRADE_COMPUTE_UNITS_V22 = 14e5;
 var MULTI_ASSET_TRADE_MAX_EXTRA_CRANKS_V22 = 4;
 function buildRefreshCrankIxV22(programId, market, cranker, portfolio, observations = []) {
-  return new TransactionInstruction16({
+  return new TransactionInstruction17({
     programId,
     keys: buildAccountMetas(ACCOUNTS_PERMISSIONLESS_CRANK_BASE, { owner: cranker, market, portfolio }),
     data: Buffer.from(encodePermissionlessCrank({ nowSlot: 0n, observations: observations.map((assetIndex) => ({ assetIndex, oracleAccounts: 0 })) }))
@@ -17754,8 +17978,8 @@ function buildCatchUpAndRefreshIxsV22(input) {
 }
 
 // src/runtime/lighthouse.ts
-import { PublicKey as PublicKey34, Transaction as Transaction3 } from "@solana/web3.js";
-var LIGHTHOUSE_PROGRAM_ID = new PublicKey34(
+import { PublicKey as PublicKey36, Transaction as Transaction3 } from "@solana/web3.js";
+var LIGHTHOUSE_PROGRAM_ID = new PublicKey36(
   "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"
 );
 var LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
@@ -18022,7 +18246,7 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 }
 
 // src/validation.ts
-import { PublicKey as PublicKey35 } from "@solana/web3.js";
+import { PublicKey as PublicKey37 } from "@solana/web3.js";
 var U16_MAX4 = 65535;
 var U64_MAX6 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
@@ -18063,7 +18287,7 @@ function safeBigInt(val, caller) {
 }
 function validatePublicKey(value, field) {
   try {
-    return new PublicKey35(value);
+    return new PublicKey37(value);
   } catch {
     throw new ValidationError(
       field,
@@ -18548,6 +18772,7 @@ export {
   ACCOUNTS_SETTLE_HOLDING_RENT_V22,
   ACCOUNTS_SET_ADL_WIND_DOWN_MAX_SLOTS,
   ACCOUNTS_SET_ASSET_RISK_LIMITS_P1,
+  ACCOUNTS_SET_CREATOR_FEE_PAYEE_V22,
   ACCOUNTS_SET_DEPTH_SOURCE_POOL_TAIL_V22,
   ACCOUNTS_SET_DEPTH_SOURCE_V22,
   ACCOUNTS_SET_DEX_POOL,
@@ -18602,6 +18827,7 @@ export {
   ACCOUNTS_WITHDRAW_BACKING_BUCKET_EARNINGS,
   ACCOUNTS_WITHDRAW_COLLATERAL,
   ACCOUNTS_WITHDRAW_CREATOR_FEE,
+  ACCOUNTS_WITHDRAW_CREATOR_FEE_TO_PAYEE_V22,
   ACCOUNTS_WITHDRAW_INSURANCE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_LIVE,
   ACCOUNTS_WITHDRAW_INSURANCE_LIMITED_RESOLVED,
@@ -18688,6 +18914,12 @@ export {
   COMPUTE_PRESETS_V22,
   CONSENT_VERSION_FIRST_LOSS_V5,
   CRANK_OBSERVATION_DECODE_MAX,
+  CREATOR_FEE_PAYEE_ACCOUNT_LEN_V22,
+  CREATOR_FEE_PAYEE_BODY_LEN_V22,
+  CREATOR_FEE_PAYEE_FIELD_OFF_V22,
+  CREATOR_FEE_PAYEE_INVALID_ERROR_V22,
+  CREATOR_FEE_PAYEE_SEED_V22,
+  CREATOR_FEE_PAYEE_VERSION_V22,
   CREATOR_LOCK_SEED,
   CTX_RETURN_OFFSET,
   CTX_VAMM_LEN,
@@ -18983,6 +19215,7 @@ export {
   ORACLE_PHASE_NASCENT,
   P2B_SENIOR_FLOOR_RECORD_OFF,
   P2B_SENIOR_FLOOR_SLOT_OFF,
+  P4_FLAG_CREATOR_FEE_PAYEE_V22,
   P4_FLAG_EXIT_REQUIRES_LOSS_CURRENT_V22,
   P4_FLAG_INS_UNITS_REQUIRED_V22,
   PERCOLATOR_ERRORS,
@@ -19034,6 +19267,7 @@ export {
   RpcTimeoutError,
   SEEDS_V22,
   SET_ASSET_RISK_LIMITS_TIERS_TRAILER_LEN,
+  SET_CREATOR_FEE_PAYEE_LEN_V22,
   SET_DEPTH_SOURCE_LEN_V22,
   SLAB_MAGIC,
   SLAB_TIERS,
@@ -19086,6 +19320,7 @@ export {
   STRESS_NONE,
   SYNC_COOLDOWN_DEFAULT_SLOTS_V5,
   TAG_LEV_GUARD_V22,
+  TAG_SET_CREATOR_FEE_PAYEE_V22,
   TAG_SET_DEPTH_SOURCE_V22,
   TIER_CONFIG_WIRE_LEN,
   TIER_LEVERAGE_DEFAULT_X100,
@@ -19168,6 +19403,7 @@ export {
   VOL_Z,
   ValidationError,
   WELL_KNOWN,
+  WITHDRAW_CREATOR_FEE_PAYEE_ACCOUNT_INDEX_V22,
   WRAPPER_ACCOUNT_MAGIC,
   WRAPPER_BATCH_MAX_LEGS,
   WRAPPER_MAX_PORTFOLIO_ASSETS_V22,
@@ -19243,6 +19479,7 @@ export {
   buildBondExecuteWithdrawIxV22,
   buildBondRequestWithdrawIxV22,
   buildCatchUpAndRefreshIxsV22,
+  buildClaimCreatorFeeToPayeeIxsV22,
   buildClaimResolvedPayoutTopupIxP3,
   buildClearDepthSourceIxV22,
   buildCloseResolvedUnsignedIxP3,
@@ -19284,6 +19521,7 @@ export {
   buildResolveStalePermissionlessIxV22,
   buildSetAdlWindDownMaxSlotsIx,
   buildSetAssetRiskLimitsIxP1,
+  buildSetCreatorFeePayeeIxV22,
   buildSetDepthSourceIxV22,
   buildSetG9FeedAllowlistIxV22,
   buildSetVaultLpRiskIxP3,
@@ -19353,7 +19591,10 @@ export {
   couponDueV22,
   couponGateOpenV22,
   creatorCollateralAtaV5,
+  creatorFeeClaimRouteV22,
+  creatorFeePayeeDestinationV22,
   creatorFeeVestedP2b,
+  creatorPotOrphanedV22,
   curveAnchors,
   curveDepthForLeverageX100,
   curveLagU64,
@@ -19380,6 +19621,7 @@ export {
   decodeBankruptcyHlock,
   decodeBondPositionV20,
   decodeBondTrancheV20,
+  decodeCreatorFeePayeeV22,
   decodeDepositPda,
   decodeDepthSourceV22,
   decodeError,
@@ -19432,6 +19674,7 @@ export {
   deriveBondTrancheV22,
   deriveCanonicalVault,
   deriveCanonicalVaultForAuthority,
+  deriveCreatorFeePayeeV22,
   deriveCreatorLockPda,
   deriveDepositPda,
   deriveDepthSourceV22,
@@ -19604,6 +19847,7 @@ export {
   encodeSetAssetRiskLimitsP1,
   encodeSetAssetRiskLimitsV19,
   encodeSetAssetRiskLimitsV22Tiers,
+  encodeSetCreatorFeePayeeV22,
   encodeSetDepthSourceV22,
   encodeSetDexPool,
   encodeSetDisputeParams,
@@ -19756,6 +20000,7 @@ export {
   growthLVolX100,
   growthMatcherCapsG8,
   growthMatcherCapsV3,
+  hasCreatorFeePayeeFlagV22,
   hasNavFlowTailV22,
   impliedFundingRateE9V22,
   imrBpsForLeverageX100,
@@ -19890,6 +20135,7 @@ export {
   parseTxV1Mode,
   parseUsedIndices,
   parseWrapperConfigV17,
+  payeeUpdateAllowedV22,
   payoutFromBalancesV22,
   pinnedMatcherCapsP3,
   planCloseSlabAttempt,
@@ -19918,6 +20164,7 @@ export {
   rc23CapDials,
   readAssetPricesP3,
   readBandRentViewV22,
+  readCreatorFeeClaimStateV22,
   readLastThrUpdateSlot,
   readNonce,
   readPotEngineRecordsP2b,
