@@ -1,3 +1,11 @@
+## 9.0.0-candidate: v2.2 rc23 prog #651 creator-fee payee grace (bbaa0e7b) - BREAKING within the candidate (one signature)
+
+- **Changed (BREAKING):** `creatorPotOrphanedV22(assetAdmin, payeeFlag, pot, payeeGraceOver)` takes the grace (prog #651 `creator_pot_orphaned` 4-argument form): a payee pot is re-booked by CloseSlab once the grace is over.
+- **Added:** `CREATOR_PAYEE_GRACE_SLOTS_V22` (1,512,000 = 7 x 216,000), `MARKET_GROUP_RESOLVED_SLOT_OFF_V22` (675, engine header `resolved_slot`), `payeeGraceElapsedV22(resolved, resolvedSlot, nowSlot)`; `readCreatorFeeClaimStateV22(data, i, nowSlot?)` returns `resolved`, `resolvedSlot`, `payeeGraceOver`.
+- **Changed (planner):** `planCloseSlabAttempt({ payeeGraceOver })`: after the grace no tag 90 is bundled for a payee pot (a tag 90 that cannot land would sink the tx); that CloseSlab re-books it. New `planPayeeGraceCloseSequenceV22`: [CloseSlab re-book] then [tag 84 for the re-booked pot, CloseSlab].
+- **Changed (text):** error 71 hint names the 7-day re-book.
+- **Parity:** oracle updated (4-argument `creator_pot_orphaned`, `payee_grace_elapsed` rows, `offset_of!` of `resolved_slot` / `mode`); fixture regenerated at prog bbaa0e7b / engine 2f05df8c.
+
 ## 9.0.0-candidate: v2.2 prog #649 (GH#571) cumulative bond coupon: BondTrancheV20 v2 (176 B) - BREAKING (layout, quote inputs)
 
 - **Changed (layout, BREAKING):** `BondTrancheV20` is 176 B, version 2 (`LAYOUT_V22.accounts.bondTrancheBody` 128 -> 176, `BOND_TRANCHE_VERSION_V22` = 2). Bytes 0..128 keep their offsets; `cBAtoms` now holds the WHOLE claim `K` (settled coupon included). New fields: `couponArrearsAtoms` (`R`, the receivable the fee legs owe the junior, @128), `couponUnfundedAtoms` (`U`, the per-share cap meter, @144), `couponAccrualRem` (carried sub-atom numerator, @160), `couponGateSeen` (gate memory: low 63 bits of `senior_drawn_atoms`, bit 63 = gate closed, @168). `decodeBondTrancheV20` applies the program's `validate_bond_tranche` incl. `version == 2`, `rem < COUPON_DENOM`, `U <= K`; a v1 (128 B) or 144 B account is refused (`TOO_SHORT`), a v1 version byte at full length as `INVALID_RECORD`. Bond markets are re-seeded (no migration).

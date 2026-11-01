@@ -408,7 +408,7 @@ export const PERCOLATOR_ERRORS: Record<number, ErrorInfo> = {
   },
   71: {
     name: "CloseSlabFeesOutstanding",
-    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first — tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee (on an asset whose admin was burned after recording a payee, anyone may send it and it pays the payee) — and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you.",
+    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first — tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee (on an asset whose admin was burned after recording a payee, anyone may send it and it pays the payee; if that pot is still unpaid 7 days after resolution, CloseSlab re-books it to the protocol leg instead) — and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you.",
   },
 
   // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──

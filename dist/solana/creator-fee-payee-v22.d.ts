@@ -78,6 +78,12 @@ export interface CreatorFeeClaimStateV22 {
     owed: bigint;
     /** Current `authority_epoch` of this asset (tag 90 / tag 125 CAS input). */
     authorityEpoch: bigint;
+    /** prog #651: the market is Resolved (engine mode 1). */
+    resolved: boolean;
+    /** prog #651: engine header `resolved_slot` (the grace anchor; meaningful once resolved). */
+    resolvedSlot: bigint;
+    /** prog #651: `payeeGraceElapsedV22(resolved, resolvedSlot, nowSlot)`; false when no `nowSlot` was given. */
+    payeeGraceOver: boolean;
 }
 /**
  * Read one asset's creator-fee claim state from a v2.2 market account (profile `asset_admin`, `p4_flags`, the asset's
@@ -86,6 +92,7 @@ export interface CreatorFeeClaimStateV22 {
  *
  * @param marketData  Raw market account bytes.
  * @param assetIndex  Asset slot.
+ * @param nowSlot     Current cluster slot (prog #651 grace); omit / null = grace treated as not over.
  * @returns The state.
  * @throws UnknownLayoutError if the account is not a known market layout; Error if the slot is not present.
  * @example
@@ -94,4 +101,4 @@ export interface CreatorFeeClaimStateV22 {
  * if (s.route === "Payee" && s.owed > 0n) { ... }
  * ```
  */
-export declare function readCreatorFeeClaimStateV22(marketData: Uint8Array, assetIndex: number): CreatorFeeClaimStateV22;
+export declare function readCreatorFeeClaimStateV22(marketData: Uint8Array, assetIndex: number, nowSlot?: bigint | null): CreatorFeeClaimStateV22;

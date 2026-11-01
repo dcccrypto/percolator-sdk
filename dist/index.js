@@ -4929,7 +4929,7 @@ var PERCOLATOR_ERRORS = {
   },
   71: {
     name: "CloseSlabFeesOutstanding",
-    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first \u2014 tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee (on an asset whose admin was burned after recording a payee, anyone may send it and it pays the payee) \u2014 and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you."
+    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first \u2014 tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee (on an asset whose admin was burned after recording a payee, anyone may send it and it pays the payee; if that pot is still unpaid 7 days after resolution, CloseSlab re-books it to the protocol leg instead) \u2014 and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you."
   },
   // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──
   // Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
@@ -13232,8 +13232,18 @@ function creatorFeeClaimRouteV22(assetAdmin, payeeFlag) {
   if (!eq32(toBytes32(assetAdmin, "creatorFeeClaimRouteV22 assetAdmin"), ZERO32)) return "AdminSigned";
   return payeeFlag ? "Payee" : "Refused";
 }
-function creatorPotOrphanedV22(assetAdmin, payeeFlag, pot) {
-  return pot !== 0n && creatorFeeClaimRouteV22(assetAdmin, payeeFlag) === "Refused";
+var CREATOR_PAYEE_GRACE_SLOTS_V22 = 1512000n;
+var MARKET_GROUP_RESOLVED_SLOT_OFF_V22 = 675;
+function payeeGraceElapsedV22(resolved, resolvedSlot, nowSlot) {
+  if (nowSlot === null) return false;
+  const end = resolvedSlot + CREATOR_PAYEE_GRACE_SLOTS_V22;
+  if (end > 0xffffffffffffffffn) return false;
+  return resolved && nowSlot >= end;
+}
+function creatorPotOrphanedV22(assetAdmin, payeeFlag, pot, payeeGraceOver) {
+  if (pot === 0n) return false;
+  const route = creatorFeeClaimRouteV22(assetAdmin, payeeFlag);
+  return route === "Refused" || route === "Payee" && payeeGraceOver;
 }
 function payeeUpdateAllowedV22(assetAdmin, signer, currentPayee, newPayee, vaultAuthority) {
   const admin = toBytes32(assetAdmin, "assetAdmin");
@@ -15615,7 +15625,7 @@ function buildClaimCreatorFeeToPayeeIxsV22(a) {
   }));
   return ixs;
 }
-function readCreatorFeeClaimStateV22(marketData, assetIndex) {
+function readCreatorFeeClaimStateV22(marketData, assetIndex, nowSlot = null) {
   const g = resolveMarketGeometry(marketData, { parser: "readCreatorFeeClaimStateV22", strictLength: false });
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex >= g.slotCount) {
     throw new Error(`readCreatorFeeClaimStateV22: asset ${assetIndex} is not present (${g.slotCount} slots)`);
@@ -15625,13 +15635,19 @@ function readCreatorFeeClaimStateV22(marketData, assetIndex) {
   const profile = parseAssetOracleProfileV17(marketData, profileOff);
   const payeeFlag = hasCreatorFeePayeeFlagV22(marketData[profileOff + g.layout.wrapperSlot.profileP4Flags]);
   const legacy = assetIndex === 0 ? parseWrapperConfigV17(marketData).creatorFeeClaimableAtoms : 0n;
+  const dv8 = new DataView(marketData.buffer, marketData.byteOffset, marketData.byteLength);
+  const resolved = marketData[g.groupOff + g.layout.group.mode] === 1;
+  const resolvedSlot = dv8.getBigUint64(g.groupOff + MARKET_GROUP_RESOLVED_SLOT_OFF_V22, true);
   return {
     assetIndex,
     assetAdmin: profile.assetAdmin,
     payeeFlag,
     route: creatorFeeClaimRouteV22(profile.assetAdmin, payeeFlag),
     owed: profile.creatorFeeClaimableAtoms + legacy,
-    authorityEpoch: parseAssetControlSequencesV17(marketData, slot).authorityEpoch
+    authorityEpoch: parseAssetControlSequencesV17(marketData, slot).authorityEpoch,
+    resolved,
+    resolvedSlot,
+    payeeGraceOver: payeeGraceElapsedV22(resolved, resolvedSlot, nowSlot)
   };
 }
 
@@ -15708,6 +15724,7 @@ function planCloseSlabAttempt(a) {
   }
   for (const leg of a.creatorFees ?? []) {
     if (leg.owed <= 0n || leg.route === "Refused") continue;
+    if (leg.route === "Payee" && a.payeeGraceOver) continue;
     if (leg.route === "AdminSigned") {
       throw new Error(
         `planCloseSlabAttempt: asset ${leg.assetIndex} owes ${leg.owed} creator-fee atoms under a live asset_admin. Only that key can claim them (tag 90); CloseSlab refuses (71) until it does.`
@@ -15745,6 +15762,24 @@ function planCloseSlabAttempt(a) {
     data: Buffer.from(encodeCloseSlab(a.closeAuthorityEpoch))
   }));
   return ixs;
+}
+function planPayeeGraceCloseSequenceV22(a) {
+  if (!a.protocolFee) {
+    throw new Error("planPayeeGraceCloseSequenceV22: after the grace the payee pot is re-booked to the protocol leg; pass protocolFee so tag 84 can claim it");
+  }
+  const rebooked = (a.creatorFees ?? []).filter((l) => l.route === "Payee").reduce((t, l) => t + (l.owed > 0n ? l.owed : 0n), 0n);
+  if (rebooked === 0n) {
+    throw new Error("planPayeeGraceCloseSequenceV22: no unpaid payee pot to re-book; use planCloseSlabAttempt");
+  }
+  const tx1 = planCloseSlabAttempt({ ...a, payeeGraceOver: true });
+  const tx2 = planCloseSlabAttempt({
+    ...a,
+    payeeGraceOver: true,
+    creatorFees: [],
+    insuranceRecredit: void 0,
+    protocolFee: { ...a.protocolFee, owed: rebooked }
+  });
+  return [tx1, tx2];
 }
 
 // src/solana/p3-vault-lp.ts
@@ -19104,6 +19139,7 @@ export {
   CREATOR_FEE_PAYEE_SEED_V22,
   CREATOR_FEE_PAYEE_VERSION_V22,
   CREATOR_LOCK_SEED,
+  CREATOR_PAYEE_GRACE_SLOTS_V22,
   CTX_RETURN_OFFSET,
   CTX_VAMM_LEN,
   CTX_VAMM_OFFSET,
@@ -19314,6 +19350,7 @@ export {
   LP_VAULT_REGISTRY_EXT_FLAG_OFF_P2B,
   LaunchBundleTooLargeError,
   MARKET_GROUP_HEADER_OFF_V18,
+  MARKET_GROUP_RESOLVED_SLOT_OFF_V22,
   MARKET_MODE_V18,
   MARK_PRICE_EMA_ALPHA_E6,
   MARK_PRICE_EMA_WINDOW_SLOTS,
@@ -20330,11 +20367,13 @@ export {
   parseTxV1Mode,
   parseUsedIndices,
   parseWrapperConfigV17,
+  payeeGraceElapsedV22,
   payeeUpdateAllowedV22,
   payoutFromBalancesV22,
   pinnedMatcherCapsP3,
   planCloseSlabAttempt,
   planEarnExitV22,
+  planPayeeGraceCloseSequenceV22,
   planReduceOnlyExit,
   planResolvedReceiptRevisitP3,
   planResolvedVaultLpExitP3,
