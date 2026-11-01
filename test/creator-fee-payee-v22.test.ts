@@ -2,7 +2,7 @@
  * prog#587 (#644) creator-fee payee: tag 125, the tag 90 payee route, the payee PDA / record (kind 19), p4 bit 3,
  * error 136, the routing rules, the builders, the market reader and the CloseSlab planner.
  * Parity fixture: test/fixtures/creator-fee-payee-parity.json, generated from the REAL crate (percolator-prog rc23
- * 2b5dce8a on engine 2f05df8c) by scripts/creator-fee-payee-parity/sdk_587_parity.rs (see its header).
+ * bbaa0e7b = #644 + #645 + #651 payee grace, on engine 2f05df8c) by scripts/creator-fee-payee-parity/sdk_587_parity.rs (see its header).
  */
 import { readFileSync } from "node:fs";
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
@@ -10,18 +10,19 @@ import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddres
 import { describe, expect, it } from "vitest";
 import * as P from "../src/abi/creator-fee-payee-v22.js";
 import * as B from "../src/solana/creator-fee-payee-v22.js";
-import { planCloseSlabAttempt } from "../src/solana/market-lifecycle.js";
+import { planCloseSlabAttempt, planPayeeGraceCloseSequenceV22 } from "../src/solana/market-lifecycle.js";
 import { deriveVaultAuthority } from "../src/solana/pda.js";
 import { ACCOUNT_KIND, LAYOUT_V22, UnknownLayoutError } from "../src/abi/layout.js";
 import { P4_FLAG_CREATOR_FEE_PAYEE_V22, P4_FLAG_EXIT_REQUIRES_LOSS_CURRENT_V22, P4_FLAG_INS_UNITS_REQUIRED_V22 } from "../src/abi/v22-wire.js";
 import { PERCOLATOR_ERRORS, decodeError } from "../src/abi/errors.js";
-import { encodeWithdrawCreatorFee } from "../src/abi/instructions.js";
+import { encodeWithdrawCreatorFee, encodeWithdrawProtocolFee } from "../src/abi/instructions.js";
 import { V17_CREATOR_FEE_CLAIMABLE_OFF } from "../src/solana/slab.js";
 import { PAYEE_REFUSED, PAYEE_VECTORS } from "./creator-fee-payee-vector-inputs.js";
 import { stampMarket } from "./helpers/stamp.js";
 
 interface Fx {
   prog: string; engine: string; program: string;
+  groupOffsets: { resolvedSlot: number; mode: number }; graceSlots: number;
   vectors: Record<string, { hex: string; rust: { ok: boolean; decoded?: Record<string, unknown>; err?: string }; rustReencodedHex: string }>;
   constants: { tag: number; kind: number; p4Flag: number; p4FlagsIdx: number; version: number; bodyLen: number; accountLen: number; seed: string; errorInvalid: number; errorUnauthorized: number; errorFeesOutstanding: number };
   offsets: Record<string, number>;
@@ -36,8 +37,8 @@ const unhex = (s: string): Uint8Array => Uint8Array.from(Buffer.from(s, "hex"));
 const pk = (): PublicKey => Keypair.generate().publicKey;
 
 describe("pinned oracle", () => {
-  it("is prog rc23 2b5dce8a (#644 + #645) on engine 2f05df8c", () => {
-    expect(FX.prog).toBe("2b5dce8a11ed1b3d21e9a56db0144feef99b17e4");
+  it("is prog rc23 bbaa0e7b (#644 + #645 + #651) on engine 2f05df8c", () => {
+    expect(FX.prog).toBe("bbaa0e7b0edb59a545b592488acfaea8ca18da9b");
     expect(FX.engine).toBe("2f05df8c8c1edd85734120e1322420621fc33cf0");
   });
 });
@@ -100,6 +101,12 @@ describe("constants, error code and offsets == the real crate", () => {
     expect(PERCOLATOR_ERRORS[C.errorFeesOutstanding]?.name).toBe("CloseSlabFeesOutstanding");
     expect(decodeError(137)).toBeUndefined();
   });
+  it("prog #651: grace length and the resolved_slot / mode offsets in the market-group header", () => {
+    expect(P.CREATOR_PAYEE_GRACE_SLOTS_V22).toBe(BigInt(FX.graceSlots));
+    expect(FX.graceSlots).toBe(7 * 216_000);
+    expect(P.MARKET_GROUP_RESOLVED_SLOT_OFF_V22).toBe(FX.groupOffsets.resolvedSlot);
+    expect(LAYOUT_V22.group.mode).toBe(FX.groupOffsets.mode);
+  });
   it("the market fields the reader uses sit where rustc puts them", () => {
     const O = FX.offsets;
     expect(LAYOUT_V22.wrapperSlot.profileP4Flags).toBe(O.profileP4Flags);
@@ -160,7 +167,8 @@ describe("rules == the real pure functions", () => {
     for (const r of FX.rules) {
       switch (r.fn) {
         case "claim_route": expect(P.creatorFeeClaimRouteV22(k(r.admin), r.flag as boolean)).toBe(r.out); break;
-        case "creator_pot_orphaned": expect(P.creatorPotOrphanedV22(k(r.admin), r.flag as boolean, BigInt(r.pot as string))).toBe(r.out); break;
+        case "creator_pot_orphaned": expect(P.creatorPotOrphanedV22(k(r.admin), r.flag as boolean, BigInt(r.pot as string), r.graceOver as boolean), JSON.stringify(r)).toBe(r.out); break;
+        case "payee_grace_elapsed": expect(P.payeeGraceElapsedV22(r.resolved as boolean, BigInt(r.resolvedSlot as string), r.now === null ? null : BigInt(r.now as string)), JSON.stringify(r)).toBe(r.out); break;
         case "has_payee_bit": expect(P.hasCreatorFeePayeeFlagV22(r.p4 as number)).toBe(r.out); break;
         case "with_payee_bit": {
           const on = r.on as boolean, f = r.p4 as number;
@@ -174,7 +182,9 @@ describe("rules == the real pure functions", () => {
       }
       n++;
     }
-    expect(n).toBe(85);
+    expect(n).toBe(105);
+    expect(FX.rules.filter((r) => r.fn === "creator_pot_orphaned" && r.flag === true && r.graceOver === true && r.out === true).length).toBeGreaterThan(0);
+    expect(FX.rules.filter((r) => r.fn === "payee_grace_elapsed").length).toBe(8);
     expect(FX.rules.filter((r) => r.fn === "payee_update_allowed" && r.out === true).length).toBeGreaterThan(0);
   });
 });
@@ -249,6 +259,23 @@ describe("readCreatorFeeClaimStateV22", () => {
   });
 });
 
+describe("prog #651: readCreatorFeeClaimStateV22 grace fields", () => {
+  const setGroup = (d: Uint8Array, mode: number, resolvedSlot: bigint): void => {
+    d[LAYOUT_V22.marketGroupOff + LAYOUT_V22.group.mode] = mode;
+    new DataView(d.buffer).setBigUint64(LAYOUT_V22.marketGroupOff + P.MARKET_GROUP_RESOLVED_SLOT_OFF_V22, resolvedSlot, true);
+  };
+  it("Resolved at 1,000: not over at end - 1, over at end; no slot = not over; Live = never", () => {
+    const d = market(1);
+    setGroup(d, 1, 1_000n);
+    const end = 1_000n + P.CREATOR_PAYEE_GRACE_SLOTS_V22;
+    expect(B.readCreatorFeeClaimStateV22(d, 0, end - 1n)).toMatchObject({ resolved: true, resolvedSlot: 1_000n, payeeGraceOver: false });
+    expect(B.readCreatorFeeClaimStateV22(d, 0, end).payeeGraceOver).toBe(true);
+    expect(B.readCreatorFeeClaimStateV22(d, 0).payeeGraceOver).toBe(false);
+    setGroup(d, 0, 1_000n);
+    expect(B.readCreatorFeeClaimStateV22(d, 0, end + 10n)).toMatchObject({ resolved: false, payeeGraceOver: false });
+  });
+});
+
 describe("planCloseSlabAttempt with creator-fee legs", () => {
   const programId = pk(), mkt = pk(), vaultToken = pk(), closer = pk(), closerDestToken = pk(), payee = pk(), vaultMint = pk();
   const base = { programId, market: mkt, vaultToken, closer, closerDestToken, closeAuthorityEpoch: 0n, hasLpVault: false };
@@ -280,6 +307,27 @@ describe("planCloseSlabAttempt with creator-fee legs", () => {
     expect(() => planCloseSlabAttempt({ ...base, creatorFees: [{ assetIndex: 0, route: "AdminSigned", owed: 1n, authorityEpoch: 0n }] })).toThrow(/live asset_admin/);
     expect(() => planCloseSlabAttempt({ ...base, creatorFees: [{ assetIndex: 0, route: "Payee", owed: 1n, authorityEpoch: 0n }] })).toThrow(/payee and vaultMint/);
     expect(() => planCloseSlabAttempt({ ...base, creatorFees: [{ assetIndex: 0, route: "Payee", owed: 1n, authorityEpoch: 0n, payee, vaultMint, amount: 2n }] })).toThrow(/\(0, 1\]/);
+  });
+  it("prog #651: after the grace no tag 90 is bundled (it may not land); CloseSlab re-books the pot", () => {
+    const leg = { assetIndex: 0, route: "Payee" as const, owed: 42n, authorityEpoch: 3n, payee, vaultMint };
+    expect(tags(planCloseSlabAttempt({ ...base, creatorFees: [leg], payeeGraceOver: true }))).toEqual([13]);
+    expect(tags(planCloseSlabAttempt({ ...base, creatorFees: [leg], payeeGraceOver: false }))).toEqual(["ata", 90, 13]);
+    // a live admin's pot still blocks the plan after the grace
+    expect(() => planCloseSlabAttempt({ ...base, payeeGraceOver: true, creatorFees: [{ assetIndex: 1, route: "AdminSigned", owed: 1n, authorityEpoch: 0n }] })).toThrow(/live asset_admin/);
+  });
+  it("prog #651: the sequence after the grace = [CloseSlab re-book] then [tag 84 for the re-booked pot, CloseSlab]", () => {
+    const pf = { authority: pk(), destToken: pk(), authorityEpoch: 9n, owed: 0n };
+    const legs = [{ assetIndex: 0, route: "Payee" as const, owed: 42n, authorityEpoch: 3n, payee, vaultMint }];
+    const [tx1, tx2] = planPayeeGraceCloseSequenceV22({ ...base, creatorFees: legs, protocolFee: pf });
+    expect(tags(tx1)).toEqual([13]);
+    expect(tags(tx2)).toEqual([84, 13]);
+    // tag 84 amount 0 (= all) with the protocol-fee epoch
+    expect(hex(tx2[0]!.data)).toBe(hex(encodeWithdrawProtocolFee({ amount: 0n, authorityEpoch: 9n })));
+    // a protocol fee already owed is claimed in tx1 too
+    const [t1b] = planPayeeGraceCloseSequenceV22({ ...base, creatorFees: legs, protocolFee: { ...pf, owed: 5n } });
+    expect(tags(t1b)).toEqual([84, 13]);
+    expect(() => planPayeeGraceCloseSequenceV22({ ...base, creatorFees: legs })).toThrow(/protocolFee/);
+    expect(() => planPayeeGraceCloseSequenceV22({ ...base, creatorFees: [{ ...legs[0]!, owed: 0n }], protocolFee: pf })).toThrow(/no unpaid payee pot/);
   });
   it("NEGATIVE CONTROL: without creatorFees the plan is the pre-#587 one (CloseSlab only)", () => {
     expect(tags(planCloseSlabAttempt(base))).toEqual([13]);

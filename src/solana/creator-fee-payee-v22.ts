@@ -17,6 +17,8 @@ import {
   deriveCreatorFeePayeeV22,
   encodeSetCreatorFeePayeeV22,
   hasCreatorFeePayeeFlagV22,
+  MARKET_GROUP_RESOLVED_SLOT_OFF_V22,
+  payeeGraceElapsedV22,
 } from "../abi/creator-fee-payee-v22.js";
 import type { CreatorFeeClaimRouteV22 } from "../abi/creator-fee-payee-v22.js";
 import { resolveMarketGeometry } from "../abi/layout.js";
@@ -139,6 +141,12 @@ export interface CreatorFeeClaimStateV22 {
   owed: bigint;
   /** Current `authority_epoch` of this asset (tag 90 / tag 125 CAS input). */
   authorityEpoch: bigint;
+  /** prog #651: the market is Resolved (engine mode 1). */
+  resolved: boolean;
+  /** prog #651: engine header `resolved_slot` (the grace anchor; meaningful once resolved). */
+  resolvedSlot: bigint;
+  /** prog #651: `payeeGraceElapsedV22(resolved, resolvedSlot, nowSlot)`; false when no `nowSlot` was given. */
+  payeeGraceOver: boolean;
 }
 
 /**
@@ -148,6 +156,7 @@ export interface CreatorFeeClaimStateV22 {
  *
  * @param marketData  Raw market account bytes.
  * @param assetIndex  Asset slot.
+ * @param nowSlot     Current cluster slot (prog #651 grace); omit / null = grace treated as not over.
  * @returns The state.
  * @throws UnknownLayoutError if the account is not a known market layout; Error if the slot is not present.
  * @example
@@ -156,7 +165,7 @@ export interface CreatorFeeClaimStateV22 {
  * if (s.route === "Payee" && s.owed > 0n) { ... }
  * ```
  */
-export function readCreatorFeeClaimStateV22(marketData: Uint8Array, assetIndex: number): CreatorFeeClaimStateV22 {
+export function readCreatorFeeClaimStateV22(marketData: Uint8Array, assetIndex: number, nowSlot: bigint | null = null): CreatorFeeClaimStateV22 {
   const g = resolveMarketGeometry(marketData, { parser: "readCreatorFeeClaimStateV22", strictLength: false });
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex >= g.slotCount) {
     throw new Error(`readCreatorFeeClaimStateV22: asset ${assetIndex} is not present (${g.slotCount} slots)`);
@@ -166,6 +175,9 @@ export function readCreatorFeeClaimStateV22(marketData: Uint8Array, assetIndex: 
   const profile = parseAssetOracleProfileV17(marketData, profileOff);
   const payeeFlag = hasCreatorFeePayeeFlagV22(marketData[profileOff + g.layout.wrapperSlot.profileP4Flags]);
   const legacy = assetIndex === 0 ? parseWrapperConfigV17(marketData).creatorFeeClaimableAtoms : 0n;
+  const dv = new DataView(marketData.buffer, marketData.byteOffset, marketData.byteLength);
+  const resolved = marketData[g.groupOff + g.layout.group.mode] === 1;
+  const resolvedSlot = dv.getBigUint64(g.groupOff + MARKET_GROUP_RESOLVED_SLOT_OFF_V22, true);
   return {
     assetIndex,
     assetAdmin: profile.assetAdmin,
@@ -173,5 +185,8 @@ export function readCreatorFeeClaimStateV22(marketData: Uint8Array, assetIndex: 
     route: creatorFeeClaimRouteV22(profile.assetAdmin, payeeFlag),
     owed: profile.creatorFeeClaimableAtoms + legacy,
     authorityEpoch: parseAssetControlSequencesV17(marketData, slot).authorityEpoch,
+    resolved,
+    resolvedSlot,
+    payeeGraceOver: payeeGraceElapsedV22(resolved, resolvedSlot, nowSlot),
   };
 }

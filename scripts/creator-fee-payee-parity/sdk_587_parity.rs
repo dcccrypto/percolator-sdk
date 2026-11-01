@@ -1,4 +1,4 @@
-//! prog#587 (#644) SDK parity oracle: tag 125 SetCreatorFeePayee, the tag 90 payee route, the payee PDA / record,
+//! prog#587 (#644) + prog#651 (payee grace) SDK parity oracle: tag 125 SetCreatorFeePayee, the tag 90 payee route, the payee PDA / record,
 //! p4 bit 3, error 136 and the pure routing rules. Copy into a checkout of percolator-prog (feat/v22-rc23-2026-10-22,
 //! engine sibling at ENGINE_CI_SIBLING) as `src/bin/sdk_587_parity.rs` (never commit it there) and run:
 //!   npx tsx scripts/creator-fee-payee-parity/gen-vectors.ts > vectors.txt
@@ -83,6 +83,12 @@ fn main() {
         offset_of!(state::WrapperConfigV16, creator_fee_claimable_atoms), c::ASSET_CONTROL_SEQUENCES_OFF,
         offset_of!(state::AssetControlSequencesV16, authority_epoch), c::HEADER_LEN,
     ));
+    // prog #651: the grace anchor (engine header `resolved_slot`) and `mode`, relative to the market-group header.
+    out.push(format!(
+        "\"groupOffsets\":{{\"resolvedSlot\":{},\"mode\":{}}},\"graceSlots\":{}",
+        offset_of!(percolator::MarketGroupV16HeaderAccount, resolved_slot), offset_of!(percolator::MarketGroupV16HeaderAccount, mode),
+        p::CREATOR_PAYEE_GRACE_SLOTS,
+    ));
 
     // 3. PDAs, vault authority, payee destination ATA.
     let program = Pubkey::new_from_array([7u8; 32]);
@@ -152,13 +158,26 @@ fn main() {
     for (admin, flag) in [(z, false), (z, true), (a, false), (a, true)] {
         rules.push(format!("{{\"fn\":\"claim_route\",\"admin\":\"{}\",\"flag\":{},\"out\":\"{}\"}}", hex(&admin), b(flag), route(p::claim_route(&admin, flag))));
         for pot in [0u64, 1, u64::MAX] {
-            rules.push(format!("{{\"fn\":\"creator_pot_orphaned\",\"admin\":\"{}\",\"flag\":{},\"pot\":\"{pot}\",\"out\":{}}}", hex(&admin), b(flag), b(p::creator_pot_orphaned(&admin, flag, pot))));
+            // prog #651 (fallback587): the fourth input is `payee_grace_over`.
+            for grace in [false, true] {
+                rules.push(format!("{{\"fn\":\"creator_pot_orphaned\",\"admin\":\"{}\",\"flag\":{},\"pot\":\"{pot}\",\"graceOver\":{},\"out\":{}}}", hex(&admin), b(flag), b(grace), b(p::creator_pot_orphaned(&admin, flag, pot, grace))));
+            }
         }
     }
     for f in [0u8, 1, 4, 8, 0x0f, 0xf7, 0xff] {
         rules.push(format!("{{\"fn\":\"has_payee_bit\",\"p4\":{f},\"out\":{}}}", b(p::has_payee_bit(f))));
         rules.push(format!("{{\"fn\":\"with_payee_bit\",\"p4\":{f},\"on\":true,\"out\":{}}}", p::with_payee_bit(f, true)));
         rules.push(format!("{{\"fn\":\"with_payee_bit\",\"p4\":{f},\"on\":false,\"out\":{}}}", p::with_payee_bit(f, false)));
+    }
+    // prog #651: payee_grace_elapsed(resolved, resolved_slot, now) at and around the boundary, no Clock, overflow.
+    let g = p::CREATOR_PAYEE_GRACE_SLOTS;
+    for (resolved, rs, now) in [
+        (true, 1_000u64, Some(1_000 + g - 1)), (true, 1_000, Some(1_000 + g)), (true, 1_000, Some(u64::MAX)), (false, 1_000, Some(u64::MAX)),
+        (true, 1_000, None), (true, u64::MAX - 1, Some(u64::MAX)), (true, 0, Some(g)), (true, 0, Some(0)),
+    ] {
+        rules.push(format!(
+            "{{\"fn\":\"payee_grace_elapsed\",\"resolved\":{},\"resolvedSlot\":\"{rs}\",\"now\":{},\"out\":{}}}",
+            b(resolved), now.map(|n| format!("\"{n}\"")).unwrap_or("null".into()), b(p::payee_grace_elapsed(resolved, rs, now))));
     }
     let cur_opts: [Option<[u8; 32]>; 3] = [None, Some(pa), Some(pb)];
     for admin in [z, a] {
