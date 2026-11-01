@@ -13,16 +13,26 @@
  */
 import { PublicKey } from "@solana/web3.js";
 import type { LayoutTable } from "./layout.js";
-/** Decoded `BondTrancheV20` (`v16_program.rs:6840..6870`; offsets pinned by const asserts there). */
+/** `BOND_TRANCHE_VERSION` (GH#571 layout v2; v1 was 128 B and is refused). */
+export declare const BOND_TRANCHE_VERSION_V22 = 2;
+/** `bond_v20::COUPON_DENOM` = `10_000 * SLOTS_PER_YEAR`; the carried remainder is always below it. */
+export declare const BOND_COUPON_DENOM_V22: bigint;
+/**
+ * Decoded `BondTrancheV20` v2 (`v16_program.rs` `state::BondTrancheV20`, 176 B; offsets pinned by the const asserts
+ * there). GH#571 (cumulative coupon): `cBAtoms` is the WHOLE claim `K` (deposits + every settled coupon - redeemed
+ * slices), `couponArrearsAtoms` the receivable `R`, `couponUnfundedAtoms` the per-share cap meter `U`,
+ * `couponAccrualRem` the carried sub-atom numerator and `couponGateSeen` the gate memory of the last settlement.
+ */
 export interface BondTrancheV20 {
     marketGroup: PublicKey;
-    /** `C_b`: deposits + credited coupons - redeemed pro-rata slices. */
+    /** `K`: the bonds' whole claim (deposits + every SETTLED coupon - redeemed pro-rata slices). Shares price at `K / B`. */
     cBAtoms: bigint;
     /** `B`: bond shares outstanding. */
     bSharesTotal: bigint;
     principalInLpAtoms: bigint;
     /** Informational mirror of the impairment; nothing prices off it. */
     bondDrawnOutstandingAtoms: bigint;
+    /** Every slot up to it is settled into `K` / `R` (or forfeited while the gate was closed). */
     lastCouponSlot: bigint;
     couponBpsPerYear: number;
     couponUtilBonusBps: number;
@@ -31,9 +41,18 @@ export interface BondTrancheV20 {
     version: number;
     bump: number;
     lastUtilBps: number;
+    /** Cumulative coupon atoms PAID by fee legs (tag 78; saturating u64; a readout only). */
     couponPaidTotalAtoms: bigint;
+    /** `R`: settled coupon (already inside `K`) no fee leg has funded yet; what the fee legs still owe the junior. */
+    couponArrearsAtoms: bigint;
+    /** `U`: the cap meter, unfunded coupon carried by the current shares (`U <= K`). */
+    couponUnfundedAtoms: bigint;
+    /** Carried sub-atom accrual numerator (`< BOND_COUPON_DENOM_V22`). */
+    couponAccrualRem: bigint;
+    /** Gate memory: low 63 bits = `senior_drawn_atoms` at the last settlement; bit 63 = the gate was CLOSED then. */
+    couponGateSeen: bigint;
 }
-/** Field offsets inside the 128-byte body (rustc `offset_of!`; add 16 for the account). */
+/** Field offsets inside the 176-byte body (rustc `offset_of!`; add 16 for the account). */
 export declare const BOND_TRANCHE_FIELD_OFF_V22: Readonly<{
     readonly marketGroup: 0;
     readonly cBAtoms: 32;
@@ -50,15 +69,24 @@ export declare const BOND_TRANCHE_FIELD_OFF_V22: Readonly<{
     readonly lastUtilBps: 116;
     readonly padding: 118;
     readonly couponPaidTotalAtoms: 120;
+    readonly couponArrearsAtoms: 128;
+    readonly couponUnfundedAtoms: 144;
+    readonly couponAccrualRem: 160;
+    readonly couponGateSeen: 168;
 }>;
 /**
- * Decode a bond tranche account.
+ * Decode a bond tranche account (layout v2, GH#571).
  *
- * @param data   Raw account bytes (`16 + 128`).
+ * A v1 account (128-byte body, `version == 1`) and the intermediate 144-byte form are refused, exactly as the program
+ * refuses them (`InvalidAccountLen` for the short body, `InvalidAccountData` for the version): bond markets are
+ * re-seeded, there is no in-place migration.
+ *
+ * @param data   Raw account bytes (`16 + 176`).
  * @param table  Layout table (default {@link LAYOUT_V22}).
  * @returns The tranche.
- * @throws {@link UnknownLayoutError} on a wrong header, short data or an invalid record (dials outside
- *   `bond_config_ok`, `C_b == 0` xor `B == 0`, non-zero padding, `last_util_bps > 10000`).
+ * @throws {@link UnknownLayoutError} on a wrong header, short data (`TOO_SHORT`, e.g. a v1 / 144 B account) or an
+ *   invalid record (`version != 2`, dials outside `bond_config_ok`, `K == 0` xor `B == 0`, non-zero padding,
+ *   `last_util_bps > 10000`, `couponAccrualRem >= COUPON_DENOM`, `U > K`).
  * @example
  * ```ts
  * const t = decodeBondTrancheV20(info.data);

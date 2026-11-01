@@ -1,3 +1,4 @@
+import type { BondTrancheV20 } from "./v22-state.js";
 /** engine `MAX_ORACLE_PRICE` (1e12). */
 export declare const MAX_ORACLE_PRICE_V22 = 1000000000000n;
 /**
@@ -61,7 +62,7 @@ export interface TrancheSplit3V22 {
  *
  * @param vaultValue   `V`.
  * @param seniorClaim  `C_s`.
- * @param bondClaim    `C_b`.
+ * @param bondClaim    `K` (`c_b_atoms`: the whole claim, settled coupon included since GH#571).
  * @returns The split.
  * @example
  * ```ts
@@ -74,7 +75,7 @@ export declare function trancheSplit3V22(vaultValue: bigint, seniorClaim: bigint
  *
  * @param vaultValue   `V`.
  * @param seniorClaim  `C_s`.
- * @param bondClaim    `C_b`.
+ * @param bondClaim    `K` (`c_b_atoms`: the whole claim, settled coupon included since GH#571).
  * @returns `true` when impaired (deposits are refused with 107).
  * @example
  * ```ts
@@ -123,9 +124,10 @@ export declare function bondSharesForDepositV22(amount: bigint, totalShares: big
  */
 export declare function bondAtomsForRedemptionV22(shares: bigint, totalShares: bigint, bondValue: bigint): bigint | null;
 /**
- * `bond_claim_after_redemption`: `C_b - floor(shares * C_b / B)`.
+ * `bond_claim_after_redemption`: `K - floor(shares * K / B)` (GH#571: an exit slices the whole claim `K` only; the
+ * receivable `R` is not touched).
  *
- * @param bondClaim    `C_b`.
+ * @param bondClaim    `K` (`c_b_atoms`: the whole claim, settled coupon included since GH#571).
  * @param shares       Shares redeemed.
  * @param totalShares  `B`.
  * @returns New claim, or `null`.
@@ -136,9 +138,9 @@ export declare function bondAtomsForRedemptionV22(shares: bigint, totalShares: b
  */
 export declare function bondClaimAfterRedemptionV22(bondClaim: bigint, shares: bigint, totalShares: bigint): bigint | null;
 /**
- * `bond_cap_ok`: `C_b after <= floor(cap * (C_eff + junior))` (refused with 123 otherwise).
+ * `bond_cap_ok`: `K after <= floor(cap * (C_eff + junior))` (refused with 123 otherwise).
  *
- * @param bondClaimAfter  `C_b` after the deposit.
+ * @param bondClaimAfter  `K` after the deposit (settled claim + amount).
  * @param seniorClaimEff  `C_eff`.
  * @param junior          Junior value.
  * @param capBps          `bond_cap_bps_of_c`.
@@ -216,11 +218,12 @@ export declare function bondCouponRateBpsV22(baseBps: number, utilBonusBps: numb
  */
 export declare function couponDueV22(bondClaim: bigint, rateBps: number, dslots: bigint): bigint | null;
 /**
- * `coupon_gate_open`: a coupon is paid only on a Live market, from a non-empty tranche, with no senior loss
- * outstanding and a whole (not impaired) tranche.
+ * `coupon_gate_open`: the coupon ACCRUES only on a Live market, on a non-empty tranche, with no senior loss
+ * outstanding and a whole (not impaired) tranche at `K` (GH#571: settled coupon included). Paying the receivable uses
+ * {@link couponPayOpenV22}; a closed window is forfeited ({@link couponIntervalCleanV22}).
  *
  * @param live                    Market Live.
- * @param bondClaim               `C_b`.
+ * @param bondClaim               `K` (`c_b_atoms`: the whole claim, settled coupon included since GH#571).
  * @param seniorDrawOutstanding   Senior principal loss outstanding.
  * @param bondValue               The bonds' layer of `V` before the leg.
  * @returns `true` when open.
@@ -233,7 +236,7 @@ export declare function couponGateOpenV22(live: boolean, bondClaim: bigint, seni
 /**
  * `coupon_base`: `min(C_b, bond value)`.
  *
- * @param bondClaim  `C_b`.
+ * @param bondClaim  `K` (`c_b_atoms`: the whole claim, settled coupon included since GH#571).
  * @param bondValue  Bond value.
  * @returns The coupon base.
  * @example
@@ -254,53 +257,286 @@ export declare function couponBaseV22(bondClaim: bigint, bondValue: bigint): big
  * ```
  */
 export declare function bondCouponSplitV22(available: bigint, due: bigint): [bigint, bigint];
+/** `bond_v20::COUPON_DENOM` = `10_000 * SLOTS_PER_YEAR`: an accrual numerator below it is a sub-atom. */
+export declare const COUPON_DENOM_V22: bigint;
+/**
+ * The coupon state a settlement reads and writes: the subset of a decoded `BondTrancheV20` (v2) the coupon math needs.
+ * Pass the decoded tranche itself; every helper below returns the same object type with the coupon fields updated.
+ */
+export type BondCouponStateV22 = Pick<BondTrancheV20, "cBAtoms" | "bSharesTotal" | "couponArrearsAtoms" | "couponUnfundedAtoms" | "couponAccrualRem" | "couponGateSeen" | "lastCouponSlot" | "couponBpsPerYear" | "couponUtilBonusBps">;
+/**
+ * `bond_funded_claim`: the funded part of the current shares' claim, `K - U` (saturating).
+ *
+ * @param bondClaim  `K`.
+ * @param unfunded   `U`.
+ * @returns `max(0, K - U)`.
+ * @example
+ * ```ts
+ * bondFundedClaimV22(1_000n, 30n); // 970n
+ * ```
+ */
+export declare function bondFundedClaimV22(bondClaim: bigint, unfunded: bigint): bigint;
+/**
+ * `coupon_arrears_cap`: the cap on the meter `U`, one year of coupon on the funded claim `K - U`.
+ *
+ * @param fundedClaim  `K - U`.
+ * @param rateBps      Annual rate in bps.
+ * @returns Atoms, or `null` on overflow.
+ * @example
+ * ```ts
+ * couponArrearsCapV22(1_000_000n, 800); // 80_000n
+ * ```
+ */
+export declare function couponArrearsCapV22(fundedClaim: bigint, rateBps: number): bigint | null;
+/**
+ * `coupon_settle`: the coupon accrued over `dslots`, with the sub-atom remainder carried and the per-share cap.
+ * Gate closed: `[0, rem]` (the interval is forfeited, nothing settled is touched). Gate open:
+ * `num = min(K, value) * rate * min(dslots, 1y) + rem`, `x = min(floor(num / D), cap - U)` with
+ * `cap = floor((K - U) * rate * 1y / D)`; the new remainder is `num mod D`, or 0 when the cap binds.
+ *
+ * @param bondClaim  `K`.
+ * @param unfunded   `U`.
+ * @param rem        Carried remainder (`< COUPON_DENOM_V22`).
+ * @param rateBps    Annual rate in bps.
+ * @param dslots     Slots since the checkpoint.
+ * @param open       The coupon gate for this interval (now AND the interval clean).
+ * @param bondValue  The bonds' layer of `V` (the accrual base is `min(K, value)`).
+ * @returns `[x, rem']`: atoms to add to `K`, `R` and `U`, and the new remainder; `null` on a u128 overflow.
+ * @example
+ * ```ts
+ * couponSettleV22(1_000_000n, 0n, 0n, 800, 78_840_000n, true, 1_000_000n); // [80_000n, 0n]
+ * ```
+ */
+export declare function couponSettleV22(bondClaim: bigint, unfunded: bigint, rem: bigint, rateBps: number, dslots: bigint, open: boolean, bondValue: bigint): [bigint, bigint] | null;
+/**
+ * `coupon_gate_seen`: the gate memory a settlement leaves behind: the low 63 bits of the cumulative
+ * `senior_drawn_atoms` (the u128 is truncated to u64 first), bit 63 set iff the gate is CLOSED now.
+ *
+ * @param seniorDrawnAtoms  `VaultLpStateV18::senior_drawn_atoms`.
+ * @param openNow           The coupon gate at this settlement.
+ * @returns The u64 to store in `coupon_gate_seen`.
+ * @example
+ * ```ts
+ * couponGateSeenV22(5n, false); // (1n << 63n) | 5n
+ * ```
+ */
+export declare function couponGateSeenV22(seniorDrawnAtoms: bigint, openNow: boolean): bigint;
+/**
+ * `coupon_interval_clean`: the interval since the last settlement may accrue only if the gate was open then and no
+ * senior draw was booked since (att649 F2).
+ *
+ * @param seen              The stored `coupon_gate_seen`.
+ * @param seniorDrawnAtoms  `senior_drawn_atoms` now.
+ * @returns `true` when the interval is clean.
+ * @example
+ * ```ts
+ * couponIntervalCleanV22(5n, 5n); // true
+ * ```
+ */
+export declare function couponIntervalCleanV22(seen: bigint, seniorDrawnAtoms: bigint): boolean;
+/**
+ * `coupon_pay_from_leg` (tag 78): pay the receivable `R` off the top of one fee leg, at most half of it (M-2).
+ *
+ * @param available   Harvested LP fee leg.
+ * @param receivable  `R` (after this crank's settlement).
+ * @returns `[coupon, rest, R - coupon]`.
+ * @example
+ * ```ts
+ * couponPayFromLegV22(1_000n, 300n); // [300n, 700n, 0n]
+ * ```
+ */
+export declare function couponPayFromLegV22(available: bigint, receivable: bigint): [bigint, bigint, bigint];
+/**
+ * `coupon_meter_after_deposit` (tag 108): `U + ceil(amount * U / K)` (the new shares carry the pool's ratio, rounded
+ * against the depositor); `K == 0` (genesis) leaves `U`.
+ *
+ * @param unfunded   `U` before.
+ * @param bondClaim  `K` before the deposit (after the settlement).
+ * @param amount     Deposit atoms.
+ * @returns `U` after, or `null` on overflow.
+ * @example
+ * ```ts
+ * couponMeterAfterDepositV22(10n, 1_000n, 1n); // 11n
+ * ```
+ */
+export declare function couponMeterAfterDepositV22(unfunded: bigint, bondClaim: bigint, amount: bigint): bigint | null;
+/**
+ * `coupon_meter_after_redemption` (tag 110): `U - floor(shares * U / B)` (a full exit leaves 0).
+ *
+ * @param unfunded     `U` before.
+ * @param shares       Shares redeemed.
+ * @param totalShares  `B` before.
+ * @returns `U` after, or `null` on `B == 0`, `shares > B` or overflow.
+ * @example
+ * ```ts
+ * couponMeterAfterRedemptionV22(10n, 1n, 3n); // 7n
+ * ```
+ */
+export declare function couponMeterAfterRedemptionV22(unfunded: bigint, shares: bigint, totalShares: bigint): bigint | null;
+/**
+ * `coupon_pay_open` (tag 78): may this crank PAY the receivable? The accrual gate is open now, or the market is Live
+ * with no senior draw outstanding and the tranche EMPTY (the receivable outlives the last bond).
+ *
+ * @param accrualOpen            {@link couponGateOpenV22} now.
+ * @param live                   Market Live.
+ * @param bondClaim              `K` before this crank's settlement.
+ * @param seniorDrawOutstanding  Senior principal loss outstanding.
+ * @returns `true` when the receivable may be paid.
+ * @example
+ * ```ts
+ * couponPayOpenV22(false, true, 0n, 0n); // true
+ * ```
+ */
+export declare function couponPayOpenV22(accrualOpen: boolean, live: boolean, bondClaim: bigint, seniorDrawOutstanding: bigint): boolean;
+/** Result of {@link bondSettleCouponToV22}: the tranche after the settlement and the atoms settled. */
+export type BondCouponSettlementV22<T extends BondCouponStateV22> = {
+    tranche: T;
+    accrued: bigint;
+};
+/**
+ * Settle the coupon to `nowSlot` exactly as the program's `bond_settle_coupon_to` (tags 108 / 110; base rate, the
+ * utilisation term counts as 0 off tag 78): the interval accrues only if `openNow` AND the interval is clean
+ * ({@link couponIntervalCleanV22}); `K`, `R` and `U` grow by the settled atoms, the remainder is carried (dropped when
+ * `zeroRem`, tag 108), the gate memory is recorded and the checkpoint moves to `nowSlot` (never back).
+ *
+ * @param t                 The tranche (any object carrying {@link BondCouponStateV22}).
+ * @param seniorDrawnAtoms  `VaultLpStateV18::senior_drawn_atoms` now.
+ * @param nowSlot           The settlement slot.
+ * @param openNow           The coupon gate now (108: `K > 0`; 110 Live: `K > 0` and whole at the worse price; 110 Resolved: false).
+ * @param zeroRem           Drop the carried remainder (tag 108).
+ * @returns The tranche after and the settled atoms, or `null` on overflow (the program fails with 15).
+ * @example
+ * ```ts
+ * const s = bondSettleCouponToV22(tranche, vaultLp.seniorDrawnAtoms, slot, tranche.cBAtoms > 0n, false);
+ * ```
+ */
+export declare function bondSettleCouponToV22<T extends BondCouponStateV22>(t: T, seniorDrawnAtoms: bigint, nowSlot: bigint, openNow: boolean, zeroRem: boolean): BondCouponSettlementV22<T> | null;
+/**
+ * `BondTrancheV20::claim_upper_bound_at`: `K` plus the accrual not yet settled since the checkpoint, assuming the gate
+ * open and the maximum rate (base + full utilisation bonus). The junior-facing gates (tags 97 / 103) read this bound.
+ *
+ * @param t        The tranche.
+ * @param nowSlot  Slot.
+ * @returns The upper bound on the bonds' claim, or `null` on overflow.
+ * @example
+ * ```ts
+ * const k = bondClaimUpperBoundAtV22(tranche, slot);
+ * ```
+ */
+export declare function bondClaimUpperBoundAtV22(t: BondCouponStateV22, nowSlot: bigint): bigint | null;
+/** The tranche fields tag 78's coupon tail also writes. */
+export type BondCouponTakeStateV22 = BondCouponStateV22 & Pick<BondTrancheV20, "lastUtilBps" | "couponPaidTotalAtoms">;
+/** Inputs of {@link bondCouponTakeV22}. */
+export interface BondCouponTakeInput<T extends BondCouponTakeStateV22> {
+    tranche: T;
+    /** Harvested LP fee leg of this crank. */
+    available: bigint;
+    /** Market Live. */
+    live: boolean;
+    /** `VaultLpStateV18::senior_draw_outstanding_atoms`. */
+    seniorDrawOutstandingAtoms: bigint;
+    /** `VaultLpStateV18::senior_drawn_atoms`. */
+    seniorDrawnAtoms: bigint;
+    /** The bonds' layer of `V` BEFORE this leg (`bond_value_before_leg`); read only when Live, `K > 0` and no draw. */
+    bondValueBeforeLeg: bigint;
+    /** The crank's slot. */
+    nowSlot: bigint;
+    /** Utilisation now in bps (only read with a non-zero bonus, which the program refuses today); default 0. */
+    utilNowBps?: number;
+}
+/** Result of {@link bondCouponTakeV22}. */
+export interface BondCouponTake<T extends BondCouponTakeStateV22> {
+    /** Coupon paid off the top of the leg (reimburses the junior). */
+    coupon: bigint;
+    /** The rest of the leg (to the cushion / seniors waterfall). */
+    rest: bigint;
+    /** Atoms settled into `K` / `R` / `U` by this crank. */
+    accrued: bigint;
+    /** The accrual gate now and whether the interval accrued. */
+    openNow: boolean;
+    open: boolean;
+    tranche: T;
+}
+/**
+ * Tag 78's coupon tail (`bond_coupon_take`), cumulative since GH#571: settle the interval (gate memory, remainder
+ * carry, cap), then pay `min(R, leg / 2)` off the top of the leg. `K` is unchanged by the payment; `R` and `U` drop.
+ *
+ * @param i  See {@link BondCouponTakeInput}.
+ * @returns The split and the tranche after, or `null` on overflow (the program fails with 15).
+ * @example
+ * ```ts
+ * const r = bondCouponTakeV22({ tranche, available: 1_000n, live: true, seniorDrawOutstandingAtoms: 0n, seniorDrawnAtoms: 0n, bondValueBeforeLeg: tranche.cBAtoms, nowSlot: slot });
+ * ```
+ */
+export declare function bondCouponTakeV22<T extends BondCouponTakeStateV22>(i: BondCouponTakeInput<T>): BondCouponTake<T> | null;
+type BondRefusal<C extends number, N extends string> = {
+    code: C;
+    name: N;
+};
 /** Inputs of {@link quoteBondDepositV22}. */
-export interface BondDepositQuoteInput {
+export interface BondDepositQuoteInput<T extends BondCouponStateV22 & Pick<BondTrancheV20, "bondCapBpsOfC">> {
     /** Deposit atoms (u64 > 0). */
     amount: bigint;
-    /** Tranche `B` and `C_b` (from {@link decodeBondTrancheV20}). */
-    bSharesTotal: bigint;
-    cBAtoms: bigint;
-    /** `bond_cap_bps_of_c`. */
-    capBps: number;
-    /** Vault value `V` at the worse price, the senior claim `C_eff` and the junior value (from the vault LP state). */
+    /** The decoded tranche (v2; {@link decodeBondTrancheV20}). Its coupon is settled to `nowSlot` before pricing. */
+    tranche: T;
+    /** The slot the deposit lands in (the program settles the coupon to `Clock::slot`). */
+    nowSlot: bigint;
+    /** `VaultLpStateV18::senior_drawn_atoms` (the gate memory compares it). */
+    seniorDrawnAtoms: bigint;
+    /** Vault value `V` at the price WORSE for the vault, net of the G9 backstop receivable. */
     vaultValue: bigint;
+    /** `C_eff` (`senior_claim_atoms`). */
     seniorClaimEff: bigint;
+    /** Outstanding senior draw / G9 backstop: a deposit is refused (89) while either is non-zero. Default 0. */
+    seniorDrawOutstandingAtoms?: bigint;
+    backstopOutstandingAtoms?: bigint;
     /** Slippage allowance in bps applied to the minted shares for `minShares` (default 0). */
     slippageBps?: number;
 }
 /** Result of {@link quoteBondDepositV22}. */
-export interface BondDepositQuote {
+export interface BondDepositQuote<T extends BondCouponStateV22 = BondCouponStateV22> {
     /** `null` when the program would refuse; see `refusal`. */
     shares: bigint | null;
     /** `minShares` to put on the wire (`shares` less the slippage allowance). */
     minShares: bigint | null;
+    /** Coupon settled into `K` by the deposit's own settlement (`null` when refused before it). */
+    settledCoupon: bigint | null;
+    /** `K` the shares are priced at (`K / B`, settled coupon included); `null` when refused before the settlement. */
+    claimAtPrice: bigint | null;
+    /** The tranche after the deposit (settled, `K += amount`, `B += shares`, `U` labelled); `null` when refused. */
+    trancheAfter: T | null;
     /** The on-chain error the program would raise, by name and code, or `null`. */
-    refusal: {
-        code: 107 | 123 | 124;
-        name: "BondTrancheImpaired" | "BondDepositAboveCap" | "BondSlippage";
-    } | null;
+    refusal: BondRefusal<15, "EngineArithmeticOverflow"> | BondRefusal<89, "VaultLpPausedForSeniorDraw"> | BondRefusal<107, "BondTrancheImpaired"> | BondRefusal<123, "BondDepositAboveCap"> | BondRefusal<124, "BondSlippage"> | null;
 }
 /**
- * Quote a bond deposit with the program's own rules (tag 108): impaired -> 107, above the cap -> 123,
- * zero shares -> 124. The caller supplies the vault readings (the program reads the vault LP at `P_last`;
+ * Quote a bond deposit (tag 108) with the program's own order (prog #649, GH#571): refused while a senior draw or a
+ * G9 backstop is outstanding (89); impaired at the worse price, or `V < C_eff` (107); then the coupon is SETTLED to
+ * `nowSlot` (gate memory, remainder dropped), the settled claim `K` must itself be covered (107) and within the cap
+ * (123); the shares mint at `floor(amount * B / K)` (genesis 1:1; zero -> 124), so a newcomer pays for the
+ * incumbents' settled coupon. The caller supplies the vault readings (the program reads the vault LP at `P_last`;
  * for an exact quote simulate the instruction).
  *
  * @param i  See {@link BondDepositQuoteInput}.
- * @returns Shares, the `minShares` to send, and the refusal (if any).
+ * @returns Shares, the `minShares` to send, the settlement, the tranche after and the refusal (if any).
  * @example
  * ```ts
- * const q = quoteBondDepositV22({ amount: 1_000_000n, bSharesTotal: 0n, cBAtoms: 0n, capBps: 5000, vaultValue: 2_000_000n, seniorClaimEff: 1_000_000n });
+ * const q = quoteBondDepositV22({ amount: 1_000_000n, tranche, nowSlot: slot, seniorDrawnAtoms: st.seniorDrawnAtoms, vaultValue: vWorse, seniorClaimEff: st.seniorClaimAtoms });
  * ```
  */
-export declare function quoteBondDepositV22(i: BondDepositQuoteInput): BondDepositQuote;
+export declare function quoteBondDepositV22<T extends BondCouponStateV22 & Pick<BondTrancheV20, "bondCapBpsOfC">>(i: BondDepositQuoteInput<T>): BondDepositQuote<T>;
 /** Inputs of {@link quoteBondWithdrawV22}. */
-export interface BondWithdrawQuoteInput {
+export interface BondWithdrawQuoteInput<T extends BondCouponStateV22> {
     /** Pending shares of the position (tag 109). */
     shares: bigint;
-    bSharesTotal: bigint;
-    cBAtoms: bigint;
+    /** The decoded tranche (v2). Live: its coupon is settled to `nowSlot` before pricing. */
+    tranche: T;
+    /** The slot the exit lands in. */
+    nowSlot: bigint;
+    /** `VaultLpStateV18::senior_drawn_atoms`. */
+    seniorDrawnAtoms: bigint;
+    /** Live: vault value at the worse price net of the G9 backstop. Resolved: the pots' physical idle backing. */
     vaultValue: bigint;
+    /** `senior_claim_atoms`. */
     seniorClaimEff: bigint;
     /** Live exits only: `N_cap` after the withdrawal and the open interest; omit for a Resolved exit. */
     live?: {
@@ -309,30 +545,40 @@ export interface BondWithdrawQuoteInput {
         oiShortQ: bigint;
         lpEffAbsQ: bigint;
     };
+    /** Outstanding senior draw (both modes) and G9 backstop (Live only): the exit halts (89) while non-zero. Default 0. */
+    seniorDrawOutstandingAtoms?: bigint;
+    backstopOutstandingAtoms?: bigint;
     slippageBps?: number;
 }
 /** Result of {@link quoteBondWithdrawV22}. */
-export interface BondWithdrawQuote {
+export interface BondWithdrawQuote<T extends BondCouponStateV22 = BondCouponStateV22> {
     atoms: bigint | null;
     minOut: bigint | null;
+    /** `K` after the exit: the settled claim less the redeemed slice `floor(shares * K / B)`. */
     claimAfter: bigint | null;
-    refusal: {
-        code: 108 | 110;
-        name: "BondCapacityLocked" | "BondConfigInvalid";
-    } | null;
+    /** Coupon settled into `K` by the exit's own settlement (Live; 0 when the gate is closed / Resolved). */
+    settledCoupon: bigint | null;
+    /** The tranche after the exit (settled, `K` / `U` / `B` sliced, `R` untouched); `null` when refused. */
+    trancheAfter: T | null;
+    refusal: BondRefusal<15, "EngineArithmeticOverflow"> | BondRefusal<89, "VaultLpPausedForSeniorDraw"> | BondRefusal<108, "BondCapacityLocked"> | BondRefusal<109, "BondWithdrawCooldown"> | BondRefusal<110, "BondConfigInvalid"> | null;
 }
 /**
- * Quote a bond withdrawal (tag 110): atoms at the bond value, the claim removed, `min_out`, and the
- * open-interest lock for a Live exit (108).
+ * Quote a bond withdrawal (tag 110) with the program's own order (prog #649, GH#571). No pending shares: 109 (the
+ * cooldown itself is checked with {@link bondCooldownElapsedV22}). Halted (89) while a senior draw
+ * (or, Live, a G9 backstop) is outstanding. Live: settle the coupon to
+ * `nowSlot` (gate open iff `K > 0`, whole at the worse price and the interval clean; the remainder stays carried), pay
+ * `floor(shares * layer(K) / B)`, then the open-interest lock (108). Resolved: nothing accrues (the gate memory records
+ * a closed gate), the payout is the bonds' layer of the physical backing over the seniors at `K`. Either way the exit
+ * removes `floor(shares * K / B)` from `K` and `floor(shares * U / B)` from `U`; the receivable `R` is not touched.
  *
  * @param i  See {@link BondWithdrawQuoteInput}.
  * @returns The quote.
  * @example
  * ```ts
- * const q = quoteBondWithdrawV22({ shares: 100n, bSharesTotal: 1_000n, cBAtoms: 1_000n, vaultValue: 3_000n, seniorClaimEff: 1_000n });
+ * const q = quoteBondWithdrawV22({ shares: pos.pendingWithdrawShares, tranche, nowSlot: slot, seniorDrawnAtoms: st.seniorDrawnAtoms, vaultValue: vWorse, seniorClaimEff: st.seniorClaimAtoms, live: { nCapAfter, oiLongQ, oiShortQ, lpEffAbsQ } });
  * ```
  */
-export declare function quoteBondWithdrawV22(i: BondWithdrawQuoteInput): BondWithdrawQuote;
+export declare function quoteBondWithdrawV22<T extends BondCouponStateV22>(i: BondWithdrawQuoteInput<T>): BondWithdrawQuote<T>;
 /**
  * Assert the utilisation bonus is the only value the program accepts (0) before building tag 107.
  *
@@ -703,3 +949,4 @@ export declare function tokensToLotsV22(tokens: bigint, lotExp: number): {
     lots: bigint;
     remainderTokens: bigint;
 };
+export {};
