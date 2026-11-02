@@ -184,13 +184,18 @@ export interface CloseSlabAttemptArgs {
    * prog#587 (#644): every asset's creator-fee pot, as read by `readCreatorFeeClaimStateV22`. CloseSlab re-books a pot
    * only when it has NO claim path (burned admin, no payee); a pot with a recorded payee stays owed and CloseSlab
    * refuses (71) until tag 90 pays it. For each leg with `owed > 0`:
-   *   - route "Payee": the planner adds the permissionless claim (idempotent payee-ATA create + tag 90, signed by
-   *     `closer`) BEFORE CloseSlab; `payee` and `vaultMint` are required;
+   *   - route "Payee", grace NOT over: the planner adds the permissionless claim (idempotent payee-ATA create + tag 90,
+   *     signed by `closer`) BEFORE CloseSlab; `payee` and `vaultMint` are required;
+   *   - route "Payee", `payeeGraceOver` (prog #651: 7 x 216,000 slots after `resolved_slot`): NO tag 90 (it may not land,
+   *     e.g. a payee ATA with a delegate, and would sink the tx); this CloseSlab re-books the pot to the protocol leg and
+   *     returns Ok WITHOUT closing; the next attempt claims it with tag 84 and closes ({@link planPayeeGraceCloseSequenceV22});
    *   - route "AdminSigned": the planner THROWS (only the live asset_admin can claim; CloseSlab would refuse 71);
    *   - route "Refused": nothing to plan (CloseSlab re-books it to the protocol leg).
    * Omit to keep the pre-#587 plan (no creator-leg handling).
    */
   creatorFees?: readonly CloseSlabCreatorFeeLegV22[];
+  /** prog #651: the payee grace is over (`readCreatorFeeClaimStateV22(data, i, nowSlot).payeeGraceOver`). Default false. */
+  payeeGraceOver?: boolean;
 }
 
 /** One asset's creator-fee leg for {@link planCloseSlabAttempt}. */
@@ -222,6 +227,9 @@ export interface CloseSlabCreatorFeeLegV22 {
  * protocol fee and the re-credited insurance budget and plan the next attempt.
  *
  * @param a  Attempt inputs (live-read CAS values and owed amounts).
+ * After the payee grace (prog #651) a payee pot is NOT claimed here: this attempt's CloseSlab re-books it (Ok, not closed);
+ * use {@link planPayeeGraceCloseSequenceV22} for the whole re-book → tag 84 → close sequence.
+ *
  * @returns Ordered instructions (CloseSlab last).
  * @throws If `hasLpVault` is true (not retirable), a creator-fee leg is owed under a LIVE asset_admin (only that key can
  *   claim it), a payee leg lacks `payee` / `vaultMint`, or a claim amount is non-positive or above `owed`.
@@ -263,6 +271,8 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
   }
   for (const leg of a.creatorFees ?? []) {
     if (leg.owed <= 0n || leg.route === "Refused") continue;
+    // prog #651: after the grace this CloseSlab re-books the payee pot itself; a tag 90 that cannot land would sink the tx.
+    if (leg.route === "Payee" && a.payeeGraceOver) continue;
     if (leg.route === "AdminSigned") {
       throw new Error(
         `planCloseSlabAttempt: asset ${leg.assetIndex} owes ${leg.owed} creator-fee atoms under a live asset_admin. Only that key can claim them (tag 90); CloseSlab refuses (71) until it does.`,
@@ -288,4 +298,42 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
     data: Buffer.from(encodeCloseSlab(a.closeAuthorityEpoch)),
   }));
   return ixs;
+}
+
+/**
+ * prog #651: the close sequence once the creator-fee payee grace is over and a payee pot is still unpaid. Two transactions,
+ * sent in order (each one is atomic; check {@link isClosedMarketTombstone} after each):
+ *   1. `planCloseSlabAttempt(a)` with `payeeGraceOver: true`: [tag 84 if a protocol fee is already owed] [tag 41] CloseSlab, which
+ *      re-books the unpaid payee pot (and any other orphaned leg) to the protocol leg and returns Ok WITHOUT closing;
+ *   2. tag 84 `WithdrawProtocolFee(amount 0 = all)` for the re-booked atoms, then CloseSlab, which closes.
+ * If transaction 1 already closed the market (someone paid the payee in between, so nothing was re-booked), skip 2.
+ * Tag 84 is signed by the protocol fee authority, so `a.protocolFee` (authority, destToken, authorityEpoch) is required;
+ * `authorityEpoch` is the market-wide protocol-fee lane, which neither CloseSlab nor tag 84 advances.
+ *
+ * @param a  The attempt inputs; `payeeGraceOver` is forced true.
+ * @returns `[tx1, tx2]` instruction lists.
+ * @throws If `a.protocolFee` is missing, or anything {@link planCloseSlabAttempt} throws.
+ * @example
+ * ```ts
+ * const [rebook, close] = planPayeeGraceCloseSequenceV22({ ...args, protocolFee: { authority, destToken, authorityEpoch, owed } });
+ * ```
+ */
+export function planPayeeGraceCloseSequenceV22(a: CloseSlabAttemptArgs): [TransactionInstruction[], TransactionInstruction[]] {
+  if (!a.protocolFee) {
+    throw new Error("planPayeeGraceCloseSequenceV22: after the grace the payee pot is re-booked to the protocol leg; pass protocolFee so tag 84 can claim it");
+  }
+  const rebooked = (a.creatorFees ?? []).filter((l) => l.route === "Payee").reduce((t, l) => t + (l.owed > 0n ? l.owed : 0n), 0n);
+  if (rebooked === 0n) {
+    throw new Error("planPayeeGraceCloseSequenceV22: no unpaid payee pot to re-book; use planCloseSlabAttempt");
+  }
+  const tx1 = planCloseSlabAttempt({ ...a, payeeGraceOver: true });
+  // tx1's tag 84 (if any) took the protocol leg owed before; after the re-book the leg owes exactly the payee pots.
+  const tx2 = planCloseSlabAttempt({
+    ...a,
+    payeeGraceOver: true,
+    creatorFees: [],
+    insuranceRecredit: undefined,
+    protocolFee: { ...a.protocolFee, owed: rebooked },
+  });
+  return [tx1, tx2];
 }

@@ -4929,7 +4929,7 @@ var PERCOLATOR_ERRORS = {
   },
   71: {
     name: "CloseSlabFeesOutstanding",
-    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first \u2014 tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee (on an asset whose admin was burned after recording a payee, anyone may send it and it pays the payee) \u2014 and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you."
+    hint: "P1 F4: CloseSlab refused because protocol / creator / LP / staker fee legs are still owed. Claim them first \u2014 tag 84 WithdrawProtocolFee, tag 90 WithdrawCreatorFee (on an asset whose admin was burned after recording a payee, anyone may send it and it pays the payee; if that pot is still unpaid 7 days after resolution, CloseSlab re-books it to the protocol leg instead) \u2014 and sweep the staker leg (tag 87, allowed on a terminal-empty resolved market). Nothing is burned. planCloseSlabAttempt() orders these for you."
   },
   // ── P3 vault-owned LP — part of the relaunch wrapper (P1+P3 @ 58e379f1). ──
   // Appended after P1's 66-71 (P3 is stacked on P1); ordinals verified by name
@@ -5836,7 +5836,8 @@ var STANDALONE_V22 = Object.freeze({
   headerLen: 16,
   redemptionBody: 96,
   redemptionExtBody: 16,
-  bondTrancheBody: 128,
+  bondTrancheBody: 176,
+  // GH#571 layout v2 (prog #649); v1 was 128
   bondPositionBody: 96,
   insuranceUnitsBody: 192,
   g9FeedAllowlistBody: 2064,
@@ -5927,7 +5928,9 @@ var BAND_RENT_V22 = Object.freeze({
   config: Object.freeze({ maxAccrualDtSlots: 118, maxPriceMoveBpsPerSlot: 142, bandBps: 249, bandMaxEpochSlots: 257, bandMaxPinSlots: 265, rentMaxE9PerSlot: 273, bandMaxPositionsPerSide: 281, bandMinLegNotional: 289 }),
   assetState: Object.freeze({ bandAnchorPrice: 515, bandAnchorSlot: 523, bandEpoch: 531, bandUncertifiedLong: 539, bandUncertifiedShort: 547, bandLiqPendingLong: 555, bandLiqPendingShort: 563, bandPinSinceSlot: 571, rentIndexLongNum: 579, rentIndexShortNum: 595, rentUnroutedAtoms: 611 }),
   growth: Object.freeze({ rentKinkBps: 42, rentNCapQ: 48 }),
-  vaultLp: Object.freeze({ lpNetQ: 32, flags: 90 })
+  vaultLp: Object.freeze({ lpNetQ: 32, flags: 90 }),
+  // prog#572 (#647 @ 34996503); pinned by test/fixtures/v22-band-parity.json `occupancy`.
+  occupancy: Object.freeze({ storedPosCountLong: 321, storedPosCountShort: 329, slotLast: 41, profileClockSlot: 408, profileClockLong: 416, profileClockShort: 424, vaultLpPortfolio: 0, portfolioLastFeeSlot: 324 })
 });
 function v22Row(o) {
   return Object.freeze({
@@ -8445,6 +8448,8 @@ function guard(data, parser, kind, bodyLen, table) {
 function bad(parser, msg, kind) {
   return new UnknownLayoutError("INVALID_RECORD", parser, `invalid account data: ${msg}`, { kind });
 }
+var BOND_TRANCHE_VERSION_V22 = 2;
+var BOND_COUPON_DENOM_V22 = 10000n * 78840000n;
 var BOND_TRANCHE_FIELD_OFF_V22 = Object.freeze({
   marketGroup: 0,
   cBAtoms: 32,
@@ -8460,7 +8465,11 @@ var BOND_TRANCHE_FIELD_OFF_V22 = Object.freeze({
   bump: 115,
   lastUtilBps: 116,
   padding: 118,
-  couponPaidTotalAtoms: 120
+  couponPaidTotalAtoms: 120,
+  couponArrearsAtoms: 128,
+  couponUnfundedAtoms: 144,
+  couponAccrualRem: 160,
+  couponGateSeen: 168
 });
 function decodeBondTrancheV20(data, table = LAYOUT_V22) {
   const parser = "decodeBondTrancheV20";
@@ -8481,10 +8490,14 @@ function decodeBondTrancheV20(data, table = LAYOUT_V22) {
     version: data[b + F.version],
     bump: data[b + F.bump],
     lastUtilBps: v.getUint16(b + F.lastUtilBps, true),
-    couponPaidTotalAtoms: v.getBigUint64(b + F.couponPaidTotalAtoms, true)
+    couponPaidTotalAtoms: v.getBigUint64(b + F.couponPaidTotalAtoms, true),
+    couponArrearsAtoms: u128(v, b + F.couponArrearsAtoms),
+    couponUnfundedAtoms: u128(v, b + F.couponUnfundedAtoms),
+    couponAccrualRem: v.getBigUint64(b + F.couponAccrualRem, true),
+    couponGateSeen: v.getBigUint64(b + F.couponGateSeen, true)
   };
   const dialsOk = t.couponBpsPerYear <= 2e3 && t.couponUtilBonusBps === 0 && t.bondCooldownSlots >= 9e3 && t.bondCooldownSlots <= 1512e3 && t.bondCapBpsOfC >= 1 && t.bondCapBpsOfC <= 5e3;
-  if (t.version !== 1 || isZero(data.subarray(b, b + 32)) || !dialsOk || t.lastUtilBps > 1e4 || !isZero(data.subarray(b + F.padding, b + F.padding + 2)) || t.cBAtoms === 0n !== (t.bSharesTotal === 0n)) {
+  if (t.version !== BOND_TRANCHE_VERSION_V22 || isZero(data.subarray(b, b + 32)) || !dialsOk || t.lastUtilBps > 1e4 || !isZero(data.subarray(b + F.padding, b + F.padding + 2)) || t.cBAtoms === 0n !== (t.bSharesTotal === 0n) || t.couponAccrualRem >= BOND_COUPON_DENOM_V22 || t.couponUnfundedAtoms > t.cBAtoms) {
     throw bad(parser, "bond tranche fails the program's validate_bond_tranche", ACCOUNT_KIND.BondTranche);
   }
   return t;
@@ -8913,26 +8926,195 @@ function bondCouponSplitV22(available, due) {
   const coupon = due < cap ? due : cap;
   return [coupon, available - coupon];
 }
+var COUPON_DENOM_V22 = BPS2 * SLOTS_PER_YEAR_V22;
+var BIT63 = 1n << 63n;
+function bondFundedClaimV22(bondClaim, unfunded) {
+  return bondClaim > unfunded ? bondClaim - unfunded : 0n;
+}
+function couponArrearsCapV22(fundedClaim, rateBps) {
+  return couponDueV22(fundedClaim, rateBps, SLOTS_PER_YEAR_V22);
+}
+function couponSettleV22(bondClaim, unfunded, rem, rateBps, dslots, open, bondValue) {
+  if (!open) return [0n, rem];
+  const dt = dslots > SLOTS_PER_YEAR_V22 ? SLOTS_PER_YEAR_V22 : dslots;
+  const r3 = BigInt(rateBps);
+  const n1 = couponBaseV22(bondClaim, bondValue) * r3;
+  if (n1 > U128_MAX4) return null;
+  const n2 = n1 * dt;
+  if (n2 > U128_MAX4) return null;
+  const num = n2 + rem;
+  if (num > U128_MAX4) return null;
+  const due = num / COUPON_DENOM_V22;
+  const c1 = bondFundedClaimV22(bondClaim, unfunded) * r3;
+  if (c1 > U128_MAX4) return null;
+  const c2 = c1 * SLOTS_PER_YEAR_V22;
+  if (c2 > U128_MAX4) return null;
+  const cap = c2 / COUPON_DENOM_V22;
+  const room = cap > unfunded ? cap - unfunded : 0n;
+  if (due > room) return [room, 0n];
+  return [due, num % COUPON_DENOM_V22];
+}
+function couponGateSeenV22(seniorDrawnAtoms, openNow) {
+  const drawn = seniorDrawnAtoms & U64_MAX4 & ~BIT63;
+  return openNow ? drawn : drawn | BIT63;
+}
+function couponIntervalCleanV22(seen, seniorDrawnAtoms) {
+  return seen === couponGateSeenV22(seniorDrawnAtoms, true);
+}
+function couponPayFromLegV22(available, receivable) {
+  const [coupon, rest] = bondCouponSplitV22(available, receivable);
+  return [coupon, rest, receivable - coupon];
+}
+function couponMeterAfterDepositV22(unfunded, bondClaim, amount) {
+  if (bondClaim === 0n) return unfunded;
+  const p = amount * unfunded;
+  if (p > U128_MAX4) return null;
+  const label = p / bondClaim + (p % bondClaim !== 0n ? 1n : 0n);
+  const out = unfunded + label;
+  return out > U128_MAX4 ? null : out;
+}
+function couponMeterAfterRedemptionV22(unfunded, shares, totalShares) {
+  if (totalShares === 0n || shares > totalShares) return null;
+  const slice = mulDivFloorV22(shares, unfunded, totalShares);
+  if (slice === null || slice > unfunded) return null;
+  return unfunded - slice;
+}
+function couponPayOpenV22(accrualOpen, live, bondClaim, seniorDrawOutstanding) {
+  return accrualOpen || live && bondClaim === 0n && seniorDrawOutstanding === 0n;
+}
+function bondSettleCouponToV22(t, seniorDrawnAtoms, nowSlot, openNow, zeroRem) {
+  const open = openNow && couponIntervalCleanV22(t.couponGateSeen, seniorDrawnAtoms);
+  const rate = bondCouponRateBpsV22(t.couponBpsPerYear, t.couponUtilBonusBps, 0);
+  const dslots = nowSlot > t.lastCouponSlot ? nowSlot - t.lastCouponSlot : 0n;
+  const s = couponSettleV22(t.cBAtoms, t.couponUnfundedAtoms, t.couponAccrualRem, rate, dslots, open, t.cBAtoms);
+  if (s === null) return null;
+  const [x, rem] = s;
+  const u = t.couponUnfundedAtoms + x;
+  const k = t.cBAtoms + x;
+  const r3 = t.couponArrearsAtoms + x;
+  if (u > U128_MAX4 || k > U128_MAX4 || r3 > U128_MAX4) return null;
+  return {
+    tranche: {
+      ...t,
+      cBAtoms: k,
+      couponArrearsAtoms: r3,
+      couponUnfundedAtoms: u,
+      couponAccrualRem: zeroRem ? 0n : rem,
+      couponGateSeen: couponGateSeenV22(seniorDrawnAtoms, openNow),
+      lastCouponSlot: nowSlot > t.lastCouponSlot ? nowSlot : t.lastCouponSlot
+    },
+    accrued: x
+  };
+}
+function bondClaimUpperBoundAtV22(t, nowSlot) {
+  const rate = bondCouponRateBpsV22(t.couponBpsPerYear, t.couponUtilBonusBps, Number(BPS2));
+  const dslots = nowSlot > t.lastCouponSlot ? nowSlot - t.lastCouponSlot : 0n;
+  const s = couponSettleV22(t.cBAtoms, t.couponUnfundedAtoms, t.couponAccrualRem, rate, dslots, t.cBAtoms > 0n, t.cBAtoms);
+  if (s === null) return null;
+  const k = t.cBAtoms + s[0];
+  return k > U128_MAX4 ? null : k;
+}
+function bondCouponTakeV22(i) {
+  const t = i.tranche;
+  const k = t.cBAtoms;
+  const draw = i.seniorDrawOutstandingAtoms;
+  const preOpen = i.live && k > 0n && draw === 0n;
+  const bondValue = preOpen ? i.bondValueBeforeLeg : 0n;
+  const openNow = couponGateOpenV22(i.live, k, draw, bondValue);
+  const open = openNow && couponIntervalCleanV22(t.couponGateSeen, i.seniorDrawnAtoms);
+  const uNow = open && t.couponUtilBonusBps !== 0 ? i.utilNowBps ?? 0 : 0;
+  const uEff = uNow < t.lastUtilBps ? uNow : t.lastUtilBps;
+  const rate = bondCouponRateBpsV22(t.couponBpsPerYear, t.couponUtilBonusBps, uEff);
+  const dslots = i.nowSlot > t.lastCouponSlot ? i.nowSlot - t.lastCouponSlot : 0n;
+  const s = couponSettleV22(k, t.couponUnfundedAtoms, t.couponAccrualRem, rate, dslots, open, bondValue);
+  if (s === null) return null;
+  const [accrued, rem] = s;
+  const kAfter = k + accrued;
+  const r3 = t.couponArrearsAtoms + accrued;
+  const u = t.couponUnfundedAtoms + accrued;
+  if (kAfter > U128_MAX4 || r3 > U128_MAX4 || u > U128_MAX4) return null;
+  const [coupon, rest, rAfter] = couponPayOpenV22(openNow, i.live, k, draw) ? couponPayFromLegV22(i.available, r3) : [0n, i.available, r3];
+  const paid = t.couponPaidTotalAtoms + (coupon > U64_MAX4 ? U64_MAX4 : coupon);
+  return {
+    coupon,
+    rest,
+    accrued,
+    openNow,
+    open,
+    tranche: {
+      ...t,
+      cBAtoms: kAfter,
+      couponArrearsAtoms: rAfter,
+      couponUnfundedAtoms: u > coupon ? u - coupon : 0n,
+      couponAccrualRem: rem,
+      couponPaidTotalAtoms: paid > U64_MAX4 ? U64_MAX4 : paid,
+      lastCouponSlot: i.nowSlot > t.lastCouponSlot ? i.nowSlot : t.lastCouponSlot,
+      couponGateSeen: couponGateSeenV22(i.seniorDrawnAtoms, openNow),
+      lastUtilBps: uNow
+    }
+  };
+}
 function quoteBondDepositV22(i) {
-  const split = trancheSplit3V22(i.vaultValue, i.seniorClaimEff, i.cBAtoms);
-  if (split.bond < i.cBAtoms) return { shares: null, minShares: null, refusal: { code: 107, name: "BondTrancheImpaired" } };
-  if (!bondCapOkV22(i.cBAtoms + i.amount, i.seniorClaimEff, split.junior, i.capBps)) return { shares: null, minShares: null, refusal: { code: 123, name: "BondDepositAboveCap" } };
-  const shares = bondSharesForDepositV22(i.amount, i.bSharesTotal, split.bond);
-  if (shares === null) return { shares: null, minShares: null, refusal: { code: 107, name: "BondTrancheImpaired" } };
-  if (shares === 0n) return { shares: 0n, minShares: null, refusal: { code: 124, name: "BondSlippage" } };
+  const none = { shares: null, minShares: null, settledCoupon: null, claimAtPrice: null, trancheAfter: null };
+  if ((i.seniorDrawOutstandingAtoms ?? 0n) !== 0n || (i.backstopOutstandingAtoms ?? 0n) !== 0n) {
+    return { ...none, refusal: { code: 89, name: "VaultLpPausedForSeniorDraw" } };
+  }
+  const t0 = i.tranche;
+  if (i.vaultValue < i.seniorClaimEff || bondImpairedV22(i.vaultValue, i.seniorClaimEff, t0.cBAtoms)) {
+    return { ...none, refusal: { code: 107, name: "BondTrancheImpaired" } };
+  }
+  const settled = bondSettleCouponToV22(t0, i.seniorDrawnAtoms, i.nowSlot, t0.cBAtoms > 0n, true);
+  if (settled === null) return { ...none, refusal: { code: 15, name: "EngineArithmeticOverflow" } };
+  const t1 = { ...settled.tranche, couponGateSeen: couponGateSeenV22(i.seniorDrawnAtoms, true) };
+  const k = t1.cBAtoms;
+  const at = { settledCoupon: settled.accrued, claimAtPrice: k };
+  if (bondImpairedV22(i.vaultValue, i.seniorClaimEff, k)) {
+    return { ...none, ...at, refusal: { code: 107, name: "BondTrancheImpaired" } };
+  }
+  const split = trancheSplit3V22(i.vaultValue, i.seniorClaimEff, k);
+  const kAfter = k + i.amount;
+  if (kAfter > U128_MAX4) return { ...none, ...at, refusal: { code: 15, name: "EngineArithmeticOverflow" } };
+  if (!bondCapOkV22(kAfter, i.seniorClaimEff, split.junior, t1.bondCapBpsOfC)) {
+    return { ...none, ...at, refusal: { code: 123, name: "BondDepositAboveCap" } };
+  }
+  const shares = bondSharesForDepositV22(i.amount, t1.bSharesTotal, split.bond);
+  if (shares === null) return { ...none, ...at, refusal: { code: 107, name: "BondTrancheImpaired" } };
+  if (shares === 0n) return { ...none, ...at, shares: 0n, refusal: { code: 124, name: "BondSlippage" } };
+  const u = couponMeterAfterDepositV22(t1.couponUnfundedAtoms, k, i.amount);
+  const b = t1.bSharesTotal + shares;
+  if (u === null || b > U128_MAX4) return { ...none, ...at, refusal: { code: 15, name: "EngineArithmeticOverflow" } };
   const slip = BigInt(i.slippageBps ?? 0);
-  return { shares, minShares: shares * (BPS2 - slip) / BPS2, refusal: null };
+  return {
+    shares,
+    minShares: shares * (BPS2 - slip) / BPS2,
+    ...at,
+    trancheAfter: { ...t1, couponUnfundedAtoms: u, cBAtoms: kAfter, bSharesTotal: b },
+    refusal: null
+  };
 }
 function quoteBondWithdrawV22(i) {
-  const bondValue = trancheSplit3V22(i.vaultValue, i.seniorClaimEff, i.cBAtoms).bond;
-  const atoms = bondAtomsForRedemptionV22(i.shares, i.bSharesTotal, bondValue);
-  const claimAfter = bondClaimAfterRedemptionV22(i.cBAtoms, i.shares, i.bSharesTotal);
-  if (atoms === null || claimAfter === null || i.shares === 0n) return { atoms: null, minOut: null, claimAfter: null, refusal: { code: 110, name: "BondConfigInvalid" } };
+  const none = { atoms: null, minOut: null, claimAfter: null, settledCoupon: null, trancheAfter: null };
+  if (i.shares === 0n) return { ...none, refusal: { code: 109, name: "BondWithdrawCooldown" } };
+  const halt = (i.seniorDrawOutstandingAtoms ?? 0n) + (i.live ? i.backstopOutstandingAtoms ?? 0n : 0n);
+  if (halt > 0n) return { ...none, refusal: { code: 89, name: "VaultLpPausedForSeniorDraw" } };
+  const t0 = i.tranche;
+  const openNow = i.live !== void 0 && t0.cBAtoms > 0n && !bondImpairedV22(i.vaultValue, i.seniorClaimEff, t0.cBAtoms);
+  const settled = bondSettleCouponToV22(t0, i.seniorDrawnAtoms, i.nowSlot, openNow, false);
+  if (settled === null) return { ...none, refusal: { code: 15, name: "EngineArithmeticOverflow" } };
+  const t1 = settled.tranche;
+  const k = t1.cBAtoms;
+  const bondValue = trancheSplit3V22(i.vaultValue, i.seniorClaimEff, k).bond;
+  const atoms = bondAtomsForRedemptionV22(i.shares, t1.bSharesTotal, bondValue);
+  if (atoms === null) return { ...none, settledCoupon: settled.accrued, refusal: { code: 110, name: "BondConfigInvalid" } };
+  const claimAfter = bondClaimAfterRedemptionV22(k, i.shares, t1.bSharesTotal);
+  const uAfter = couponMeterAfterRedemptionV22(t1.couponUnfundedAtoms, i.shares, t1.bSharesTotal);
+  if (claimAfter === null || uAfter === null) return { ...none, settledCoupon: settled.accrued, refusal: { code: 110, name: "BondConfigInvalid" } };
+  const trancheAfter = { ...t1, cBAtoms: claimAfter, couponUnfundedAtoms: uAfter, bSharesTotal: t1.bSharesTotal - i.shares };
   if (i.live && !bondWithdrawLockOkV22(i.live.nCapAfter, i.live.oiLongQ, i.live.oiShortQ, i.live.lpEffAbsQ)) {
-    return { atoms, minOut: null, claimAfter, refusal: { code: 108, name: "BondCapacityLocked" } };
+    return { atoms, minOut: null, claimAfter, settledCoupon: settled.accrued, trancheAfter: null, refusal: { code: 108, name: "BondCapacityLocked" } };
   }
   const slip = BigInt(i.slippageBps ?? 0);
-  return { atoms, minOut: atoms * (BPS2 - slip) / BPS2, claimAfter, refusal: null };
+  return { atoms, minOut: atoms * (BPS2 - slip) / BPS2, claimAfter, settledCoupon: settled.accrued, trancheAfter, refusal: null };
 }
 function assertUtilBonusZeroV22(utilBonusBps) {
   if (utilBonusBps > BOND_UTIL_BONUS_MAX_BPS_V22) throw new Error("the utilisation bonus must be 0 (review L-2)");
@@ -9356,6 +9538,95 @@ function usersSideOiQV22(oiSideQ, vaultLpEffQ, longSide) {
 function rentPercentPerDayV22(rateE9PerSlot) {
   return Number(rateE9PerSlot) / 1e9 * SLOTS_PER_DAY_V22 * 100;
 }
+var U64_MAX5 = (1n << 64n) - 1n;
+var U128_MAX5 = (1n << 128n) - 1n;
+var OCC_E9 = 1000000000n;
+var RENT_OCC_KNEE_BPS_V22 = 8500;
+var RENT_OCC_CAP_DOMAIN_V22 = 1n << 16n;
+var OCC_RAMP_ONE_V22 = 1n << 32n;
+var OCC_REF_MIN_LEG_MULTIPLE_V22 = 4n;
+var OCC_BSL_RENT_MULTIPLE_V22 = 5n;
+var OCC_CK_TAG_V22 = 1n << 63n;
+function occRampV22(count, cap, max) {
+  if (cap === 0n || max === 0n) return 0n;
+  const c = count < cap ? count : cap;
+  const lhs = c * BPS3;
+  const knee = cap * BigInt(RENT_OCC_KNEE_BPS_V22);
+  if (lhs <= knee) return 0n;
+  if (c >= cap || cap > RENT_OCC_CAP_DOMAIN_V22) return max;
+  const ex = lhs - knee;
+  const span = cap * (BPS3 - BigInt(RENT_OCC_KNEE_BPS_V22));
+  const ex2 = ex * ex;
+  const span2 = span * span;
+  if (ex2 > U128_MAX5 || span2 > U128_MAX5) return max;
+  const num = max * ex2;
+  if (num > U128_MAX5) return max;
+  const r3 = num / span2 + (num % span2 !== 0n ? 1n : 0n);
+  if (r3 < max) return r3 > 1n ? r3 : 1n;
+  return max;
+}
+function occRampQ32V22(count, cap) {
+  return occRampV22(count, cap, OCC_RAMP_ONE_V22);
+}
+function occFullNumV22(rentMaxE9PerSlot, bandMinLegNotional) {
+  const a = rentMaxE9PerSlot * OCC_REF_MIN_LEG_MULTIPLE_V22;
+  const sa = a > U128_MAX5 ? U128_MAX5 : a;
+  const b = sa * bandMinLegNotional;
+  return b > U128_MAX5 ? U128_MAX5 : b;
+}
+function occClockAdvanceV22(cQ32, rampQ32, dt) {
+  const r3 = rampQ32 < OCC_RAMP_ONE_V22 ? rampQ32 : OCC_RAMP_ONE_V22;
+  const next = cQ32 + r3 * dt;
+  return next > U64_MAX5 ? U64_MAX5 : next;
+}
+function occCkEncodeV22(cInt, short) {
+  return OCC_CK_TAG_V22 | (cInt & 0xffffffffn) << 1n | (short ? 1n : 0n);
+}
+function occCkDecodeV22(ck, short, cIntNow) {
+  if ((ck & OCC_CK_TAG_V22) === 0n || (ck & 1n) === 1n !== short) return null;
+  const c = (ck & ~OCC_CK_TAG_V22) >> 1n;
+  return c > cIntNow ? null : c;
+}
+function occChargeStepV22(ck, short, cQ32Now, fullNum) {
+  const cNow = cQ32Now >> 32n;
+  const fresh = occCkEncodeV22(cNow, short);
+  const c0 = occCkDecodeV22(ck, short, cNow);
+  if (c0 === null) return { checkpoint: fresh, due: 0n };
+  const p = fullNum * (cNow - c0);
+  const due = (p > U128_MAX5 ? U128_MAX5 : p) / OCC_E9;
+  return due === 0n ? { checkpoint: ck, due: 0n } : { checkpoint: fresh, due };
+}
+function decodeOccupancyCheckpointV22(lastFeeSlot) {
+  if ((lastFeeSlot & OCC_CK_TAG_V22) === 0n) return null;
+  return { short: (lastFeeSlot & 1n) === 1n, clockInt: (lastFeeSlot & ~OCC_CK_TAG_V22 & U64_MAX5) >> 1n };
+}
+function occupancyClocksFromProfileV22(p) {
+  return { lastSlot: p.maintenanceFeeCheckpointSlot, longQ32: p.maintenanceFeePreviousRate & U64_MAX5, shortQ32: p.maintenanceFeePreviousRate >> 64n & U64_MAX5 };
+}
+function occupancyClocksAtV22(clocks, p, nowSlot) {
+  if (nowSlot <= clocks.lastSlot) return clocks;
+  let { longQ32, shortQ32 } = clocks;
+  if (clocks.lastSlot !== 0n && p.fullNum !== 0n && p.lpBound) {
+    const dt = nowSlot - clocks.lastSlot;
+    longQ32 = occClockAdvanceV22(longQ32, occRampQ32V22(p.countLong, p.cap), dt);
+    shortQ32 = occClockAdvanceV22(shortQ32, occRampQ32V22(p.countShort, p.cap), dt);
+  }
+  return { lastSlot: nowSlot, longQ32, shortQ32 };
+}
+function occupancyDueV22(lastFeeSlot, side, clocks, p, nowSlot, isVaultLp = false) {
+  const c = occupancyClocksAtV22(clocks, p, nowSlot);
+  if (side === null) return { checkpoint: (lastFeeSlot & OCC_CK_TAG_V22) !== 0n ? 0n : lastFeeSlot, due: 0n };
+  const short = side === "short";
+  const cNow = short ? c.shortQ32 : c.longQ32;
+  if (p.fullNum === 0n || !p.lpBound || isVaultLp) return { checkpoint: occCkEncodeV22(cNow >> 32n, short), due: 0n };
+  return occChargeStepV22(lastFeeSlot, short, cNow, p.fullNum);
+}
+function occupancyRatesV22(p) {
+  if (p.fullNum === 0n || !p.lpBound || p.cap === 0n) return { long: 0n, short: 0n, rampQ32Long: 0n, rampQ32Short: 0n, fullE9: p.lpBound && p.cap !== 0n ? p.fullNum : 0n };
+  const rl = occRampQ32V22(p.countLong, p.cap);
+  const rs = occRampQ32V22(p.countShort, p.cap);
+  return { long: rl * p.fullNum >> 32n, short: rs * p.fullNum >> 32n, rampQ32Long: rl, rampQ32Short: rs, fullE9: p.fullNum };
+}
 function assetPriceLaggedV22(a) {
   return a.bandBps !== 0 && (a.oiEffLongQ !== 0n || a.oiEffShortQ !== 0n) && a.targetPrice !== a.effectivePrice;
 }
@@ -9442,6 +9713,38 @@ function rentRatesFromStateV22(cfg, asset, rent) {
     short: rentRateE9FailClosedV22(usersSideOiQV22(asset.oiEffShortQ, rent.vaultLpNetQ, false), rent.rentNCapQ, rent.rentKinkBps, cfg.rentMaxE9PerSlot)
   };
 }
+function decodeOccupancyStateV22(data) {
+  const cfg = decodeBandConfigV22(data);
+  if (cfg.bandBps === 0) return null;
+  const { g, B } = bandLayout(data, "decodeOccupancyStateV22");
+  if (g.slotCount < 1) throw new RangeError("asset 0 is not present");
+  const O = B.occupancy;
+  const e = g.engineOff(0);
+  const s = g.slotOff(0);
+  const prof = s + g.layout.wrapperSlot.oracleProfile;
+  const vl = s + g.layout.wrapperSlot.vaultLp;
+  const rent = decodeAssetRentStateV22(data, 0);
+  const live = data[g.groupOff + g.layout.group.mode] === 0;
+  const params = {
+    cap: cfg.bandMaxPositionsPerSide,
+    fullNum: occFullNumV22(cfg.rentMaxE9PerSlot, cfg.bandMinLegNotional),
+    lpBound: rent.vaultLpBound,
+    countLong: u642(data, e + O.storedPosCountLong),
+    countShort: u642(data, e + O.storedPosCountShort)
+  };
+  return {
+    enabled: live && params.cap !== 0n && params.fullNum !== 0n && params.lpBound,
+    live,
+    params,
+    clocks: { lastSlot: u642(data, prof + O.profileClockSlot), longQ32: u642(data, prof + O.profileClockLong), shortQ32: u642(data, prof + O.profileClockShort) },
+    vaultLpPortfolio: data.slice(vl + O.vaultLpPortfolio, vl + O.vaultLpPortfolio + 32),
+    assetSlotLast: u642(data, e + O.slotLast)
+  };
+}
+function occupancyRatesFromStateV22(occ) {
+  if (!occ || !occ.enabled) return { long: 0n, short: 0n, rampQ32Long: 0n, rampQ32Short: 0n, fullE9: 0n };
+  return occupancyRatesV22(occ.params);
+}
 function readBandRentViewV22(data, assetIndex = 0) {
   const config = decodeBandConfigV22(data);
   const bandOn = config.bandBps !== 0;
@@ -9475,8 +9778,16 @@ function readBandRentViewV22(data, assetIndex = 0) {
       floorStuck,
       favourableCloseSide: !lagging || floorStuck ? null : asset.effectivePrice > asset.rawOracleTargetPrice ? "long" : "short"
     },
-    rentRates: { enabled: rentOn, long: rates.long, short: rates.short }
+    rentRates: { enabled: rentOn, long: rates.long, short: rates.short },
+    occupancy: occupancyViewV22(data, assetIndex)
   };
+}
+function occupancyViewV22(data, assetIndex) {
+  if (assetIndex !== 0) return null;
+  const occ = decodeOccupancyStateV22(data);
+  if (!occ) return null;
+  const q = occupancyRatesFromStateV22(occ);
+  return { ...q, enabled: occ.enabled, cap: occ.params.cap, countLong: occ.params.countLong, countShort: occ.params.countShort };
 }
 function tryReadBandRentViewV22(data, assetIndex = 0) {
   if (!data) return null;
@@ -12234,6 +12545,7 @@ function parsePortfolioV17(data) {
   const feeCredits = data.length >= PF_FEE_CREDITS_OFF + 16 ? readI128LE(data, PF_FEE_CREDITS_OFF) : 0n;
   const cancelDepositEscrow = data.length >= PF_CANCEL_ESCROW_OFF + 16 ? readU128LE(data, PF_CANCEL_ESCROW_OFF) : 0n;
   const lastFeeSlot = data.length >= PF_LAST_FEE_SLOT_OFF + 8 ? readU64LE2(data, PF_LAST_FEE_SLOT_OFF) : 0n;
+  const occupancyCheckpoint = lastFeeSlot >> 63n === 1n ? { short: (lastFeeSlot & 1n) === 1n, clockInt: (lastFeeSlot & (1n << 63n) - 1n) >> 1n } : null;
   const activeBitmap = data.length >= PF_ACTIVE_BITMAP_OFF + 8 ? readU64LE2(data, PF_ACTIVE_BITMAP_OFF) : 0n;
   const legs = [];
   for (let i = 0; i < G.legCount; i++) {
@@ -12328,6 +12640,7 @@ function parsePortfolioV17(data) {
     feeCredits,
     cancelDepositEscrow,
     lastFeeSlot,
+    occupancyCheckpoint,
     activeBitmap,
     legs,
     sourceDomains,
@@ -12475,11 +12788,11 @@ import { TransactionInstruction as TransactionInstruction5 } from "@solana/web3.
 var ACCOUNTS_RESOLVE_STALE_PERMISSIONLESS_V22 = Object.freeze([
   Object.freeze({ name: "market", signer: false, writable: true })
 ]);
-var U64_MAX5 = (1n << 64n) - 1n;
+var U64_MAX6 = (1n << 64n) - 1n;
 function encodeResolveStalePermissionless(nowSlot) {
   const s = typeof nowSlot === "number" ? BigInt(nowSlot) : nowSlot;
   if (typeof nowSlot === "number" && !Number.isSafeInteger(nowSlot)) throw new Error(`nowSlot ${nowSlot} is not a safe integer; pass a bigint`);
-  if (s < 0n || s > U64_MAX5) throw new Error(`nowSlot ${s} is not a u64`);
+  if (s < 0n || s > U64_MAX6) throw new Error(`nowSlot ${s} is not a u64`);
   return concatBytes(encU8(IX_TAG.ResolveStalePermissionless), encU64(s));
 }
 var encodeResolveStalePermissionlessV22 = encodeResolveStalePermissionless;
@@ -13052,8 +13365,18 @@ function creatorFeeClaimRouteV22(assetAdmin, payeeFlag) {
   if (!eq32(toBytes32(assetAdmin, "creatorFeeClaimRouteV22 assetAdmin"), ZERO32)) return "AdminSigned";
   return payeeFlag ? "Payee" : "Refused";
 }
-function creatorPotOrphanedV22(assetAdmin, payeeFlag, pot) {
-  return pot !== 0n && creatorFeeClaimRouteV22(assetAdmin, payeeFlag) === "Refused";
+var CREATOR_PAYEE_GRACE_SLOTS_V22 = 1512000n;
+var MARKET_GROUP_RESOLVED_SLOT_OFF_V22 = 675;
+function payeeGraceElapsedV22(resolved, resolvedSlot, nowSlot) {
+  if (nowSlot === null) return false;
+  const end = resolvedSlot + CREATOR_PAYEE_GRACE_SLOTS_V22;
+  if (end > 0xffffffffffffffffn) return false;
+  return resolved && nowSlot >= end;
+}
+function creatorPotOrphanedV22(assetAdmin, payeeFlag, pot, payeeGraceOver) {
+  if (pot === 0n) return false;
+  const route = creatorFeeClaimRouteV22(assetAdmin, payeeFlag);
+  return route === "Refused" || route === "Payee" && payeeGraceOver;
 }
 function payeeUpdateAllowedV22(assetAdmin, signer, currentPayee, newPayee, vaultAuthority) {
   const admin = toBytes32(assetAdmin, "assetAdmin");
@@ -13379,7 +13702,6 @@ var BSL_RENT_MAX_KINK_BPS = 8000n;
 var BSL_MAX_BAND_BPS = 2000n;
 var BSL_BAND_MIN_EPOCH_SLOTS = 150n;
 var BSL_BAND_MIN_PIN_EPOCHS = 8n;
-var BSL_OCCUPANCY_RENT_MULTIPLE_RC23 = 5n;
 var BPS5 = 10000n;
 var FUNDING_DEN = 1000000000n;
 var ADL_ONE = 1000000000000000n;
@@ -13388,8 +13710,8 @@ var MAX_ACCOUNT_NOTIONAL = 100000000000000000000n;
 var MAX_MARGIN_BPS = 10000n;
 var MAX_PROTOCOL_FEE_ABS = 1000000000000000000000000000000000000n;
 var MAX_ABS_FUNDING_E9_PER_SLOT = 10000n;
-var U64_MAX6 = (1n << 64n) - 1n;
-var U128_MAX5 = (1n << 128n) - 1n;
+var U64_MAX7 = (1n << 64n) - 1n;
+var U128_MAX6 = (1n << 128n) - 1n;
 var I128_MAX2 = (1n << 127n) - 1n;
 var MAX_SOLVENCY_INTERVALS = 96;
 var MAX_SOLVENCY_STEPS = 4096;
@@ -13399,7 +13721,7 @@ var Invalid = class extends Error {
 var fail = () => {
   throw new Invalid("InvalidConfig");
 };
-var u1284 = (v) => v > U128_MAX5 || v < 0n ? fail() : v;
+var u1284 = (v) => v > U128_MAX6 || v < 0n ? fail() : v;
 var ceilDiv = (n, d) => {
   if (d === 0n) return fail();
   const q = n / d;
@@ -13528,22 +13850,20 @@ var intField = (name, v, max) => {
   if (!Number.isInteger(v) || v < 0 || v > max) throw new RangeError(`${name} must be an integer in 0..=${max}`);
   return BigInt(v);
 };
-function checkBandSafetyLawV22(input, opts = {}) {
-  const k = opts.occupancyRentMultiple ?? BSL_OCCUPANCY_RENT_MULTIPLE_RC23;
-  if (typeof k !== "bigint" || k < 1n) throw new RangeError("occupancyRentMultiple must be a bigint >= 1");
+function checkBandSafetyLawV22(input) {
   const base = {
     maxPortfolioAssets: intField("maxPortfolioAssets", input.maxPortfolioAssets, 65535),
-    mm: nonNeg("maintenanceMarginBps", input.maintenanceMarginBps, U64_MAX6),
-    im: nonNeg("initialMarginBps", input.initialMarginBps, U64_MAX6),
-    liq: nonNeg("liquidationFeeBps", input.liquidationFeeBps, U64_MAX6),
-    liqCap: nonNeg("liquidationFeeCap", input.liquidationFeeCap, U128_MAX5),
-    minLiqAbs: nonNeg("minLiquidationAbs", input.minLiquidationAbs, U128_MAX5),
-    minMm: nonNeg("minNonzeroMmReq", input.minNonzeroMmReq, U128_MAX5),
-    minIm: nonNeg("minNonzeroImReq", input.minNonzeroImReq, U128_MAX5),
-    pmove: nonNeg("maxPriceMoveBpsPerSlot", input.maxPriceMoveBpsPerSlot, U64_MAX6),
-    dt: nonNeg("maxAccrualDtSlots", input.maxAccrualDtSlots, U64_MAX6),
-    funding: nonNeg("maxAbsFundingE9PerSlot", input.maxAbsFundingE9PerSlot, U64_MAX6),
-    lifetime: nonNeg("minFundingLifetimeSlots", input.minFundingLifetimeSlots, U64_MAX6),
+    mm: nonNeg("maintenanceMarginBps", input.maintenanceMarginBps, U64_MAX7),
+    im: nonNeg("initialMarginBps", input.initialMarginBps, U64_MAX7),
+    liq: nonNeg("liquidationFeeBps", input.liquidationFeeBps, U64_MAX7),
+    liqCap: nonNeg("liquidationFeeCap", input.liquidationFeeCap, U128_MAX6),
+    minLiqAbs: nonNeg("minLiquidationAbs", input.minLiquidationAbs, U128_MAX6),
+    minMm: nonNeg("minNonzeroMmReq", input.minNonzeroMmReq, U128_MAX6),
+    minIm: nonNeg("minNonzeroImReq", input.minNonzeroImReq, U128_MAX6),
+    pmove: nonNeg("maxPriceMoveBpsPerSlot", input.maxPriceMoveBpsPerSlot, U64_MAX7),
+    dt: nonNeg("maxAccrualDtSlots", input.maxAccrualDtSlots, U64_MAX7),
+    funding: nonNeg("maxAbsFundingE9PerSlot", input.maxAbsFundingE9PerSlot, U64_MAX7),
+    lifetime: nonNeg("minFundingLifetimeSlots", input.minFundingLifetimeSlots, U64_MAX7),
     rent: 0n,
     band: 0n,
     e: 0n,
@@ -13575,13 +13895,10 @@ function checkBandSafetyLawV22(input, opts = {}) {
     e: intField("bandMaxEpochSlots", b.bandMaxEpochSlots, 4294967295),
     pmax: intField("bandMaxPinSlots", b.bandMaxPinSlots, 4294967295),
     positionsPerSide: 256n,
-    minLeg: nonNeg("bandMinLegNotional", b.bandMinLegNotional, U64_MAX6)
+    minLeg: nonNeg("bandMinLegNotional", b.bandMinLegNotional, U64_MAX7)
   };
   if (rentOk && !validates(withBand)) {
     return { ok: false, code: 105, rule: "band-shape-or-law", message: `price protection ${b.bandBps} bps / epoch ${b.bandMaxEpochSlots} slots breaks the Band Safety Law or the band's shape at this margin` };
-  }
-  if (rentOk && rent !== 0n && !validates({ ...withBand, rent: rent * k })) {
-    return { ok: false, code: 106, rule: "occupancy-law", message: `holding fee ceiling ${rent} e9/slot x ${k} (utilisation + slot occupancy) breaks the Band Safety Law at this margin` };
   }
   return baseOk ? { ok: true } : baseInvalid();
 }
@@ -13591,9 +13908,9 @@ var baseInvalid = () => ({
   rule: "base-config",
   message: "the market's base risk config is invalid on its own (InitMarket refuses it for another reason)"
 });
-function maxAcceptedRentE9PerSlotV22(input, opts = {}) {
+function maxAcceptedRentE9PerSlotV22(input) {
   const kink = input.rent?.rentKinkBps ?? 5e3;
-  const ok = (v) => checkBandSafetyLawV22({ ...input, rent: { rentMaxE9PerSlot: Number(v), rentKinkBps: kink } }, opts).ok;
+  const ok = (v) => checkBandSafetyLawV22({ ...input, rent: { rentMaxE9PerSlot: Number(v), rentKinkBps: kink } }).ok;
   let lo = BSL_RENT_MIN_E9_PER_SLOT;
   if (!ok(lo)) return null;
   let hi = BSL_MAX_RENT_E9_PER_SLOT;
@@ -15669,7 +15986,7 @@ function buildClaimCreatorFeeToPayeeIxsV22(a) {
   }));
   return ixs;
 }
-function readCreatorFeeClaimStateV22(marketData, assetIndex) {
+function readCreatorFeeClaimStateV22(marketData, assetIndex, nowSlot = null) {
   const g = resolveMarketGeometry(marketData, { parser: "readCreatorFeeClaimStateV22", strictLength: false });
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex >= g.slotCount) {
     throw new Error(`readCreatorFeeClaimStateV22: asset ${assetIndex} is not present (${g.slotCount} slots)`);
@@ -15679,13 +15996,19 @@ function readCreatorFeeClaimStateV22(marketData, assetIndex) {
   const profile = parseAssetOracleProfileV17(marketData, profileOff);
   const payeeFlag = hasCreatorFeePayeeFlagV22(marketData[profileOff + g.layout.wrapperSlot.profileP4Flags]);
   const legacy = assetIndex === 0 ? parseWrapperConfigV17(marketData).creatorFeeClaimableAtoms : 0n;
+  const dv8 = new DataView(marketData.buffer, marketData.byteOffset, marketData.byteLength);
+  const resolved = marketData[g.groupOff + g.layout.group.mode] === 1;
+  const resolvedSlot = dv8.getBigUint64(g.groupOff + MARKET_GROUP_RESOLVED_SLOT_OFF_V22, true);
   return {
     assetIndex,
     assetAdmin: profile.assetAdmin,
     payeeFlag,
     route: creatorFeeClaimRouteV22(profile.assetAdmin, payeeFlag),
     owed: profile.creatorFeeClaimableAtoms + legacy,
-    authorityEpoch: parseAssetControlSequencesV17(marketData, slot).authorityEpoch
+    authorityEpoch: parseAssetControlSequencesV17(marketData, slot).authorityEpoch,
+    resolved,
+    resolvedSlot,
+    payeeGraceOver: payeeGraceElapsedV22(resolved, resolvedSlot, nowSlot)
   };
 }
 
@@ -15762,6 +16085,7 @@ function planCloseSlabAttempt(a) {
   }
   for (const leg of a.creatorFees ?? []) {
     if (leg.owed <= 0n || leg.route === "Refused") continue;
+    if (leg.route === "Payee" && a.payeeGraceOver) continue;
     if (leg.route === "AdminSigned") {
       throw new Error(
         `planCloseSlabAttempt: asset ${leg.assetIndex} owes ${leg.owed} creator-fee atoms under a live asset_admin. Only that key can claim them (tag 90); CloseSlab refuses (71) until it does.`
@@ -15799,6 +16123,24 @@ function planCloseSlabAttempt(a) {
     data: Buffer.from(encodeCloseSlab(a.closeAuthorityEpoch))
   }));
   return ixs;
+}
+function planPayeeGraceCloseSequenceV22(a) {
+  if (!a.protocolFee) {
+    throw new Error("planPayeeGraceCloseSequenceV22: after the grace the payee pot is re-booked to the protocol leg; pass protocolFee so tag 84 can claim it");
+  }
+  const rebooked = (a.creatorFees ?? []).filter((l) => l.route === "Payee").reduce((t, l) => t + (l.owed > 0n ? l.owed : 0n), 0n);
+  if (rebooked === 0n) {
+    throw new Error("planPayeeGraceCloseSequenceV22: no unpaid payee pot to re-book; use planCloseSlabAttempt");
+  }
+  const tx1 = planCloseSlabAttempt({ ...a, payeeGraceOver: true });
+  const tx2 = planCloseSlabAttempt({
+    ...a,
+    payeeGraceOver: true,
+    creatorFees: [],
+    insuranceRecredit: void 0,
+    protocolFee: { ...a.protocolFee, owed: rebooked }
+  });
+  return [tx1, tx2];
 }
 
 // src/solana/p3-vault-lp.ts
@@ -18482,10 +18824,10 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 // src/validation.ts
 import { PublicKey as PublicKey37 } from "@solana/web3.js";
 var U16_MAX4 = 65535;
-var U64_MAX7 = BigInt("18446744073709551615");
+var U64_MAX8 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
 var I64_MAX = BigInt("9223372036854775807");
-var U128_MAX6 = (1n << 128n) - 1n;
+var U128_MAX7 = (1n << 128n) - 1n;
 var I128_MIN2 = -(1n << 127n);
 var I128_MAX3 = (1n << 127n) - 1n;
 var ValidationError = class extends Error {
@@ -18546,10 +18888,10 @@ function validateAmount(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U64_MAX7) {
+  if (num > U64_MAX8) {
     throw new ValidationError(
       field,
-      `must be <= ${U64_MAX7} (u64 max), got ${num}`
+      `must be <= ${U64_MAX8} (u64 max), got ${num}`
     );
   }
   return num;
@@ -18560,10 +18902,10 @@ function validateU128(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U128_MAX6) {
+  if (num > U128_MAX7) {
     throw new ValidationError(
       field,
-      `must be <= ${U128_MAX6} (u128 max), got ${num}`
+      `must be <= ${U128_MAX7} (u128 max), got ${num}`
     );
   }
   return num;
@@ -19126,11 +19468,13 @@ export {
   BOND_CAP_MAX_BPS_V22,
   BOND_COOLDOWN_MAX_SLOTS_V22,
   BOND_COOLDOWN_MIN_SLOTS_V22,
+  BOND_COUPON_DENOM_V22,
   BOND_COUPON_MAX_BPS_V22,
   BOND_COUPON_MAX_LEG_BPS_V22,
   BOND_POSITION_FIELD_OFF_V22,
   BOND_TAIL_INDEX_V22,
   BOND_TRANCHE_FIELD_OFF_V22,
+  BOND_TRANCHE_VERSION_V22,
   BOND_UTIL_BONUS_MAX_BPS_V22,
   BOOK_DEPTH_BAND_BPS,
   BOUND_SCALE_P2B,
@@ -19141,7 +19485,6 @@ export {
   BSL_BAND_MIN_PIN_EPOCHS,
   BSL_MAX_BAND_BPS,
   BSL_MAX_RENT_E9_PER_SLOT,
-  BSL_OCCUPANCY_RENT_MULTIPLE_RC23,
   BSL_RENT_MAX_KINK_BPS,
   BSL_RENT_MIN_E9_PER_SLOT,
   BackingBucketStatus,
@@ -19154,6 +19497,7 @@ export {
   CHAINLINK_TIMESTAMP_OFFSET,
   COMPUTE_PRESETS_V22,
   CONSENT_VERSION_FIRST_LOSS_V5,
+  COUPON_DENOM_V22,
   CRANK_OBSERVATION_DECODE_MAX,
   CREATOR_FEE_PAYEE_ACCOUNT_LEN_V22,
   CREATOR_FEE_PAYEE_BODY_LEN_V22,
@@ -19162,6 +19506,7 @@ export {
   CREATOR_FEE_PAYEE_SEED_V22,
   CREATOR_FEE_PAYEE_VERSION_V22,
   CREATOR_LOCK_SEED,
+  CREATOR_PAYEE_GRACE_SLOTS_V22,
   CTX_RETURN_OFFSET,
   CTX_VAMM_LEN,
   CTX_VAMM_OFFSET,
@@ -19372,6 +19717,7 @@ export {
   LP_VAULT_REGISTRY_EXT_FLAG_OFF_P2B,
   LaunchBundleTooLargeError,
   MARKET_GROUP_HEADER_OFF_V18,
+  MARKET_GROUP_RESOLVED_SLOT_OFF_V22,
   MARKET_MODE_V18,
   MARK_PRICE_EMA_ALPHA_E6,
   MARK_PRICE_EMA_WINDOW_SLOTS,
@@ -19451,6 +19797,10 @@ export {
   NFT_PROGRAM_ID,
   NFT_PROGRAM_IDS,
   OBSERVE_CRANK_CU_V22,
+  OCC_BSL_RENT_MULTIPLE_V22,
+  OCC_CK_TAG_V22,
+  OCC_RAMP_ONE_V22,
+  OCC_REF_MIN_LEG_MULTIPLE_V22,
   ORACLE_PHASE_GROWING,
   ORACLE_PHASE_MATURE,
   ORACLE_PHASE_NASCENT,
@@ -19494,6 +19844,8 @@ export {
   RENOUNCE_ADMIN_CONFIRMATION,
   RENT_MAX_KINK_BPS_V22,
   RENT_MIN_E9_PER_SLOT_V22,
+  RENT_OCC_CAP_DOMAIN_V22,
+  RENT_OCC_KNEE_BPS_V22,
   RENT_SNAPSHOT_FALL_SLOTS,
   RESCUE_MAX_MULT_V22,
   RESCUE_MIN_ATOMS_V22,
@@ -19695,10 +20047,14 @@ export {
   bondAtomsForRedemptionV22,
   bondCapOkV22,
   bondClaimAfterRedemptionV22,
+  bondClaimUpperBoundAtV22,
   bondCooldownElapsedV22,
   bondCouponRateBpsV22,
   bondCouponSplitV22,
+  bondCouponTakeV22,
+  bondFundedClaimV22,
   bondImpairedV22,
+  bondSettleCouponToV22,
   bondSharesForDepositV22,
   bondUtilBpsV22,
   bondWithdrawLockOkV22,
@@ -19830,9 +20186,17 @@ export {
   consentParamsForPoolV5,
   conservativeEquity,
   countLighthouseInstructions,
+  couponArrearsCapV22,
   couponBaseV22,
   couponDueV22,
   couponGateOpenV22,
+  couponGateSeenV22,
+  couponIntervalCleanV22,
+  couponMeterAfterDepositV22,
+  couponMeterAfterRedemptionV22,
+  couponPayFromLegV22,
+  couponPayOpenV22,
+  couponSettleV22,
   creatorCollateralAtaV5,
   creatorFeeClaimRouteV22,
   creatorFeePayeeDestinationV22,
@@ -19877,6 +20241,8 @@ export {
   decodeMatcherRequestedFeeBps,
   decodeMatcherReturn,
   decodeMatcherV2Error,
+  decodeOccupancyCheckpointV22,
+  decodeOccupancyStateV22,
   decodePortfolioMatcherControl,
   decodeResolvedPayoutReceiptP3,
   decodeSeniorFloorRecordP2b,
@@ -20351,6 +20717,18 @@ export {
   nonboundPotFromRecordsP2b,
   nonboundVaultPricingFromAccountsP2b,
   nonboundVaultPricingP2b,
+  occChargeStepV22,
+  occCkDecodeV22,
+  occCkEncodeV22,
+  occClockAdvanceV22,
+  occFullNumV22,
+  occRampQ32V22,
+  occRampV22,
+  occupancyClocksAtV22,
+  occupancyClocksFromProfileV22,
+  occupancyDueV22,
+  occupancyRatesFromStateV22,
+  occupancyRatesV22,
   openingPartQ,
   packInstructionGroups,
   packOiCap,
@@ -20379,11 +20757,13 @@ export {
   parseTxV1Mode,
   parseUsedIndices,
   parseWrapperConfigV17,
+  payeeGraceElapsedV22,
   payeeUpdateAllowedV22,
   payoutFromBalancesV22,
   pinnedMatcherCapsP3,
   planCloseSlabAttempt,
   planEarnExitV22,
+  planPayeeGraceCloseSequenceV22,
   planReduceOnlyExit,
   planResolvedReceiptRevisitP3,
   planResolvedVaultLpExitP3,

@@ -25,9 +25,9 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const unhex = (s: string) => Uint8Array.from(Buffer.from(s, "hex"));
 
 describe("pinned oracle", () => {
-  it("is variant B (rc23 + repin #642 at prog f1204c93, engine a100d54d)", () => {
-    expect(FX.prog).toBe("f1204c932b4d2b00b08b1887975f36d2c28cea93");
-    expect(FX.engine).toBe("a100d54ddd6fe9cdf18a7170075b707dff1b2f6f");
+  it("is variant B (prog #649 f7a54350 = rc23 2b5dce8a + GH#571 tranche v2, engine 2f05df8c)", () => {
+    expect(FX.prog).toBe("f7a54350bd17d51d45effa0cb9df66d7eb8e69cf");
+    expect(FX.engine).toBe("2f05df8c8c1edd85734120e1322420621fc33cf0");
   });
 });
 
@@ -170,8 +170,10 @@ describe("account decoders vs the program's own writes", () => {
   // the program stamps VERSION via write_header; fixture bytes already carry it
   it("bond tranche", () => {
     const t = S.decodeBondTrancheV20(unhex(A.bondTranche.hex));
-    expect([t.cBAtoms, t.bSharesTotal, t.lastCouponSlot, t.couponBpsPerYear, t.bondCooldownSlots, t.bondCapBpsOfC, t.lastUtilBps, t.couponPaidTotalAtoms, t.bump])
-      .toEqual([1_000_000_000_000_000_000_000n, 999_999_999_999_999_999_999n, 777n, 801, 9001, 4999, 1234, 4242n, 250]);
+    expect([t.cBAtoms, t.bSharesTotal, t.lastCouponSlot, t.couponBpsPerYear, t.bondCooldownSlots, t.bondCapBpsOfC, t.lastUtilBps, t.couponPaidTotalAtoms, t.bump, t.version])
+      .toEqual([1_000_000_000_000_000_000_000n, 999_999_999_999_999_999_999n, 777n, 801, 9001, 4999, 1234, 4242n, 250, 2]);
+    // GH#571 v2 tail (R, U, rem, gate memory)
+    expect([t.couponArrearsAtoms, t.couponUnfundedAtoms, t.couponAccrualRem, t.couponGateSeen]).toEqual([11n, 7n, 5n, 3n]);
     expect(() => S.decodeBondTrancheV20(unhex(A.bondTrancheBadPad.hex))).toThrow(UnknownLayoutError);
     expect(A.bondTrancheBadPad.programReads).toBe(false);
     expect(S.decodeBondTrancheV20(unhex(A.bondTranche.hex)).marketGroup.toBytes().every((x) => x === 9)).toBe(true);

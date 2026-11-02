@@ -1,18 +1,22 @@
 // Generates the Band Safety Law parity rows: each row = an InitMarket config (the pre-check's input) and its
 // exact instruction bytes (encodeInitMarketV22). The bytes are sent to the real wrapper .so in LiteSVM by the
-// harness `tests/bsl6_initmarket_matrix.rs` (percolator-prog branch bsl6/initmarket-matrix), once per program
-// (rc23 34996503 and bbaa0e7b); `merge-results.ts` folds the answers into `parity.json`.
+// harness `tests/bsl6_initmarket_matrix.rs` (percolator-prog branch bsl6/initmarket-matrix, on rc23
+// 178fedc4); `merge-results.ts` folds the answers into `parity.json`.
 // Usage: tsx test/fixtures/v22-bsl/gen-rows.ts <out-rows.json>
 import fs from "node:fs";
 import { encodeInitMarketV22 } from "../../../src/abi/v22-wire.js";
-import type { BandSafetyLawInputV22 } from "../../../src/abi/v22-band-safety-law.js";
+import { checkBandSafetyLawV22, maxAcceptedRentE9PerSlotV22, type BandSafetyLawInputV22 } from "../../../src/abi/v22-band-safety-law.js";
 
 interface Row { id: string; slots: number; decimals: number; dataHex: string; input: Record<string, unknown> }
 const rows: Row[] = [];
 const ser = (i: BandSafetyLawInputV22): Record<string, unknown> =>
   JSON.parse(JSON.stringify(i, (_k, v) => (typeof v === "bigint" ? `${v}n` : v)));
 
+const seen = new Set<string>();
+
 function push(id: string, i: BandSafetyLawInputV22): void {
+  if (seen.has(id)) return; // the sweeps meet at the pilot config: one row per id
+  seen.add(id);
   const band = i.band && i.band.bandBps !== 0 ? i.band : undefined;
   // r_gap: derived on a band market (0); off-band the growth-1 rule's lowest honest value (pmove x 50).
   const rGapBps = band ? 0 : Math.max(1, Math.min(0xffff, Number(i.maxPriceMoveBpsPerSlot) * 50));
@@ -74,6 +78,17 @@ for (const a of [1n, 1_000_000n, 10_000_000_000n]) push(`edge-minliq${a}`, base(
 for (const m of [1n, 10n, 1_000_000_000_000n]) push(`edge-minmm${m}`, base(1000n, { minNonzeroMmReq: m, minNonzeroImReq: m * 2n, rent: rent(100), band: band(130) }));
 for (const [p, dt] of [[1n, 1n], [10n, 500n], [20n, 500n], [2n, 400n]] as const) push(`edge-pm${p}-dt${dt}`, base(1000n, { maxPriceMoveBpsPerSlot: p, maxAccrualDtSlots: dt, rent: rent(100), band: band(130) }));
 for (const mm of [400n, 450n, 470n, 480n, 490n]) push(`edge-mm${mm}-band130`, base(mm, { rent: rent(10), band: band(130) }));
+// 3b. The exact limits of the law at every shipped margin: the pre-check's own limit and limit + 1 go to the program.
+for (const [name, c] of [
+  ["seed-meme", base(1000n)], ["seed-mid", base(600n)],
+  ...[500, 501, 550, 600, 750, 1000, 1500, 2000, 2500].map((mm) => [`app-mm${mm}`, base(BigInt(mm), { maxPriceMoveBpsPerSlot: pm(mm), maxAccrualDtSlots: 100n })] as const),
+] as const) {
+  const m = maxAcceptedRentE9PerSlotV22({ ...c, band: band(130) });
+  if (m !== null) for (const r of [m, m + 1n]) push(`limit-${name}-rent${r}`, { ...c, rent: rent(Number(r)), band: band(130) });
+  let top = 0;
+  for (let d = 1; d <= 2000; d++) if (checkBandSafetyLawV22({ ...c, rent: rent(100), band: band(d) }).ok) top = d;
+  for (const d of [top, top + 1]) push(`limit-${name}-band${d}`, { ...c, rent: rent(100), band: band(d) });
+}
 // 4. Seeded random configs around the boundaries (xorshift; deterministic).
 let s = 0x2f05df8cn;
 const rnd = (n: number): number => { s ^= (s << 13n) & 0xffff_ffffn; s ^= s >> 17n; s ^= (s << 5n) & 0xffff_ffffn; return Number(s % BigInt(n)); };

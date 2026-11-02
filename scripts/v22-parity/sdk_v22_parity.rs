@@ -168,7 +168,7 @@ fn main() {
 
     // accounts written by the program's own init/write functions
     let mut accts = Vec::new();
-    let tr = state::BondTrancheV20 { market_group: [9; 32], c_b_atoms: 1_000_000_000_000_000_000_000, b_shares_total: 999_999_999_999_999_999_999, principal_in_lp_atoms: 5, bond_drawn_outstanding_atoms: 6, last_coupon_slot: 777, coupon_bps_per_year: 801, coupon_util_bonus_bps: 0, bond_cooldown_slots: 9_001, bond_cap_bps_of_c: 4_999, version: 1, bump: 250, last_util_bps: 1234, _padding: [0; 2], coupon_paid_total_atoms: 4242 };
+    let tr = state::BondTrancheV20 { market_group: [9; 32], c_b_atoms: 1_000_000_000_000_000_000_000, b_shares_total: 999_999_999_999_999_999_999, principal_in_lp_atoms: 5, bond_drawn_outstanding_atoms: 6, last_coupon_slot: 777, coupon_bps_per_year: 801, coupon_util_bonus_bps: 0, bond_cooldown_slots: 9_001, bond_cap_bps_of_c: 4_999, version: c::BOND_TRANCHE_VERSION, bump: 250, last_util_bps: 1234, _padding: [0; 2], coupon_paid_total_atoms: 4242, coupon_arrears_atoms: 11, coupon_unfunded_atoms: 7, coupon_accrual_rem: 5, coupon_gate_seen: 3 };
     let mut a = vec![0u8; state::bond_tranche_account_len()]; state::init_bond_tranche(&mut a, &tr).unwrap();
     accts.push(format!("\"bondTranche\":{{\"hex\":\"{}\",\"programReads\":{}}}", hex(&a), state::read_bond_tranche(&a).is_ok()));
     let mut bad = a.clone(); bad[16 + 114 - 114 + 118] = 1; // padding byte

@@ -170,7 +170,7 @@ export const ACCOUNTS_VAULT_LP_ALLOCATE_P2B: readonly AccountSpec[] = [
 
 /**
  * Tag 103 accounts (10) on a BOND market (registry bond flag at byte 162 set): the nine above plus
- * `bondTranche` (`["bond_tranche", market]`) at `[9]`. Read-only for 103 (`load_bond_tranche` reads `c_b_atoms` only).
+ * `bondTranche` (`["bond_tranche", market]`) at `[9]`. Read-only for 103 (it reads the tranche through `claim_upper_bound_at`: `K` plus the unsettled accrual at the max rate, GH#571).
  */
 export const ACCOUNTS_VAULT_LP_ALLOCATE_BOND_P2B: readonly AccountSpec[] = [
   ...ACCOUNTS_VAULT_LP_ALLOCATE_P2B,

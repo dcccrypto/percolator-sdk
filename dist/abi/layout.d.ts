@@ -190,6 +190,23 @@ export interface BandRentOffsets {
         lpNetQ: number;
         flags: number;
     };
+    /**
+     * prog#572 (#647) per-slot occupancy charge on band markets. `storedPosCount*` / `slotLast` are relative to the ENGINE slot
+     * start; `profileClock*` to the asset-0 oracle profile (wrapper slot + `wrapperSlot.oracleProfile`): on a band market the
+     * GH#444 bytes `maintenance_fee_checkpoint_slot` (+408) and `maintenance_fee_previous_rate` (+416, u128) hold the side
+     * clocks' last slot, `C_long` (low 8 B) and `C_short` (high 8 B); `vaultLpPortfolio` to the vault LP record;
+     * `portfolioLastFeeSlot` to the engine `PortfolioAccountV16Account` (account offset + the 16-byte header; on band markets a tagged checkpoint, see `decodeOccupancyCheckpointV22`).
+     */
+    occupancy: {
+        storedPosCountLong: number;
+        storedPosCountShort: number;
+        slotLast: number;
+        profileClockSlot: number;
+        profileClockLong: number;
+        profileClockShort: number;
+        vaultLpPortfolio: number;
+        portfolioLastFeeSlot: number;
+    };
 }
 /** One complete layout. */
 export interface LayoutTable {

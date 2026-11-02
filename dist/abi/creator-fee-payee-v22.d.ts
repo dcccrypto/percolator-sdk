@@ -14,8 +14,11 @@
  * creator fee unclaimable for good (tag 90 needed the admin's signature; CloseSlab re-booked the pot to the protocol).
  * While `asset_admin` is LIVE it may now record a payee wallet (tag 125). After the burn the payee is frozen, and tag 90
  * for that asset is PERMISSIONLESS: anyone may send it, it pays only the payee's canonical associated token account for
- * the vault mint, and it takes the payee record as account `[6]`. CloseSlab no longer re-books a pot that has a payee;
- * it refuses (71 `CloseSlabFeesOutstanding`) until that pot is paid out.
+ * the vault mint, and it takes the payee record as account `[6]`. CloseSlab does not re-book a pot that has a payee during
+ * the payee's grace: it refuses (71 `CloseSlabFeesOutstanding`) until that pot is paid out. prog #651 (rc23 bbaa0e7b):
+ * once `CREATOR_PAYEE_GRACE_SLOTS` (7 x 216,000) have passed since the engine's `resolved_slot` (Clock), CloseSlab re-books
+ * an unpaid payee pot to the protocol leg like a no-payee pot (a payee whose ATA cannot receive cannot block the close for
+ * ever). Tag 90 keeps paying the payee until that re-book; afterwards it answers 62 (over-claim).
  *
  * Nothing here is deployed.
  *
@@ -172,20 +175,41 @@ export type CreatorFeeClaimRouteV22 = "AdminSigned" | "Payee" | "Refused";
  * ```
  */
 export declare function creatorFeeClaimRouteV22(assetAdmin: PublicKey | Uint8Array, payeeFlag: boolean): CreatorFeeClaimRouteV22;
+/** prog #651: the payee's grace after resolution (`CREATOR_PAYEE_GRACE_SLOTS` = 7 x 216,000 slots). */
+export declare const CREATOR_PAYEE_GRACE_SLOTS_V22 = 1512000n;
+/** prog #651 anchor: the engine header's `resolved_slot` (u64 LE), relative to the market-group header (rustc `offset_of!`). */
+export declare const MARKET_GROUP_RESOLVED_SLOT_OFF_V22 = 675;
 /**
- * CloseSlab re-book rule (`creator_pot_orphaned`): a non-zero pot moves to the protocol leg ONLY when it has no claim
- * path (burned admin, no payee). Otherwise CloseSlab refuses with 71 until the pot is claimed through tag 90.
+ * prog #651 (`payee_grace_elapsed`): the payee's grace is over when the market is Resolved and the Clock slot is at or past
+ * `resolved_slot + CREATOR_PAYEE_GRACE_SLOTS`. No slot (`null`) never elapses (the program reads the Clock only); an
+ * overflowing end slot (above u64) never elapses.
  *
- * @param assetAdmin  The asset's `asset_admin`.
- * @param payeeFlag   p4 bit 3.
- * @param pot         Owed creator atoms (asset 0: its profile counter plus the legacy market-wide counter).
+ * @param resolved      Market mode is Resolved (engine `mode == 1`).
+ * @param resolvedSlot  Engine header `resolved_slot`.
+ * @param nowSlot       Current cluster slot, or null if unknown.
+ * @returns Whether CloseSlab may re-book an unpaid payee pot.
+ * @example
+ * ```ts
+ * const over = payeeGraceElapsedV22(true, resolvedSlot, BigInt(await connection.getSlot("confirmed")));
+ * ```
+ */
+export declare function payeeGraceElapsedV22(resolved: boolean, resolvedSlot: bigint, nowSlot: bigint | null): boolean;
+/**
+ * CloseSlab re-book rule (`creator_pot_orphaned`, prog #651 form): a non-zero pot moves to the protocol leg when it has no
+ * claim path (burned admin, no payee), or when a payee is recorded and its grace is over (`payeeGraceElapsedV22`). A live
+ * admin's pot never moves. Otherwise CloseSlab refuses with 71 until the pot is claimed through tag 90.
+ *
+ * @param assetAdmin      The asset's `asset_admin`.
+ * @param payeeFlag       p4 bit 3.
+ * @param pot             Owed creator atoms (asset 0: its profile counter plus the legacy market-wide counter).
+ * @param payeeGraceOver  `payeeGraceElapsedV22(...)` for this market.
  * @returns Whether CloseSlab re-books the pot itself.
  * @example
  * ```ts
- * const rebooked = creatorPotOrphanedV22(profile.assetAdmin, flagged, owed);
+ * const rebooked = creatorPotOrphanedV22(profile.assetAdmin, flagged, owed, payeeGraceElapsedV22(true, resolvedSlot, now));
  * ```
  */
-export declare function creatorPotOrphanedV22(assetAdmin: PublicKey | Uint8Array, payeeFlag: boolean, pot: bigint): boolean;
+export declare function creatorPotOrphanedV22(assetAdmin: PublicKey | Uint8Array, payeeFlag: boolean, pot: bigint, payeeGraceOver: boolean): boolean;
 /**
  * Tag 125 preflight (`payee_update_allowed`): only the asset's LIVE `asset_admin`, to a non-zero payee that is not the
  * market's vault authority PDA and differs from the payee already recorded. `false` = the program refuses with 136.

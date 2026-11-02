@@ -54,6 +54,7 @@ export default defineConfig({
       "test/layout-guard.test.ts",
       "test/v22-builders.test.ts",
       "test/v22-band.test.ts",
+      "test/v22-band-occupancy.test.ts",
       "test/v22-fill-events.test.ts", "test/lev-guard-v22.test.ts", "test/lev-guard-limits-v22.test.ts",
       "test/v22-lp-share.test.ts",
       "test/stake-dead-lp.test.ts", "test/stake-closeout-v22.test.ts",
@@ -74,6 +75,7 @@ export default defineConfig({
       "test/v22-launch-settings.test.ts", "test/v22-init-signer.test.ts",
       "test/creator-fee-payee-v22.test.ts",
       "test/v22-band-safety-law.test.ts",
+      "test/bond-carry-571.test.ts",
     ],
   },
 });
