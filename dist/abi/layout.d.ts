@@ -181,10 +181,13 @@ export interface BandRentOffsets {
         rentIndexLongNum: number;
         rentIndexShortNum: number;
         rentUnroutedAtoms: number;
+        storedPosCountLong: number;
+        storedPosCountShort: number;
     };
     growth: {
         rentKinkBps: number;
         rentNCapQ: number;
+        version: number;
     };
     vaultLp: {
         lpNetQ: number;

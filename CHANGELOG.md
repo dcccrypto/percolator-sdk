@@ -1,3 +1,10 @@
+## 9.0.0-candidate: v2.2 rc23 prog #653 (#572) occupancy rent PER NOTIONAL (178fedc4) - BREAKING within the candidate (removes #441)
+
+- **Removed (BREAKING vs the #441 tip):** prog #653 reverted the per-slot charge of #647, so every #441 addition is gone: `occ*` ports and constants, `occupancyRatesV22` / `occupancyRatesFromStateV22`, `decodeOccupancyStateV22`, `occupancyClocksFromProfileV22`, `occupancyClocksAtV22`, `occupancyDueV22`, `decodeOccupancyCheckpointV22`, `readBandRentViewV22().occupancy`, `LAYOUT_V22.bandRent.occupancy`, `parsePortfolioV17().occupancyCheckpoint`. `last_fee_slot` is never tagged and the asset-0 profile +408/+416 bytes are the GH#444 maintenance checkpoint again.
+- **Changed (BREAKING rate):** `rentRatesFromStateV22` (and `readBandRentViewV22().rentRates`) returns `rent_rates_view` at 178fedc4: per side `max(utilisation rent, occupancy rent)`, plus the program's growth gate (`version != 0`), which the SDK did not check before. A side past 85% of `band_max_positions_per_side` now shows a higher rate.
+- **Added:** `RENT_OCC_KNEE_BPS_V22`, `RENT_OCC_CAP_DOMAIN_V22`, `rentOccupancyRateE9V22` (`rent_occupancy_rate_e9`), `rentSideRateE9V22` (`rent_side_rate_e9`); `AssetBandStateV22.storedPosCountLong/Short`, `AssetRentStateV22.growthOn`; `LAYOUT_V22.bandRent.assetState.storedPosCount*`, `.growth.version`.
+- **Fixtures:** `test/fixtures/v22-band-parity.json` regenerated at prog 178fedc4 / engine 2f05df8c: existing offsets and 601 rows identical, + 4,197 `rent_occupancy_rate_e9` rows, 6,000 `rent_side_rate_e9` rows, 2,160 `rentRatesView` rows (`rent_rates_view` is private: gates transcribed onto the real pub fns).
+
 ## 9.0.0-candidate: v2.2 rc23 prog #651 creator-fee payee grace (bbaa0e7b) - BREAKING within the candidate (one signature)
 
 - **Changed (BREAKING):** `creatorPotOrphanedV22(assetAdmin, payeeFlag, pot, payeeGraceOver)` takes the grace (prog #651 `creator_pot_orphaned` 4-argument form): a payee pot is re-booked by CloseSlab once the grace is over.

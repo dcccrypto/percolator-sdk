@@ -5926,8 +5926,8 @@ var LAYOUT_V21 = Object.freeze({
 var BAND_RENT_V22 = Object.freeze({
   configLen: 297,
   config: Object.freeze({ maxAccrualDtSlots: 118, maxPriceMoveBpsPerSlot: 142, bandBps: 249, bandMaxEpochSlots: 257, bandMaxPinSlots: 265, rentMaxE9PerSlot: 273, bandMaxPositionsPerSide: 281, bandMinLegNotional: 289 }),
-  assetState: Object.freeze({ bandAnchorPrice: 515, bandAnchorSlot: 523, bandEpoch: 531, bandUncertifiedLong: 539, bandUncertifiedShort: 547, bandLiqPendingLong: 555, bandLiqPendingShort: 563, bandPinSinceSlot: 571, rentIndexLongNum: 579, rentIndexShortNum: 595, rentUnroutedAtoms: 611 }),
-  growth: Object.freeze({ rentKinkBps: 42, rentNCapQ: 48 }),
+  assetState: Object.freeze({ bandAnchorPrice: 515, bandAnchorSlot: 523, bandEpoch: 531, bandUncertifiedLong: 539, bandUncertifiedShort: 547, bandLiqPendingLong: 555, bandLiqPendingShort: 563, bandPinSinceSlot: 571, rentIndexLongNum: 579, rentIndexShortNum: 595, rentUnroutedAtoms: 611, storedPosCountLong: 321, storedPosCountShort: 329 }),
+  growth: Object.freeze({ rentKinkBps: 42, rentNCapQ: 48, version: 38 }),
   vaultLp: Object.freeze({ lpNetQ: 32, flags: 90 })
 });
 function v22Row(o) {
@@ -9533,6 +9533,28 @@ function usersSideOiQV22(oiSideQ, vaultLpEffQ, longSide) {
   const abs = vaultLpEffQ < 0n ? -vaultLpEffQ : vaultLpEffQ;
   return oiSideQ > abs ? oiSideQ - abs : 0n;
 }
+var RENT_OCC_KNEE_BPS_V22 = 8500;
+var RENT_OCC_CAP_DOMAIN_V22 = 1n << 16n;
+function rentOccupancyRateE9V22(count, cap, maxE9PerSlot) {
+  if (cap === 0n || maxE9PerSlot === 0n) return 0n;
+  const c = count < cap ? count : cap;
+  const lhs = c * BPS3;
+  const knee = cap * BigInt(RENT_OCC_KNEE_BPS_V22);
+  if (lhs <= knee) return 0n;
+  if (c >= cap || cap > RENT_OCC_CAP_DOMAIN_V22) return maxE9PerSlot;
+  const ex = lhs - knee;
+  const span = cap * (BPS3 - BigInt(RENT_OCC_KNEE_BPS_V22));
+  const num = maxE9PerSlot * ex * ex;
+  const den = span * span;
+  const r3 = num / den + (num % den !== 0n ? 1n : 0n);
+  if (r3 >= maxE9PerSlot) return maxE9PerSlot;
+  return r3 > 1n ? r3 : 1n;
+}
+function rentSideRateE9V22(usersQ, nCapQ2, kinkBps, rentMax, sideCount, sideCap) {
+  const util = rentRateE9FailClosedV22(usersQ, nCapQ2, kinkBps, rentMax);
+  const occ = rentOccupancyRateE9V22(sideCount, sideCap, rentMax);
+  return occ > util ? occ : util;
+}
 function rentPercentPerDayV22(rateE9PerSlot) {
   return Number(rateE9PerSlot) / 1e9 * SLOTS_PER_DAY_V22 * 100;
 }
@@ -9600,7 +9622,9 @@ function decodeAssetBandStateV22(data, assetIndex = 0) {
     rentIndexShortNum: u1282(data, e + S.rentIndexShortNum),
     rentUnroutedAtoms: u1282(data, e + S.rentUnroutedAtoms),
     oiEffLongQ: u1282(data, e + A.oiEffLongQ),
-    oiEffShortQ: u1282(data, e + A.oiEffShortQ)
+    oiEffShortQ: u1282(data, e + A.oiEffShortQ),
+    storedPosCountLong: u642(data, e + S.storedPosCountLong),
+    storedPosCountShort: u642(data, e + S.storedPosCountShort)
   };
 }
 function decodeAssetRentStateV22(data, assetIndex = 0) {
@@ -9609,6 +9633,7 @@ function decodeAssetRentStateV22(data, assetIndex = 0) {
   const s = g.slotOff(assetIndex);
   const W = g.layout.wrapperSlot;
   return {
+    growthOn: data[s + W.growth + B.growth.version] !== 0,
     rentKinkBps: u162(data, s + W.growth + B.growth.rentKinkBps),
     rentNCapQ: u642(data, s + W.growth + B.growth.rentNCapQ),
     vaultLpNetQ: i1282(data, s + W.vaultLp + B.vaultLp.lpNetQ),
@@ -9616,10 +9641,11 @@ function decodeAssetRentStateV22(data, assetIndex = 0) {
   };
 }
 function rentRatesFromStateV22(cfg, asset, rent) {
-  if (cfg.rentMaxE9PerSlot === 0n || !rent.vaultLpBound || rent.rentNCapQ === 0n) return { long: 0n, short: 0n };
+  if (cfg.rentMaxE9PerSlot === 0n || !rent.growthOn || !rent.vaultLpBound || rent.rentNCapQ === 0n) return { long: 0n, short: 0n };
+  const cap = cfg.bandBps === 0 ? 0n : cfg.bandMaxPositionsPerSide;
   return {
-    long: rentRateE9FailClosedV22(usersSideOiQV22(asset.oiEffLongQ, rent.vaultLpNetQ, true), rent.rentNCapQ, rent.rentKinkBps, cfg.rentMaxE9PerSlot),
-    short: rentRateE9FailClosedV22(usersSideOiQV22(asset.oiEffShortQ, rent.vaultLpNetQ, false), rent.rentNCapQ, rent.rentKinkBps, cfg.rentMaxE9PerSlot)
+    long: rentSideRateE9V22(usersSideOiQV22(asset.oiEffLongQ, rent.vaultLpNetQ, true), rent.rentNCapQ, rent.rentKinkBps, cfg.rentMaxE9PerSlot, asset.storedPosCountLong, cap),
+    short: rentSideRateE9V22(usersSideOiQV22(asset.oiEffShortQ, rent.vaultLpNetQ, false), rent.rentNCapQ, rent.rentKinkBps, cfg.rentMaxE9PerSlot, asset.storedPosCountShort, cap)
   };
 }
 function readBandRentViewV22(data, assetIndex = 0) {
@@ -19473,6 +19499,8 @@ export {
   RENOUNCE_ADMIN_CONFIRMATION,
   RENT_MAX_KINK_BPS_V22,
   RENT_MIN_E9_PER_SLOT_V22,
+  RENT_OCC_CAP_DOMAIN_V22,
+  RENT_OCC_KNEE_BPS_V22,
   RENT_SNAPSHOT_FALL_SLOTS,
   RESCUE_MAX_MULT_V22,
   RESCUE_MIN_ATOMS_V22,
@@ -20411,10 +20439,12 @@ export {
   refineMultiAssetTradePlanV22,
   refreshWeightV22,
   registerStaticMarkets,
+  rentOccupancyRateE9V22,
   rentPercentPerDayV22,
   rentRateE9FailClosedV22,
   rentRateE9V22,
   rentRatesFromStateV22,
+  rentSideRateE9V22,
   rentSnapshotNCapQ,
   rentSnapshotSmooth,
   rentStamp64Of,

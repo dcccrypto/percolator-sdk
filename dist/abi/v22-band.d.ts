@@ -42,6 +42,42 @@ export declare function rentRateE9FailClosedV22(usersOiSideQ: bigint, nCapQ: big
  * ```
  */
 export declare function usersSideOiQV22(oiSideQ: bigint, vaultLpEffQ: bigint, longSide: boolean): bigint;
+/** `RENT_OCC_KNEE_BPS`: at or below 85% of the side cap the occupancy term is 0. */
+export declare const RENT_OCC_KNEE_BPS_V22 = 8500;
+/** `RENT_OCC_CAP_DOMAIN`: past the knee a cap above 2^16 fails closed to the ceiling. */
+export declare const RENT_OCC_CAP_DOMAIN_V22: bigint;
+/**
+ * `growth_v19::rent_occupancy_rate_e9`: the side's slot-occupancy rent rate, e9 of notional per slot. 0 when `cap == 0` (band
+ * off) or `max == 0` or at / below 85% of the cap; past it `ceil(max * x^2)` with `x = (o - 0.85) / 0.15`, in `1..=max`; `max` at
+ * a full side or a cap above {@link RENT_OCC_CAP_DOMAIN_V22}.
+ *
+ * @param count         `stored_pos_count_*` of the side.
+ * @param cap           `band_max_positions_per_side` (0 when the band is off).
+ * @param maxE9PerSlot  `rent_max_e9_per_slot`.
+ * @returns The rate.
+ * @example
+ * ```ts
+ * rentOccupancyRateE9V22(256n, 256n, 100n); // 100n
+ * rentOccupancyRateE9V22(217n, 256n, 100n); // 0n
+ * ```
+ */
+export declare function rentOccupancyRateE9V22(count: bigint, cap: bigint, maxE9PerSlot: bigint): bigint;
+/**
+ * `growth_v19::rent_side_rate_e9`: the per-side rent rate charged, `max(utilisation rent, occupancy rent)`.
+ *
+ * @param usersQ        Users' open interest on the side ({@link usersSideOiQV22}).
+ * @param nCapQ         `rent_n_cap_q`.
+ * @param kinkBps       `rent_kink_bps`.
+ * @param rentMax       `rent_max_e9_per_slot`.
+ * @param sideCount     `stored_pos_count_*` of the side.
+ * @param sideCap       `band_max_positions_per_side`, 0 when the band is off.
+ * @returns The rate, e9 of notional per slot.
+ * @example
+ * ```ts
+ * rentSideRateE9V22(0n, 1000n, 5000, 100n, 256n, 256n); // 100n: no utilisation, full side
+ * ```
+ */
+export declare function rentSideRateE9V22(usersQ: bigint, nCapQ: bigint, kinkBps: number, rentMax: bigint, sideCount: bigint, sideCap: bigint): bigint;
 /**
  * Rent as a percent of notional per day for a per-slot e9 rate (0.04 = 0.04%).
  *
@@ -139,9 +175,14 @@ export interface AssetBandStateV22 {
     rentUnroutedAtoms: bigint;
     oiEffLongQ: bigint;
     oiEffShortQ: bigint;
+    /** `stored_pos_count_long`: the count the engine's "side full" check and the occupancy rent read (the vault LP's own leg included). */
+    storedPosCountLong: bigint;
+    storedPosCountShort: bigint;
 }
 /** Decoded rent fields of the growth record and the vault LP record. */
 export interface AssetRentStateV22 {
+    /** The growth record is on (`version != 0`): off, the program charges no rent at all. */
+    growthOn: boolean;
     rentKinkBps: number;
     rentNCapQ: bigint;
     vaultLpNetQ: bigint;
@@ -185,7 +226,21 @@ export declare function decodeAssetBandStateV22(data: Uint8Array, assetIndex?: n
  * ```
  */
 export declare function decodeAssetRentStateV22(data: Uint8Array, assetIndex?: number): AssetRentStateV22;
-/** `rent_rates_view`: per-side rent rates, e9 of notional per slot (0 without a rent ceiling, a bound vault or a measured `N_cap`). */
+/**
+ * `rent_rates_view`: the per-side rent rates, e9 of notional per slot, `max(utilisation rent, occupancy rent)` per side (the
+ * rate the engine's rent index moves at). `{0, 0}` unless the config has a rent ceiling, the growth record is on, a vault LP is
+ * bound and `N_cap` is measured: the occupancy term has the same gates. It uses the side's position count against
+ * `band_max_positions_per_side` (cap 0 when `band_bps == 0`). Not modelled: a duration-pinned accrual charges no rent.
+ *
+ * @param cfg    {@link decodeBandConfigV22}.
+ * @param asset  {@link decodeAssetBandStateV22}.
+ * @param rent   {@link decodeAssetRentStateV22}.
+ * @returns `{ long, short }`.
+ * @example
+ * ```ts
+ * rentRatesFromStateV22(cfg, asset, rent).long;
+ * ```
+ */
 export declare function rentRatesFromStateV22(cfg: BandConfigV22, asset: AssetBandStateV22, rent: AssetRentStateV22): {
     long: bigint;
     short: bigint;
