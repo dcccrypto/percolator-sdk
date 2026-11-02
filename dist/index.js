@@ -5926,11 +5926,9 @@ var LAYOUT_V21 = Object.freeze({
 var BAND_RENT_V22 = Object.freeze({
   configLen: 297,
   config: Object.freeze({ maxAccrualDtSlots: 118, maxPriceMoveBpsPerSlot: 142, bandBps: 249, bandMaxEpochSlots: 257, bandMaxPinSlots: 265, rentMaxE9PerSlot: 273, bandMaxPositionsPerSide: 281, bandMinLegNotional: 289 }),
-  assetState: Object.freeze({ bandAnchorPrice: 515, bandAnchorSlot: 523, bandEpoch: 531, bandUncertifiedLong: 539, bandUncertifiedShort: 547, bandLiqPendingLong: 555, bandLiqPendingShort: 563, bandPinSinceSlot: 571, rentIndexLongNum: 579, rentIndexShortNum: 595, rentUnroutedAtoms: 611 }),
-  growth: Object.freeze({ rentKinkBps: 42, rentNCapQ: 48 }),
-  vaultLp: Object.freeze({ lpNetQ: 32, flags: 90 }),
-  // prog#572 (#647 @ 34996503); pinned by test/fixtures/v22-band-parity.json `occupancy`.
-  occupancy: Object.freeze({ storedPosCountLong: 321, storedPosCountShort: 329, slotLast: 41, profileClockSlot: 408, profileClockLong: 416, profileClockShort: 424, vaultLpPortfolio: 0, portfolioLastFeeSlot: 324 })
+  assetState: Object.freeze({ bandAnchorPrice: 515, bandAnchorSlot: 523, bandEpoch: 531, bandUncertifiedLong: 539, bandUncertifiedShort: 547, bandLiqPendingLong: 555, bandLiqPendingShort: 563, bandPinSinceSlot: 571, rentIndexLongNum: 579, rentIndexShortNum: 595, rentUnroutedAtoms: 611, storedPosCountLong: 321, storedPosCountShort: 329 }),
+  growth: Object.freeze({ rentKinkBps: 42, rentNCapQ: 48, version: 38 }),
+  vaultLp: Object.freeze({ lpNetQ: 32, flags: 90 })
 });
 function v22Row(o) {
   return Object.freeze({
@@ -9535,97 +9533,30 @@ function usersSideOiQV22(oiSideQ, vaultLpEffQ, longSide) {
   const abs = vaultLpEffQ < 0n ? -vaultLpEffQ : vaultLpEffQ;
   return oiSideQ > abs ? oiSideQ - abs : 0n;
 }
-function rentPercentPerDayV22(rateE9PerSlot) {
-  return Number(rateE9PerSlot) / 1e9 * SLOTS_PER_DAY_V22 * 100;
-}
-var U64_MAX5 = (1n << 64n) - 1n;
-var U128_MAX5 = (1n << 128n) - 1n;
-var OCC_E9 = 1000000000n;
 var RENT_OCC_KNEE_BPS_V22 = 8500;
 var RENT_OCC_CAP_DOMAIN_V22 = 1n << 16n;
-var OCC_RAMP_ONE_V22 = 1n << 32n;
-var OCC_REF_MIN_LEG_MULTIPLE_V22 = 4n;
-var OCC_BSL_RENT_MULTIPLE_V22 = 5n;
-var OCC_CK_TAG_V22 = 1n << 63n;
-function occRampV22(count, cap, max) {
-  if (cap === 0n || max === 0n) return 0n;
+function rentOccupancyRateE9V22(count, cap, maxE9PerSlot) {
+  if (cap === 0n || maxE9PerSlot === 0n) return 0n;
   const c = count < cap ? count : cap;
   const lhs = c * BPS3;
   const knee = cap * BigInt(RENT_OCC_KNEE_BPS_V22);
   if (lhs <= knee) return 0n;
-  if (c >= cap || cap > RENT_OCC_CAP_DOMAIN_V22) return max;
+  if (c >= cap || cap > RENT_OCC_CAP_DOMAIN_V22) return maxE9PerSlot;
   const ex = lhs - knee;
   const span = cap * (BPS3 - BigInt(RENT_OCC_KNEE_BPS_V22));
-  const ex2 = ex * ex;
-  const span2 = span * span;
-  if (ex2 > U128_MAX5 || span2 > U128_MAX5) return max;
-  const num = max * ex2;
-  if (num > U128_MAX5) return max;
-  const r3 = num / span2 + (num % span2 !== 0n ? 1n : 0n);
-  if (r3 < max) return r3 > 1n ? r3 : 1n;
-  return max;
+  const num = maxE9PerSlot * ex * ex;
+  const den = span * span;
+  const r3 = num / den + (num % den !== 0n ? 1n : 0n);
+  if (r3 >= maxE9PerSlot) return maxE9PerSlot;
+  return r3 > 1n ? r3 : 1n;
 }
-function occRampQ32V22(count, cap) {
-  return occRampV22(count, cap, OCC_RAMP_ONE_V22);
+function rentSideRateE9V22(usersQ, nCapQ2, kinkBps, rentMax, sideCount, sideCap) {
+  const util = rentRateE9FailClosedV22(usersQ, nCapQ2, kinkBps, rentMax);
+  const occ = rentOccupancyRateE9V22(sideCount, sideCap, rentMax);
+  return occ > util ? occ : util;
 }
-function occFullNumV22(rentMaxE9PerSlot, bandMinLegNotional) {
-  const a = rentMaxE9PerSlot * OCC_REF_MIN_LEG_MULTIPLE_V22;
-  const sa = a > U128_MAX5 ? U128_MAX5 : a;
-  const b = sa * bandMinLegNotional;
-  return b > U128_MAX5 ? U128_MAX5 : b;
-}
-function occClockAdvanceV22(cQ32, rampQ32, dt) {
-  const r3 = rampQ32 < OCC_RAMP_ONE_V22 ? rampQ32 : OCC_RAMP_ONE_V22;
-  const next = cQ32 + r3 * dt;
-  return next > U64_MAX5 ? U64_MAX5 : next;
-}
-function occCkEncodeV22(cInt, short) {
-  return OCC_CK_TAG_V22 | (cInt & 0xffffffffn) << 1n | (short ? 1n : 0n);
-}
-function occCkDecodeV22(ck, short, cIntNow) {
-  if ((ck & OCC_CK_TAG_V22) === 0n || (ck & 1n) === 1n !== short) return null;
-  const c = (ck & ~OCC_CK_TAG_V22) >> 1n;
-  return c > cIntNow ? null : c;
-}
-function occChargeStepV22(ck, short, cQ32Now, fullNum) {
-  const cNow = cQ32Now >> 32n;
-  const fresh = occCkEncodeV22(cNow, short);
-  const c0 = occCkDecodeV22(ck, short, cNow);
-  if (c0 === null) return { checkpoint: fresh, due: 0n };
-  const p = fullNum * (cNow - c0);
-  const due = (p > U128_MAX5 ? U128_MAX5 : p) / OCC_E9;
-  return due === 0n ? { checkpoint: ck, due: 0n } : { checkpoint: fresh, due };
-}
-function decodeOccupancyCheckpointV22(lastFeeSlot) {
-  if ((lastFeeSlot & OCC_CK_TAG_V22) === 0n) return null;
-  return { short: (lastFeeSlot & 1n) === 1n, clockInt: (lastFeeSlot & ~OCC_CK_TAG_V22 & U64_MAX5) >> 1n };
-}
-function occupancyClocksFromProfileV22(p) {
-  return { lastSlot: p.maintenanceFeeCheckpointSlot, longQ32: p.maintenanceFeePreviousRate & U64_MAX5, shortQ32: p.maintenanceFeePreviousRate >> 64n & U64_MAX5 };
-}
-function occupancyClocksAtV22(clocks, p, nowSlot) {
-  if (nowSlot <= clocks.lastSlot) return clocks;
-  let { longQ32, shortQ32 } = clocks;
-  if (clocks.lastSlot !== 0n && p.fullNum !== 0n && p.lpBound) {
-    const dt = nowSlot - clocks.lastSlot;
-    longQ32 = occClockAdvanceV22(longQ32, occRampQ32V22(p.countLong, p.cap), dt);
-    shortQ32 = occClockAdvanceV22(shortQ32, occRampQ32V22(p.countShort, p.cap), dt);
-  }
-  return { lastSlot: nowSlot, longQ32, shortQ32 };
-}
-function occupancyDueV22(lastFeeSlot, side, clocks, p, nowSlot, isVaultLp = false) {
-  const c = occupancyClocksAtV22(clocks, p, nowSlot);
-  if (side === null) return { checkpoint: (lastFeeSlot & OCC_CK_TAG_V22) !== 0n ? 0n : lastFeeSlot, due: 0n };
-  const short = side === "short";
-  const cNow = short ? c.shortQ32 : c.longQ32;
-  if (p.fullNum === 0n || !p.lpBound || isVaultLp) return { checkpoint: occCkEncodeV22(cNow >> 32n, short), due: 0n };
-  return occChargeStepV22(lastFeeSlot, short, cNow, p.fullNum);
-}
-function occupancyRatesV22(p) {
-  if (p.fullNum === 0n || !p.lpBound || p.cap === 0n) return { long: 0n, short: 0n, rampQ32Long: 0n, rampQ32Short: 0n, fullE9: p.lpBound && p.cap !== 0n ? p.fullNum : 0n };
-  const rl = occRampQ32V22(p.countLong, p.cap);
-  const rs = occRampQ32V22(p.countShort, p.cap);
-  return { long: rl * p.fullNum >> 32n, short: rs * p.fullNum >> 32n, rampQ32Long: rl, rampQ32Short: rs, fullE9: p.fullNum };
+function rentPercentPerDayV22(rateE9PerSlot) {
+  return Number(rateE9PerSlot) / 1e9 * SLOTS_PER_DAY_V22 * 100;
 }
 function assetPriceLaggedV22(a) {
   return a.bandBps !== 0 && (a.oiEffLongQ !== 0n || a.oiEffShortQ !== 0n) && a.targetPrice !== a.effectivePrice;
@@ -9691,7 +9622,9 @@ function decodeAssetBandStateV22(data, assetIndex = 0) {
     rentIndexShortNum: u1282(data, e + S.rentIndexShortNum),
     rentUnroutedAtoms: u1282(data, e + S.rentUnroutedAtoms),
     oiEffLongQ: u1282(data, e + A.oiEffLongQ),
-    oiEffShortQ: u1282(data, e + A.oiEffShortQ)
+    oiEffShortQ: u1282(data, e + A.oiEffShortQ),
+    storedPosCountLong: u642(data, e + S.storedPosCountLong),
+    storedPosCountShort: u642(data, e + S.storedPosCountShort)
   };
 }
 function decodeAssetRentStateV22(data, assetIndex = 0) {
@@ -9700,6 +9633,7 @@ function decodeAssetRentStateV22(data, assetIndex = 0) {
   const s = g.slotOff(assetIndex);
   const W = g.layout.wrapperSlot;
   return {
+    growthOn: data[s + W.growth + B.growth.version] !== 0,
     rentKinkBps: u162(data, s + W.growth + B.growth.rentKinkBps),
     rentNCapQ: u642(data, s + W.growth + B.growth.rentNCapQ),
     vaultLpNetQ: i1282(data, s + W.vaultLp + B.vaultLp.lpNetQ),
@@ -9707,43 +9641,12 @@ function decodeAssetRentStateV22(data, assetIndex = 0) {
   };
 }
 function rentRatesFromStateV22(cfg, asset, rent) {
-  if (cfg.rentMaxE9PerSlot === 0n || !rent.vaultLpBound || rent.rentNCapQ === 0n) return { long: 0n, short: 0n };
+  if (cfg.rentMaxE9PerSlot === 0n || !rent.growthOn || !rent.vaultLpBound || rent.rentNCapQ === 0n) return { long: 0n, short: 0n };
+  const cap = cfg.bandBps === 0 ? 0n : cfg.bandMaxPositionsPerSide;
   return {
-    long: rentRateE9FailClosedV22(usersSideOiQV22(asset.oiEffLongQ, rent.vaultLpNetQ, true), rent.rentNCapQ, rent.rentKinkBps, cfg.rentMaxE9PerSlot),
-    short: rentRateE9FailClosedV22(usersSideOiQV22(asset.oiEffShortQ, rent.vaultLpNetQ, false), rent.rentNCapQ, rent.rentKinkBps, cfg.rentMaxE9PerSlot)
+    long: rentSideRateE9V22(usersSideOiQV22(asset.oiEffLongQ, rent.vaultLpNetQ, true), rent.rentNCapQ, rent.rentKinkBps, cfg.rentMaxE9PerSlot, asset.storedPosCountLong, cap),
+    short: rentSideRateE9V22(usersSideOiQV22(asset.oiEffShortQ, rent.vaultLpNetQ, false), rent.rentNCapQ, rent.rentKinkBps, cfg.rentMaxE9PerSlot, asset.storedPosCountShort, cap)
   };
-}
-function decodeOccupancyStateV22(data) {
-  const cfg = decodeBandConfigV22(data);
-  if (cfg.bandBps === 0) return null;
-  const { g, B } = bandLayout(data, "decodeOccupancyStateV22");
-  if (g.slotCount < 1) throw new RangeError("asset 0 is not present");
-  const O = B.occupancy;
-  const e = g.engineOff(0);
-  const s = g.slotOff(0);
-  const prof = s + g.layout.wrapperSlot.oracleProfile;
-  const vl = s + g.layout.wrapperSlot.vaultLp;
-  const rent = decodeAssetRentStateV22(data, 0);
-  const live = data[g.groupOff + g.layout.group.mode] === 0;
-  const params = {
-    cap: cfg.bandMaxPositionsPerSide,
-    fullNum: occFullNumV22(cfg.rentMaxE9PerSlot, cfg.bandMinLegNotional),
-    lpBound: rent.vaultLpBound,
-    countLong: u642(data, e + O.storedPosCountLong),
-    countShort: u642(data, e + O.storedPosCountShort)
-  };
-  return {
-    enabled: live && params.cap !== 0n && params.fullNum !== 0n && params.lpBound,
-    live,
-    params,
-    clocks: { lastSlot: u642(data, prof + O.profileClockSlot), longQ32: u642(data, prof + O.profileClockLong), shortQ32: u642(data, prof + O.profileClockShort) },
-    vaultLpPortfolio: data.slice(vl + O.vaultLpPortfolio, vl + O.vaultLpPortfolio + 32),
-    assetSlotLast: u642(data, e + O.slotLast)
-  };
-}
-function occupancyRatesFromStateV22(occ) {
-  if (!occ || !occ.enabled) return { long: 0n, short: 0n, rampQ32Long: 0n, rampQ32Short: 0n, fullE9: 0n };
-  return occupancyRatesV22(occ.params);
 }
 function readBandRentViewV22(data, assetIndex = 0) {
   const config = decodeBandConfigV22(data);
@@ -9778,16 +9681,8 @@ function readBandRentViewV22(data, assetIndex = 0) {
       floorStuck,
       favourableCloseSide: !lagging || floorStuck ? null : asset.effectivePrice > asset.rawOracleTargetPrice ? "long" : "short"
     },
-    rentRates: { enabled: rentOn, long: rates.long, short: rates.short },
-    occupancy: occupancyViewV22(data, assetIndex)
+    rentRates: { enabled: rentOn, long: rates.long, short: rates.short }
   };
-}
-function occupancyViewV22(data, assetIndex) {
-  if (assetIndex !== 0) return null;
-  const occ = decodeOccupancyStateV22(data);
-  if (!occ) return null;
-  const q = occupancyRatesFromStateV22(occ);
-  return { ...q, enabled: occ.enabled, cap: occ.params.cap, countLong: occ.params.countLong, countShort: occ.params.countShort };
 }
 function tryReadBandRentViewV22(data, assetIndex = 0) {
   if (!data) return null;
@@ -12545,7 +12440,6 @@ function parsePortfolioV17(data) {
   const feeCredits = data.length >= PF_FEE_CREDITS_OFF + 16 ? readI128LE(data, PF_FEE_CREDITS_OFF) : 0n;
   const cancelDepositEscrow = data.length >= PF_CANCEL_ESCROW_OFF + 16 ? readU128LE(data, PF_CANCEL_ESCROW_OFF) : 0n;
   const lastFeeSlot = data.length >= PF_LAST_FEE_SLOT_OFF + 8 ? readU64LE2(data, PF_LAST_FEE_SLOT_OFF) : 0n;
-  const occupancyCheckpoint = lastFeeSlot >> 63n === 1n ? { short: (lastFeeSlot & 1n) === 1n, clockInt: (lastFeeSlot & (1n << 63n) - 1n) >> 1n } : null;
   const activeBitmap = data.length >= PF_ACTIVE_BITMAP_OFF + 8 ? readU64LE2(data, PF_ACTIVE_BITMAP_OFF) : 0n;
   const legs = [];
   for (let i = 0; i < G.legCount; i++) {
@@ -12640,7 +12534,6 @@ function parsePortfolioV17(data) {
     feeCredits,
     cancelDepositEscrow,
     lastFeeSlot,
-    occupancyCheckpoint,
     activeBitmap,
     legs,
     sourceDomains,
@@ -12788,11 +12681,11 @@ import { TransactionInstruction as TransactionInstruction5 } from "@solana/web3.
 var ACCOUNTS_RESOLVE_STALE_PERMISSIONLESS_V22 = Object.freeze([
   Object.freeze({ name: "market", signer: false, writable: true })
 ]);
-var U64_MAX6 = (1n << 64n) - 1n;
+var U64_MAX5 = (1n << 64n) - 1n;
 function encodeResolveStalePermissionless(nowSlot) {
   const s = typeof nowSlot === "number" ? BigInt(nowSlot) : nowSlot;
   if (typeof nowSlot === "number" && !Number.isSafeInteger(nowSlot)) throw new Error(`nowSlot ${nowSlot} is not a safe integer; pass a bigint`);
-  if (s < 0n || s > U64_MAX6) throw new Error(`nowSlot ${s} is not a u64`);
+  if (s < 0n || s > U64_MAX5) throw new Error(`nowSlot ${s} is not a u64`);
   return concatBytes(encU8(IX_TAG.ResolveStalePermissionless), encU64(s));
 }
 var encodeResolveStalePermissionlessV22 = encodeResolveStalePermissionless;
@@ -18596,10 +18489,10 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 // src/validation.ts
 import { PublicKey as PublicKey37 } from "@solana/web3.js";
 var U16_MAX4 = 65535;
-var U64_MAX7 = BigInt("18446744073709551615");
+var U64_MAX6 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
 var I64_MAX = BigInt("9223372036854775807");
-var U128_MAX6 = (1n << 128n) - 1n;
+var U128_MAX5 = (1n << 128n) - 1n;
 var I128_MIN2 = -(1n << 127n);
 var I128_MAX2 = (1n << 127n) - 1n;
 var ValidationError = class extends Error {
@@ -18660,10 +18553,10 @@ function validateAmount(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U64_MAX7) {
+  if (num > U64_MAX6) {
     throw new ValidationError(
       field,
-      `must be <= ${U64_MAX7} (u64 max), got ${num}`
+      `must be <= ${U64_MAX6} (u64 max), got ${num}`
     );
   }
   return num;
@@ -18674,10 +18567,10 @@ function validateU128(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U128_MAX6) {
+  if (num > U128_MAX5) {
     throw new ValidationError(
       field,
-      `must be <= ${U128_MAX6} (u128 max), got ${num}`
+      `must be <= ${U128_MAX5} (u128 max), got ${num}`
     );
   }
   return num;
@@ -19563,10 +19456,6 @@ export {
   NFT_PROGRAM_ID,
   NFT_PROGRAM_IDS,
   OBSERVE_CRANK_CU_V22,
-  OCC_BSL_RENT_MULTIPLE_V22,
-  OCC_CK_TAG_V22,
-  OCC_RAMP_ONE_V22,
-  OCC_REF_MIN_LEG_MULTIPLE_V22,
   ORACLE_PHASE_GROWING,
   ORACLE_PHASE_MATURE,
   ORACLE_PHASE_NASCENT,
@@ -20005,8 +19894,6 @@ export {
   decodeMatcherRequestedFeeBps,
   decodeMatcherReturn,
   decodeMatcherV2Error,
-  decodeOccupancyCheckpointV22,
-  decodeOccupancyStateV22,
   decodePortfolioMatcherControl,
   decodeResolvedPayoutReceiptP3,
   decodeSeniorFloorRecordP2b,
@@ -20480,18 +20367,6 @@ export {
   nonboundPotFromRecordsP2b,
   nonboundVaultPricingFromAccountsP2b,
   nonboundVaultPricingP2b,
-  occChargeStepV22,
-  occCkDecodeV22,
-  occCkEncodeV22,
-  occClockAdvanceV22,
-  occFullNumV22,
-  occRampQ32V22,
-  occRampV22,
-  occupancyClocksAtV22,
-  occupancyClocksFromProfileV22,
-  occupancyDueV22,
-  occupancyRatesFromStateV22,
-  occupancyRatesV22,
   openingPartQ,
   packInstructionGroups,
   packOiCap,
@@ -20564,10 +20439,12 @@ export {
   refineMultiAssetTradePlanV22,
   refreshWeightV22,
   registerStaticMarkets,
+  rentOccupancyRateE9V22,
   rentPercentPerDayV22,
   rentRateE9FailClosedV22,
   rentRateE9V22,
   rentRatesFromStateV22,
+  rentSideRateE9V22,
   rentSnapshotNCapQ,
   rentSnapshotSmooth,
   rentStamp64Of,
