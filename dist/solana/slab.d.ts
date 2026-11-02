@@ -1060,9 +1060,17 @@ export interface AssetOracleProfileV17 {
     assetAdmin: PublicKey;
     /** v18 NEW (GH#420, offset 400): this asset's unclaimed creator share of trade fees. Claim via {@link encodeWithdrawCreatorFee}. */
     creatorFeeClaimableAtoms: bigint;
-    /** v18 NEW (GH#444, offset 408): slot at which `maintenance_fee_per_slot` last changed (asset-0 only; market-wide). */
+    /**
+     * v18 NEW (GH#444, offset 408): slot at which `maintenance_fee_per_slot` last changed (asset-0 only; market-wide).
+     * On a v2.2 BAND market (prog#572) these bytes are the occupancy clocks' last-accrual slot instead (the maintenance fee
+     * is always 0 there): read them with v22-band `occupancyClocksFromProfileV22` / `decodeOccupancyStateV22`.
+     */
     maintenanceFeeCheckpointSlot: bigint;
-    /** v18 NEW (GH#444, offset 416): the maintenance fee rate in force before the last change (asset-0 only; market-wide). */
+    /**
+     * v18 NEW (GH#444, offset 416): the maintenance fee rate in force before the last change (asset-0 only; market-wide).
+     * On a v2.2 BAND market (prog#572) this u128 packs the occupancy clocks `C_long` (low 64 bits) | `C_short` (high 64 bits),
+     * Q32.32 full-occupancy slots; it is NOT a fee rate there.
+     */
     maintenanceFeePreviousRate: bigint;
     /** v18 NEW (zero-move-funding, offset 432): mark whose premium applies at the engine asset's current slot. Zero = not-yet-initialized. */
     fundingMarkE6: bigint;
@@ -1281,8 +1289,20 @@ export interface PortfolioV17 {
     feeCredits: bigint;
     /** Cancel-deposit escrow holding (u128). */
     cancelDepositEscrow: bigint;
-    /** Slot when fees were last accrued. */
+    /**
+     * Engine `last_fee_slot`: the slot recurring wrapper fees were last charged to. On a v2.2 BAND market (prog#572, while
+     * Live, once the portfolio holds a leg) it is NOT a slot but a tagged occupancy checkpoint `bit63 | clockInt << 1 | short`
+     * (see {@link PortfolioV17.occupancyCheckpoint}); never compare a tagged word with a slot.
+     */
     lastFeeSlot: bigint;
+    /**
+     * prog#572: `lastFeeSlot` decoded as an occupancy checkpoint when bit 63 is set (band markets only): the side it was
+     * taken on and the side clock's integer part (full-occupancy slots) at the leg's last charge. `null` = a real slot / 0.
+     */
+    occupancyCheckpoint: {
+        short: boolean;
+        clockInt: bigint;
+    } | null;
     /** Bitmap of active leg slots (one u64 word for 16-asset portfolios). */
     activeBitmap: bigint;
     /** All 16 position leg slots (active or empty). */
