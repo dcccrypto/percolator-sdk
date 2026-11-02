@@ -1298,8 +1298,9 @@ export interface PortfolioV17 {
     /**
      * prog#572: `lastFeeSlot` decoded as an occupancy checkpoint when bit 63 is set (band markets only): the side it was
      * taken on and the side clock's integer part (full-occupancy slots) at the leg's last charge. `null` = a real slot / 0.
+     * Always set by {@link parsePortfolioV17}; optional in the type so portfolios from older decoders stay assignable.
      */
-    occupancyCheckpoint: {
+    occupancyCheckpoint?: {
         short: boolean;
         clockInt: bigint;
     } | null;
