@@ -4124,9 +4124,9 @@ function stakePoolValue(pool, insUnits, insurance, vaultBalance) {
     deployed = prod / insUnits.unitsTotal;
     if (deployed > U64_MAX_V5) return null;
   }
-  const total = liquidWide + deployed;
-  if (total > U64_MAX_V5) return null;
-  return { liquid: liquidWide, deployed, total, ...vaultBalance === void 0 ? {} : { withdrawableNow: liquidWide < vaultBalance ? liquidWide : vaultBalance } };
+  const total2 = liquidWide + deployed;
+  if (total2 > U64_MAX_V5) return null;
+  return { liquid: liquidWide, deployed, total: total2, ...vaultBalance === void 0 ? {} : { withdrawableNow: liquidWide < vaultBalance ? liquidWide : vaultBalance } };
 }
 function collateralForLpV5(lpAmount, totalLpSupply, poolValue) {
   if (totalLpSupply === 0n) return null;
@@ -4450,14 +4450,14 @@ function decodeMatcherCallExt(bytes) {
   if ((flags & ~EXT_FLAGS_KNOWN) !== 0) throw new Error(`call ext flags 0x${flags.toString(16)} has reserved bits`);
   const band = v.getUint16(2, true);
   const markSlot = v.getBigUint64(4, true);
-  const headroom = v.getBigUint64(12, true);
+  const headroom2 = v.getBigUint64(12, true);
   if (v.getUint32(20, true) !== 0) throw new Error("call ext reserved bytes must be 0");
   const has = (f) => (flags & f) !== 0;
   if (!has(MATCHER_CALL_EXT_FLAG.EXEC_BAND) && band !== 0) throw new Error("exec_band_bps set without EXEC_BAND");
   if (!has(MATCHER_CALL_EXT_FLAG.MARK_SLOT) && markSlot !== 0n) throw new Error("mark_slot set without MARK_SLOT");
-  if (!has(MATCHER_CALL_EXT_FLAG.HEADROOM) && headroom !== 0n) throw new Error("lp_headroom_q set without HEADROOM");
+  if (!has(MATCHER_CALL_EXT_FLAG.HEADROOM) && headroom2 !== 0n) throw new Error("lp_headroom_q set without HEADROOM");
   return {
-    headroomQ: has(MATCHER_CALL_EXT_FLAG.HEADROOM) ? headroom : void 0,
+    headroomQ: has(MATCHER_CALL_EXT_FLAG.HEADROOM) ? headroom2 : void 0,
     markSlot: has(MATCHER_CALL_EXT_FLAG.MARK_SLOT) ? markSlot : void 0,
     acceptsFeeRequest: has(MATCHER_CALL_EXT_FLAG.ACCEPTS_FEE_REQUEST),
     takerReducing: has(MATCHER_CALL_EXT_FLAG.TAKER_REDUCING),
@@ -4477,8 +4477,8 @@ var MATCHER_BATCH_LEG_LEN = 26;
 var WRAPPER_BATCH_MAX_LEGS = 4;
 function encodeWrapperMatcherCallExt(mode, markSlot, lpHeadroomQ, execBandBps, takerReducing, acceptsFeeRequest) {
   if (mode !== 1) return new Uint8Array(MATCHER_CALL_EXT_LEN);
-  const headroom = lpHeadroomQ > (1n << 64n) - 1n ? (1n << 64n) - 1n : lpHeadroomQ;
-  return encodeMatcherCallExt({ headroomQ: headroom, markSlot, execBandBps, takerReducing, acceptsFeeRequest });
+  const headroom2 = lpHeadroomQ > (1n << 64n) - 1n ? (1n << 64n) - 1n : lpHeadroomQ;
+  return encodeMatcherCallExt({ headroomQ: headroom2, markSlot, execBandBps, takerReducing, acceptsFeeRequest });
 }
 function encodeMatcherBatchCall(reqId, lpAccountId, legs, exts) {
   if (legs.length === 0 || legs.length > 16) throw new Error(`matcher batch needs 1..=16 legs, got ${legs.length}`);
@@ -6254,11 +6254,11 @@ function assetRiskLimitsAccountOffsetP1(assetIndex, layout = LAYOUT_V21) {
 function decodeAssetRiskLimitsRecordP1(rec) {
   if (rec.length !== ASSET_RISK_LIMITS_LEN_P1) throw new Error(`AssetRiskLimitsV17 record must be 64 bytes, got ${rec.length}`);
   const v = new DataView(rec.buffer, rec.byteOffset, rec.byteLength);
-  const u1286 = (o) => v.getBigUint64(o + 8, true) << 64n | v.getBigUint64(o, true);
+  const u1287 = (o) => v.getBigUint64(o + 8, true) << 64n | v.getBigUint64(o, true);
   const F = ASSET_RISK_LIMITS_FIELD_OFF_P1;
   return {
-    sideOiCapQ: u1286(F.sideOiCapQ),
-    lpFloorAtoms: u1286(F.lpFloorAtoms),
+    sideOiCapQ: u1287(F.sideOiCapQ),
+    lpFloorAtoms: u1287(F.lpFloorAtoms),
     lpExposureKBps: v.getUint32(F.lpExposureKBps, true),
     execBandBps: v.getUint16(F.execBandBps, true),
     matcherExtMode: rec[F.matcherExtMode],
@@ -7871,12 +7871,12 @@ function vaultLpDeallocP2b(allocated, recalled) {
   return sat(allocated, recalled);
 }
 function vaultLpAllocSplitP2b(moved, dEven, dOdd) {
-  const total = dEven + dOdd;
-  if (moved > total) return null;
+  const total2 = dEven + dOdd;
+  if (moved > total2) return null;
   if (moved === 0n) return [0n, 0n];
   const smallIsOdd = dOdd <= dEven;
   const [dSmall, dLarge] = smallIsOdd ? [dOdd, dEven] : [dEven, dOdd];
-  let takeSmall = moved * dSmall / total;
+  let takeSmall = moved * dSmall / total2;
   if (takeSmall > dSmall) takeSmall = dSmall;
   const takeLarge = moved - takeSmall;
   if (takeLarge > dLarge) return null;
@@ -10237,16 +10237,16 @@ for (const [, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 
   const bitmapBytes = Math.ceil(n / 64) * 8;
   const preAccLen = V12_1_SBF_BITMAP_OFF + bitmapBytes + 18 + n * 2;
   const accountsOff = Math.ceil(preAccLen / 8) * 8;
-  const total = V12_1_SBF_ENGINE_OFF + accountsOff + n * V12_1_SBF_ACCOUNT_SIZE;
-  V12_1_SIZES.set(total, n);
+  const total2 = V12_1_SBF_ENGINE_OFF + accountsOff + n * V12_1_SBF_ACCOUNT_SIZE;
+  V12_1_SIZES.set(total2, n);
 }
 var V12_1_EP_SIZES = /* @__PURE__ */ new Map();
 for (const [, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 4096]]) {
   const bitmapBytes = Math.ceil(n / 64) * 8;
   const preAccLen = V12_1_SBF_BITMAP_OFF + bitmapBytes + 18 + n * 2;
   const accountsOff = Math.ceil(preAccLen / 8) * 8;
-  const total = V12_1_SBF_ENGINE_OFF + accountsOff + n * V12_1_EP_SBF_ACCOUNT_SIZE;
-  V12_1_EP_SIZES.set(total, n);
+  const total2 = V12_1_SBF_ENGINE_OFF + accountsOff + n * V12_1_EP_SBF_ACCOUNT_SIZE;
+  V12_1_EP_SIZES.set(total2, n);
 }
 var SLAB_TIERS_V2 = Object.freeze({
   small: { maxAccounts: 256, dataSize: 65088, label: "Small", description: "256 slots (V2 BPF intermediate)" },
@@ -12623,8 +12623,8 @@ function matcherFeeWorstCaseBpsV22(i) {
   if (maxReq === 0 || ext !== MATCHER_EXT_MODE_V1_P1) return 0;
   let worst = Math.min(maxReq, MATCHER_REQUESTED_FEE_BPS_MAX);
   if (i.matcherMaxTotalBps !== void 0) {
-    const total = Math.min(nonNegInt("matcherMaxTotalBps", i.matcherMaxTotalBps), MATCHER_MAX_TOTAL_BPS_CEILING);
-    worst = Math.min(worst, total + 1);
+    const total2 = Math.min(nonNegInt("matcherMaxTotalBps", i.matcherMaxTotalBps), MATCHER_MAX_TOTAL_BPS_CEILING);
+    worst = Math.min(worst, total2 + 1);
   }
   return worst;
 }
@@ -13053,7 +13053,7 @@ function decodeLevGuardV22(data, table = LAYOUT_V22) {
   const F = LEV_GUARD_FIELD_OFF_V22;
   const u163 = (o) => v.getUint16(b + o, true);
   const u645 = (o) => v.getBigUint64(b + o, true);
-  const u1286 = (o) => u128At(v, b + o);
+  const u1287 = (o) => u128At(v, b + o);
   const flags = data[b + F.flags];
   const g = {
     market: new PublicKey17(data.slice(b + F.market, b + F.market + 32)),
@@ -13083,18 +13083,18 @@ function decodeLevGuardV22(data, table = LAYOUT_V22) {
     pbFreezeUntil: u645(F.pbFreezeUntil),
     pbOracleUntil: u645(F.pbOracleUntil),
     frozenLX100: u163(F.frozenLX100),
-    frozenNQ: u1286(F.frozenNQ),
-    navps: u1286(F.navps),
-    navLastEquity: u1286(F.navLastEquity),
-    navLastIn: u1286(F.navLastIn),
-    navLastOut: u1286(F.navLastOut),
-    navPeakCur: u1286(F.navPeakCur),
-    navPeakPrev: u1286(F.navPeakPrev),
-    navRef: u1286(F.navRef),
+    frozenNQ: u1287(F.frozenNQ),
+    navps: u1287(F.navps),
+    navLastEquity: u1287(F.navLastEquity),
+    navLastIn: u1287(F.navLastIn),
+    navLastOut: u1287(F.navLastOut),
+    navPeakCur: u1287(F.navPeakCur),
+    navPeakPrev: u1287(F.navPeakPrev),
+    navRef: u1287(F.navRef),
     navBucketStart: u645(F.navBucketStart),
     navLastSlot: u645(F.navLastSlot),
     roundId: u645(F.roundId),
-    roundTargetQ: u1286(F.roundTargetQ),
+    roundTargetQ: u1287(F.roundTargetQ),
     roundOpenSlot: u645(F.roundOpenSlot),
     burstVarPeakX100: burst ? v.getUint32(b + F.burstVarPeakX100, true) : 0,
     burstPeakSlot: burst ? u645(F.burstPeakSlot) : 0n,
@@ -13586,6 +13586,289 @@ function v22LaunchSettings(cls) {
 }
 function classifyV22Asset(mint) {
   return V22_MAJOR_MINTS.includes(mint) ? "major" : "meme";
+}
+
+// src/abi/v22-band-safety-law.ts
+var BSL_MAX_RENT_E9_PER_SLOT = 10000n;
+var BSL_RENT_MIN_E9_PER_SLOT = 10n;
+var BSL_RENT_MAX_KINK_BPS = 8000n;
+var BSL_MAX_BAND_BPS = 2000n;
+var BSL_BAND_MIN_EPOCH_SLOTS = 150n;
+var BSL_BAND_MIN_PIN_EPOCHS = 8n;
+var BSL_MIN_BAND_WIDTH_TICKS = 32n;
+var BSL_BAND_GENESIS_FLOOR_MULTIPLE = 100n;
+var BSL_BAND_MIN_LEG_NOTIONAL_TOKENS = 10n;
+var BPS5 = 10000n;
+var FUNDING_DEN = 1000000000n;
+var ADL_ONE = 1000000000000000n;
+var MAX_ORACLE_PRICE = 1000000000000n;
+var MAX_ACCOUNT_NOTIONAL = 100000000000000000000n;
+var MAX_MARGIN_BPS = 10000n;
+var MAX_PROTOCOL_FEE_ABS = 1000000000000000000000000000000000000n;
+var MAX_ABS_FUNDING_E9_PER_SLOT = 10000n;
+var U64_MAX6 = (1n << 64n) - 1n;
+var U128_MAX5 = (1n << 128n) - 1n;
+var I128_MAX2 = (1n << 127n) - 1n;
+var MAX_SOLVENCY_INTERVALS = 96;
+var MAX_SOLVENCY_STEPS = 4096;
+var EXACT_CHUNK = 64n;
+var Invalid = class extends Error {
+};
+var fail = () => {
+  throw new Invalid("InvalidConfig");
+};
+var u1284 = (v) => v > U128_MAX5 || v < 0n ? fail() : v;
+var ceilDivRaw = (n, d) => n / d + (n % d === 0n ? 0n : 1n);
+var ceilDiv = (n, d) => {
+  if (d === 0n) return fail();
+  const q = n / d;
+  return u1284(n % d === 0n ? q : q + 1n);
+};
+function bandWorstAdverseBpsV22(bandBps) {
+  if (bandBps <= 0n || bandBps > BSL_MAX_BAND_BPS) return null;
+  const num = (BPS5 + bandBps) * (BPS5 + bandBps);
+  const den = BPS5 - bandBps;
+  return num / den + (num % den === 0n ? 0n : 1n) - BPS5;
+}
+var bandWidthOk = (anchor, d) => {
+  const lo = ceilDivRaw(anchor * (BPS5 - d), BPS5);
+  const hi = anchor * (BPS5 + d) / BPS5;
+  return hi - lo >= BSL_MIN_BAND_WIDTH_TICKS;
+};
+function bandGenesisFloorE6V22(bandBps) {
+  if (bandBps <= 0n || bandBps > BSL_MAX_BAND_BPS) return null;
+  const start = BSL_MIN_BAND_WIDTH_TICKS * BPS5 / (2n * bandBps);
+  let a = start > 4n ? start - 4n : 0n;
+  if (a < 1n) a = 1n;
+  let run = 0;
+  let first = a;
+  for (let i = 0; i < 256; i++) {
+    if (a > MAX_ORACLE_PRICE) return null;
+    if (bandWidthOk(a, bandBps)) {
+      if (run === 0) first = a;
+      run += 1;
+      if (run > 8) return first * BSL_BAND_GENESIS_FLOOR_MULTIPLE;
+    } else {
+      run = 0;
+    }
+    a += 1n;
+  }
+  return null;
+}
+function bandMinLegFloorAtomsV22(collateralDecimals) {
+  const atoms = BSL_BAND_MIN_LEG_NOTIONAL_TOKENS * 10n ** BigInt(Math.min(collateralDecimals, 30));
+  return atoms > U64_MAX6 ? U64_MAX6 : atoms;
+}
+function shapeOk(c) {
+  if (c.maxPortfolioAssets === 0n) return false;
+  if (c.minMm === 0n || c.minMm >= c.minIm) return false;
+  if (c.mm > c.im || c.im > MAX_MARGIN_BPS || c.liq > MAX_MARGIN_BPS || c.minLiqAbs > c.liqCap || c.liqCap > MAX_PROTOCOL_FEE_ABS || c.dt === 0n || c.lifetime < c.dt || c.funding > MAX_ABS_FUNDING_E9_PER_SLOT || c.pmove === 0n || c.pmove > MAX_MARGIN_BPS) {
+    return false;
+  }
+  if (c.rent > BSL_MAX_RENT_E9_PER_SLOT) return false;
+  if (c.band === 0n) {
+    return c.e === 0n && c.pmax === 0n && c.positionsPerSide === 0n && c.minLeg === 0n;
+  }
+  return !(c.band > BSL_MAX_BAND_BPS || c.e < BSL_BAND_MIN_EPOCH_SLOTS || c.pmax < c.e * BSL_BAND_MIN_PIN_EPOCHS || c.positionsPerSide === 0n || c.minLeg === 0n || c.positionsPerSide > 256n || c.maxPortfolioAssets !== 1n);
+}
+function headroom(c, slots) {
+  if (ADL_ONE * MAX_ORACLE_PRICE * c.funding * slots > I128_MAX2) fail();
+}
+function total(c, n, lossNum, lossDen, priceBudget) {
+  const loss = ceilDiv(n * lossNum, lossDen);
+  const worstLiqNotional = ceilDiv(n * u1284(BPS5 + priceBudget), BPS5);
+  const raw = ceilDiv(worstLiqNotional * c.liq, BPS5);
+  const lo = raw > c.minLiqAbs ? raw : c.minLiqAbs;
+  const fee = lo < c.liqCap ? lo : c.liqCap;
+  return u1284(loss + fee);
+}
+function mmReq(c, n) {
+  const prop = ceilDiv(n * c.mm, BPS5);
+  return prop > c.minMm ? prop : c.minMm;
+}
+function holds(c, n, lossNum, lossDen, pb) {
+  return total(c, n, lossNum, lossDen, pb) <= mmReq(c, n);
+}
+function rangeOk(c, lo, hi, lossNum, lossDen, pb) {
+  if (lo > hi) return;
+  const stack = [[lo, hi]];
+  let steps = 0;
+  while (stack.length !== 0) {
+    steps += 1;
+    if (steps > MAX_SOLVENCY_STEPS) fail();
+    const [rlo, rhi] = stack.pop();
+    if (total(c, rhi, lossNum, lossDen, pb) <= mmReq(c, rlo)) continue;
+    if (rhi === rlo || rhi - rlo <= EXACT_CHUNK) {
+      for (let n = rlo; n <= rhi; n++) if (!holds(c, n, lossNum, lossDen, pb)) fail();
+      continue;
+    }
+    const mid = rlo + (rhi - rlo) / 2n;
+    if (stack.length + 2 > MAX_SOLVENCY_INTERVALS) fail();
+    stack.push([mid + 1n, rhi], [rlo, mid]);
+  }
+}
+function envelopeWith(c, pb, slots, rate) {
+  const fundingNum = rate * slots * BPS5;
+  const lossNum = pb * FUNDING_DEN + fundingNum;
+  const lossDen = BPS5 * FUNDING_DEN;
+  const fundingCeil = ceilDiv(fundingNum, FUNDING_DEN);
+  const lossCeil = u1284(pb + fundingCeil);
+  const worstLiqCeil = ceilDiv(u1284(BPS5 + pb) * c.liq, BPS5);
+  const linear = u1284(lossCeil + worstLiqCeil);
+  if (c.mm === 10000n && lossCeil === 10000n && worstLiqCeil === 0n && c.minLiqAbs === 0n) return;
+  u1284(lossNum);
+  const domainMax = MAX_ACCOUNT_NOTIONAL;
+  if (c.mm === 0n) {
+    if (holds(c, domainMax, lossNum, lossDen, pb)) return;
+    fail();
+  }
+  const floorRegionMax = u1284(c.minMm * BPS5 / c.mm);
+  const floorRegionEnd = floorRegionMax < domainMax ? floorRegionMax : domainMax;
+  if (floorRegionEnd !== 0n && !holds(c, floorRegionEnd, lossNum, lossDen, pb)) fail();
+  if (floorRegionMax >= domainMax) return;
+  const exactStart = floorRegionEnd + 1n;
+  if (linear < c.mm) {
+    const tailLinear = ceilDiv(30000n, c.mm - linear);
+    const lossGap = c.mm - lossCeil;
+    const tailFeeFloor = ceilDiv((c.minLiqAbs + 2n) * BPS5, lossGap);
+    const exactTail2 = tailLinear > tailFeeFloor ? tailLinear : tailFeeFloor;
+    if (exactTail2 <= exactStart) return;
+    const end2 = exactTail2 - 1n < domainMax ? exactTail2 - 1n : domainMax;
+    rangeOk(c, exactStart, end2, lossNum, lossDen, pb);
+    return;
+  }
+  if (lossCeil >= c.mm) {
+    rangeOk(c, exactStart, domainMax, lossNum, lossDen, pb);
+    return;
+  }
+  const exactTail = ceilDiv((c.liqCap + 3n) * BPS5, c.mm - lossCeil);
+  if (exactTail <= exactStart) return;
+  const end = exactTail - 1n < domainMax ? exactTail - 1n : domainMax;
+  rangeOk(c, exactStart, end, lossNum, lossDen, pb);
+}
+function validates(c) {
+  try {
+    if (!shapeOk(c)) return false;
+    const pbFast = c.pmove * c.dt;
+    const rate = c.funding + c.rent;
+    const fast = c.mm === 10000n && pbFast <= 10000n && rate === 0n && c.liq === 0n && c.minLiqAbs === 0n;
+    if (!fast) {
+      headroom(c, c.dt);
+      headroom(c, c.lifetime);
+      envelopeWith(c, pbFast, c.dt, rate);
+    }
+    if (c.band !== 0n) {
+      const g = bandWorstAdverseBpsV22(c.band);
+      if (g === null) return false;
+      envelopeWith(c, g, c.e * 2n, rate);
+    }
+    return true;
+  } catch (e) {
+    if (e instanceof Invalid) return false;
+    throw e;
+  }
+}
+var nonNeg = (name, v, max) => {
+  if (typeof v !== "bigint" || v < 0n || v > max) throw new RangeError(`${name} must be a bigint in 0..=${max}`);
+  return v;
+};
+var intField = (name, v, max) => {
+  if (!Number.isInteger(v) || v < 0 || v > max) throw new RangeError(`${name} must be an integer in 0..=${max}`);
+  return BigInt(v);
+};
+function checkBandSafetyLawV22(input) {
+  const base = {
+    maxPortfolioAssets: intField("maxPortfolioAssets", input.maxPortfolioAssets, 65535),
+    mm: nonNeg("maintenanceMarginBps", input.maintenanceMarginBps, U64_MAX6),
+    im: nonNeg("initialMarginBps", input.initialMarginBps, U64_MAX6),
+    liq: nonNeg("liquidationFeeBps", input.liquidationFeeBps, U64_MAX6),
+    liqCap: nonNeg("liquidationFeeCap", input.liquidationFeeCap, U128_MAX5),
+    minLiqAbs: nonNeg("minLiquidationAbs", input.minLiquidationAbs, U128_MAX5),
+    minMm: nonNeg("minNonzeroMmReq", input.minNonzeroMmReq, U128_MAX5),
+    minIm: nonNeg("minNonzeroImReq", input.minNonzeroImReq, U128_MAX5),
+    pmove: nonNeg("maxPriceMoveBpsPerSlot", input.maxPriceMoveBpsPerSlot, U64_MAX6),
+    dt: nonNeg("maxAccrualDtSlots", input.maxAccrualDtSlots, U64_MAX6),
+    funding: nonNeg("maxAbsFundingE9PerSlot", input.maxAbsFundingE9PerSlot, U64_MAX6),
+    lifetime: nonNeg("minFundingLifetimeSlots", input.minFundingLifetimeSlots, U64_MAX6),
+    rent: 0n,
+    band: 0n,
+    e: 0n,
+    pmax: 0n,
+    positionsPerSide: 0n,
+    minLeg: 0n
+  };
+  const fee = nonNeg("maintenanceFeePerSlot", input.maintenanceFeePerSlot, U128_MAX5);
+  const price = input.initialPriceE6 === null ? null : nonNeg("initialPriceE6", input.initialPriceE6, U64_MAX6);
+  const decimals = input.collateralDecimals === null ? null : intField("collateralDecimals", input.collateralDecimals, 255);
+  if (price !== null && (price === 0n || price > MAX_ORACLE_PRICE)) return baseInvalid();
+  const r3 = input.rent;
+  if (!r3) {
+    if (input.band && input.band.bandBps !== 0) throw new RangeError("a band block requires a rent block (grammar growth [lot] [rent [band]])");
+    return validates(base) ? okResult([]) : baseInvalid();
+  }
+  const rent = intField("rentMaxE9PerSlot", r3.rentMaxE9PerSlot, 4294967295);
+  const kink = intField("rentKinkBps", r3.rentKinkBps, 65535);
+  if (rent > BSL_MAX_RENT_E9_PER_SLOT || kink > BPS5 || rent !== 0n && (rent < BSL_RENT_MIN_E9_PER_SLOT || kink > BSL_RENT_MAX_KINK_BPS)) {
+    return { ok: false, code: 106, rule: "rent-block", message: `holding fee ceiling ${rent} e9/slot / kink ${kink} bps is outside the program's range (0, or ${BSL_RENT_MIN_E9_PER_SLOT}..=${BSL_MAX_RENT_E9_PER_SLOT} with kink <= ${BSL_RENT_MAX_KINK_BPS})` };
+  }
+  const baseOk = validates(base);
+  const withRent = { ...base, rent };
+  if (baseOk && !validates(withRent)) {
+    return { ok: false, code: 106, rule: "rent-envelope", message: `holding fee ceiling ${rent} e9/slot does not fit the market's margin (solvency envelope)` };
+  }
+  const b = input.band;
+  if (!b || b.bandBps === 0) return baseOk ? okResult([]) : baseInvalid();
+  const rentOk = validates(withRent);
+  const withBand = {
+    ...withRent,
+    band: intField("bandBps", b.bandBps, 65535),
+    e: intField("bandMaxEpochSlots", b.bandMaxEpochSlots, 4294967295),
+    pmax: intField("bandMaxPinSlots", b.bandMaxPinSlots, 4294967295),
+    positionsPerSide: 256n,
+    minLeg: nonNeg("bandMinLegNotional", b.bandMinLegNotional, U64_MAX6)
+  };
+  if (rentOk && !validates(withBand)) {
+    return { ok: false, code: 105, rule: "band-shape-or-law", message: `price protection ${b.bandBps} bps / epoch ${b.bandMaxEpochSlots} slots breaks the Band Safety Law or the band's shape at this margin` };
+  }
+  if (fee !== 0n) {
+    return { ok: false, code: 105, rule: "band-maintenance-fee", message: "a market with price protection must set the maintenance fee to 0" };
+  }
+  const notChecked = [];
+  if (price === null) {
+    notChecked.push("band-genesis-price");
+  } else {
+    const floor = bandGenesisFloorE6V22(withBand.band);
+    if (floor === null || price < floor) {
+      return { ok: false, code: 105, rule: "band-genesis-price", message: `genesis price ${price} (e6 per lot) is below the band's floor ${floor ?? "(none)"}` };
+    }
+  }
+  if (decimals === null) {
+    notChecked.push("band-min-leg");
+  } else if (withBand.minLeg < bandMinLegFloorAtomsV22(Number(decimals))) {
+    return { ok: false, code: 105, rule: "band-min-leg", message: `minimum leg ${withBand.minLeg} atoms is below ${BSL_BAND_MIN_LEG_NOTIONAL_TOKENS} whole collateral tokens` };
+  }
+  return baseOk ? okResult(notChecked) : baseInvalid();
+}
+var okResult = (notChecked) => ({ ok: true, notChecked });
+var baseInvalid = () => ({
+  ok: false,
+  code: null,
+  rule: "base-config",
+  message: "the market's base risk config is invalid on its own (InitMarket refuses it for another reason)"
+});
+function maxAcceptedRentE9PerSlotV22(input) {
+  const kink = input.rent?.rentKinkBps ?? 5e3;
+  const ok = (v) => checkBandSafetyLawV22({ ...input, rent: { rentMaxE9PerSlot: Number(v), rentKinkBps: kink } }).ok;
+  let lo = BSL_RENT_MIN_E9_PER_SLOT;
+  if (!ok(lo)) return null;
+  let hi = BSL_MAX_RENT_E9_PER_SLOT;
+  if (ok(hi)) return hi;
+  while (hi - lo > 1n) {
+    const mid = (lo + hi) / 2n;
+    if (ok(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
 }
 
 // src/solana/pda.ts
@@ -15888,11 +16171,11 @@ function readAssetPricesP3(marketData, assetIndex) {
 function view(d) {
   return new DataView(d.buffer, d.byteOffset, d.byteLength);
 }
-function u1284(v, o) {
+function u1285(v, o) {
   return v.getBigUint64(o + 8, true) << 64n | v.getBigUint64(o, true);
 }
 function i1284(v, o) {
-  const x = u1284(v, o);
+  const x = u1285(v, o);
   return x >= 1n << 127n ? x - (1n << 128n) : x;
 }
 function key2(d, o) {
@@ -15908,19 +16191,19 @@ function decodeVaultLpStateP3(data) {
     registry: key2(data, O.registry),
     lpPortfolio: key2(data, O.lpPortfolio),
     juniorOwner: key2(data, O.juniorOwner),
-    seniorClaimAtoms: u1284(v, O.seniorClaimAtoms),
-    juniorDepositedAtoms: u1284(v, O.juniorDepositedAtoms),
-    juniorWithdrawnAtoms: u1284(v, O.juniorWithdrawnAtoms),
-    seniorFeeCreditedAtoms: u1284(v, O.seniorFeeCreditedAtoms),
-    recalledAtoms: u1284(v, O.recalledAtoms),
+    seniorClaimAtoms: u1285(v, O.seniorClaimAtoms),
+    juniorDepositedAtoms: u1285(v, O.juniorDepositedAtoms),
+    juniorWithdrawnAtoms: u1285(v, O.juniorWithdrawnAtoms),
+    seniorFeeCreditedAtoms: u1285(v, O.seniorFeeCreditedAtoms),
+    recalledAtoms: u1285(v, O.recalledAtoms),
     assetIndex: v.getUint16(O.assetIndex, true),
     juniorFloorBps: v.getUint16(O.juniorFloorBps, true),
     seniorFeeShareBps: v.getUint16(O.seniorFeeShareBps, true),
     version: data[O.version],
     bump: data[O.bump],
     backstopOutstandingAtoms: v.getBigUint64(VAULT_LP_STATE_BACKSTOP_OUTSTANDING_OFF_P3, true),
-    seniorDrawnAtoms: u1284(v, O.seniorDrawnAtoms),
-    seniorDrawOutstandingAtoms: u1284(v, O.seniorDrawOutstandingAtoms)
+    seniorDrawnAtoms: u1285(v, O.seniorDrawnAtoms),
+    seniorDrawOutstandingAtoms: u1285(v, O.seniorDrawOutstandingAtoms)
   };
   if (st.version !== 1 || st.juniorFloorBps < 1e3 || st.juniorFloorBps > 1e4 || st.seniorFeeShareBps !== 1e4) {
     throw new Error("VaultLpStateV18: invalid (version/floor/fee share) \u2014 the program would reject it too");
@@ -15933,10 +16216,10 @@ function decodeAssetVaultLpDrawP3(marketData, assetIndex) {
   if (marketData.length < off + ASSET_VAULT_LP_DRAW_LEN_P3) throw new Error(`AssetVaultLpDrawV18: market data too short for asset ${assetIndex}`);
   const v = view(marketData);
   const r3 = {
-    pendingOutEvenAtoms: u1284(v, off),
-    pendingOutOddAtoms: u1284(v, off + 16),
-    outstandingMirrorAtoms: u1284(v, off + 32),
-    pendingMovedAtoms: u1284(v, off + 48)
+    pendingOutEvenAtoms: u1285(v, off),
+    pendingOutOddAtoms: u1285(v, off + 16),
+    outstandingMirrorAtoms: u1285(v, off + 32),
+    pendingMovedAtoms: u1285(v, off + 48)
   };
   return { ...r3, hasPendingDraw: r3.pendingMovedAtoms !== 0n || r3.pendingOutEvenAtoms !== 0n || r3.pendingOutOddAtoms !== 0n };
 }
@@ -15950,7 +16233,7 @@ function decodeAssetVaultLpRecordP3(rec) {
   const out = {
     vaultLpPortfolio: zero32(F.vaultLpPortfolio) ? null : key2(rec, F.vaultLpPortfolio),
     lpNetQ: i1284(v, F.lpNetQ),
-    levCapQ: u1284(v, F.levCapQ),
+    levCapQ: u1285(v, F.levCapQ),
     lpNetSlot: v.getBigUint64(F.lpNetSlot, true),
     skewSlopeE9: v.getBigUint64(F.skewSlopeE9, true),
     skewMaxE9: v.getBigUint64(F.skewMaxE9, true),
@@ -16188,7 +16471,7 @@ function boundVaultNavFlooredP3(own, sibling, feeShareBps, held) {
   const lpEarnings = earn(own) + earn(sibling);
   return { availablePrincipal, lpEarnings, nav: availablePrincipal + lpEarnings };
 }
-var ceilDiv = (n, d) => (n + d - 1n) / d;
+var ceilDiv2 = (n, d) => (n + d - 1n) / d;
 function vaultLpEquityLagBoundsP3(a) {
   if (a.legs.length === 0) {
     const e = a.capital + (a.pnl < 0n ? a.pnl : 0n) + (a.feeCredits < 0n ? a.feeCredits : 0n);
@@ -16202,8 +16485,8 @@ function vaultLpEquityLagBoundsP3(a) {
     const up = l.rawOracleTargetPriceE6 > l.effectivePriceE6 ? l.rawOracleTargetPriceE6 - l.effectivePriceE6 : 0n;
     const down = l.effectivePriceE6 > l.rawOracleTargetPriceE6 ? l.effectivePriceE6 - l.rawOracleTargetPriceE6 : 0n;
     const [adv, fav] = l.basisPosQ >= 0n ? [down, up] : [up, down];
-    adverse += ceilDiv(q * adv, POS_SCALE_P3);
-    favorable += ceilDiv(q * fav, POS_SCALE_P3);
+    adverse += ceilDiv2(q * adv, POS_SCALE_P3);
+    favorable += ceilDiv2(q * fav, POS_SCALE_P3);
   }
   return { worse: a.certifiedEquity - adverse, better: a.certifiedEquity + favorable };
 }
@@ -16264,10 +16547,10 @@ function decodeResolvedPayoutReceiptP3(portfolioData) {
   const present = portfolioData[o + 64] !== 0;
   const finalized = portfolioData[o + 65] !== 0;
   return {
-    priorBoundContributionNum: u1284(v, o),
-    liveReleasedFaceAtReceipt: u1284(v, o + 16),
-    terminalPositiveClaimFace: u1284(v, o + 32),
-    paidEffective: u1284(v, o + 48),
+    priorBoundContributionNum: u1285(v, o),
+    liveReleasedFaceAtReceipt: u1285(v, o + 16),
+    terminalPositiveClaimFace: u1285(v, o + 32),
+    paidEffective: u1285(v, o + 48),
     present,
     finalized,
     open: present && !finalized
@@ -16349,7 +16632,7 @@ var ENGINE_ASSET_SLOT_OFF_V18 = Object.freeze({
 });
 var ENGINE_BOUND_SCALE = 1000000000000n;
 var MARKET_MODE_V18 = Object.freeze({ Live: 0, Resolved: 1, Recovery: 2 });
-function u1285(d, o) {
+function u1286(d, o) {
   const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
   return v.getBigUint64(o + 8, true) << 64n | v.getBigUint64(o, true);
 }
@@ -16358,7 +16641,7 @@ function u644(d, o) {
 }
 var min = (a, b) => a < b ? a : b;
 var subSat = (a, b) => a > b ? a - b : 0n;
-var ceilDiv2 = (a, b) => (a + b - 1n) / b;
+var ceilDiv3 = (a, b) => (a + b - 1n) / b;
 function decodeTerminalInsuranceCapacity(marketData, assetIndex = 0) {
   const geom = resolveMarketGeometry(marketData, { parser: "decodeTerminalInsuranceCapacity", strictLength: false });
   const H = geom.groupOff;
@@ -16377,16 +16660,16 @@ function decodeTerminalInsuranceCapacity(marketData, assetIndex = 0) {
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || marketData.length < slotBase + E.insuranceReservationShort + 16) {
     throw new Error(`market account too short for asset ${assetIndex}`);
   }
-  const vault = u1285(marketData, H + hdr.vault);
-  const insurance = u1285(marketData, H + hdr.insurance);
-  const sourceReserved = u1285(marketData, H + hdr.sourceInsuranceCreditReservedTotalAtoms);
+  const vault = u1286(marketData, H + hdr.vault);
+  const insurance = u1286(marketData, H + hdr.insurance);
+  const sourceReserved = u1286(marketData, H + hdr.sourceInsuranceCreditReservedTotalAtoms);
   const globalAvailable = subSat(insurance, sourceReserved);
   const mode = marketData[H + hdr.mode];
   const dom = (side) => {
     const L = side === "long";
-    const budget = u1285(marketData, slotBase + (L ? E.insuranceDomainBudgetLong : E.insuranceDomainBudgetShort));
-    const spent = u1285(marketData, slotBase + (L ? E.insuranceDomainSpentLong : E.insuranceDomainSpentShort));
-    const reservedAtoms = ceilDiv2(u1285(marketData, slotBase + (L ? E.insuranceReservationLong : E.insuranceReservationShort)), ENGINE_BOUND_SCALE);
+    const budget = u1286(marketData, slotBase + (L ? E.insuranceDomainBudgetLong : E.insuranceDomainBudgetShort));
+    const spent = u1286(marketData, slotBase + (L ? E.insuranceDomainSpentLong : E.insuranceDomainSpentShort));
+    const reservedAtoms = ceilDiv3(u1286(marketData, slotBase + (L ? E.insuranceReservationLong : E.insuranceReservationShort)), ENGINE_BOUND_SCALE);
     const budgetRemaining = subSat(subSat(budget, spent), reservedAtoms);
     return {
       domain: assetIndex * 2 + (L ? 0 : 1),
@@ -16406,11 +16689,11 @@ function decodeTerminalInsuranceCapacity(marketData, assetIndex = 0) {
     resolved: mode === MARKET_MODE_V18.Resolved,
     vault,
     insurance,
-    cTot: u1285(marketData, H + hdr.cTot),
+    cTot: u1286(marketData, H + hdr.cTot),
     materializedPortfolioCount: u644(marketData, H + hdr.materializedPortfolioCount),
     sourceInsuranceCreditReservedTotalAtoms: sourceReserved,
     globalAvailable,
-    headerBudgetRemainingTotal: u1285(marketData, H + hdr.insuranceDomainBudgetRemainingTotal),
+    headerBudgetRemainingTotal: u1286(marketData, H + hdr.insuranceDomainBudgetRemainingTotal),
     assetBudgetRemaining: subSat(domains[0].budget, domains[0].spent) + subSat(domains[1].budget, domains[1].spent),
     domains,
     terminalCapacity: min(min(sum, globalAvailable), vault)
@@ -17472,10 +17755,10 @@ function compileV1Unbounded(payer, ixs, cfg) {
 function packInstructionGroups(groups, opts) {
   const maxBytes = (opts.maxBytes ?? (opts.format === "v1" ? TX_V1_MAX_BYTES : TX_LEGACY_MAX_BYTES)) - (opts.byteMargin ?? 0);
   const maxCu = opts.maxComputeUnits ?? TX_MAX_COMPUTE_UNITS;
-  const headroom = opts.cuHeadroom ?? 1;
+  const headroom2 = opts.cuHeadroom ?? 1;
   const budgetFor = (cu) => ({
     ...opts.budget ?? {},
-    computeUnitLimit: Math.min(TX_MAX_COMPUTE_UNITS, Math.max(1, Math.ceil(cu * headroom)))
+    computeUnitLimit: Math.min(TX_MAX_COMPUTE_UNITS, Math.max(1, Math.ceil(cu * headroom2)))
   });
   const fits = (gs, cu) => {
     const ixs = gs.flatMap((g) => g.instructions);
@@ -18189,12 +18472,12 @@ function buildCatchUpAndRefreshIxsV22(input) {
   const gap = input.readSlot > oldest ? input.readSlot - oldest : 0n;
   const dt = f.maxAccrualDtSlots;
   const windows = (gap + dt - 1n) / dt;
-  const total = Number(windows < 1n ? 1n : windows);
+  const total2 = Number(windows < 1n ? 1n : windows);
   const observe = input.observePortfolio ?? input.portfolio;
   const observeIx = () => buildRefreshCrankIxV22(input.programId, input.market, input.cranker, observe, assets);
   const refreshIx = () => buildRefreshCrankIxV22(input.programId, input.market, input.cranker, input.portfolio, []);
-  const finalObserves = Math.min(total, MAX_OBSERVES_WITH_REFRESH_V22);
-  let remaining = total - finalObserves;
+  const finalObserves = Math.min(total2, MAX_OBSERVES_WITH_REFRESH_V22);
+  let remaining = total2 - finalObserves;
   const txs = [];
   while (remaining > 0) {
     const n = Math.min(remaining, MAX_OBSERVES_PER_TX_V22);
@@ -18215,7 +18498,7 @@ function buildCatchUpAndRefreshIxsV22(input) {
     observeCranks: finalObserves,
     refreshes: true
   });
-  return { txs, gapSlots: gap, maxAccrualDtSlots: dt, totalObserveCranks: total };
+  return { txs, gapSlots: gap, maxAccrualDtSlots: dt, totalObserveCranks: total2 };
 }
 
 // src/runtime/lighthouse.ts
@@ -18489,12 +18772,12 @@ function computeWarmupMaxPositionSize(initialMarginBps, totalCapital, currentSlo
 // src/validation.ts
 import { PublicKey as PublicKey37 } from "@solana/web3.js";
 var U16_MAX4 = 65535;
-var U64_MAX6 = BigInt("18446744073709551615");
+var U64_MAX7 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
 var I64_MAX = BigInt("9223372036854775807");
-var U128_MAX5 = (1n << 128n) - 1n;
+var U128_MAX6 = (1n << 128n) - 1n;
 var I128_MIN2 = -(1n << 127n);
-var I128_MAX2 = (1n << 127n) - 1n;
+var I128_MAX3 = (1n << 127n) - 1n;
 var ValidationError = class extends Error {
   constructor(field, message) {
     super(`Invalid ${field}: ${message}`);
@@ -18553,10 +18836,10 @@ function validateAmount(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U64_MAX6) {
+  if (num > U64_MAX7) {
     throw new ValidationError(
       field,
-      `must be <= ${U64_MAX6} (u64 max), got ${num}`
+      `must be <= ${U64_MAX7} (u64 max), got ${num}`
     );
   }
   return num;
@@ -18567,10 +18850,10 @@ function validateU128(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U128_MAX5) {
+  if (num > U128_MAX6) {
     throw new ValidationError(
       field,
-      `must be <= ${U128_MAX5} (u128 max), got ${num}`
+      `must be <= ${U128_MAX6} (u128 max), got ${num}`
     );
   }
   return num;
@@ -18615,10 +18898,10 @@ function validateI128(value, field) {
       `must be >= ${I128_MIN2} (i128 min), got ${num}`
     );
   }
-  if (num > I128_MAX2) {
+  if (num > I128_MAX3) {
     throw new ValidationError(
       field,
-      `must be <= ${I128_MAX2} (i128 max), got ${num}`
+      `must be <= ${I128_MAX3} (i128 max), got ${num}`
     );
   }
   return num;
@@ -19146,6 +19429,15 @@ export {
   BOUND_VAULT_LP_LEDGER_SLOTS_P3,
   BOUND_VAULT_LP_TAIL_INDEX_P3,
   BPF_LOADER_UPGRADEABLE_ID_P3,
+  BSL_BAND_GENESIS_FLOOR_MULTIPLE,
+  BSL_BAND_MIN_EPOCH_SLOTS,
+  BSL_BAND_MIN_LEG_NOTIONAL_TOKENS,
+  BSL_BAND_MIN_PIN_EPOCHS,
+  BSL_MAX_BAND_BPS,
+  BSL_MAX_RENT_E9_PER_SLOT,
+  BSL_MIN_BAND_WIDTH_TICKS,
+  BSL_RENT_MAX_KINK_BPS,
+  BSL_RENT_MIN_E9_PER_SLOT,
   BackingBucketStatus,
   BackstopMode,
   CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3,
@@ -19692,11 +19984,14 @@ export {
   bandBoundsV22,
   bandDefaultsV22,
   bandFloorStuckV22,
+  bandGenesisFloorE6V22,
   bandGenesisPriceOkV22,
   bandMinLegFitsDepth,
+  bandMinLegFloorAtomsV22,
   bandMinWideAnchorV22,
   bandRGapBps,
   bandWidthOkV22,
+  bandWorstAdverseBpsV22,
   bindInsuranceAuthorityAccounts,
   bondAtomsForRedemptionV22,
   bondCapOkV22,
@@ -19797,6 +20092,7 @@ export {
   capDepthE6,
   ceilingImrBps,
   ceilingInForceX100,
+  checkBandSafetyLawV22,
   checkPhaseTransition,
   checkRpcHealth,
   clampEnforced,
@@ -20354,6 +20650,7 @@ export {
   markExtV3TakerReducing,
   matcherConfigureOwnerProofAccounts,
   matcherFeeWorstCaseBpsV22,
+  maxAcceptedRentE9PerSlotV22,
   maxAccountIndex,
   measureTxBytes,
   mergeTierConfigAtBind,

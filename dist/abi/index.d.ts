@@ -28,3 +28,4 @@ export * from "./lev-guard-v22.js";
 export * from "./creator-fee-payee-v22.js";
 export * from "./lev-guard-limits-v22.js";
 export * from "./v22-launch-settings.js";
+export * from "./v22-band-safety-law.js";
