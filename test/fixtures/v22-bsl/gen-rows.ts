@@ -5,7 +5,7 @@
 // Usage: tsx test/fixtures/v22-bsl/gen-rows.ts <out-rows.json>
 import fs from "node:fs";
 import { encodeInitMarketV22 } from "../../../src/abi/v22-wire.js";
-import { checkBandSafetyLawV22, maxAcceptedRentE9PerSlotV22, type BandSafetyLawInputV22 } from "../../../src/abi/v22-band-safety-law.js";
+import { bandGenesisFloorE6V22, bandWorstAdverseBpsV22, checkBandSafetyLawV22, maxAcceptedRentE9PerSlotV22, type BandSafetyLawInputV22 } from "../../../src/abi/v22-band-safety-law.js";
 
 interface Row { id: string; slots: number; decimals: number; dataHex: string; input: Record<string, unknown> }
 const rows: Row[] = [];
@@ -24,7 +24,7 @@ function push(id: string, i: BandSafetyLawInputV22): void {
   try {
     data = encodeInitMarketV22(
       {
-        maxPortfolioAssets: i.maxPortfolioAssets, hMin: 1_000n, hMax: 100_000n, initialPrice: 50_000_000n,
+        maxPortfolioAssets: i.maxPortfolioAssets, hMin: 1_000n, hMax: 100_000n, initialPrice: i.initialPriceE6 ?? 50_000_000n,
         minNonzeroMmReq: i.minNonzeroMmReq, minNonzeroImReq: i.minNonzeroImReq,
         maintenanceMarginBps: i.maintenanceMarginBps, initialMarginBps: i.initialMarginBps,
         maxTradingFeeBps: 700n, tradeFeeBaseBps: 30n, liquidationFeeBps: i.liquidationFeeBps,
@@ -32,21 +32,22 @@ function push(id: string, i: BandSafetyLawInputV22): void {
         maxPriceMoveBpsPerSlot: i.maxPriceMoveBpsPerSlot, maxAccrualDtSlots: i.maxAccrualDtSlots,
         maxAbsFundingE9PerSlot: i.maxAbsFundingE9PerSlot, minFundingLifetimeSlots: i.minFundingLifetimeSlots,
         maxAccountBSettlementChunks: 10n, maxBankruptCloseChunks: 10n, maxBankruptCloseLifetimeSlots: 500n,
-        publicBChunkAtoms: 1_000_000_000_000n, maintenanceFeePerSlot: 0n,
+        publicBChunkAtoms: 1_000_000_000_000n, maintenanceFeePerSlot: i.maintenanceFeePerSlot,
       },
       { rGapBps, lLaunchX100: 100, ...(i.rent ? { rent: i.rent } : {}), ...(band ? { band } : {}) },
     );
   } catch {
     return; // the SDK encoder refuses it (out of the wire's domain): not a program row
   }
-  rows.push({ id, slots: i.maxPortfolioAssets, decimals: 6, dataHex: Buffer.from(data).toString("hex"), input: ser(i) });
+  rows.push({ id, slots: i.maxPortfolioAssets, decimals: i.collateralDecimals ?? 6, dataHex: Buffer.from(data).toString("hex"), input: ser(i) });
 }
 
 const base = (mm: bigint, over: Partial<BandSafetyLawInputV22> = {}): BandSafetyLawInputV22 => ({
   maxPortfolioAssets: 1, maintenanceMarginBps: mm, initialMarginBps: mm * 2n > 10_000n ? 10_000n : mm * 2n,
   liquidationFeeBps: 50n, liquidationFeeCap: 10_000_000_000n, minLiquidationAbs: 0n,
   minNonzeroMmReq: 1_000_000n, minNonzeroImReq: 2_000_000n, maxPriceMoveBpsPerSlot: 1n, maxAccrualDtSlots: 500n,
-  maxAbsFundingE9PerSlot: 111n, minFundingLifetimeSlots: 500n, ...over,
+  maxAbsFundingE9PerSlot: 111n, minFundingLifetimeSlots: 500n,
+  maintenanceFeePerSlot: 0n, initialPriceE6: 50_000_000n, collateralDecimals: 6, ...over,
 });
 const band = (d: number, e = 600, pmax = 9_000): BandSafetyLawInputV22["band"] => ({ bandBps: d, bandMaxEpochSlots: e, bandMaxPinSlots: pmax, bandMinLegNotional: 100_000_000n });
 const rent = (r: number, k = 5_000): BandSafetyLawInputV22["rent"] => ({ rentMaxE9PerSlot: r, rentKinkBps: k });
@@ -88,6 +89,32 @@ for (const [name, c] of [
   let top = 0;
   for (let d = 1; d <= 2000; d++) if (checkBandSafetyLawV22({ ...c, rent: rent(100), band: band(d) }).ok) top = d;
   for (const d of [top, top + 1]) push(`limit-${name}-band${d}`, { ...c, rent: rent(100), band: band(d) });
+}
+// 3c. The band refusals after the law: maintenance fee, genesis price, minimum leg (each also on an invalid base: they fire first).
+const invalidBase = { liquidationFeeBps: 500n };
+push("later-fee1-band", base(1000n, { maintenanceFeePerSlot: 1n, rent: rent(100), band: band(130) }));
+push("later-fee1-noband", base(1000n, { maintenanceFeePerSlot: 1n, rent: rent(100) }));
+push("later-fee1-norent", base(1000n, { maintenanceFeePerSlot: 1n }));
+push("later-fee1-band-rent0", base(1000n, { maintenanceFeePerSlot: 1n, rent: rent(0, 0), band: band(130) }));
+push("later-fee1-invalid-base", base(1000n, { ...invalidBase, maintenanceFeePerSlot: 1n, rent: rent(100), band: band(130) }));
+for (const d of [1, 2, 3, 5, 6, 7, 8]) {
+  const floor = bandGenesisFloorE6V22(BigInt(d))!;
+  for (const p of [floor - 1n, floor]) push(`later-genesis-d${d}-p${p}`, base(1000n, { initialPriceE6: p, rent: rent(100), band: band(d) }));
+}
+push("later-genesis-low-invalid-base", base(1000n, { ...invalidBase, initialPriceE6: 1n, rent: rent(100), band: band(130) }));
+for (const [tok, dec] of [[9_999_999n, 6], [10_000_000n, 6], [99_999_999n, 7], [100_000_000n, 7], [100_000_000n, 8], [999_999_999n, 8], [1_000_000_000n, 8]] as const) {
+  push(`later-minleg-${tok}-dec${dec}`, base(1000n, { collateralDecimals: dec, rent: rent(100), band: { ...band(130)!, bandMinLegNotional: tok } }));
+}
+push("later-minleg-low-invalid-base", base(1000n, { ...invalidBase, rent: rent(100), band: { ...band(130)!, bandMinLegNotional: 1n } }));
+push("later-norent-invalid-base", base(1000n, invalidBase));
+push("later-price0", base(1000n, { initialPriceE6: 0n, rent: rent(100), band: band(130) }));
+push("later-price-over-max", base(1000n, { initialPriceE6: 1_000_000_000_001n, rent: rent(100), band: band(130) }));
+// 3d. G(d) rounding: with no funding, rent or liq fee and MMR = G(d), the ceiling of G decides the verdict.
+for (const d of [130, 131, 200, 201, 300, 301]) {
+  const g = bandWorstAdverseBpsV22(BigInt(d))!;
+  for (const m of [g - 1n, g, g + 1n]) {
+    push(`g-rounding-d${d}-mm${m}`, base(m, { liquidationFeeBps: 0n, maxAbsFundingE9PerSlot: 0n, maxPriceMoveBpsPerSlot: 1n, maxAccrualDtSlots: 1n, rent: rent(0, 0), band: band(d) }));
+  }
 }
 // 4. Seeded random configs around the boundaries (xorshift; deterministic).
 let s = 0x2f05df8cn;

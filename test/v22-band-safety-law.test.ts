@@ -4,12 +4,15 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as sdk from "../src/index.js";
 import {
+  bandGenesisFloorE6V22,
+  bandMinLegFloorAtomsV22,
   bandWorstAdverseBpsV22,
   checkBandSafetyLawV22,
   maxAcceptedRentE9PerSlotV22,
   type BandSafetyLawInputV22,
 } from "../src/abi/v22-band-safety-law.js";
 import { bandRGapBps } from "../src/abi/growth-v19.js";
+import { bandGenesisPriceOkV22 } from "../src/abi/v22-math.js";
 
 interface ParityRow { id: string; input: Record<string, unknown>; program: string }
 const fixture = JSON.parse(
@@ -21,17 +24,18 @@ const revive = (o: Record<string, unknown>): BandSafetyLawInputV22 =>
 
 /**
  * What the pre-check must say for a program answer:
- * - "ok" or Custom(94) (the growth block, AFTER the rent/band words were accepted) -> ok;
+ * - "ok", Custom(119) (the lot floor) or Custom(94) (the growth block): both run AFTER the rules checked here -> ok;
+ * - Custom(14) (InitMarket's early range check of the price) -> code null;
  * - Custom(105) / Custom(106) -> that code;
  * - InvalidAccountData (the engine refuses the base config at init) -> code null (base config invalid).
  * - ProgramFailedToComplete (the validator ran out of the 1.4M compute budget, typical just past a limit) -> "refused":
  *   the program names no code, but the launch fails, so the pre-check must not call it ok.
  */
 function expected(program: string): "ok" | 105 | 106 | null | "refused" | "skip" {
-  if (program === "ok" || program === "Custom(94)") return "ok";
+  if (program === "ok" || program === "Custom(94)" || program === "Custom(119)") return "ok";
   if (program === "Custom(105)") return 105;
   if (program === "Custom(106)") return 106;
-  if (program.includes("InvalidAccountData")) return null;
+  if (program.includes("InvalidAccountData") || program === "Custom(14)") return null;
   if (program.includes("ProgramFailedToComplete")) return "refused";
   return "skip";
 }
@@ -41,6 +45,7 @@ const seedPilot: BandSafetyLawInputV22 = {
   maxPortfolioAssets: 1, maintenanceMarginBps: 1000n, initialMarginBps: 2000n, liquidationFeeBps: 50n,
   liquidationFeeCap: 10_000_000_000n, minLiquidationAbs: 0n, minNonzeroMmReq: 1_000_000n, minNonzeroImReq: 2_000_000n,
   maxPriceMoveBpsPerSlot: 1n, maxAccrualDtSlots: 500n, maxAbsFundingE9PerSlot: 111n, minFundingLifetimeSlots: 500n,
+  maintenanceFeePerSlot: 0n, initialPriceE6: 80_000_000n, collateralDecimals: 6,
   rent: { rentMaxE9PerSlot: 100, rentKinkBps: 5000 },
   band: { bandBps: 130, bandMaxEpochSlots: 600, bandMaxPinSlots: 9000, bandMinLegNotional: 100_000_000n },
 };
@@ -95,6 +100,33 @@ describe("Band Safety Law pre-check: the decided settings", () => {
     expect(() => checkBandSafetyLawV22({ ...plain, band: seedPilot.band })).toThrow(RangeError);
   });
 
+  it("names the band refusals after the law, and they outrank an invalid base (as the program)", () => {
+    expect(checkBandSafetyLawV22({ ...seedPilot, maintenanceFeePerSlot: 1n })).toMatchObject({ code: 105, rule: "band-maintenance-fee" });
+    expect(checkBandSafetyLawV22({ ...seedPilot, initialPriceE6: 123_099n })).toMatchObject({ code: 105, rule: "band-genesis-price" });
+    expect(checkBandSafetyLawV22({ ...seedPilot, collateralDecimals: 8 })).toMatchObject({ code: 105, rule: "band-min-leg" });
+    const invalid = { ...seedPilot, liquidationFeeBps: 500n };
+    expect(checkBandSafetyLawV22(invalid)).toMatchObject({ code: null, rule: "base-config" });
+    expect(checkBandSafetyLawV22({ ...invalid, maintenanceFeePerSlot: 1n })).toMatchObject({ code: 105, rule: "band-maintenance-fee" });
+  });
+
+  it("an unknown price or decimals is reported as notChecked, never as a silent ok", () => {
+    expect(checkBandSafetyLawV22(seedPilot)).toEqual({ ok: true, notChecked: [] });
+    expect(checkBandSafetyLawV22({ ...seedPilot, initialPriceE6: null, collateralDecimals: null })).toEqual({ ok: true, notChecked: ["band-genesis-price", "band-min-leg"] });
+    const { rent: _r, band: _b, ...plain } = seedPilot;
+    expect(checkBandSafetyLawV22({ ...plain, initialPriceE6: null, collateralDecimals: null })).toEqual({ ok: true, notChecked: [] });
+  });
+
+  it("the genesis floor agrees with the SDK's bandGenesisPriceOkV22 on 1..=2000; the leg floor saturates u64", () => {
+    for (let d = 1; d <= 2000; d++) {
+      const f = bandGenesisFloorE6V22(BigInt(d))!;
+      expect(bandGenesisPriceOkV22(f, d)).toBe(true);
+      expect(bandGenesisPriceOkV22(f - 1n, d)).toBe(false);
+    }
+    expect(bandGenesisFloorE6V22(0n)).toBeNull();
+    expect(bandMinLegFloorAtomsV22(6)).toBe(10_000_000n);
+    expect(bandMinLegFloorAtomsV22(30)).toBe((1n << 64n) - 1n);
+  });
+
   it("rejects malformed input", () => {
     expect(() => checkBandSafetyLawV22({ ...seedPilot, maintenanceMarginBps: -1n })).toThrow(RangeError);
   });
@@ -119,4 +151,4 @@ describe("Band Safety Law pre-check: the decided settings", () => {
 });
 
 /** Pinned: the app (`app/lib/v22/sdk/v22-band-safety-law.ts`) and the seed kit (`relaunch/v22/v22-band-safety-law.ts`) carry this exact file. */
-const V22_BSL_SHA256 = "38c6152aa1d35f40684a4baa7d761e83f233205bd5f81785a747f7903d8361e8";
+const V22_BSL_SHA256 = "6103c6a85eff49a5d632093e90a3b7c98a7f4efe6fc0a68981238fc923e3254d";

@@ -7,12 +7,14 @@ import * as Band from "../src/abi/v22-band.js";
 import * as Lot from "../src/abi/v22-lot.js";
 import { LAYOUT_V21, LAYOUT_V22, UnknownLayoutError } from "../src/abi/layout.js";
 import { getMarketsByAddress } from "../src/solana/discovery.js";
-import { isV17Account, isV17MarketAccount, knownWrapperVersions, parseLpRedemption, parseLpVaultRegistry, unknownMarketVersion } from "../src/solana/slab.js";
-import { stampHeader, stampMarket } from "./helpers/stamp.js";
+import { isV17Account, isV17MarketAccount, knownWrapperVersions, parseLpRedemption, parseLpVaultRegistry, parsePortfolioV17, unknownMarketVersion } from "../src/solana/slab.js";
+import { stampHeader, stampMarket, stampPortfolio } from "./helpers/stamp.js";
 
 const FX = JSON.parse(readFileSync(new URL("./fixtures/v22-band-parity.json", import.meta.url), "utf8")) as {
   config: Record<string, number>; assetState: Record<string, number>; growth: Record<string, number>; vaultLp: Record<string, number>; configLen: number; assetStateLen: number;
   rows: { fn: string; in: string[]; out: string[] }[];
+  prog: string; occConsts: Record<string, string>; occRows: { fn: string; in: string[]; out: string[] }[];
+  rentRatesView: { in: { rentMax: string; version: number; bound: boolean; nCap: string; kink: number; oiLong: string; oiShort: string; lpNet: string; nLong: string; nShort: string; bandBps: number; cap: string }; out: string[] }[];
 };
 const put = (d: Uint8Array, o: number, v: bigint, bytes = 8) => { for (let i = 0; i < bytes; i++) d[o + i] = Number((v >> BigInt(8 * i)) & 0xffn); };
 
@@ -49,19 +51,22 @@ describe("band / rent offsets == the real crate", () => {
   });
 });
 
-function market(opts: { bandBps?: number; rentMax?: bigint; mark?: bigint; target?: bigint; oiLong?: bigint; pin?: bigint; move?: bigint; dt?: bigint; bound?: boolean; nCap?: bigint; kink?: number; lpNet?: bigint }): Uint8Array {
+function market(opts: { bandBps?: number; rentMax?: bigint; mark?: bigint; target?: bigint; oiLong?: bigint; pin?: bigint; move?: bigint; dt?: bigint; bound?: boolean; nCap?: bigint; kink?: number; lpNet?: bigint; growthVersion?: number; nLong?: bigint; nShort?: bigint; oiShort?: bigint; cap?: bigint }): Uint8Array {
   const L = LAYOUT_V22, B = L.bandRent!;
   const d = stampMarket(new Uint8Array(L.marketGroupOff + L.marketGroupLen + L.assetSlotStride), 19);
   const cfg = L.marketGroupOff + L.group.config;
   put(d, cfg + B.config.bandBps, BigInt(opts.bandBps ?? 0)); put(d, cfg + B.config.bandMaxEpochSlots, 600n); put(d, cfg + B.config.bandMaxPinSlots, 9000n);
   put(d, cfg + B.config.rentMaxE9PerSlot, opts.rentMax ?? 0n); put(d, cfg + B.config.maxPriceMoveBpsPerSlot, opts.move ?? 4n); put(d, cfg + B.config.maxAccrualDtSlots, opts.dt ?? 100n);
-  put(d, cfg + B.config.bandMaxPositionsPerSide, 256n); put(d, cfg + B.config.bandMinLegNotional, 100_000_000n);
+  put(d, cfg + B.config.bandMaxPositionsPerSide, opts.cap ?? 256n); put(d, cfg + B.config.bandMinLegNotional, 100_000_000n);
   const e = L.marketGroupOff + L.marketGroupLen + L.wrapperSlotLen;
   put(d, e + L.assetState.effectivePrice, opts.mark ?? 1_000_000n); put(d, e + L.assetState.rawOracleTargetPrice, opts.target ?? opts.mark ?? 1_000_000n);
   put(d, e + L.assetState.oiEffLongQ, opts.oiLong ?? 0n, 16);
   put(d, e + B.assetState.bandPinSinceSlot, opts.pin ?? 0n);
+  put(d, e + L.assetState.oiEffShortQ, opts.oiShort ?? 0n, 16);
+  put(d, e + B.assetState.storedPosCountLong, opts.nLong ?? 0n); put(d, e + B.assetState.storedPosCountShort, opts.nShort ?? 0n);
   const s = L.marketGroupOff + L.marketGroupLen;
   put(d, s + L.wrapperSlot.growth + B.growth.rentKinkBps, BigInt(opts.kink ?? 0), 2); put(d, s + L.wrapperSlot.growth + B.growth.rentNCapQ, opts.nCap ?? 0n);
+  d[s + L.wrapperSlot.growth + B.growth.version] = opts.growthVersion ?? 1;
   d[s + L.wrapperSlot.vaultLp + B.vaultLp.flags] = opts.bound ? 1 : 0;
   put(d, s + L.wrapperSlot.vaultLp + B.vaultLp.lpNetQ, (opts.lpNet ?? 0n) & ((1n << 128n) - 1n), 16);
   return d;
@@ -72,7 +77,7 @@ describe("decoders and the wrapper's favourable-close rule", () => {
     const d = market({ bandBps: 130, rentMax: 4321n, mark: 900n, target: 1000n, oiLong: 7n, pin: 55n, bound: true, nCap: 1000n, kink: 5000, lpNet: -3n });
     expect(Band.decodeBandConfigV22(d)).toMatchObject({ bandBps: 130, rentMaxE9PerSlot: 4321n, bandMaxEpochSlots: 600n, bandMaxPositionsPerSide: 256n, bandMinLegNotional: 100_000_000n });
     expect(Band.decodeAssetBandStateV22(d)).toMatchObject({ effectivePrice: 900n, rawOracleTargetPrice: 1000n, oiEffLongQ: 7n, bandPinSinceSlot: 55n });
-    expect(Band.decodeAssetRentStateV22(d)).toEqual({ rentKinkBps: 5000, rentNCapQ: 1000n, vaultLpNetQ: -3n, vaultLpBound: true });
+    expect(Band.decodeAssetRentStateV22(d)).toEqual({ growthOn: true, rentKinkBps: 5000, rentNCapQ: 1000n, vaultLpNetQ: -3n, vaultLpBound: true });
   });
   it("v2.1 / unknown VERSION is a typed error, never a misread", () => {
     expect(() => Band.decodeBandConfigV22(stampMarket(new Uint8Array(1350 + 2325), 18))).toThrow(UnknownLayoutError);
@@ -113,6 +118,46 @@ describe("decoders and the wrapper's favourable-close rule", () => {
     expect(Band.readBandRentViewV22(market({ rentMax: 100n, bound: false, nCap: 1000n, kink: 5000, oiLong: 900n }))!.rentRates.long).toBe(0n);
     expect(Band.readBandRentViewV22(market({ rentMax: 100n, bound: true, nCap: 1000n, kink: 5000, oiLong: 900n, lpNet: 400n }))!.rentRates.long).toBe(0n);
     expect(Band.rentPercentPerDayV22(100n)).toBeGreaterThan(0);
+  });
+});
+
+describe("prog#572 per notional: rate = max(utilisation, occupancy) == the real crate @ 178fedc4", () => {
+  it("fixture is from the merged program", () => { expect(FX.prog).toBe("178fedc4082beaeec63fe9b28e76800d47302d10"); });
+  it("constants", () => {
+    expect(String(Band.RENT_OCC_KNEE_BPS_V22)).toBe(FX.occConsts.RENT_OCC_KNEE_BPS);
+    expect(Band.RENT_OCC_CAP_DOMAIN_V22.toString()).toBe(FX.occConsts.RENT_OCC_CAP_DOMAIN);
+  });
+  it("rent_occupancy_rate_e9 and rent_side_rate_e9 rows", () => {
+    const n: Record<string, number> = {};
+    for (const r of FX.occRows) {
+      const I = r.in.map((x) => BigInt(x));
+      const got = r.fn === "rentOcc" ? Band.rentOccupancyRateE9V22(I[0], I[1], I[2]) : Band.rentSideRateE9V22(I[0], I[1], Number(I[2]), I[3], I[4], I[5]);
+      expect([got.toString()], `${r.fn}(${r.in})`).toEqual(r.out);
+      n[r.fn] = (n[r.fn] ?? 0) + 1;
+    }
+    expect(n.rentOcc).toBeGreaterThan(900);
+    expect(n.rentSide).toBe(6000);
+  });
+  it("rent_rates_view (gates and inputs on the real fns) through the decoders", () => {
+    for (const { in: i, out } of FX.rentRatesView) {
+      const bytes = market({ bandBps: i.bandBps, rentMax: BigInt(i.rentMax), growthVersion: i.version, bound: i.bound, nCap: BigInt(i.nCap), kink: i.kink, oiLong: BigInt(i.oiLong), oiShort: BigInt(i.oiShort), lpNet: BigInt(i.lpNet), nLong: BigInt(i.nLong), nShort: BigInt(i.nShort), cap: BigInt(i.cap) });
+      const r = Band.rentRatesFromStateV22(Band.decodeBandConfigV22(bytes), Band.decodeAssetBandStateV22(bytes), Band.decodeAssetRentStateV22(bytes));
+      expect([r.long.toString(), r.short.toString()], JSON.stringify(i)).toEqual(out);
+    }
+    expect(FX.rentRatesView.length).toBe(2160);
+  });
+  it("a held full side pays the ceiling whatever the LP's size; below the knee nothing changes; per-slot exports are gone", () => {
+    const base = { bandBps: 130, rentMax: 100n, bound: true, nCap: 1_000_000n, kink: 5000, oiLong: 10n };
+    expect(Band.readBandRentViewV22(market({ ...base, nLong: 256n }))!.rentRates.long).toBe(100n);
+    expect(Band.readBandRentViewV22(market({ ...base, nLong: 217n }))!.rentRates.long).toBe(0n);
+    expect(Band.readBandRentViewV22(market({ ...base, nLong: 256n, growthVersion: 0 }))!.rentRates.long).toBe(0n);
+    expect(Band.readBandRentViewV22(market({ ...base, nLong: 256n, nCap: 0n }))!.rentRates.long).toBe(0n);
+    for (const gone of ["occRampV22", "occChargeStepV22", "decodeOccupancyStateV22", "occupancyDueV22", "decodeOccupancyCheckpointV22", "occupancyRatesFromStateV22"]) expect(gone in Band).toBe(false);
+    expect("occupancy" in Band.readBandRentViewV22(market({ ...base }))!).toBe(false);
+  });
+  it("parsePortfolioV17 no longer reports an occupancy checkpoint", () => {
+    const d = stampPortfolio(new Uint8Array(LAYOUT_V22.portfolio.accountLen), 19);
+    expect("occupancyCheckpoint" in parsePortfolioV17(d)).toBe(false);
   });
 });
 

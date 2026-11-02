@@ -21,8 +21,15 @@
  * with `R = max_abs_funding_e9_per_slot + rent_max_e9_per_slot` and
  * `G(d) = ceil((1e4 + d)^2 / (1e4 - d)) - 1e4`.
  *
- * Mainnet-only rules (a growth market must carry a rent block with both fields > 0, and a
- * single-asset growth market a band block) are out of scope: v2.2 runs on devnet builds.
+ * Also mirrored: the three refusals InitMarket raises right after that block on a band market, all 105
+ * (v16_program.rs:17214-17233): a non-zero maintenance fee, the genesis price floor
+ * (`100 x band_min_wide_anchor(d)`), and the minimum leg floor (10 whole collateral tokens).
+ *
+ * NOT checked here, so `ok` does not promise them: the growth block (94), the lot / per-lot price floor (119),
+ * the instruction's early range checks other than the price, and compute. Just past a limit the program's validator
+ * can exhaust the 1.4M compute budget instead of naming a code; this function then returns its 105 / 106.
+ * Mainnet-only rules (a growth market must carry a rent block with both fields > 0, and a single-asset growth
+ * market a band block) are out of scope too: v2.2 runs on devnet builds.
  *
  * @module
  */
@@ -38,6 +45,12 @@ export declare const BSL_MAX_BAND_BPS = 2000n;
 export declare const BSL_BAND_MIN_EPOCH_SLOTS = 150n;
 /** Engine `band_rent::BAND_MIN_PIN_EPOCHS`: `Pmax >= 8 x E`. */
 export declare const BSL_BAND_MIN_PIN_EPOCHS = 8n;
+/** Engine `band_rent::MIN_BAND_WIDTH_TICKS`. */
+export declare const BSL_MIN_BAND_WIDTH_TICKS = 32n;
+/** Engine `band_rent::BAND_GENESIS_FLOOR_MULTIPLE`: genesis price >= this x `band_min_wide_anchor(d)`. */
+export declare const BSL_BAND_GENESIS_FLOOR_MULTIPLE = 100n;
+/** Wrapper `growth_v19::BAND_MIN_LEG_NOTIONAL_TOKENS`. */
+export declare const BSL_BAND_MIN_LEG_NOTIONAL_TOKENS = 10n;
 /** The InitMarket fields the law reads (u64 / u128 as bigint, as the program sees them). */
 export interface BandSafetyLawInputV22 {
     /** InitMarket `max_portfolio_assets`; a band market must be 1. */
@@ -53,6 +66,12 @@ export interface BandSafetyLawInputV22 {
     maxAccrualDtSlots: bigint;
     maxAbsFundingE9PerSlot: bigint;
     minFundingLifetimeSlots: bigint;
+    /** InitMarket `maintenance_fee_per_slot`; a band market must send 0. */
+    maintenanceFeePerSlot: bigint;
+    /** InitMarket `initial_price` (the per-LOT mark, e6). Null = not known yet: the genesis floor is reported in `notChecked`. */
+    initialPriceE6: bigint | null;
+    /** The collateral mint's decimals. Null = not known yet: the minimum leg floor is reported in `notChecked`. */
+    collateralDecimals: number | null;
     /** The trailer's rent block (absent = no rent block). */
     rent?: {
         rentMaxE9PerSlot: number;
@@ -67,10 +86,14 @@ export interface BandSafetyLawInputV22 {
     };
 }
 /** Which program rule a refusal comes from. */
-export type BandSafetyLawRuleV22 = "base-config" | "rent-block" | "rent-envelope" | "band-shape-or-law";
+export type BandSafetyLawRuleV22 = "base-config" | "rent-block" | "rent-envelope" | "band-shape-or-law" | "band-maintenance-fee" | "band-genesis-price" | "band-min-leg";
+/** A band-market rule that could not be evaluated because its input was null. */
+export type BandSafetyLawUncheckedV22 = "band-genesis-price" | "band-min-leg";
 /** Result of {@link checkBandSafetyLawV22}. */
 export type BandSafetyLawResultV22 = {
     ok: true;
+    /** Rules NOT evaluated (their input was null). Non-empty = this `ok` does not cover them. */
+    notChecked: readonly BandSafetyLawUncheckedV22[];
 } | {
     ok: false;
     /** The InitMarket error the program returns: 106 HoldingRentConfigInvalid, 105 PriceBandConfigInvalid; null = the base config (no rent / band) is itself invalid, so InitMarket fails elsewhere. */
@@ -91,12 +114,38 @@ export type BandSafetyLawResultV22 = {
  */
 export declare function bandWorstAdverseBpsV22(bandBps: bigint): bigint | null;
 /**
+ * The genesis price floor of a band: `100 x band_min_wide_anchor(d)` (engine `band_genesis_price_ok`).
+ *
+ * @param bandBps  Band half-width `d` in bps.
+ * @returns The lowest accepted genesis price (e6, per lot), or null when no price is (`d` out of range, or no anchor).
+ * @example
+ * ```ts
+ * bandGenesisFloorE6V22(130n); // 123100n
+ * ```
+ */
+export declare function bandGenesisFloorE6V22(bandBps: bigint): bigint | null;
+/**
+ * The minimum leg floor of a band market in collateral atoms (wrapper `band_min_leg_notional_floor`).
+ *
+ * @param collateralDecimals  The collateral mint's decimals.
+ * @returns `10 x 10^decimals` atoms, saturated at u64::MAX.
+ * @example
+ * ```ts
+ * bandMinLegFloorAtomsV22(6); // 10000000n
+ * ```
+ */
+export declare function bandMinLegFloorAtomsV22(collateralDecimals: number): bigint;
+/**
  * Pre-check an InitMarket config against the v2.2 Band Safety Law and the rent / band block rules, the way
  * the wrapper's `init_market_apply_phase4_view` and the engine's `validate_public_user_fund` evaluate them.
  * Pure: no RPC. Exact (the same breakpoint validator, the same ceilings, the same step limits).
  *
- * Order (as the program): rent block (106), rent in the §1.6 envelope (106), band shape and law (105). A config
- * whose base (no rent, no band) is itself invalid returns `code: null` (InitMarket refuses it for another reason).
+ * Order (as the program): rent block (106), rent in the §1.6 envelope (106), band shape and law (105), then on a band
+ * market the maintenance fee, genesis price and minimum leg (105). A config whose base (no rent, no band) is itself
+ * invalid returns `code: null` (the engine refuses it at init, after those 105s).
+ *
+ * `{ ok: true }` covers only the rules this file names (see the module doc); read `notChecked` when a price or
+ * decimals input was null.
  *
  * @param input  The InitMarket fields the law reads, plus the trailer's rent / band blocks.
  * @returns `{ ok: true }`, or the refusal with the program's error code and the rule.
@@ -107,6 +156,7 @@ export declare function bandWorstAdverseBpsV22(bandBps: bigint): bigint | null;
  *   maxPortfolioAssets: 1, maintenanceMarginBps: 1000n, initialMarginBps: 2000n, liquidationFeeBps: 50n,
  *   liquidationFeeCap: 10_000_000_000n, minLiquidationAbs: 0n, minNonzeroMmReq: 1_000_000n, minNonzeroImReq: 2_000_000n,
  *   maxPriceMoveBpsPerSlot: 1n, maxAccrualDtSlots: 500n, maxAbsFundingE9PerSlot: 111n, minFundingLifetimeSlots: 500n,
+ *   maintenanceFeePerSlot: 0n, initialPriceE6: 80_000_000n, collateralDecimals: 6,
  *   rent: { rentMaxE9PerSlot: 100, rentKinkBps: 5000 },
  *   band: { bandBps: 130, bandMaxEpochSlots: 600, bandMaxPinSlots: 9000, bandMinLegNotional: 100_000_000n },
  * });
