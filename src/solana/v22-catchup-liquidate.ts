@@ -56,6 +56,12 @@ export interface CatchUpAndRefreshInputV22 {
   assets?: readonly number[];
   /** Add a second no-observation crank after the refresh (needed only when the F1 follow-on does not cover the account: more than 3 legs). Default false. */
   liquidationCrank?: boolean;
+  /**
+   * bigtest F2: the market's bound vault-LP portfolio ({@link boundVaultLpPortfolioV22}), appended to the refresh /
+   * liquidation cranks so a clean liquidation is matched against the vault LP and does not latch the asset ADL
+   * reduce-only. Not added to the observation cranks. Requires the wrapper feature (see {@link RefreshCrankOptsV22}).
+   */
+  vaultLpCounterparty?: PublicKey;
 }
 
 /** One transaction of the plan. */
@@ -107,7 +113,8 @@ export function buildCatchUpAndRefreshIxsV22(input: CatchUpAndRefreshInputV22): 
   const total = Number(windows < 1n ? 1n : windows);
   const observe = input.observePortfolio ?? input.portfolio;
   const observeIx = () => buildRefreshCrankIxV22(input.programId, input.market, input.cranker, observe, assets);
-  const refreshIx = () => buildRefreshCrankIxV22(input.programId, input.market, input.cranker, input.portfolio, []);
+  const refreshIx = () =>
+    buildRefreshCrankIxV22(input.programId, input.market, input.cranker, input.portfolio, [], { vaultLpCounterparty: input.vaultLpCounterparty });
 
   const finalObserves = Math.min(total, MAX_OBSERVES_WITH_REFRESH_V22);
   let remaining = total - finalObserves;

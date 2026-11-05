@@ -51,6 +51,12 @@ export interface CatchUpAndRefreshInputV22 {
     assets?: readonly number[];
     /** Add a second no-observation crank after the refresh (needed only when the F1 follow-on does not cover the account: more than 3 legs). Default false. */
     liquidationCrank?: boolean;
+    /**
+     * bigtest F2: the market's bound vault-LP portfolio ({@link boundVaultLpPortfolioV22}), appended to the refresh /
+     * liquidation cranks so a clean liquidation is matched against the vault LP and does not latch the asset ADL
+     * reduce-only. Not added to the observation cranks. Requires the wrapper feature (see {@link RefreshCrankOptsV22}).
+     */
+    vaultLpCounterparty?: PublicKey;
 }
 /** One transaction of the plan. */
 export interface CatchUpTxV22 {

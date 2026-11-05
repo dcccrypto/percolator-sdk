@@ -83,6 +83,20 @@ export interface MultiAssetTradePlanV22 {
     /** Extra refreshes appended by {@link refineMultiAssetTradePlanV22} so far. */
     extraCranks: number;
 }
+/** Options of {@link buildRefreshCrankIxV22}. */
+export interface RefreshCrankOptsV22 {
+    /**
+     * bigtest-2026-11-05 F2 (wrapper `feat/v22-wrap-liq-adl-latch`): the market's BOUND vault-LP
+     * portfolio ({@link boundVaultLpPortfolioV22}), appended writable as the LAST account. When the
+     * crank liquidates `portfolio`, the wrapper then matches a clean (non-bankrupt) close against the
+     * vault LP instead of scaling the LP's side through ADL, so the asset is not latched
+     * reduce-only (error 120 EngineAdlReduceOnly) until a side is flat. The wrapper identifies it by
+     * key against the market's registry: any other key here is NOT a counterparty. Safe on every
+     * crank of the market, including the vault LP's own. Leave unset on a wrapper without the
+     * feature (there a trailing portfolio is read as the cranker-reward account and refused).
+     */
+    vaultLpCounterparty?: PublicKey;
+}
 /**
  * Build one PermissionlessCrank (tag 5) refresh of `portfolio`, observing `observations`.
  *
@@ -91,13 +105,15 @@ export interface MultiAssetTradePlanV22 {
  * @param cranker       Signer.
  * @param portfolio     Portfolio to refresh.
  * @param observations  Asset indices to observe (empty = refresh only).
+ * @param opts          {@link RefreshCrankOptsV22} (the optional vault-LP counterparty).
  * @returns The instruction.
  * @example
  * ```ts
  * const ix = buildRefreshCrankIxV22(programId, market, wallet, lpPortfolio, [0, 1, 2, 3, 4]);
+ * const liq = buildRefreshCrankIxV22(programId, market, wallet, trader, [], { vaultLpCounterparty: boundVaultLpPortfolioV22(marketData) ?? undefined });
  * ```
  */
-export declare function buildRefreshCrankIxV22(programId: PublicKey, market: PublicKey, cranker: PublicKey, portfolio: PublicKey, observations?: readonly number[]): TransactionInstruction;
+export declare function buildRefreshCrankIxV22(programId: PublicKey, market: PublicKey, cranker: PublicKey, portfolio: PublicKey, observations?: readonly number[], opts?: RefreshCrankOptsV22): TransactionInstruction;
 /**
  * Build the instruction sequence for a trade (open or close) from the market, taker and LP state. On a
  * multi-asset market where the taker or the LP holds >= 3 legs it returns the Q-7 shape
@@ -152,3 +168,16 @@ export type MultiAssetTradeRefinementV22 = {
  * ```
  */
 export declare function refineMultiAssetTradePlanV22(plan: MultiAssetTradePlanV22, err: unknown): MultiAssetTradeRefinementV22;
+/**
+ * The market's bound vault-LP portfolio, as the wrapper finds it for tag 5 (`market_bound_vault_asset`:
+ * the FIRST asset slot whose `AssetVaultLpV18` record is bound). Pass it as
+ * {@link RefreshCrankOptsV22.vaultLpCounterparty}.
+ *
+ * @param marketData  Raw market account bytes.
+ * @returns The vault-LP portfolio key, or null when no asset of the market has a bound vault LP.
+ * @example
+ * ```ts
+ * const lp = boundVaultLpPortfolioV22(marketInfo.data);
+ * ```
+ */
+export declare function boundVaultLpPortfolioV22(marketData: Uint8Array): PublicKey | null;
