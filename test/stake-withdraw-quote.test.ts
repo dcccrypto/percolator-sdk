@@ -56,8 +56,20 @@ describe("quoteStakeWithdrawNowV5", () => {
     expect(collateralForLpV5(10_458_016n, p.totalLpSupply, 10_960_000n + 5_000_000n)).toBe(8_345_496n);
     expect(live.deferred).toBe(live.redeemable - live.maxCollateralNow);
     expect(live.redeemable).toBeLessThan(stale.redeemable);
-    // a live reading ABOVE the snapshot never raises the quote (stale-low is only conservative)
-    const up = quoteStakeWithdrawNowV5(p, u, 36_540_000n, 10_960_000n, 19_999_000n, 90_000_000n)!;
-    expect(up.redeemable).toBe(quoteStakeWithdrawNowV5(p, u, 36_540_000n, 10_960_000n, 19_999_000n)!.redeemable);
+  });
+  it("a stale-LOW snapshot (30M) under a live reading of 60M: the quote prices at live, since Withdraw refreshes to live before pricing", () => {
+    const p = { totalDeposited: 20_000_000n, totalWithdrawn: 0n, totalFlushed: 10_000_000n, totalReturned: 0n, totalFeesEarned: 960_000n, realizedJuniorLoss: 0n, totalLpSupply: 20_000_000n };
+    const u = { unitsStake: 10_000_000n, unitsTotal: 60_000_000n };
+    const atLive = 10_960_000n + 10_000_000n; // deployed = 10M * 60M / 60M
+    // priced at the snapshot, the capped burn pays more than the liquid 10.96M once the program prices it at live: refused 36
+    const atSnap = quoteStakeWithdrawNowV5(p, u, 30_000_000n, 10_960_000n, 19_999_000n)!;
+    expect(atSnap.maxLpNow).toBe(13_734_336n);
+    expect(collateralForLpV5(atSnap.maxLpNow, p.totalLpSupply, atLive)).toBe(14_393_584n);
+    const q = quoteStakeWithdrawNowV5(p, u, 30_000_000n, 10_960_000n, 19_999_000n, 60_000_000n)!;
+    expect(q).toEqual(quoteStakeWithdrawNowV5(p, u, 60_000_000n, 10_960_000n, 19_999_000n));
+    expect(q.capBinds).toBe(true);
+    expect(q.maxLpNow).toBe(10_458_016n);
+    expect(collateralForLpV5(q.maxLpNow, p.totalLpSupply, atLive)).toBe(10_960_000n);
+    expect(collateralForLpV5(q.maxLpNow + 1n, p.totalLpSupply, atLive)! > 10_960_000n).toBe(true);
   });
 });

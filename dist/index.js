@@ -4134,7 +4134,7 @@ function collateralForLpV5(lpAmount, totalLpSupply, poolValue) {
   return c > U64_MAX_V5 ? null : c;
 }
 function quoteStakeWithdrawNowV5(pool, insUnits, exitInsurance, vaultBalance, userLp, liveInsurance) {
-  const exit = liveInsurance !== void 0 && liveInsurance < exitInsurance ? liveInsurance : exitInsurance;
+  const exit = liveInsurance ?? exitInsurance;
   const v = stakePoolValue(pool, insUnits, exit, vaultBalance);
   if (!v || v.withdrawableNow === void 0) return null;
   const redeemable = collateralForLpV5(userLp, pool.totalLpSupply, v.total);
