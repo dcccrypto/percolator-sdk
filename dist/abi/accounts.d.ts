@@ -128,6 +128,11 @@ export declare const ACCOUNTS_KEEPER_CRANK: readonly AccountSpec[];
  *
  * Use buildPermissionlessCrankKeys() (in keeper) to assemble the full account list
  * including oracle tail and optional keeper portfolio.
+ *
+ * bigtest-2026-11-05 F2 (wrapper `feat/v22-wrap-liq-adl-latch`): an OPTIONAL last account after
+ * all of the above, the market's BOUND vault-LP portfolio (writable). The wrapper recognises it
+ * by key against the market's registry; a liquidation then matches a clean close against the
+ * vault LP instead of ADL-scaling its side (no reduce-only latch). See buildRefreshCrankIxV22.
  */
 export declare const ACCOUNTS_PERMISSIONLESS_CRANK_BASE: readonly AccountSpec[];
 /**

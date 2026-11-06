@@ -23,6 +23,7 @@
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { ACCOUNTS_PERMISSIONLESS_CRANK_BASE, buildAccountMetas } from "../abi/accounts.js";
 import { encodePermissionlessCrank } from "../abi/instructions.js";
+import { decodeAssetVaultLpP3 } from "./p3-vault-lp.js";
 import { resolveMarketGeometry } from "../abi/layout.js";
 import { WRAPPER_MAX_PORTFOLIO_ASSETS_V22 } from "../abi/v22-wire.js";
 import { parsePortfolioV17 } from "./slab.js";
@@ -94,6 +95,21 @@ export interface MultiAssetTradePlanV22 {
   extraCranks: number;
 }
 
+/** Options of {@link buildRefreshCrankIxV22}. */
+export interface RefreshCrankOptsV22 {
+  /**
+   * bigtest-2026-11-05 F2 (wrapper `feat/v22-wrap-liq-adl-latch`): the market's BOUND vault-LP
+   * portfolio ({@link boundVaultLpPortfolioV22}), appended writable as the LAST account. When the
+   * crank liquidates `portfolio`, the wrapper then matches a clean (non-bankrupt) close against the
+   * vault LP instead of scaling the LP's side through ADL, so the asset is not latched
+   * reduce-only (error 120 EngineAdlReduceOnly) until a side is flat. The wrapper identifies it by
+   * key against the market's registry: any other key here is NOT a counterparty. Safe on every
+   * crank of the market, including the vault LP's own. Leave unset on a wrapper without the
+   * feature (there a trailing portfolio is read as the cranker-reward account and refused).
+   */
+  vaultLpCounterparty?: PublicKey;
+}
+
 /**
  * Build one PermissionlessCrank (tag 5) refresh of `portfolio`, observing `observations`.
  *
@@ -102,16 +118,20 @@ export interface MultiAssetTradePlanV22 {
  * @param cranker       Signer.
  * @param portfolio     Portfolio to refresh.
  * @param observations  Asset indices to observe (empty = refresh only).
+ * @param opts          {@link RefreshCrankOptsV22} (the optional vault-LP counterparty).
  * @returns The instruction.
  * @example
  * ```ts
  * const ix = buildRefreshCrankIxV22(programId, market, wallet, lpPortfolio, [0, 1, 2, 3, 4]);
+ * const liq = buildRefreshCrankIxV22(programId, market, wallet, trader, [], { vaultLpCounterparty: boundVaultLpPortfolioV22(marketData) ?? undefined });
  * ```
  */
-export function buildRefreshCrankIxV22(programId: PublicKey, market: PublicKey, cranker: PublicKey, portfolio: PublicKey, observations: readonly number[] = []): TransactionInstruction {
+export function buildRefreshCrankIxV22(programId: PublicKey, market: PublicKey, cranker: PublicKey, portfolio: PublicKey, observations: readonly number[] = [], opts: RefreshCrankOptsV22 = {}): TransactionInstruction {
+  const keys = buildAccountMetas(ACCOUNTS_PERMISSIONLESS_CRANK_BASE, { owner: cranker, market, portfolio });
+  if (opts.vaultLpCounterparty) keys.push({ pubkey: opts.vaultLpCounterparty, isSigner: false, isWritable: true });
   return new TransactionInstruction({
     programId,
-    keys: buildAccountMetas(ACCOUNTS_PERMISSIONLESS_CRANK_BASE, { owner: cranker, market, portfolio }),
+    keys,
     data: Buffer.from(encodePermissionlessCrank({ nowSlot: 0n, observations: observations.map((assetIndex) => ({ assetIndex, oracleAccounts: 0 })) })),
   });
 }
@@ -200,4 +220,25 @@ export function refineMultiAssetTradePlanV22(plan: MultiAssetTradePlanV22, err: 
     return { action: "retry", plan: assemble({ ...base, cranks: [...plan.cranks, extra], extraCranks: plan.extraCranks + 1 }), reason: `health check still out of date; appended a ${extra.role} refresh` };
   }
   return { action: "fail", plan, code, reason: code === null ? "refused" : `refused with ${code}` };
+}
+
+/**
+ * The market's bound vault-LP portfolio, as the wrapper finds it for tag 5 (`market_bound_vault_asset`:
+ * the FIRST asset slot whose `AssetVaultLpV18` record is bound). Pass it as
+ * {@link RefreshCrankOptsV22.vaultLpCounterparty}.
+ *
+ * @param marketData  Raw market account bytes.
+ * @returns The vault-LP portfolio key, or null when no asset of the market has a bound vault LP.
+ * @example
+ * ```ts
+ * const lp = boundVaultLpPortfolioV22(marketInfo.data);
+ * ```
+ */
+export function boundVaultLpPortfolioV22(marketData: Uint8Array): PublicKey | null {
+  const g = resolveMarketGeometry(marketData, { parser: "boundVaultLpPortfolioV22", strictLength: false });
+  for (let i = 0; i < g.slotCount; i++) {
+    const rec = decodeAssetVaultLpP3(marketData, i);
+    if (rec.bound) return rec.vaultLpPortfolio;
+  }
+  return null;
 }
