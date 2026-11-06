@@ -191,17 +191,9 @@ export interface StandaloneAccountLens {
 export interface BandRentOffsets {
   configLen: number;
   config: { maxAccrualDtSlots: number; maxPriceMoveBpsPerSlot: number; bandBps: number; bandMaxEpochSlots: number; bandMaxPinSlots: number; rentMaxE9PerSlot: number; bandMaxPositionsPerSide: number; bandMinLegNotional: number };
-  assetState: { bandAnchorPrice: number; bandAnchorSlot: number; bandEpoch: number; bandUncertifiedLong: number; bandUncertifiedShort: number; bandLiqPendingLong: number; bandLiqPendingShort: number; bandPinSinceSlot: number; rentIndexLongNum: number; rentIndexShortNum: number; rentUnroutedAtoms: number };
-  growth: { rentKinkBps: number; rentNCapQ: number };
+  assetState: { bandAnchorPrice: number; bandAnchorSlot: number; bandEpoch: number; bandUncertifiedLong: number; bandUncertifiedShort: number; bandLiqPendingLong: number; bandLiqPendingShort: number; bandPinSinceSlot: number; rentIndexLongNum: number; rentIndexShortNum: number; rentUnroutedAtoms: number; storedPosCountLong: number; storedPosCountShort: number };
+  growth: { rentKinkBps: number; rentNCapQ: number; version: number };
   vaultLp: { lpNetQ: number; flags: number };
-  /**
-   * prog#572 (#647) per-slot occupancy charge on band markets. `storedPosCount*` / `slotLast` are relative to the ENGINE slot
-   * start; `profileClock*` to the asset-0 oracle profile (wrapper slot + `wrapperSlot.oracleProfile`): on a band market the
-   * GH#444 bytes `maintenance_fee_checkpoint_slot` (+408) and `maintenance_fee_previous_rate` (+416, u128) hold the side
-   * clocks' last slot, `C_long` (low 8 B) and `C_short` (high 8 B); `vaultLpPortfolio` to the vault LP record;
-   * `portfolioLastFeeSlot` to the engine `PortfolioAccountV16Account` (account offset + the 16-byte header; on band markets a tagged checkpoint, see `decodeOccupancyCheckpointV22`).
-   */
-  occupancy: { storedPosCountLong: number; storedPosCountShort: number; slotLast: number; profileClockSlot: number; profileClockLong: number; profileClockShort: number; vaultLpPortfolio: number; portfolioLastFeeSlot: number };
 }
 
 /** One complete layout. */
@@ -341,11 +333,9 @@ export const LAYOUT_V21: LayoutTable = Object.freeze({
 const BAND_RENT_V22: BandRentOffsets = Object.freeze({
   configLen: 297,
   config: Object.freeze({ maxAccrualDtSlots: 118, maxPriceMoveBpsPerSlot: 142, bandBps: 249, bandMaxEpochSlots: 257, bandMaxPinSlots: 265, rentMaxE9PerSlot: 273, bandMaxPositionsPerSide: 281, bandMinLegNotional: 289 }),
-  assetState: Object.freeze({ bandAnchorPrice: 515, bandAnchorSlot: 523, bandEpoch: 531, bandUncertifiedLong: 539, bandUncertifiedShort: 547, bandLiqPendingLong: 555, bandLiqPendingShort: 563, bandPinSinceSlot: 571, rentIndexLongNum: 579, rentIndexShortNum: 595, rentUnroutedAtoms: 611 }),
-  growth: Object.freeze({ rentKinkBps: 42, rentNCapQ: 48 }),
+  assetState: Object.freeze({ bandAnchorPrice: 515, bandAnchorSlot: 523, bandEpoch: 531, bandUncertifiedLong: 539, bandUncertifiedShort: 547, bandLiqPendingLong: 555, bandLiqPendingShort: 563, bandPinSinceSlot: 571, rentIndexLongNum: 579, rentIndexShortNum: 595, rentUnroutedAtoms: 611, storedPosCountLong: 321, storedPosCountShort: 329 }),
+  growth: Object.freeze({ rentKinkBps: 42, rentNCapQ: 48, version: 38 }),
   vaultLp: Object.freeze({ lpNetQ: 32, flags: 90 }),
-  // prog#572 (#647 @ 34996503); pinned by test/fixtures/v22-band-parity.json `occupancy`.
-  occupancy: Object.freeze({ storedPosCountLong: 321, storedPosCountShort: 329, slotLast: 41, profileClockSlot: 408, profileClockLong: 416, profileClockShort: 424, vaultLpPortfolio: 0, portfolioLastFeeSlot: 324 }),
 });
 
 function v22Row(o: {
