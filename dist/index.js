@@ -16572,19 +16572,42 @@ function buildClaimResolvedPayoutTopupIxP3(a) {
   }
   return new TransactionInstruction8({ programId: a.programId, keys, data: Buffer.from([46]) });
 }
-async function listOpenResolvedReceiptsP3(conn, programId, market, layout = LAYOUT_V21) {
-  const accs = await conn.getProgramAccounts(programId, {
-    commitment: "confirmed",
-    filters: [{ dataSize: layout.portfolio.accountLen }, { memcmp: { offset: 16, bytes: market.toBase58() } }]
-  });
+async function listOpenResolvedReceiptsP3(conn, programId, market, layout) {
+  const layouts = layout ? [layout] : [LAYOUT_V21, LAYOUT_V22];
+  const batches = await Promise.all(layouts.map(async (row) => ({
+    row,
+    accounts: await conn.getProgramAccounts(programId, {
+      commitment: "confirmed",
+      filters: [
+        { dataSize: row.portfolio.accountLen },
+        { memcmp: { offset: 16, bytes: market.toBase58() } },
+        { memcmp: portfolioFilterForLayout(row).versionMemcmp }
+      ]
+    })
+  })));
   const [registry] = deriveLpVaultRegistry(programId, market);
   const out = [];
-  for (const { pubkey, account } of accs) {
-    const data = new Uint8Array(account.data);
-    const receipt = decodeResolvedPayoutReceiptP3(data);
-    if (!receipt.open) continue;
-    const owner = new PublicKey26(data.subarray(80, 112));
-    out.push({ portfolio: pubkey, owner, receipt, isVaultLp: owner.equals(registry), needsHolder: !PublicKey26.isOnCurve(owner.toBytes()) && !owner.equals(registry) });
+  const seen = /* @__PURE__ */ new Set();
+  for (const { row, accounts } of batches) {
+    for (const { pubkey, account } of accounts) {
+      const id = pubkey.toBase58();
+      if (seen.has(id)) continue;
+      const data = new Uint8Array(account.data);
+      if (data.length !== row.portfolio.accountLen) continue;
+      const detected = resolvePortfolioLayout(data, { parser: "listOpenResolvedReceiptsP3", strictLength: true });
+      if (detected.version !== row.version || detected.engineDiscriminator !== row.engineDiscriminator) continue;
+      const receipt = decodeResolvedPayoutReceiptP3(data);
+      if (!receipt.open) continue;
+      const owner = new PublicKey26(data.subarray(80, 112));
+      seen.add(id);
+      out.push({
+        portfolio: pubkey,
+        owner,
+        receipt,
+        isVaultLp: owner.equals(registry),
+        needsHolder: !PublicKey26.isOnCurve(owner.toBytes()) && !owner.equals(registry)
+      });
+    }
   }
   return out;
 }
