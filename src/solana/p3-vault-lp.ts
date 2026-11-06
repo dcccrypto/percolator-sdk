@@ -49,7 +49,7 @@ import { VAULT_LP_EXT_SEED_P2B } from "../abi/p2b-earn.js";
 import type { SetVaultLpRiskArgsP3, VaultLpSetMatcherArgsP3 } from "../abi/p3.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveMatcherDelegate, deriveNftRegistry, deriveVaultAuthority } from "./pda.js";
 import { V17_HEADER_LEN } from "./slab.js";
-import { LAYOUT_V21, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
+import { LAYOUT_V21, LAYOUT_V22, portfolioFilterForLayout, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
 import type { LayoutTable } from "../abi/layout.js";
 
 // ============================================================================
@@ -1312,19 +1312,50 @@ export interface OpenResolvedReceiptP3 {
  * const open = await listOpenResolvedReceiptsP3(conn, W, market);
  * ```
  */
-export async function listOpenResolvedReceiptsP3(conn: Pick<Connection, "getProgramAccounts">, programId: PublicKey, market: PublicKey, layout: LayoutTable = LAYOUT_V21): Promise<OpenResolvedReceiptP3[]> {
-  const accs = await conn.getProgramAccounts(programId, {
-    commitment: "confirmed",
-    filters: [{ dataSize: layout.portfolio.accountLen }, { memcmp: { offset: 16, bytes: market.toBase58() } }],
-  });
+export async function listOpenResolvedReceiptsP3(
+  conn: Pick<Connection, "getProgramAccounts">,
+  programId: PublicKey,
+  market: PublicKey,
+  layout?: LayoutTable,
+): Promise<OpenResolvedReceiptP3[]> {
+  // An explicit layout retains one-query behavior. Default discovers both V21 and V22.
+  const layouts = layout ? [layout] : [LAYOUT_V21, LAYOUT_V22];
+  // Never suppress a failing RPC query: an incomplete listing is not an empty listing.
+  const batches = await Promise.all(layouts.map(async (row) => ({
+    row,
+    accounts: await conn.getProgramAccounts(programId, {
+      commitment: "confirmed",
+      filters: [
+        { dataSize: row.portfolio.accountLen },
+        { memcmp: { offset: 16, bytes: market.toBase58() } },
+        { memcmp: portfolioFilterForLayout(row).versionMemcmp },
+      ],
+    }),
+  })));
+
   const [registry] = deriveLpVaultRegistry(programId, market);
   const out: OpenResolvedReceiptP3[] = [];
-  for (const { pubkey, account } of accs) {
-    const data = new Uint8Array(account.data);
-    const receipt = decodeResolvedPayoutReceiptP3(data);
-    if (!receipt.open) continue;
-    const owner = new PublicKey(data.subarray(80, 112)); // provenance owner (16 + 64)
-    out.push({ portfolio: pubkey, owner, receipt, isVaultLp: owner.equals(registry), needsHolder: !PublicKey.isOnCurve(owner.toBytes()) && !owner.equals(registry) });
+  const seen = new Set<string>();
+  for (const { row, accounts } of batches) {
+    for (const { pubkey, account } of accounts) {
+      const id = pubkey.toBase58();
+      if (seen.has(id)) continue;
+      const data = new Uint8Array(account.data);
+      if (data.length !== row.portfolio.accountLen) continue;
+      const detected = resolvePortfolioLayout(data, { parser: "listOpenResolvedReceiptsP3", strictLength: true });
+      if (detected.version !== row.version || detected.engineDiscriminator !== row.engineDiscriminator) continue;
+      const receipt = decodeResolvedPayoutReceiptP3(data);
+      if (!receipt.open) continue;
+      const owner = new PublicKey(data.subarray(80, 112)); // provenance owner (16 + 64)
+      seen.add(id);
+      out.push({
+        portfolio: pubkey,
+        owner,
+        receipt,
+        isVaultLp: owner.equals(registry),
+        needsHolder: !PublicKey.isOnCurve(owner.toBytes()) && !owner.equals(registry),
+      });
+    }
   }
   return out;
 }

@@ -75,6 +75,7 @@ export default defineConfig({
       "test/creator-fee-payee-v22.test.ts",
       "test/v22-band-safety-law.test.ts",
       "test/bond-carry-571.test.ts",
+      "test/v22-resolved-receipt-filter.security.test.ts",
     ],
   },
 });
