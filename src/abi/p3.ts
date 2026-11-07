@@ -349,14 +349,16 @@ export function encodeVaultLpReleaseSurplusP3(amount: bigint, sourceDomain: numb
  * zeroed), [10] matcher delegate PDA `["matcher", market, lp_portfolio, registry, matcher, ctx]`
  * (signs the matcher CPI via invoke_signed — NOT a transaction signer). The program approves the
  * canonical matcher, keeps the 1x exposure default and initialises the ctx with `VAULT_LP_PIN_P3`
- * + {@link pinnedMatcherCapsP3}. `lpPortfolio` must be pre-created (program-owned, portfolio length).
+ * + {@link pinnedMatcherCapsP3}. `lpPortfolio` must be pre-created (program-owned, portfolio length, rent-exempt: 64
+ * RentExemptRequired) AND it must SIGN (prog #684, mirrors D26 for InitPortfolio; refused with 6 ExpectedSigner otherwise): create it with a
+ * top-level SystemProgram.createAccount in the same transaction and sign with its fresh keypair. Applies to the V19 / V22Tiers data variants too.
  */
 export const ACCOUNTS_INIT_VAULT_LP_P3: readonly AccountSpec[] = [
   { name: "authority", signer: true, writable: true },
   { name: "market", signer: false, writable: true },
   { name: "registry", signer: false, writable: true },
   { name: "vaultLpState", signer: false, writable: true },
-  { name: "lpPortfolio", signer: false, writable: true },
+  { name: "lpPortfolio", signer: true, writable: true },
   { name: "systemProgram", signer: false, writable: false },
   { name: "ledger", signer: false, writable: true },
   { name: "siblingLedger", signer: false, writable: true },

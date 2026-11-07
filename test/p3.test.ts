@@ -6,7 +6,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { Keypair, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { buildCreateLpPortfolioIxV22, portfolioAccountLenV22 } from "../src/solana/v22.js";
 import { P3_VECTOR_INPUTS, encodeP3Vector } from "./p3-vector-inputs.js";
 import * as root from "../src/index.js";
 import {
@@ -265,6 +266,34 @@ describe("P3 account lists and builders (verified against the handler bodies)", 
     expect(loose(m, auth, 2_000, ctx, matcher, {}, pk()).keys).toHaveLength(12);
     expect((root as Record<string, unknown>).ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3).toBeUndefined();
     expect(a.keys.some((k) => k.pubkey.equals(deriveProgramDataAddressP3(W)[0]))).toBe(false);
+  });
+  it("tag 94 (prog #684): the LP portfolio [4] is a writable SIGNER in every data variant, and only [0] and [4] sign", () => {
+    const auth = pk(), ctx = pk();
+    const v19 = Uint8Array.from([0x5e, 0xd0, 0x07, 0x26, 0x02]);
+    for (const x of [buildInitVaultLpIxP3(m, auth, 2_000, ctx), buildInitVaultLpIxP3(m, auth, 2_000, ctx, undefined, { withVaultLpExt: false }), buildInitVaultLpIxP3(m, auth, 2_000, ctx, undefined, { data: v19 })]) {
+      expect(x.keys[4]).toEqual({ pubkey: lp, isSigner: true, isWritable: true });
+      expect(x.keys.map((k, i) => (k.isSigner ? i : -1)).filter((i) => i >= 0)).toEqual([0, 4]);
+    }
+    expect(ACCOUNTS_INIT_VAULT_LP_P3[4]).toEqual({ name: "lpPortfolio", signer: true, writable: true });
+  });
+  it("tag 94 (prog #684): create + bind in one tx compiles with the LP portfolio keypair as a required signer, and fails to sign without it", () => {
+    const payer = Keypair.generate(), authority = Keypair.generate(), lpKp = Keypair.generate(), ctxKp = Keypair.generate();
+    const mk = { programId: W, market, registryDomain: 0, lpPortfolio: lpKp.publicKey };
+    const lamports = 74_000_000; // stands in for getMinimumBalanceForRentExemption(portfolioAccountLenV22())
+    const create = buildCreateLpPortfolioIxV22(payer.publicKey, lpKp.publicKey, lamports, W);
+    expect(create.data.length).toBeGreaterThan(0);
+    expect(create.data.readUInt32LE(12)).toBe(portfolioAccountLenV22()); // space (u64 LE after discriminant 4 + lamports 8)
+    expect(create.keys.find((k) => k.pubkey.equals(lpKp.publicKey))?.isSigner).toBe(true);
+    const tx = new Transaction({ feePayer: payer.publicKey, recentBlockhash: "11111111111111111111111111111111" });
+    tx.add(create, buildInitVaultLpIxP3(mk, authority.publicKey, 2_000, ctxKp.publicKey));
+    const required = tx.compileMessage().header.numRequiredSignatures;
+    expect(tx.compileMessage().accountKeys.slice(0, required).map((k) => k.toBase58()).sort())
+      .toEqual([payer.publicKey, authority.publicKey, lpKp.publicKey].map((k) => k.toBase58()).sort());
+    tx.sign(payer, authority, lpKp);
+    expect(tx.verifySignatures()).toBe(true);
+    const missing = new Transaction({ feePayer: payer.publicKey, recentBlockhash: "11111111111111111111111111111111" }).add(create, buildInitVaultLpIxP3(mk, authority.publicKey, 2_000, ctxKp.publicKey));
+    missing.partialSign(payer, authority);
+    expect(missing.verifySignatures()).toBe(false);
   });
   it("matcher ctx pre-create = SystemProgram.createAccount(320 B, owner = canonical matcher)", () => {
     const payer = pk(), ctx = pk();

@@ -5705,7 +5705,7 @@ var ACCOUNTS_INIT_VAULT_LP_P3 = [
   { name: "market", signer: false, writable: true },
   { name: "registry", signer: false, writable: true },
   { name: "vaultLpState", signer: false, writable: true },
-  { name: "lpPortfolio", signer: false, writable: true },
+  { name: "lpPortfolio", signer: true, writable: true },
   { name: "systemProgram", signer: false, writable: false },
   { name: "ledger", signer: false, writable: true },
   { name: "siblingLedger", signer: false, writable: true },

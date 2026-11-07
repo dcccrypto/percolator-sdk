@@ -508,6 +508,11 @@ export function buildCreateVaultLpMatcherCtxIxP3(
  * the ext with the cushion ON (20% / 50%) and the marketauth pays its rent (~0.002 SOL). Pass `opts.withVaultLpExt: false` for the bare
  * 11-account bind. Builds without the controller round ignore the extra account.
  *
+ * The LP portfolio (`m.lpPortfolio`, account [4]) is a SIGNER (prog #684, mirrors D26 for InitPortfolio): create it in the SAME transaction with
+ * `buildCreateLpPortfolioIxV22(payer, lpPortfolio, rentExemptLamports, programId)` (exact portfolio length, funded with
+ * `getMinimumBalanceForRentExemption(portfolioAccountLenV22())`; below that the program refuses 64 RentExemptRequired) and sign the transaction with
+ * the LP portfolio keypair as well as the marketauth. Without its signature the program refuses with 6 ExpectedSigner.
+ *
  * @param m               Market context.
  * @param marketauth      The market's marketauth (signer; becomes the junior owner; pays the ext rent).
  * @param juniorFloorBps  1000..=10000.

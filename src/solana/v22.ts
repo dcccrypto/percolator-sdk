@@ -741,7 +741,8 @@ export interface LaunchBundleInputV22 {
   market: MarketV22;
   /**
    * `SystemProgram.createAccount` instructions (the matcher context, 320 B; the vault-LP portfolio at EXACTLY
-   * `portfolio.accountLen`), placed between 74 and 94 (the order the real wrapper accepts). They sign with their new keypairs.
+   * `portfolio.accountLen`, rent-exempt), placed between 74 and 94 (the order the real wrapper accepts). They sign with their new keypairs; the
+   * vault-LP portfolio keypair must sign BOTH its createAccount and tag 94 (account [4] is a signer, prog #684).
    */
   createAccounts: readonly TransactionInstruction[];
   /** Tag 74 CreateLpVault. */
