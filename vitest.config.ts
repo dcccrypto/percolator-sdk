@@ -60,7 +60,7 @@ export default defineConfig({
       "test/nft-program-env.test.ts",
       "test/v22-qa-fixes.test.ts",
       "test/v22-qa-overnight.test.ts",
-      "test/v22-multi-asset-trade.test.ts", "test/v22-catchup-liquidate.test.ts",
+      "test/v22-multi-asset-trade.test.ts", "test/v22-catchup-liquidate.test.ts", "test/v22-liq-adl-latch.test.ts",
       "test/dist-fresh.test.ts",
       "test/stake-352-token-program.test.ts",
       "test/stake-staker-signer.test.ts",
@@ -75,6 +75,7 @@ export default defineConfig({
       "test/creator-fee-payee-v22.test.ts",
       "test/v22-band-safety-law.test.ts",
       "test/bond-carry-571.test.ts",
+      "test/v22-resolved-receipt-filter.security.test.ts",
     ],
   },
 });

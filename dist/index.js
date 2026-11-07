@@ -16572,19 +16572,42 @@ function buildClaimResolvedPayoutTopupIxP3(a) {
   }
   return new TransactionInstruction8({ programId: a.programId, keys, data: Buffer.from([46]) });
 }
-async function listOpenResolvedReceiptsP3(conn, programId, market, layout = LAYOUT_V21) {
-  const accs = await conn.getProgramAccounts(programId, {
-    commitment: "confirmed",
-    filters: [{ dataSize: layout.portfolio.accountLen }, { memcmp: { offset: 16, bytes: market.toBase58() } }]
-  });
+async function listOpenResolvedReceiptsP3(conn, programId, market, layout) {
+  const layouts = layout ? [layout] : [LAYOUT_V21, LAYOUT_V22];
+  const batches = await Promise.all(layouts.map(async (row) => ({
+    row,
+    accounts: await conn.getProgramAccounts(programId, {
+      commitment: "confirmed",
+      filters: [
+        { dataSize: row.portfolio.accountLen },
+        { memcmp: { offset: 16, bytes: market.toBase58() } },
+        { memcmp: portfolioFilterForLayout(row).versionMemcmp }
+      ]
+    })
+  })));
   const [registry] = deriveLpVaultRegistry(programId, market);
   const out = [];
-  for (const { pubkey, account } of accs) {
-    const data = new Uint8Array(account.data);
-    const receipt = decodeResolvedPayoutReceiptP3(data);
-    if (!receipt.open) continue;
-    const owner = new PublicKey26(data.subarray(80, 112));
-    out.push({ portfolio: pubkey, owner, receipt, isVaultLp: owner.equals(registry), needsHolder: !PublicKey26.isOnCurve(owner.toBytes()) && !owner.equals(registry) });
+  const seen = /* @__PURE__ */ new Set();
+  for (const { row, accounts } of batches) {
+    for (const { pubkey, account } of accounts) {
+      const id = pubkey.toBase58();
+      if (seen.has(id)) continue;
+      const data = new Uint8Array(account.data);
+      if (data.length !== row.portfolio.accountLen) continue;
+      const detected = resolvePortfolioLayout(data, { parser: "listOpenResolvedReceiptsP3", strictLength: true });
+      if (detected.version !== row.version || detected.engineDiscriminator !== row.engineDiscriminator) continue;
+      const receipt = decodeResolvedPayoutReceiptP3(data);
+      if (!receipt.open) continue;
+      const owner = new PublicKey26(data.subarray(80, 112));
+      seen.add(id);
+      out.push({
+        portfolio: pubkey,
+        owner,
+        receipt,
+        isVaultLp: owner.equals(registry),
+        needsHolder: !PublicKey26.isOnCurve(owner.toBytes()) && !owner.equals(registry)
+      });
+    }
   }
   return out;
 }
@@ -18405,10 +18428,12 @@ import { TransactionInstruction as TransactionInstruction17 } from "@solana/web3
 var WRAPPER_PRE_CRANK_MIN_LEGS_V22 = WRAPPER_MAX_PORTFOLIO_ASSETS_V22 > 1 ? WRAPPER_MAX_PORTFOLIO_ASSETS_V22 - 1 : 1;
 var MULTI_ASSET_TRADE_COMPUTE_UNITS_V22 = 14e5;
 var MULTI_ASSET_TRADE_MAX_EXTRA_CRANKS_V22 = 4;
-function buildRefreshCrankIxV22(programId, market, cranker, portfolio, observations = []) {
+function buildRefreshCrankIxV22(programId, market, cranker, portfolio, observations = [], opts = {}) {
+  const keys = buildAccountMetas(ACCOUNTS_PERMISSIONLESS_CRANK_BASE, { owner: cranker, market, portfolio });
+  if (opts.vaultLpCounterparty) keys.push({ pubkey: opts.vaultLpCounterparty, isSigner: false, isWritable: true });
   return new TransactionInstruction17({
     programId,
-    keys: buildAccountMetas(ACCOUNTS_PERMISSIONLESS_CRANK_BASE, { owner: cranker, market, portfolio }),
+    keys,
     data: Buffer.from(encodePermissionlessCrank({ nowSlot: 0n, observations: observations.map((assetIndex) => ({ assetIndex, oracleAccounts: 0 })) }))
   });
 }
@@ -18452,6 +18477,14 @@ function refineMultiAssetTradePlanV22(plan, err) {
   }
   return { action: "fail", plan, code, reason: code === null ? "refused" : `refused with ${code}` };
 }
+function boundVaultLpPortfolioV22(marketData) {
+  const g = resolveMarketGeometry(marketData, { parser: "boundVaultLpPortfolioV22", strictLength: false });
+  for (let i = 0; i < g.slotCount; i++) {
+    const rec = decodeAssetVaultLpP3(marketData, i);
+    if (rec.bound) return rec.vaultLpPortfolio;
+  }
+  return null;
+}
 
 // src/solana/v22-catchup-liquidate.ts
 var OBSERVE_CRANK_CU_V22 = 3e4;
@@ -18475,7 +18508,7 @@ function buildCatchUpAndRefreshIxsV22(input) {
   const total2 = Number(windows < 1n ? 1n : windows);
   const observe = input.observePortfolio ?? input.portfolio;
   const observeIx = () => buildRefreshCrankIxV22(input.programId, input.market, input.cranker, observe, assets);
-  const refreshIx = () => buildRefreshCrankIxV22(input.programId, input.market, input.cranker, input.portfolio, []);
+  const refreshIx = () => buildRefreshCrankIxV22(input.programId, input.market, input.cranker, input.portfolio, [], { vaultLpCounterparty: input.vaultLpCounterparty });
   const finalObserves = Math.min(total2, MAX_OBSERVES_WITH_REFRESH_V22);
   let remaining = total2 - finalObserves;
   const txs = [];
@@ -20012,6 +20045,7 @@ export {
   bookDepthFromPins,
   bookTier,
   boundVaultDepositQuoteP3,
+  boundVaultLpPortfolioV22,
   boundVaultNavFlooredP3,
   boundVaultRedemptionAtomsP3,
   boundVaultSeniorValueP3,
