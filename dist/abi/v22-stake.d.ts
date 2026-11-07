@@ -420,9 +420,12 @@ export interface StakeWithdrawQuoteV5 {
  * @param userLp        The staker's LP balance.
  * @param liveInsurance OPTIONAL live market insurance (`min(Σ decodeTerminalInsuranceCapacity(marketData).domains[].withdrawCapacity, .insurance)`, the wrapper's `ins_units_readings_view` free reading). `units.snapInsuranceFreeAtoms`
  *                      is only refreshed when someone touches the units account, so after an insurance loss it is STALE-HIGH and over-quotes
- *                      (devnet FGSFL 2026-10-20: quote 10.96M, program paid 8.35M). The program re-reads the live free reading inside the withdraw
- *                      and free = min(withdraw capacity, gross insurance), so the exit reading is clamped to `min(exitInsurance, liveInsurance)`: never higher than what the
- *                      program will use. A stale-LOW snapshot only under-quotes (safe).
+ *                      (devnet FGSFL 2026-10-20: quote 10.96M, program paid 8.35M). Withdraw refreshes the snapshot to the live free reading
+ *                      before pricing (stake `process_withdraw` -> `v5_read_units` -> `cpi_refresh_ins_units`, then priced from `snap_free`),
+ *                      so when given, `liveInsurance` replaces `exitInsurance` in BOTH directions. A stale-LOW snapshot is not safe: a lower
+ *                      pool value makes `maxLpNow` a bigger burn, which the program prices at live and refuses with 36. The decoded reading
+ *                      can only sit above the program's (it omits the engine's hidden K/F loss reservation), which gives a smaller burn.
+ *                      `maxLpNow` sits exactly on the liquid limit when `capBinds`, so trim it if the pool can grow between the read and the send.
  * @returns The quote, or `null` where the program fails closed (see {@link stakePoolValue}) or the pool has no LP supply.
  * @example
  * ```ts
