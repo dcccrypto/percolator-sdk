@@ -83,6 +83,7 @@ export default defineConfig({
       "test/price-router-branches.test.ts",
       "test/dex-oracle-layout-bytes.test.ts",
       "test/oracle-staleness-nan.test.ts",
+      "test/trading-math-behaviour.test.ts",
     ],
   },
 });
