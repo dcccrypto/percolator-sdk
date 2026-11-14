@@ -1,5 +1,6 @@
 /**
- * Wire-size / field-offset test: every v2.2 instruction tag the SDK can encode, checked against
+ * Wire-size / field-offset test: every v2.2 instruction tag the SDK can emit (89 of the 102 the
+ * decoder accepts; the other 13 have no SDK encoder), checked against
  * the table of what the wrapper decoder reads (test/wire-size-v22/table.ts).
  *
  * Table source: dcccrypto/percolator-prog @ feat/v22-rc23-2026-10-22 (ab85662),
@@ -10,12 +11,16 @@
  * For each row: byte 0 is the tag, total length is 1 + sum of the field sizes, and every field is
  * read back at its cumulative offset with an independent DataView reader.
  *
- * Rows marked `mismatch` are real SDK/program disagreements (the SDK emits a shape the decoder
- * rejects). The failing assertion is kept as `it.fails`, so the suite stays green while the bug is
- * on record; when the SDK is fixed, `it.fails` turns red and the marker must be removed.
+ * Rows marked `mismatch` are SDK/program disagreements (the SDK emits a shape the decoder rejects).
+ * The only one is the legacy 17-byte tag 76, which the SDK already marks @deprecated (kept for
+ * pre-v2.2 programs), so it is recorded, not "fixed". The failing assertion is kept as `it.fails`:
+ * the suite stays green, and if the SDK stops emitting that shape `it.fails` turns red and the
+ * marker should be removed.
  */
 import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
+import { renderDoc } from "./wire-size-v22/doc.js";
+import { readFileSync } from "node:fs";
 import { ROWS, NO_SDK_ENCODER, PROGRAM_TAGS, REJECTED_SHAPES, SIZE, parseSpec, valuesByName, expectedLength, PROG_FILE, PROG_BRANCH, type Field } from "./wire-size-v22/table.js";
 
 function readField(dv: DataView, off: number, f: Field, bytes: Uint8Array): bigint | number | string {
@@ -63,7 +68,7 @@ describe(`SDK encoders vs v2.2 decoder table (${PROG_BRANCH})`, () => {
     }
   }
 
-  it("no SDK row without a mismatch marker emits a shape the program rejects", () => {
+  it("no unmarked row emits a shape listed in REJECTED_SHAPES (today only tag 76 / 17 B)", () => {
     for (const row of ROWS.filter((r) => !r.mismatch)) {
       const bytes = row.enc(valuesByName(parseSpec(row.spec)));
       const bad = REJECTED_SHAPES.find((r) => r.tag === bytes[0] && r.len === bytes.length);
@@ -75,6 +80,11 @@ describe(`SDK encoders vs v2.2 decoder table (${PROG_BRANCH})`, () => {
     const covered = new Set([...ROWS.map((r) => r.tag), ...NO_SDK_ENCODER.map((n) => n.tag)]);
     expect([...covered].sort((a, b) => a - b)).toEqual(PROGRAM_TAGS);
     expect(PROGRAM_TAGS.length).toBe(102);
+  });
+
+  it("specs/WIRE_SIZES_V22.md is up to date with the table", () => {
+    const doc = readFileSync(new URL("../specs/WIRE_SIZES_V22.md", import.meta.url), "utf8");
+    expect(doc).toBe(renderDoc());
   });
 
   it("table has no duplicate (tag, form) rows", () => {

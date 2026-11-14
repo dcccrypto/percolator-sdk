@@ -29,6 +29,7 @@ import * as lg from "../../src/abi/lev-guard-v22.js";
 import * as ds from "../../src/abi/v22-depth-source.js";
 import * as cfp from "../../src/abi/creator-fee-payee-v22.js";
 import * as rs from "../../src/abi/v22-resolve.js";
+import * as p3v from "../../src/solana/p3-vault-lp.js";
 
 export const PROG_BRANCH = "feat/v22-rc23-2026-10-22";
 export const PROG_FILE = "src/v16_program.rs";
@@ -109,10 +110,39 @@ const INIT_MARKET_SPEC =
   "maxBankruptCloseChunks:u64 maxBankruptCloseLifetimeSlots:u64 publicBChunkAtoms:u128 maintenanceFeePerSlot:u128";
 const initArgs = (o: any) => o;
 
+/** InitMarket base with values the growth/band encoders accept (r_gap floor = move x 50, MMR >= r_gap + liq fee). */
+const INIT_OK = INIT_MARKET_SPEC
+  .replace("maxPortfolioAssets:u16=4", "maxPortfolioAssets:u16=1")
+  .replace("maintenanceMarginBps:u64", "maintenanceMarginBps:u64=2000")
+  .replace("initialMarginBps:u64", "initialMarginBps:u64=3000")
+  .replace("liquidationFeeBps:u64", "liquidationFeeBps:u64=50")
+  .replace("maxPriceMoveBpsPerSlot:u64", "maxPriceMoveBpsPerSlot:u64=1");
+const GROWTH = "rGapBps:u16=100 lLaunchX100:u16=500";
+const LOT = "lotExp:u8=3";
+const RENT = "rentMaxE9PerSlot:u32=100 rentKinkBps:u16=5000";
+const BAND = "bandBps:u16=300 bandMaxEpochSlots:u32=200 bandMaxPinSlots:u32=2000 bandMinLegNotional:u64=100000000";
+const trailer = (o: any) => ({
+  rGapBps: o.rGapBps, lLaunchX100: o.lLaunchX100,
+  ...(o.lotExp !== undefined ? { lotExp: o.lotExp } : {}),
+  ...(o.rentMaxE9PerSlot !== undefined ? { rent: { rentMaxE9PerSlot: o.rentMaxE9PerSlot, rentKinkBps: o.rentKinkBps } } : {}),
+  ...(o.bandBps !== undefined ? { band: { bandBps: o.bandBps, bandMaxEpochSlots: o.bandMaxEpochSlots, bandMaxPinSlots: o.bandMaxPinSlots, bandMinLegNotional: o.bandMinLegNotional } } : {}),
+});
+const PK0 = new PublicKey(new Uint8Array(32).fill(9));
+const claimData = () => p3v.buildClaimResolvedPayoutTopupIxP3({ programId: PK0, market: PK0, portfolio: PK0, owner: PK0, destToken: PK0, vaultToken: PK0 }).data;
+const closeResolvedData = () => p3v.buildCloseResolvedUnsignedIxP3({ programId: PK0, market: PK0, portfolio: PK0, owner: PK0, destToken: PK0, vaultToken: PK0 }).data;
+
 const TRADE_ACCTS = "accountAPortfolioId:u64 accountAPositionEpoch:u64 accountBPortfolioId:u64 accountBPositionEpoch:u64";
 
 export const ROWS: Row[] = [
   { tag: 0, name: "InitMarket", prog: 10057, form: "base", spec: INIT_MARKET_SPEC, enc: (o) => ix.encodeInitMarket(initArgs(o)) },
+  { tag: 0, name: "InitMarketV19", prog: 10057, form: "base + growth(4) = 223 B", spec: `${INIT_OK} ${GROWTH}`, enc: (o) => gv.encodeInitMarketV19(o, o.rGapBps, o.lLaunchX100) },
+  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + lot(1) = 224 B", spec: `${INIT_OK} ${GROWTH} ${LOT}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
+  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + rent(6) = 229 B", spec: `${INIT_OK} ${GROWTH} ${RENT}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
+  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + lot(1) + rent(6) = 230 B", spec: `${INIT_OK} ${GROWTH} ${LOT} ${RENT}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
+  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + rent(6) + band(18) = 247 B", spec: `${INIT_OK} ${GROWTH} ${RENT} ${BAND}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
+  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + lot(1) + rent(6) + band(18) = 248 B", spec: `${INIT_OK} ${GROWTH} ${LOT} ${RENT} ${BAND}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
+  { tag: 30, name: "CloseResolved", prog: 10313, form: "permissionless form via buildCloseResolvedUnsignedIxP3 (fee_rate = 0)", spec: "feeRatePerSlot:u128=0", enc: () => closeResolvedData() },
+  { tag: 46, name: "ClaimResolvedPayoutTopup", prog: 10521, form: "bare via buildClaimResolvedPayoutTopupIxP3", spec: "", enc: () => claimData() },
   { tag: 1, name: "InitPortfolio", prog: 10157, form: "bare", spec: "", enc: () => ix.encodeInitUser() },
   { tag: 3, name: "Deposit", prog: 10158, form: "fixed", spec: "portfolioId:u64 expectedSequence:u64 amount:u128", enc: (o) => ix.encodeDepositCollateral(o) },
   { tag: 4, name: "Withdraw", prog: 10163, form: "fixed", spec: "portfolioId:u64 expectedSequence:u64 amount:u128", enc: (o) => ix.encodeWithdrawCollateral(o) },
@@ -161,7 +191,7 @@ export const ROWS: Row[] = [
   { tag: 39, name: "ResolveStalePermissionless", prog: 10438, form: "fixed", spec: "nowSlot:u64", enc: (o) => rs.encodeResolveStalePermissionless(o.nowSlot) },
   {
     tag: 34, name: "ConfigureHybridOracle", prog: 10441, form: "fixed",
-    spec: "assetIndex:u16 marketId:u64 nowSlot:u64 nowUnixTs:i64 oracleLegCount:u8=1 oracleLegFlags:u8=1 maxStalenessSecs:u64 hybridSoftStaleSlots:u64 markEwmaHalflifeSlots:u64 markMinFee:u64 invert:u8=0 unitScale:u32 confFilterBps:u16 feed0:pk feed1:pk feed2:pk observationSequence:u64",
+    spec: "assetIndex:u16 marketId:u64 nowSlot:u64 nowUnixTs:i64 oracleLegCount:u8=1 oracleLegFlags:u8=2 maxStalenessSecs:u64 hybridSoftStaleSlots:u64 markEwmaHalflifeSlots:u64 markMinFee:u64 invert:u8=0 unitScale:u32 confFilterBps:u16 feed0:pk feed1:pk feed2:pk observationSequence:u64",
     enc: (o) => ix.encodeConfigureHybridOracle({ ...o, oracleLegFeeds: [o.feed0, o.feed1, o.feed2] } as any),
   },
   { tag: 35, name: "ConfigureEwmaMark", prog: 10462, form: "fixed", spec: "assetIndex:u16 marketId:u64 nowSlot:u64 initialMarkE6:u64 markEwmaHalflifeSlots:u64 markMinFee:u64 observationSequence:u64", enc: (o) => ix.encodeConfigureEwmaMark(o) },
@@ -181,9 +211,9 @@ export const ROWS: Row[] = [
     enc: (o) => w22.encodeRequestRedeemLpSharesV22({ shares: o.shares, minPayoutAtoms: o.minPayoutAtoms, keeperOk: o.keeperOk === 1 }),
   },
   {
-    tag: 76, name: "RequestRedeemLpShares", prog: 10544, form: "legacy 17 B (shares only): RETIRED by the program (line 10551)",
+    tag: 76, name: "RequestRedeemLpShares", prog: 10544, form: "legacy 17 B (shares only): RETIRED by the program (line 10552)",
     spec: "shares:u128", enc: (o) => ix.encodeRequestRedeemLpShares(o),
-    mismatch: "encodeRequestRedeemLpShares emits the retired 17-byte form; program decode returns InvalidInstructionData (v16_program.rs:10551)",
+    mismatch: "encodeRequestRedeemLpShares emits the retired 17-byte form; program decode returns InvalidInstructionData (v16_program.rs:10552). Already @deprecated in the SDK (kept for pre-v2.2 programs), so this is known, not a new bug.",
   },
   { tag: 77, name: "ExecuteRedemption", prog: 10570, form: "legacy domain only = 3 B", spec: "domain:u16", enc: (o) => ix.encodeExecuteRedemption(o) },
   { tag: 77, name: "ExecuteRedemptionV22", prog: 10570, form: "domain, floor, n_refresh = 12 B", spec: "domain:u16 minPayoutAtoms:u64 nRefresh:u8=2", enc: (o) => w22.encodeExecuteRedemptionV22(o) },
@@ -248,7 +278,7 @@ export const ROWS: Row[] = [
   },
   {
     tag: 99, name: "SetVaultLpRiskV19", prog: 10771, form: "base + 4 x u16 dials = 81 B",
-    spec: "assetIndex:u16 skewSlopeE9:u64 skewMaxE9:u64 levCapQ:u128 levMaxImrBps:u16 vaultLpMaxLevBps:u32 approvedMatcherProgram:pk allocAlphaBps:u16=2000 allocBufferBps:u16=4000 cushionTargetBps:u16=0 cushionShareBps:u16=0",
+    spec: "assetIndex:u16 skewSlopeE9:u64 skewMaxE9:u64 levCapQ:u128 levMaxImrBps:u16 vaultLpMaxLevBps:u32 approvedMatcherProgram:pk allocAlphaBps:u16=2000 allocBufferBps:u16=4000 cushionTargetBps:u16=1500 cushionShareBps:u16=500",
     enc: (o) => p2b.encodeSetVaultLpRiskV19P2b(o),
   },
   { tag: 100, name: "VaultLpConvertPnl", prog: 10805, form: "fixed", spec: "amount:u128", enc: (o) => p3.encodeVaultLpConvertPnlP3(o.amount) },
@@ -294,20 +324,19 @@ export const ROWS: Row[] = [
 
 /**
  * Tags the v2.2 decoder accepts for which the SDK has NO encoder at all (so there is no SDK wire to
- * check). Not mismatches. `len` is the exact program data length (tag included).
+ * check). Not mismatches. (Tags 30 and 46 are emitted only by instruction builders in
+ * src/solana/p3-vault-lp.ts; they are table rows above, checked through `ix.data`.) `len` is the exact program data length (tag included).
  */
 /** Shapes the program decoder refuses outright (tag, exact data length, program line of the refusal). */
 export const REJECTED_SHAPES: { tag: number; len: number; prog: number }[] = [
   // AUD-S1-18: the legacy 17-byte RequestRedeemLpShares (no payout floor) is RETIRED.
-  { tag: 76, len: 17, prog: 10551 },
+  { tag: 76, len: 17, prog: 10552 },
 ];
 
 export const NO_SDK_ENCODER: { tag: number; name: string; prog: number; len: string }[] = [
-  { tag: 30, name: "CloseResolved", prog: 10313, len: "17 (u128 fee_rate_per_slot)" },
   { tag: 37, name: "UpdateLiquidationFeePolicy", prog: 10327, len: "11 (u16, u64)" },
   { tag: 38, name: "ConfigurePermissionlessResolve", prog: 10432, len: "33 (4 x u64)" },
   { tag: 45, name: "FinalizeResetSide", prog: 10517, len: "4 (u16, u8)" },
-  { tag: 46, name: "ClaimResolvedPayoutTopup", prog: 10521, len: "1" },
   { tag: 47, name: "RefineResolvedUnreceiptedBound", prog: 10522, len: "17 (u128)" },
   { tag: 48, name: "SyncMaintenanceFee", prog: 10525, len: "9 (u64)" },
   { tag: 49, name: "UpdateMaintenanceFeePolicy", prog: 10331, len: "11 (u16, u64)" },

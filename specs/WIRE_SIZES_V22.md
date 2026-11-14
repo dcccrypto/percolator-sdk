@@ -2,11 +2,17 @@
 
 Source: `dcccrypto/percolator-prog` @ `feat/v22-rc23-2026-10-22` (ab85662), `src/v16_program.rs`, `Instruction::decode` (lines 10052-10950).
 The decoder rejects trailing bytes (line 10945), so the length is exact. `len` includes the tag byte. Offsets are from byte 0 (tag at 0).
-Generated from `test/wire-size-v22/table.ts`; checked by `test/wire-size-v22.test.ts`.
+Generated from `test/wire-size-v22/table.ts` (`pnpm exec tsx scripts/gen-wire-size-doc.ts > specs/WIRE_SIZES_V22.md`); checked by `test/wire-size-v22.test.ts`.
 
 | tag | name | form | len | fields (offset:type) | program line |
 |---|---|---|---|---|---|
 | 0 | InitMarket | base | 219 | 1:u16 3:u64 11:u64 19:u64 27:u128 43:u128 59:u64 67:u64 75:u64 83:u64 91:u64 99:u128 115:u128 131:u64 139:u64 147:u64 155:u64 163:u64 171:u64 179:u64 187:u128 203:u128 | v16_program.rs:10057 |
+| 0 | InitMarketV19 | base + growth(4) = 223 B | 223 | 1:u16 3:u64 11:u64 19:u64 27:u128 43:u128 59:u64 67:u64 75:u64 83:u64 91:u64 99:u128 115:u128 131:u64 139:u64 147:u64 155:u64 163:u64 171:u64 179:u64 187:u128 203:u128 219:u16 221:u16 | v16_program.rs:10057 |
+| 0 | InitMarketV22 | base + growth(4) + lot(1) = 224 B | 224 | 1:u16 3:u64 11:u64 19:u64 27:u128 43:u128 59:u64 67:u64 75:u64 83:u64 91:u64 99:u128 115:u128 131:u64 139:u64 147:u64 155:u64 163:u64 171:u64 179:u64 187:u128 203:u128 219:u16 221:u16 223:u8 | v16_program.rs:10057 |
+| 0 | InitMarketV22 | base + growth(4) + rent(6) = 229 B | 229 | 1:u16 3:u64 11:u64 19:u64 27:u128 43:u128 59:u64 67:u64 75:u64 83:u64 91:u64 99:u128 115:u128 131:u64 139:u64 147:u64 155:u64 163:u64 171:u64 179:u64 187:u128 203:u128 219:u16 221:u16 223:u32 227:u16 | v16_program.rs:10057 |
+| 0 | InitMarketV22 | base + growth(4) + lot(1) + rent(6) = 230 B | 230 | 1:u16 3:u64 11:u64 19:u64 27:u128 43:u128 59:u64 67:u64 75:u64 83:u64 91:u64 99:u128 115:u128 131:u64 139:u64 147:u64 155:u64 163:u64 171:u64 179:u64 187:u128 203:u128 219:u16 221:u16 223:u8 224:u32 228:u16 | v16_program.rs:10057 |
+| 0 | InitMarketV22 | base + growth(4) + rent(6) + band(18) = 247 B | 247 | 1:u16 3:u64 11:u64 19:u64 27:u128 43:u128 59:u64 67:u64 75:u64 83:u64 91:u64 99:u128 115:u128 131:u64 139:u64 147:u64 155:u64 163:u64 171:u64 179:u64 187:u128 203:u128 219:u16 221:u16 223:u32 227:u16 229:u16 231:u32 235:u32 239:u64 | v16_program.rs:10057 |
+| 0 | InitMarketV22 | base + growth(4) + lot(1) + rent(6) + band(18) = 248 B | 248 | 1:u16 3:u64 11:u64 19:u64 27:u128 43:u128 59:u64 67:u64 75:u64 83:u64 91:u64 99:u128 115:u128 131:u64 139:u64 147:u64 155:u64 163:u64 171:u64 179:u64 187:u128 203:u128 219:u16 221:u16 223:u8 224:u32 228:u16 230:u16 232:u32 236:u32 240:u64 | v16_program.rs:10057 |
 | 1 | InitPortfolio | bare | 1 | - | v16_program.rs:10157 |
 | 3 | Deposit | fixed | 33 | 1:u64 9:u64 17:u128 | v16_program.rs:10158 |
 | 4 | Withdraw | fixed | 33 | 1:u64 9:u64 17:u128 | v16_program.rs:10163 |
@@ -19,6 +25,7 @@ Generated from `test/wire-size-v22/table.ts`; checked by `test/wire-size-v22.tes
 | 19 | ResolveMarket | fixed | 17 | 1:u64 9:u64 | v16_program.rs:10290 |
 | 24 | TopUpBackingBucket | fixed | 51 | 1:u16 3:u64 11:u64 19:u64 27:u128 43:u64 | v16_program.rs:10294 |
 | 28 | ConvertReleasedPnl | fixed | 33 | 1:u64 9:u64 17:u128 | v16_program.rs:10308 |
+| 30 | CloseResolved | permissionless form via buildCloseResolvedUnsignedIxP3 (fee_rate = 0) | 17 | 1:u128 | v16_program.rs:10313 |
 | 32 | UpdateAuthority | fixed | 41 | 1:pk 33:u64 | v16_program.rs:10316 |
 | 34 | ConfigureHybridOracle | fixed | 172 | 1:u16 3:u64 11:u64 19:i64 27:u8 28:u8 29:u64 37:u64 45:u64 53:u64 61:u8 62:u32 66:u16 68:pk 100:pk 132:pk 164:u64 | v16_program.rs:10441 |
 | 35 | ConfigureEwmaMark | fixed | 51 | 1:u16 3:u64 11:u64 19:u64 27:u64 35:u64 43:u64 | v16_program.rs:10462 |
@@ -29,6 +36,7 @@ Generated from `test/wire-size-v22/table.ts`; checked by `test/wire-size-v22.tes
 | 42 | CureAndCancelClose | fixed | 33 | 1:u64 9:u64 17:u128 | v16_program.rs:10500 |
 | 43 | ForfeitRecoveryLeg | fixed | 35 | 1:u64 9:u64 17:u16 19:u128 | v16_program.rs:10505 |
 | 44 | RebalanceReduce | fixed | 35 | 1:u64 9:u64 17:u16 19:u128 | v16_program.rs:10511 |
+| 46 | ClaimResolvedPayoutTopup | bare via buildClaimResolvedPayoutTopupIxP3 | 1 | - | v16_program.rs:10521 |
 | 50 | WithdrawBackingBucket | fixed | 35 | 1:u16 3:u64 11:u128 27:u64 | v16_program.rs:10302 |
 | 51 | UpdateBackingFeePolicy | fixed | 23 | 1:u16 3:u64 11:u16 13:u16 15:u64 | v16_program.rs:10335 |
 | 52 | WithdrawBackingBucketEarnings | fixed | 35 | 1:u16 3:u64 11:u128 27:u64 | v16_program.rs:10422 |
@@ -50,7 +58,7 @@ Generated from `test/wire-size-v22/table.ts`; checked by `test/wire-size-v22.tes
 | 74 | CreateLpVault | fixed | 15 | 1:u16 3:u64 11:u16 13:u16 | v16_program.rs:10529 |
 | 75 | DepositToLpVault | fixed | 19 | 1:u128 17:u16 | v16_program.rs:10535 |
 | 76 | RequestRedeemLpShares | v2.2 (shares, floor, keeper_ok) = 26 B | 26 | 1:u128 17:u64 25:u8 | v16_program.rs:10544 |
-| 76 | RequestRedeemLpShares | legacy 17 B (shares only): RETIRED by the program (line 10551) **(SDK emits a rejected shape)** | 17 | 1:u128 | v16_program.rs:10544 |
+| 76 | RequestRedeemLpShares | legacy 17 B (shares only): RETIRED by the program (line 10552) **(SDK emits a rejected shape)** | 17 | 1:u128 | v16_program.rs:10544 |
 | 77 | ExecuteRedemption | legacy domain only = 3 B | 3 | 1:u16 | v16_program.rs:10570 |
 | 77 | ExecuteRedemptionV22 | domain, floor, n_refresh = 12 B | 12 | 1:u16 3:u64 11:u8 | v16_program.rs:10570 |
 | 78 | LpVaultCrankFees | fixed | 3 | 1:u16 | v16_program.rs:10589 |
@@ -115,11 +123,9 @@ Generated from `test/wire-size-v22/table.ts`; checked by `test/wire-size-v22.tes
 
 | tag | name | len | program line |
 |---|---|---|---|
-| 30 | CloseResolved | 17 (u128 fee_rate_per_slot) | v16_program.rs:10313 |
 | 37 | UpdateLiquidationFeePolicy | 11 (u16, u64) | v16_program.rs:10327 |
 | 38 | ConfigurePermissionlessResolve | 33 (4 x u64) | v16_program.rs:10432 |
 | 45 | FinalizeResetSide | 4 (u16, u8) | v16_program.rs:10517 |
-| 46 | ClaimResolvedPayoutTopup | 1 | v16_program.rs:10521 |
 | 47 | RefineResolvedUnreceiptedBound | 17 (u128) | v16_program.rs:10522 |
 | 48 | SyncMaintenanceFee | 9 (u64) | v16_program.rs:10525 |
 | 49 | UpdateMaintenanceFeePolicy | 11 (u16, u64) | v16_program.rs:10331 |
