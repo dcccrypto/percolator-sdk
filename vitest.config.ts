@@ -78,6 +78,7 @@ export default defineConfig({
       "test/v22-resolved-receipt-filter.security.test.ts",
       "test/instructions-wire-coverage.test.ts",
       "test/wire-size-v22.test.ts",
+      "test/oracle-chainlink-bytes.test.ts",
     ],
   },
 });
