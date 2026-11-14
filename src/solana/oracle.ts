@@ -163,6 +163,14 @@ export function parseChainlinkPrice(data: Uint8Array, options?: ParseChainlinkOp
   const updatedAt = readU32LE(data, CHAINLINK_TIMESTAMP_OFFSET);
 
   if (options?.maxStalenessSeconds !== undefined) {
+    // NaN makes both comparisons below false, which would skip the check the
+    // caller asked for. Fail closed instead.
+    if (Number.isNaN(options.maxStalenessSeconds)) {
+      throw new Error("maxStalenessSeconds is NaN");
+    }
+    if (Number.isNaN(options.futureToleranceSeconds)) {
+      throw new Error("futureToleranceSeconds is NaN");
+    }
     // Mirror the program, which rejects `publish_time <= 0` outright rather than
     // skipping the check: a zero timestamp means the feed has never published,
     // which is maximally stale, not exempt from staleness.

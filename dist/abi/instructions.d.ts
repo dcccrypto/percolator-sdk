@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 /**
  * Instruction tags — exact match to Rust ix::Instruction::decode arm in the
- * v17 converged wrapper (percolator-prog @v17-convergence, source
+ * v2.2 wrapper (percolator-prog @feat/v22-rc23-2026-10-22, source
  * src/v16_program.rs). Tags are gappy; every absent tag rejects with
  * InvalidInstructionData.
  *
@@ -10,8 +10,8 @@ import { PublicKey } from "@solana/web3.js";
  *     moved 65-71→74-80, fork NFT-B3 kept 72/73, toly claimed 65-69).
  *   - Tag 32 UpdateAuthority: v17 has NO kind byte — just new_pubkey[32].
  *   - Tag 57 is now WithdrawInsuranceAsset{asset_index:u16, amount:u128}.
- *   - Tag 5 PermissionlessCrank: funding_rate_e9 arg MUST be hardcoded 0n by
- *     all callers — the program hard-rejects nonzero.
+ *   - Tag 5 PermissionlessCrank: now_slot(u64) + n(u8) + n x {asset_index(u16),
+ *     oracle_accounts(u8)}; n is capped at CRANK_OBSERVATION_DECODE_MAX.
  *   - Domain fields: u8→u16 everywhere.
  */
 export declare const IX_TAG: {
@@ -30,11 +30,10 @@ export declare const IX_TAG: {
     /**
      * PermissionlessCrank (tag 5).
      *
-     * CRITICAL: The on-chain decoder reads funding_rate_e9 (i128) at bytes [4..20]
-     * and hard-rejects nonzero with InvalidInstructionData. SDK callers MUST use
-     * encodePermissionlessCrank() which hardcodes fundingRateE9=0n. Do NOT
-     * construct the payload manually and omit this field — that produces a
-     * malformed instruction (missing bytes).
+     * Wire: tag(1) + now_slot(u64) + n(u8) + n x {asset_index(u16),
+     * oracle_accounts(u8)}. The decoder rejects n > CRANK_OBSERVATION_DECODE_MAX
+     * with InvalidInstructionData. There is no funding_rate_e9 field in v2.2.
+     * Use encodePermissionlessCrank().
      */
     readonly PermissionlessCrank: 5;
     /** @alias KeeperCrank @since v12.x alias */
@@ -1387,7 +1386,7 @@ export declare function encodeWithdrawBackingBucketEarnings(args: WithdrawBackin
  *   account_b_portfolio_id(u64) + account_b_position_epoch(u64) +
  *   account_b_matcher_sequence(u64) + asset_index(u16) + market_id(u64) +
  *   size_q(i128) + fee_bps(u64) + limit_price(u64) + backing_fee_cap_bps(u16)
- *   = 87 bytes.
+ *   = 85 bytes.
  *
  * BREAKING vs v17 (35-byte payload): same identity-binding additions as
  * {@link encodeTradeNoCpi} (both legs' portfolio id/position epoch,
@@ -3124,7 +3123,7 @@ export declare function encodeWithdrawInsuranceAsset(args: WithdrawInsuranceAsse
  * CreateLpVault (tag 74) — create the LP vault for a market/asset domain.
  *
  * Wire: tag(1) + fee_share_bps(u16) + redemption_cooldown_slots(u64) +
- *       oi_reservation_threshold_bps(u16) + domain(u16) = 14 bytes.
+ *       oi_reservation_threshold_bps(u16) + domain(u16) = 15 bytes.
  *
  * @param feeShareBps                  LP vault fee share in bps (0-10000).
  * @param redemptionCooldownSlots      Slots between redemption requests.
