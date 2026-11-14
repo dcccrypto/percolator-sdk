@@ -8,8 +8,13 @@ import type { LayoutTable } from "../abi/layout.js";
 // =============================================================================
 
 /** Wrap a Uint8Array in a DataView sharing the same underlying buffer. */
+let lastDvData: Uint8Array | null = null;
+let lastDv: DataView | null = null;
 function dv(data: Uint8Array): DataView {
-  return new DataView(data.buffer, data.byteOffset, data.byteLength);
+  // One-entry cache: decoders read hundreds of fields from the same buffer, so reuse the view instead of allocating one per read.
+  if (data === lastDvData && lastDv!.buffer === data.buffer && lastDv!.byteOffset === data.byteOffset && lastDv!.byteLength === data.byteLength) return lastDv!;
+  lastDvData = data;
+  return (lastDv = new DataView(data.buffer, data.byteOffset, data.byteLength));
 }
 /** Read a single unsigned byte at `off`. */
 function readU8(data: Uint8Array, off: number): number {
