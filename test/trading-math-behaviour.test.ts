@@ -40,7 +40,7 @@ describe("computeLiqPrice", () => {
     expect(computeLiqPrice(0n, 10n, 5n, 500n)).toBe(0n);
   });
   it("long: entry - capitalPerUnit*10000/(10000+mm)", () => {
-    // cap/unit e6 = 1e6*1e6/1e6... capital 1e6, pos 1e6 -> 1_000_000
+    // capital/unit e6 = 1e6*1e6/1e6 = 1_000_000
     // adjusted = 1e6*10000/10500 = 952380 ; liq = 2e6 - 952380
     expect(computeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n)).toBe(1_047_620n);
   });
@@ -65,18 +65,16 @@ describe("computePreTradeLiqPrice", () => {
   });
   it("long pays the fee on entry", () => {
     // entry = 2e6 + 2e6*100/10000 = 2_020_000
-    expect(computePreTradeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n, 100n, "long")).toBe(
-      computeLiqPrice(2_020_000n, 1_000_000n, 1_000_000n, 500n),
-    );
+    expect(computePreTradeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n, 100n, "long")).toBe(1_067_620n);
   });
   it("short receives less; a negative position size is read as its magnitude", () => {
     const a = computePreTradeLiqPrice(2_000_000n, 1_000_000n, -1_000_000n, 500n, 100n, "short");
-    expect(a).toBe(computeLiqPrice(1_980_000n, 1_000_000n, -1_000_000n, 500n));
+    expect(a).toBe(3_032_631n);
     expect(a).toBe(computePreTradeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n, 100n, "short"));
   });
   it("short with fee >= 100% clamps entry to 1 instead of reporting no-risk 0", () => {
     const p = computePreTradeLiqPrice(1_000_000n, 1_000_000n, 1_000_000n, 500n, 10000n, "short");
-    expect(p).toBe(computeLiqPrice(1n, 1_000_000n, -1_000_000n, 500n));
+    expect(p).toBe(1_052_632n);
     expect(p).toBeGreaterThan(0n);
   });
 });
@@ -109,6 +107,7 @@ describe("fees", () => {
   it("dynamic fee rounds up and is 0 for non-positive notional or rate", () => {
     expect(computeDynamicTradingFee(1n, cfg)).toBe(1n);
     expect(computeDynamicTradingFee(1000n, cfg)).toBe(2n);
+    expect(computeDynamicTradingFee(1001n, cfg)).toBe(3n);
     expect(computeDynamicTradingFee(0n, cfg)).toBe(0n);
     expect(computeDynamicTradingFee(-5n, cfg)).toBe(0n);
     expect(computeDynamicTradingFee(100n, { ...cfg, baseBps: 0n })).toBe(0n);
@@ -162,8 +161,8 @@ describe("computeEstimatedEntryPrice", () => {
 describe("computeFundingRateAnnualized", () => {
   it("scales by slots/year", () => {
     expect(computeFundingRateAnnualized(0n)).toBe(0);
-    expect(computeFundingRateAnnualized(1n)).toBe((2.5 * 60 * 60 * 24 * 365) / 100);
-    expect(computeFundingRateAnnualized(-2n)).toBe(-2 * ((2.5 * 60 * 60 * 24 * 365) / 100));
+    expect(computeFundingRateAnnualized(1n)).toBe(788400);
+    expect(computeFundingRateAnnualized(-2n)).toBe(-1576800);
   });
   it("returns +/-Infinity beyond the safe range", () => {
     expect(computeFundingRateAnnualized(BigInt(Number.MAX_SAFE_INTEGER) + 1n)).toBe(Infinity);
