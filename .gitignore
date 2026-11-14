@@ -23,3 +23,7 @@ keypair.json
 # dist/ is committed so that GitHub git-dep consumers get pre-built files
 # without needing devDependencies (tsup/typescript) installed.
 # Always run `pnpm build` before committing changes to src/.
+
+# Coverage output (pnpm test:coverage)
+coverage/
+.coverage/
