@@ -76,6 +76,8 @@ assert(computeLiqPrice(0n, 1000n, 1000n, 500n) === 0n, "zero entry → 0");
   assert(computeLiqPrice(USD(100), 1000n, 1000n, 10000n) === maxU64, "100% maint long → max u64");
   assert(computeLiqPrice(USD(100), 1000n, 1000n, 15000n) === maxU64, ">100% maint long → max u64");
   assert(computeLiqPrice(USD(100), 1000n, -1000n, 15000n) < maxU64, ">100% maint short is finite");
+  assert(computeLiqPrice(USD(100), 200_000_000n, 1_000_000n, 10000n) === 0n, "100% maint, fully collateralised long → 0");
+  assert(computeLiqPrice(USD(100), -200_000_000n, -1_000_000n, 500n) >= 0n, "negative capital short never negative");
 }
 {
   // More capital → safer (lower liq price for longs)

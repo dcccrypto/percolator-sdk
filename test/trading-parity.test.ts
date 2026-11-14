@@ -115,7 +115,6 @@ for (const entry of [50_000_000n, 150_000_000n, 60_000_000_000n]) {
         const capital = notional / lev;
         const prog = engineLiqPrice(capital, q, entry, mm);
         const sdk = computeLiqPrice(entry, capital, q, mm);
-        // only count cases the engine considers a real, positive boundary
         rows.push({ kind: "liq", input: `${side} entry=${entry} lev=${lev}x mm=${mm}`, sdk, program: prog });
         // pre-trade: fee comes out of capital
         for (const fee of [0n, 10n]) {

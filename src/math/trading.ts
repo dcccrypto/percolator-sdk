@@ -47,11 +47,14 @@ export function computeLiqPrice(
   //   short: P = (entry + c) / (1 + maint)
   if (positionSize > 0n) {
     // With >= 100% maintenance margin a long is liquidatable at any price.
-    if (maintenanceMarginBps >= 10000n) return 18446744073709551615n;
+    if (maintenanceMarginBps >= 10000n) {
+      return entryPrice > capitalPerUnitE6 ? 18446744073709551615n : 0n;
+    }
     const liq = ((entryPrice - capitalPerUnitE6) * 10000n) / (10000n - maintenanceMarginBps);
     return liq > 0n ? liq : 0n;
   }
-  return ((entryPrice + capitalPerUnitE6) * 10000n) / (10000n + maintenanceMarginBps);
+  const shortLiq = ((entryPrice + capitalPerUnitE6) * 10000n) / (10000n + maintenanceMarginBps);
+  return shortLiq > 0n ? shortLiq : 0n;
 }
 
 /**
