@@ -59,11 +59,11 @@ assert(computeLiqPrice(USD(100), 1000n, 0n, 500n) === 0n, "zero position → 0")
 assert(computeLiqPrice(0n, 1000n, 1000n, 500n) === 0n, "zero entry → 0");
 
 {
-  const liq = computeLiqPrice(USD(100), 10_000_000n, 100_000_000n, 500n);
+  const liq = computeLiqPrice(USD(100), 2_000_000_000n, 100_000_000n, 500n);
   assert(liq < USD(100) && liq > 0n, "long liq below entry");
 }
 {
-  const liq = computeLiqPrice(USD(100), 10_000_000n, -100_000_000n, 500n);
+  const liq = computeLiqPrice(USD(100), 2_000_000_000n, -100_000_000n, 500n);
   assert(liq > USD(100), "short liq above entry");
 }
 {
@@ -73,13 +73,14 @@ assert(computeLiqPrice(0n, 1000n, 1000n, 500n) === 0n, "zero entry → 0");
 }
 {
   const maxU64 = 18446744073709551615n;
-  assert(computeLiqPrice(USD(100), 1000n, -1000n, 10000n) === maxU64, "100% maint short → max u64");
-  assert(computeLiqPrice(USD(100), 1000n, -1000n, 15000n) === maxU64, ">100% maint short → max u64");
+  assert(computeLiqPrice(USD(100), 1000n, 1000n, 10000n) === maxU64, "100% maint long → max u64");
+  assert(computeLiqPrice(USD(100), 1000n, 1000n, 15000n) === maxU64, ">100% maint long → max u64");
+  assert(computeLiqPrice(USD(100), 1000n, -1000n, 15000n) < maxU64, ">100% maint short is finite");
 }
 {
   // More capital → safer (lower liq price for longs)
-  const liq1 = computeLiqPrice(USD(100), 5_000_000n, 100_000_000n, 500n);
-  const liq2 = computeLiqPrice(USD(100), 10_000_000n, 100_000_000n, 500n);
+  const liq1 = computeLiqPrice(USD(100), 1_000_000_000n, 100_000_000n, 500n);
+  const liq2 = computeLiqPrice(USD(100), 2_000_000_000n, 100_000_000n, 500n);
   assert(liq2 < liq1, "more capital → lower long liq price");
 }
 

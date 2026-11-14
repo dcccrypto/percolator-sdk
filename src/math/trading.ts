@@ -41,18 +41,17 @@ export function computeLiqPrice(
   // capitalPerUnit scaled by 1e6 for precision
   const capitalPerUnitE6 = (capital * 1_000_000n) / absPos;
 
+  // v22 engine: equity = capital + q * (P - entry); liquidatable when
+  // equity < maint * q * P. Solving for P (per-unit c = capital / q):
+  //   long:  P = (entry - c) / (1 - maint)
+  //   short: P = (entry + c) / (1 + maint)
   if (positionSize > 0n) {
-    const adjusted = (capitalPerUnitE6 * 10000n) / (10000n + maintenanceMarginBps);
-    const liq = entryPrice - adjusted;
+    // With >= 100% maintenance margin a long is liquidatable at any price.
+    if (maintenanceMarginBps >= 10000n) return 18446744073709551615n;
+    const liq = ((entryPrice - capitalPerUnitE6) * 10000n) / (10000n - maintenanceMarginBps);
     return liq > 0n ? liq : 0n;
-  } else {
-    // Guard: short positions liquidate when price rises above liq price.
-    // With >= 100% maintenance margin the denominator (10000 - maint) would be <= 0,
-    // meaning the position can never be liquidated. Return max u64 to signal this.
-    if (maintenanceMarginBps >= 10000n) return 18446744073709551615n; // max u64 — unliquidatable
-    const adjusted = (capitalPerUnitE6 * 10000n) / (10000n - maintenanceMarginBps);
-    return entryPrice + adjusted;
   }
+  return ((entryPrice + capitalPerUnitE6) * 10000n) / (10000n + maintenanceMarginBps);
 }
 
 /**
@@ -94,7 +93,9 @@ export function computeTradingFee(
   notional: bigint,
   tradingFeeBps: bigint,
 ): bigint {
-  return (notional * tradingFeeBps) / 10000n;
+  // Ceiling per side, as the program's two_sided_trade_fee_paid_cap does.
+  if (notional <= 0n || tradingFeeBps <= 0n) return 0n;
+  return (notional * tradingFeeBps + 9999n) / 10000n;
 }
 
 /**
@@ -128,8 +129,11 @@ export function computeDynamicFeeBps(
   config: FeeTierConfig,
 ): bigint {
   if (config.tier2Threshold === 0n) return config.baseBps;
-  if (config.tier3Threshold > 0n && notional >= config.tier3Threshold) return config.tier3Bps;
-  if (notional >= config.tier2Threshold) return config.tier2Bps;
+  // A tier with 0 bps is disabled and inherits the tier below it.
+  const tier2 = config.tier2Bps === 0n ? config.baseBps : config.tier2Bps;
+  const tier3 = config.tier3Bps === 0n ? tier2 : config.tier3Bps;
+  if (config.tier3Threshold > 0n && notional >= config.tier3Threshold) return tier3;
+  if (notional >= config.tier2Threshold) return tier2;
   return config.baseBps;
 }
 
