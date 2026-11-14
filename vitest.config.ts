@@ -85,6 +85,7 @@ export default defineConfig({
       "test/oracle-staleness-nan.test.ts",
       "test/trading-math-behaviour.test.ts",
       "test/trading-parity.test.ts",
+      "test/warmup-math.test.ts",
     ],
   },
 });
