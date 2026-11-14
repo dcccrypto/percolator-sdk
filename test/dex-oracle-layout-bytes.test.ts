@@ -180,7 +180,7 @@ describe("Raydium CLMM PoolState", () => {
 
   it("sqrt so small the price rounds to zero throws instead of returning 0n", () => {
     // sqrt_price_x64 = 1 -> (1 * 1 * 1e6) >> 128 = 0
-    expect(() => computeDexSpotPriceE6("raydium-clmm", raydium({ d0: 6, d1: 6, sqrt: 1n }))).toThrow(/price/i);
+    expect(() => computeDexSpotPriceE6("raydium-clmm", raydium({ d0: 6, d1: 6, sqrt: 1n }))).toThrow(/computed price is 0/);
   });
 });
 
@@ -282,7 +282,7 @@ describe("PumpSwap Pool", () => {
   it("zero quote reserves throws instead of returning 0n", () => {
     const v = { base: tokenAccount(1_000_000_000_000n), quote: tokenAccount(0n) };
     expect(() => computeDexSpotPriceE6("pumpswap", pumpPool(), v, { base: 6, quote: 9 }, 150_000_000n)).toThrow(
-      /price/i,
+      /computed price is 0/,
     );
   });
 
@@ -290,7 +290,7 @@ describe("PumpSwap Pool", () => {
     // 1 lamport against 1e12 tokens: 1e-9 SOL / 1e6 tokens, far below 1e-6 USD
     const v = { base: tokenAccount(1_000_000_000_000_000_000n), quote: tokenAccount(1n) };
     expect(() => computeDexSpotPriceE6("pumpswap", pumpPool(), v, { base: 6, quote: 9 }, 150_000_000n)).toThrow(
-      /price/i,
+      /computed price is 0/,
     );
   });
 });
@@ -360,12 +360,12 @@ describe("Meteora DLMM LbPair", () => {
 
   it("an inverse price that rounds below 1e-6 throws instead of returning 0n", () => {
     // 1.0001^-500000 ~ 2e-22
-    expect(() => meteora(lbPair({ activeId: -500_000, binStep: 1 }), 6, 6)).toThrow(/price/i);
+    expect(() => meteora(lbPair({ activeId: -500_000, binStep: 1 }), 6, 6)).toThrow(/computed price is 0/);
   });
 
   it("a positive-id price that rounds below 1e-6 throws instead of returning 0n", () => {
     // 1.0 * 10^(0-24)
-    expect(() => meteora(lbPair({ activeId: 0 }), 0, 24)).toThrow(/price/i);
+    expect(() => meteora(lbPair({ activeId: 0 }), 0, 24)).toThrow(/computed price is 0/);
   });
 });
 
