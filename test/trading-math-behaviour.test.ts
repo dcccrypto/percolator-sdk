@@ -39,21 +39,20 @@ describe("computeLiqPrice", () => {
     expect(computeLiqPrice(100n, 10n, 0n, 500n)).toBe(0n);
     expect(computeLiqPrice(0n, 10n, 5n, 500n)).toBe(0n);
   });
-  it("long: entry - capitalPerUnit*10000/(10000+mm)", () => {
-    // capital/unit e6 = 1e6*1e6/1e6 = 1_000_000
-    // adjusted = 1e6*10000/10500 = 952380 ; liq = 2e6 - 952380
-    expect(computeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n)).toBe(1_047_620n);
+  it("long: (entry - capitalPerUnit) * 10000 / (10000 - mm)", () => {
+    // capital/unit e6 = 1e6; liq = (2e6 - 1e6) * 10000 / 9500 = 1_052_631
+    expect(computeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n)).toBe(1_052_631n);
   });
   it("long: clamps at 0 when capital covers the entry", () => {
     expect(computeLiqPrice(100n, 1_000_000n, 1n, 500n)).toBe(0n);
   });
-  it("short: entry + capitalPerUnit*10000/(10000-mm)", () => {
-    // adjusted = 1e6*10000/9500 = 1052631
-    expect(computeLiqPrice(2_000_000n, 1_000_000n, -1_000_000n, 500n)).toBe(3_052_631n);
+  it("short: (entry + capitalPerUnit) * 10000 / (10000 + mm)", () => {
+    // liq = (2e6 + 1e6) * 10000 / 10500 = 2_857_142
+    expect(computeLiqPrice(2_000_000n, 1_000_000n, -1_000_000n, 500n)).toBe(2_857_142n);
   });
-  it("short with maintenance >= 100% is unliquidatable (max u64)", () => {
-    expect(computeLiqPrice(2_000_000n, 1_000_000n, -1_000_000n, 10000n)).toBe(MAX_U64);
-    expect(computeLiqPrice(2_000_000n, 1_000_000n, -1_000_000n, 20000n)).toBe(MAX_U64);
+  it("short with maintenance >= 100% is still liquidatable (denominator cannot be 0)", () => {
+    expect(computeLiqPrice(2_000_000n, 1_000_000n, -1_000_000n, 10000n)).toBe(1_500_000n);
+    expect(computeLiqPrice(2_000_000n, 1_000_000n, -1_000_000n, 20000n)).toBe(1_000_000n);
   });
 });
 
@@ -65,24 +64,27 @@ describe("computePreTradeLiqPrice", () => {
   });
   it("long pays the fee on entry", () => {
     // entry = 2e6 + 2e6*100/10000 = 2_020_000
-    expect(computePreTradeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n, 100n, "long")).toBe(1_067_620n);
+    // liq = (2_020_000 - 1e6) * 10000 / 9500 = 1_073_684
+    expect(computePreTradeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n, 100n, "long")).toBe(1_073_684n);
   });
   it("short receives less; a negative position size is read as its magnitude", () => {
     const a = computePreTradeLiqPrice(2_000_000n, 1_000_000n, -1_000_000n, 500n, 100n, "short");
-    expect(a).toBe(3_032_631n);
+    // entry = 1_980_000; liq = (1_980_000 + 1e6) * 10000 / 10500 = 2_838_095
+    expect(a).toBe(2_838_095n);
     expect(a).toBe(computePreTradeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n, 100n, "short"));
   });
   it("short with fee >= 100% clamps entry to 1 instead of reporting no-risk 0", () => {
     const p = computePreTradeLiqPrice(1_000_000n, 1_000_000n, 1_000_000n, 500n, 10000n, "short");
-    expect(p).toBe(1_052_632n);
+    // entry clamped to 1; liq = (1 + 1e6) * 10000 / 10500 = 952_381
+    expect(p).toBe(952_381n);
     expect(p).toBeGreaterThan(0n);
   });
 });
 
 describe("fees", () => {
-  it("computeTradingFee floors", () => {
+  it("computeTradingFee ceils", () => {
     expect(computeTradingFee(1_000_000n, 10n)).toBe(1000n);
-    expect(computeTradingFee(9_999n, 1n)).toBe(0n);
+    expect(computeTradingFee(9_999n, 1n)).toBe(1n);
   });
 
   const cfg: FeeTierConfig = {

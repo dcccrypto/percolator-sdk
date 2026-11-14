@@ -84,6 +84,7 @@ export default defineConfig({
       "test/dex-oracle-layout-bytes.test.ts",
       "test/oracle-staleness-nan.test.ts",
       "test/trading-math-behaviour.test.ts",
+      "test/trading-parity.test.ts",
     ],
   },
 });
