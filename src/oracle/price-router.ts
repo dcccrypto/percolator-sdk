@@ -117,7 +117,7 @@ function parseDexScreenerPairs(json: unknown, mint: string): PriceSource[] {
     // from liquidity, so a high-liquidity zero-price pair would sort to the top and
     // become bestSource with price 0, outranking a valid Jupiter/Pyth fallback. Skip
     // any source without a usable positive price.
-    if (!(price > 0)) continue;
+    if (!Number.isFinite(price) || !(price > 0)) continue;
 
     let baseSym = "?";
     let quoteSym = "?";
@@ -167,7 +167,7 @@ function parseJupiterMintEntry(
   const v3Row = json[mint];
   if (isRecord(v3Row) && v3Row.usdPrice !== undefined && v3Row.usdPrice !== null) {
     const price = parseFloat(String(v3Row.usdPrice)) || 0;
-    if (price <= 0) return null;
+    if (!Number.isFinite(price) || price <= 0) return null;
     const liquidity =
       typeof v3Row.liquidity === "number" && Number.isFinite(v3Row.liquidity)
         ? v3Row.liquidity
@@ -183,7 +183,7 @@ function parseJupiterMintEntry(
   const rawPrice = row.price;
   if (rawPrice === undefined || rawPrice === null) return null;
   const price = parseFloat(String(rawPrice)) || 0;
-  if (price <= 0) return null;
+  if (!Number.isFinite(price) || price <= 0) return null;
   let mintSymbol = "?";
   if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
   return { price, mintSymbol, liquidity: 0 };
