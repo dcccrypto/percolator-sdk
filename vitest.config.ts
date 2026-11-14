@@ -80,6 +80,7 @@ export default defineConfig({
       "test/wire-size-v22.test.ts",
       "test/oracle-chainlink-bytes.test.ts",
       "test/backing-bucket-decode-parity.test.ts",
+      "test/price-router-branches.test.ts",
     ],
   },
 });
