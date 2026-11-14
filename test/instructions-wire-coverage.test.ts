@@ -465,6 +465,31 @@ describe("matcher return decode/encode", () => {
     expect(r.flags).toBe(1 | (25 << 8));
   });
 
+  it("raw bytes sit at the documented offsets (8/16/32/40/48/56), asymmetric values", () => {
+    const d = ix.encodeMatcherReturn({ ...args, abiVersion: 0x01020304, execSize: -2n, valid: true, partialOk: false, rejected: false, backingFeeCapBps: 0 });
+    const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
+    expect(dv.getUint32(0, true)).toBe(0x01020304);
+    expect(dv.getUint32(4, true)).toBe(1);
+    expect(dv.getBigUint64(8, true)).toBe(50_000_000n);
+    expect(dv.getBigUint64(16, true)).toBe(U64_MAX - 1n); // -2 low half
+    expect(dv.getBigUint64(24, true)).toBe(U64_MAX);      // sign-extended high half
+    expect(dv.getBigUint64(32, true)).toBe(9n);
+    expect(dv.getBigUint64(40, true)).toBe(10n);
+    expect(dv.getBigUint64(48, true)).toBe(49_999_999n);
+    expect(dv.getBigUint64(56, true)).toBe(3n);
+  });
+
+  it("MatcherInitPassive halves are not swapped (asymmetric values)", () => {
+    const fill = (0x1122334455667788n << 64n) | 0x99aabbccddeeff00n;
+    const d = ix.encodeMatcherInitPassive({ maxFillAbs: fill, lpAccountId: 0x0102030405060708n });
+    const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
+    expect(dv.getBigUint64(34, true)).toBe(0x99aabbccddeeff00n);
+    expect(dv.getBigUint64(42, true)).toBe(0x1122334455667788n);
+    expect(dv.getBigUint64(50, true)).toBe(0n);
+    expect(dv.getBigUint64(58, true)).toBe(0n);
+    expect(dv.getBigUint64(70, true)).toBe(0x0102030405060708n);
+  });
+
   it("flag bits land where documented", () => {
     const d = ix.encodeMatcherReturn({ ...args, valid: false, partialOk: true, rejected: true, backingFeeCapBps: 0 });
     expect(new DataView(d.buffer).getUint32(4, true)).toBe(2 | 4);
