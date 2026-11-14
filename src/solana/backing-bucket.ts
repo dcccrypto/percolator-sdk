@@ -76,27 +76,25 @@ import { resolveMarketGeometry } from "../abi/layout.js";
 // Little-endian readers (module-local, matching slab.ts's private helpers)
 // ---------------------------------------------------------------------------
 
-function readU8At(data: Uint8Array, off: number): number {
-  if (off + 1 > data.length) throw new Error(`readU8At: out of bounds at ${off}`);
-  return data[off]!;
+// One DataView per decode (not one per field): the readers below take it.
+function readU8At(dv: DataView, off: number): number {
+  if (off + 1 > dv.byteLength) throw new Error(`readU8At: out of bounds at ${off}`);
+  return dv.getUint8(off);
 }
 
-function readU32LEAt(data: Uint8Array, off: number): number {
-  if (off + 4 > data.length) throw new Error(`readU32LEAt: out of bounds at ${off}`);
-  return new DataView(data.buffer, data.byteOffset + off, 4).getUint32(0, true);
+function readU32LEAt(dv: DataView, off: number): number {
+  if (off + 4 > dv.byteLength) throw new Error(`readU32LEAt: out of bounds at ${off}`);
+  return dv.getUint32(off, true);
 }
 
-function readU64LEAt(data: Uint8Array, off: number): bigint {
-  if (off + 8 > data.length) throw new Error(`readU64LEAt: out of bounds at ${off}`);
-  return new DataView(data.buffer, data.byteOffset + off, 8).getBigUint64(0, true);
+function readU64LEAt(dv: DataView, off: number): bigint {
+  if (off + 8 > dv.byteLength) throw new Error(`readU64LEAt: out of bounds at ${off}`);
+  return dv.getBigUint64(off, true);
 }
 
-function readU128LEAt(data: Uint8Array, off: number): bigint {
-  if (off + 16 > data.length) throw new Error(`readU128LEAt: out of bounds at ${off}`);
-  const dv = new DataView(data.buffer, data.byteOffset + off, 16);
-  const lo = dv.getBigUint64(0, true);
-  const hi = dv.getBigUint64(8, true);
-  return (hi << 64n) | lo;
+function readU128LEAt(dv: DataView, off: number): bigint {
+  if (off + 16 > dv.byteLength) throw new Error(`readU128LEAt: out of bounds at ${off}`);
+  return (dv.getBigUint64(off + 8, true) << 64n) | dv.getBigUint64(off, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -348,12 +346,13 @@ export function parseBackingBucketsV17(
   // VERSION-keyed geometry + typed refusal of unknown layouts (v2.1 = VERSION 18, v2.2 = VERSION 19).
   const geom = resolveMarketGeometry(data, { parser: "parseBackingBucketsV17", strictLength: false });
   const L = geom.layout;
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
   const groupOff = geom.groupOff;
-  const mode = readU8At(data, groupOff + L.group.mode);
-  const headerCurrentSlot = readU64LEAt(data, groupOff + L.group.currentSlot);
+  const mode = readU8At(dv, groupOff + L.group.mode);
+  const headerCurrentSlot = readU64LEAt(dv, groupOff + L.group.currentSlot);
   const maxMarketSlots = readU32LEAt(
-    data,
+    dv,
     groupOff + L.group.config + L.group.maxMarketSlotsInConfig,
   );
 
@@ -382,20 +381,20 @@ export function parseBackingBucketsV17(
       if (bucketOff + V17_BACKING_BUCKET_LEN > data.length) break;
 
       const domain = assetIndex * 2 + (side === "short" ? 1 : 0);
-      const status = readU8At(data, bucketOff + BB_STATUS);
-      const expirySlot = readU64LEAt(data, bucketOff + BB_EXPIRY_SLOT);
+      const status = readU8At(dv, bucketOff + BB_STATUS);
+      const expirySlot = readU64LEAt(dv, bucketOff + BB_EXPIRY_SLOT);
       const lapsed = status === BackingBucketStatus.Fresh && nowSlot >= expirySlot;
 
       const bucket: BackingBucketV17 = {
         domain,
         assetIndex,
         side,
-        marketId: readU64LEAt(data, bucketOff + BB_MARKET_ID),
-        freshUnlienedBackingNum: readU128LEAt(data, bucketOff + BB_FRESH_UNLIENED),
-        validLienedBackingNum: readU128LEAt(data, bucketOff + BB_VALID_LIENED),
-        consumedLienedBackingNum: readU128LEAt(data, bucketOff + BB_CONSUMED_LIENED),
-        impairedLienedBackingNum: readU128LEAt(data, bucketOff + BB_IMPAIRED_LIENED),
-        utilizationFeeEarnings: readU128LEAt(data, bucketOff + BB_UTILIZATION_FEE),
+        marketId: readU64LEAt(dv, bucketOff + BB_MARKET_ID),
+        freshUnlienedBackingNum: readU128LEAt(dv, bucketOff + BB_FRESH_UNLIENED),
+        validLienedBackingNum: readU128LEAt(dv, bucketOff + BB_VALID_LIENED),
+        consumedLienedBackingNum: readU128LEAt(dv, bucketOff + BB_CONSUMED_LIENED),
+        impairedLienedBackingNum: readU128LEAt(dv, bucketOff + BB_IMPAIRED_LIENED),
+        utilizationFeeEarnings: readU128LEAt(dv, bucketOff + BB_UTILIZATION_FEE),
         expirySlot,
         status,
         statusName: backingBucketStatusName(status),
