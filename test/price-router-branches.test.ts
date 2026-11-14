@@ -312,7 +312,7 @@ describe("disagreeing sources and ties (non-Pyth mint)", () => {
     expect(dex.confidence).toBe(30);
   });
 
-  it("tie on confidence keeps dex ahead of jupiter (stable sort)", async () => {
+  it("equal-confidence dex pools keep their original order (stable sort)", async () => {
     // jupiter = 40; dex at 40 is impossible via tiers, so use two equal dex pools
     stubFetch(
       dexBody(
@@ -384,5 +384,40 @@ describe("Pyth enrichment", () => {
     expect(pyth.price).toBe(100);
     expect(pyth.confidence).toBe(50);
     expect(r.bestSource?.type).toBe("pyth");
+  });
+});
+
+describe("non-finite prices are rejected", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("dex priceUsd that overflows to Infinity is dropped; jupiter wins", async () => {
+    stubFetch(
+      dexBody(pair({ priceUsd: "1e400", liquidity: { usd: 2_000_000 } })),
+      jupV3(1, 500_000),
+    );
+    const r = await resolvePrice(MINT);
+    expect(r.allSources.some((s) => s.type === "dex")).toBe(false);
+    expect(r.bestSource?.type).toBe("jupiter");
+    expect(Number.isFinite(r.bestSource!.price)).toBe(true);
+  });
+
+  it("jupiter v3 usdPrice Infinity is dropped", async () => {
+    stubFetch(dexBody(), jupV3("Infinity", 1000));
+    expect((await resolvePrice(MINT)).allSources).toEqual([]);
+  });
+
+  it("jupiter v2 price Infinity is dropped", async () => {
+    stubFetch(dexBody(), { data: { [MINT]: { price: "1e999" } } });
+    expect((await resolvePrice(MINT)).allSources).toEqual([]);
+  });
+
+  it("exact tier edges fall into the lower tier", async () => {
+    for (const [usd, conf] of [[1_000, 30], [10_000, 45], [100_000, 60], [1_000_000, 75]]) {
+      stubFetch(dexBody(pair({ liquidity: { usd } })), "http500");
+      expect((await resolvePrice(MINT)).bestSource?.confidence).toBe(conf);
+    }
   });
 });
