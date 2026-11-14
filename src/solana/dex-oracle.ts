@@ -89,6 +89,25 @@ export function computeDexSpotPriceE6(
   decimals?: { base: number; quote: number },
   solPriceE6?: bigint,
 ): bigint {
+  const price = dexSpotPriceE6(dexType, data, vaultData, decimals, solPriceE6);
+  // #338: a zero is not a price. The per-DEX guards catch zero base reserves,
+  // sqrt_price 0 and bin_step 0, but zero QUOTE reserves, or any price below
+  // 1e-6 (truncated by the integer math), still came back as 0n.
+  if (price <= 0n) {
+    throw new Error(
+      `${dexType}: computed price is ${price} (empty quote side or below 1e-6); refusing to report a price`,
+    );
+  }
+  return price;
+}
+
+function dexSpotPriceE6(
+  dexType: DexType,
+  data: Uint8Array,
+  vaultData?: { base: Uint8Array; quote: Uint8Array },
+  decimals?: { base: number; quote: number },
+  solPriceE6?: bigint,
+): bigint {
   switch (dexType) {
     case "pumpswap":
       if (!vaultData) throw new Error("PumpSwap requires vaultData (base and quote vault accounts)");
