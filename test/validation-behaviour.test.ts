@@ -100,7 +100,7 @@ describe("unsigned bounded validators", () => {
   it("validateBps boundaries at 10000", () => {
     expect(validateBps("0", "f")).toBe(0);
     expect(validateBps("10000", "f")).toBe(10000);
-    expect(() => validateBps("10001", "f")).toThrow(/10000/);
+    expect(() => validateBps("10001", "f")).toThrow(/must be <= 10000/);
     expect(() => validateBps("1e3", "f")).toThrow(ValidationError);
   });
 });
@@ -112,6 +112,11 @@ describe("signed bounded validators", () => {
     expect(validateI64("-5", "f")).toBe(-5n);
     expect(() => validateI64((I64_MIN - 1n).toString(), "f")).toThrow(/i64 min/);
     expect(() => validateI64((I64_MAX + 1n).toString(), "f")).toThrow(/i64 max/);
+  });
+  it("signed validators accept -0 as 0n; unsigned reject it", () => {
+    expect(validateI64("-0", "f")).toBe(0n);
+    expect(validateI128("-0", "f")).toBe(0n);
+    expect(() => validateAmount("-0", "f")).toThrow(ValidationError);
   });
   it("validateI128 boundaries", () => {
     expect(validateI128(I128_MIN.toString(), "f")).toBe(I128_MIN);
