@@ -177,7 +177,7 @@ describe("instruction builders", () => {
     expect(hex(ix.data)).toBe("69" + "0200" + "2c010000");
   });
   it("tag 105 builder propagates the 1..=9000 guard", () => {
-    expect(() => buildSetAdlWindDownMaxSlotsIx(k(), k(), k(), { assetIndex: 0, maxEpisodeSlots: 0 })).toThrow();
+    expect(() => buildSetAdlWindDownMaxSlotsIx(k(), k(), k(), { assetIndex: 0, maxEpisodeSlots: 0 })).toThrow("maxEpisodeSlots must be in 1..=9000");
   });
 });
 
