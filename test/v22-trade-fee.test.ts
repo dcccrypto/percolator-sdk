@@ -66,3 +66,14 @@ describe("matcherFeeWorstCaseBpsV22 vs percolator-match requested_fee_bps", () =
     expect(matcherFeeWorstCaseBpsV22({ ...base, matcherExtMode: MATCHER_EXT_MODE_V1_P1, matcherMaxTotalBps: 60 })).toBe(61);
   });
 });
+
+describe("computeTradeFeeBpsToSignV22 guards", () => {
+  const ok = { maxRequestedFeeBps: 1023, matcherExtMode: 0 };
+  it("rejects negative fee bps", () => {
+    expect(() => computeTradeFeeBpsToSignV22({ ...ok, tradeFeeBaseBps: -1n, maxTradingFeeBps: 10n })).toThrow(/non-negative/);
+    expect(() => computeTradeFeeBpsToSignV22({ ...ok, tradeFeeBaseBps: 1n, maxTradingFeeBps: -1n })).toThrow(/non-negative/);
+  });
+  it("rejects base above the market max (every trade refused)", () => {
+    expect(() => computeTradeFeeBpsToSignV22({ ...ok, tradeFeeBaseBps: 11n, maxTradingFeeBps: 10n })).toThrow(/exceeds max_trading_fee_bps/);
+  });
+});
