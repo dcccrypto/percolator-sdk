@@ -57,7 +57,7 @@ export default defineConfig({
       "test/v22-fill-events.test.ts", "test/lev-guard-v22.test.ts", "test/lev-guard-limits-v22.test.ts",
       "test/v22-lp-share.test.ts",
       "test/stake-dead-lp.test.ts", "test/stake-closeout-v22.test.ts",
-      "test/nft-program-env.test.ts",
+      "test/nft-program-env.test.ts", "test/nft-abi-coverage.test.ts",
       "test/v22-qa-fixes.test.ts",
       "test/v22-qa-overnight.test.ts",
       "test/v22-multi-asset-trade.test.ts", "test/v22-catchup-liquidate.test.ts", "test/v22-liq-adl-latch.test.ts",
