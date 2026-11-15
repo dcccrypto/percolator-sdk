@@ -77,7 +77,7 @@ export default defineConfig({
       "test/bond-carry-571.test.ts",
       "test/v22-resolved-receipt-filter.security.test.ts",
       "test/instructions-wire-coverage.test.ts",
-      "test/wire-size-v22.test.ts",
+      "test/wire-size-v22.test.ts", "test/wire-roundtrip-property.test.ts",
       "test/oracle-chainlink-bytes.test.ts",
       "test/backing-bucket-decode-parity.test.ts",
       "test/price-router-branches.test.ts",
@@ -87,7 +87,9 @@ export default defineConfig({
       "test/trading-parity.test.ts",
       "test/warmup-math.test.ts",
       "test/validation-behaviour.test.ts",
+      "test/tx-branches.test.ts",
       "test/v22-lot-exp-profile.test.ts",
+      "test/ata.test.ts",
     ],
   },
 });
