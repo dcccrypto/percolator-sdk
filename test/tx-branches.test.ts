@@ -113,7 +113,8 @@ describe("error rendering without parseable logs", () => {
       }),
     });
     const r = await run(conn, { simulate: true });
-    expect(r.err).toBe(`${parsed.name} (0x${parsed.code.toString(16)})`);
+    expect(parsed.name).toBe("InvalidVersion");
+    expect(r.err).toBe("InvalidVersion (0x1)");
     expect(r.hint).toBe(parsed.hint);
     expect(r.unitsConsumed).toBeUndefined();
   });
@@ -139,7 +140,8 @@ describe("error rendering without parseable logs", () => {
       getTransaction: vi.fn().mockResolvedValue({ slot: 5, meta: { logMessages: logs } }),
     });
     const r = await run(conn);
-    expect(r.err).toBe(`${parsed.name} (0x${parsed.code.toString(16)})`);
+    expect(parsed.name).toBe("InvalidVersion");
+    expect(r.err).toBe("InvalidVersion (0x1)");
     expect(r.hint).toBe(parsed.hint);
     expect(r.slot).toBe(5);
   });
