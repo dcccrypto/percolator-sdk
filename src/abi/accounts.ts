@@ -50,7 +50,7 @@ export const ACCOUNTS_INIT_MARKET: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * InitPortfolio (tag 2): 3 accounts.
+ * InitPortfolio (tag 1): 3 accounts.
  *
  * v17 wire account layout (v16_program.rs handle_init_portfolio):
  *   [0] owner      signer, writable (portfolio owner; pays for alloc)
@@ -627,7 +627,7 @@ export const ACCOUNTS_UNPAUSE_MARKET: readonly AccountSpec[] = [
 // ============================================================================
 
 /**
- * ReclaimEmptyAccount (tag 25): 2 accounts. Permissionless.
+ * ReclaimEmptyAccount (tag 85): 2 accounts. Permissionless.
  * Wrapper: src/percolator.rs:10470.
  */
 export const ACCOUNTS_RECLAIM_EMPTY_ACCOUNT: readonly AccountSpec[] = [
@@ -636,7 +636,7 @@ export const ACCOUNTS_RECLAIM_EMPTY_ACCOUNT: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * SettleAccount (tag 26): 3 accounts. Permissionless.
+ * SettleAccount (tag 86): 3 accounts. Permissionless.
  * Wrapper: src/percolator.rs:10503.
  */
 export const ACCOUNTS_SETTLE_ACCOUNT: readonly AccountSpec[] = [
@@ -703,7 +703,7 @@ export const ACCOUNTS_SET_INSURANCE_WITHDRAW_POLICY: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * UpdateAuthority (tag 83, v12.18.x 4-way split): 3 accounts.
+ * UpdateAuthority (tag 32; v12.18.x used tag 83 for the 4-way split): 3 accounts.
  * Wrapper: src/percolator.rs:6876.
  *
  * Both the current authority and the new authority must sign. For burn
@@ -811,7 +811,7 @@ export const ACCOUNTS_WITHDRAW_INSURANCE_LP: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// PERC-627 / GH#1926: LpVaultWithdraw (tag 39)
+// PERC-627 / GH#1926: LpVaultWithdraw (tag 76)
 // ============================================================================
 
 /**
@@ -914,7 +914,7 @@ export const ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// PERC-305: ExecuteAdl (tag 50) — Auto-Deleverage
+// PERC-305: ExecuteAdl (tag 101) — Auto-Deleverage
 // ============================================================================
 
 /**
@@ -958,7 +958,7 @@ export const ACCOUNTS_ADMIN_FORCE_CLOSE: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// CloseStaleSlabs (tag 51) / ReclaimSlabRent (tag 52)
+// CloseStaleSlabs (tag 100) / ReclaimSlabRent (tag 99)
 // ============================================================================
 
 /**
@@ -980,7 +980,7 @@ export const ACCOUNTS_RECLAIM_SLAB_RENT: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// AuditCrank (tag 53) — Permissionless invariant check
+// AuditCrank (tag 91) — Permissionless invariant check
 // ============================================================================
 
 /**
