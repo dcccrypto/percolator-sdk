@@ -198,13 +198,15 @@ describe("couponSettle / settleTo / take overflow + cap paths", () => {
     expect(couponSettleV22(1n << 110n, 0n, 0n, 1, 1n, true, 0n)).toBeNull();
   });
   it("cap binds: pays room and zeroes the remainder; fully capped pays 0", () => {
-    // K=1e6, rate 800 -> cap 80_000; U already 79_999 -> room 1
+    // K=1e6, rate 800 -> funded = 920_001 -> cap = 73_600 < U (79_999) -> room 0
     const r = couponSettleV22(1_000_000n, 79_999n, 5n, 800, SLOTS_PER_YEAR_V22, true, 1_000_000n);
-    // funded = 920_001 -> cap = 73_600 < U -> room 0
-    expect(r).toEqual([0n, 0n]);
+    expect(r).toEqual([0n, 5n].map(() => 0n));
+    // room > 0: U=10, funded = 999_990 -> cap = 79_999 (79_999.2 floored) -> room 79_989 < due 160_000
+    // (two years accrue but dt is clamped to one year, so due = 80_000 > room) -> pays room, zeroes rem
     const r2 = couponSettleV22(1_000_000n, 10n, 0n, 800, SLOTS_PER_YEAR_V22 * 2n, true, 1_000_000n);
-    expect(r2![0]).toBe(80_000n - 800n - 0n > 0n ? r2![0] : 0n);
-    expect(r2![0]).toBeLessThanOrEqual(79_990n);
+    expect(r2).toEqual([79_989n, 0n]);
+    // room > 0 but due <= room: pays due and keeps the sub-atom remainder
+    expect(couponSettleV22(1_000_000n, 0n, 5n, 800, SLOTS_PER_YEAR_V22 / 2n, true, 1_000_000n)).toEqual([40_000n, 5n]);
   });
   it("sub-atom remainder carries", () => {
     const r = couponSettleV22(1n, 0n, 0n, 800, 1n, true, 1n)!;
@@ -230,17 +232,25 @@ describe("couponSettle / settleTo / take overflow + cap paths", () => {
     const dirty = bondSettleCouponToV22(tr(), 7n, SLOTS_PER_YEAR_V22, true, false)!;
     expect(dirty.accrued).toBe(0n);
   });
-  it("sum overflow after a valid settle returns null", () => {
-    // U + x overflows u128 with x small
-    const t = tr({ cBAtoms: 1n << 100n, couponUnfundedAtoms: 0n, couponArrearsAtoms: U128 });
-    expect(bondSettleCouponToV22(t, 0n, 1n, true, false)).toBeNull();
+  it("sum overflow after a valid settle returns null (post-settle u/k/r guard)", () => {
+    // The settle itself succeeds (arrears are not an input to it) and accrues x = 80_000 ...
+    const t = tr({ couponArrearsAtoms: U128 });
+    expect(couponSettleV22(t.cBAtoms, 0n, 0n, 800, SLOTS_PER_YEAR_V22, true, t.cBAtoms)).toEqual([80_000n, 0n]);
+    // ... so bondSettleCouponToV22 returns null only from r = U128 + x > u128.
+    expect(bondSettleCouponToV22(t, 0n, SLOTS_PER_YEAR_V22, true, false)).toBeNull();
+    // control: without the arrears the same call succeeds, proving the null above is the sum guard
+    expect(bondSettleCouponToV22(tr(), 0n, SLOTS_PER_YEAR_V22, true, false)!.accrued).toBe(80_000n);
   });
   it("claim upper bound: nothing, overflow, bound", () => {
     expect(bondClaimUpperBoundAtV22(tr({ cBAtoms: 0n }), 100n)).toBe(0n);
     expect(bondClaimUpperBoundAtV22(tr({ cBAtoms: U128 }), 100n)).toBeNull();
     expect(bondClaimUpperBoundAtV22(tr({ lastCouponSlot: 9_000n }), 1_000n)).toBe(1_000_000n);
-    // k overflow: accrual that fits but pushes K past u128
-    expect(bondClaimUpperBoundAtV22(tr({ cBAtoms: U128 - 1n, couponBpsPerYear: 0 }), 10n)).toBe(U128 - 1n);
+    // accrual actually runs (max rate = base + full bonus): K + one year at 800 bps
+    expect(bondClaimUpperBoundAtV22(tr(), SLOTS_PER_YEAR_V22)).toBe(1_080_000n);
+    // NOTE: the `k > U128_MAX` guard here is unreachable: couponSettleV22 only returns x > 0 when
+    // funded*rate*SLOTS_PER_YEAR <= u128 and U < cap (<= 2^128/10^4), which forces K < 2^128 - 2^114 - x.
+    // Near-u128 K with accrual returns null from couponSettleV22 (n1/n2/c2 guard) instead.
+    expect(bondClaimUpperBoundAtV22(tr({ cBAtoms: U128 - 1n }), 10n)).toBeNull();
   });
   it("take: gate open pays, closed holds, util bonus, overflow", () => {
     const base = {
@@ -283,8 +293,11 @@ describe("couponSettle / settleTo / take overflow + cap paths", () => {
       nowSlot: 10n,
     };
     expect(bondCouponTakeV22({ ...base, tranche: tr({ cBAtoms: U128 }) })).toBeNull();
-    // r/u overflow after settle
-    expect(bondCouponTakeV22({ ...base, tranche: tr({ cBAtoms: 1n << 100n, couponArrearsAtoms: U128 }) })).toBeNull();
+    // r overflow AFTER a successful settle (settle accrues 80_000; arrears U128 + 80_000 > u128)
+    const ov = tr({ couponArrearsAtoms: U128 });
+    expect(couponSettleV22(ov.cBAtoms, 0n, 0n, 800, SLOTS_PER_YEAR_V22, true, ov.cBAtoms)).toEqual([80_000n, 0n]);
+    expect(bondCouponTakeV22({ ...base, nowSlot: SLOTS_PER_YEAR_V22, tranche: ov })).toBeNull();
+    expect(bondCouponTakeV22({ ...base, nowSlot: SLOTS_PER_YEAR_V22, tranche: tr() })!.accrued).toBe(80_000n);
     // paid total saturates at u64
     const sat = bondCouponTakeV22({
       ...base,
