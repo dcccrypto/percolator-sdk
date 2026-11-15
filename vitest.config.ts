@@ -88,6 +88,7 @@ export default defineConfig({
       "test/warmup-math.test.ts",
       "test/validation-behaviour.test.ts",
       "test/v22-lot-exp-profile.test.ts",
+      "test/discovery-branches.test.ts",
     ],
   },
 });
