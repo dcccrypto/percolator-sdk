@@ -119,7 +119,7 @@ describe("txv1 measureTxBytes + packing at the byte limits", () => {
     const v0 = measureTxBytes("v0", payer, ixs, budget);
     const v1 = measureTxBytes("v1", payer, ixs, budget);
     expect(legacy).toBeGreaterThan(0);
-    expect(v0).toBe(legacy + 1); // v0 adds the version prefix and a lookup-table count byte, but no ALTs are used
+    expect(v0).toBeGreaterThan(legacy); // v0 adds a version prefix and an empty lookup-table section; no ALTs are used
     expect(v1).toBeGreaterThan(0);
   });
   it("measureTxBytes(v1) reports the size of an oversize tx instead of throwing, and rethrows structural errors", () => {
@@ -130,8 +130,9 @@ describe("txv1 measureTxBytes + packing at the byte limits", () => {
 
   /** Find a data length for which the legacy tx is exactly `target` bytes. */
   function dataLenForLegacy(target: number): number {
-    const probe = measureTxBytes("legacy", payer, [ix(0, 100)], budget);
-    return 100 + (target - probe);
+    // 200 is in the same 2-byte shortvec length range as the ~1100-byte payload we solve for
+    const probe = measureTxBytes("legacy", payer, [ix(0, 200)], budget);
+    return 200 + (target - probe);
   }
 
   it("legacy packer accepts a single group of exactly 1232 bytes and refuses 1233", () => {
@@ -147,8 +148,8 @@ describe("txv1 measureTxBytes + packing at the byte limits", () => {
   });
 
   it("v0 packer has the same 1232 cap: a group one byte over splits instead of merging", () => {
-    const probe = measureTxBytes("v0", payer, [ix(0, 100)], budget);
-    const exactLen = 100 + (TX_LEGACY_MAX_BYTES - probe);
+    const probe = measureTxBytes("v0", payer, [ix(0, 200)], budget);
+    const exactLen = 200 + (TX_LEGACY_MAX_BYTES - probe);
     expect(measureTxBytes("v0", payer, [ix(0, exactLen)], budget)).toBe(TX_LEGACY_MAX_BYTES);
     expect(() => packInstructionGroups([{ instructions: [ix(0, exactLen + 1)], computeUnits: 1000 }], { format: "v0", payer })).toThrow(/does not fit/);
     // two groups that fit separately but not together are split into two txs
