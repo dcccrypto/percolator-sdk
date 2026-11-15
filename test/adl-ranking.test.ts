@@ -236,7 +236,7 @@ describe("fetchAdlRankedPositions / buildAdlTransaction", () => {
 describe("parseAdlEvent program-id filtering", () => {
   const PID = "Perc1111111111111111111111111111111111111111";
   const OTHER = "Other111111111111111111111111111111111111111";
-  const EVENT = "Program log: 2904424449 7 1500000 100 2";
+  const EVENT = "Program log: 0xad1e0001, 0x7, 0x16e360, 0x64, 0x2";
 
   it("accepts an event logged at depth 0 of the percolator invocation", () => {
     const logs = [`Program ${PID} invoke [1]`, EVENT, `Program ${PID} success`];
@@ -277,7 +277,7 @@ describe("parseAdlEvent program-id filtering", () => {
     const logs = [
       `Program ${PID} invoke [1]`,
       `Program ${OTHER} invoke [2]`,
-      `Program ${OTHER} failed`,
+      `Program ${OTHER} failed: custom program error: 0x1`,
       EVENT,
     ];
     expect(parseAdlEvent(logs, PID)?.price).toBe(1_500_000n);
@@ -296,8 +296,12 @@ describe("parseAdlEvent program-id filtering", () => {
     expect(parseAdlEvent([`Program ${OTHER} invoke [2]`, EVENT])?.targetIdx).toBe(7);
   });
 
+  it("does not decode the old space-separated decimal form (never emitted by the runtime)", () => {
+    expect(parseAdlEvent(["Program log: 2904424449 7 1500000 100 2"])).toBeNull();
+  });
+
   it("ignores wrong-tag lines and keeps looking", () => {
-    const logs = ["Program log: 1 2 3 4 5", EVENT];
+    const logs = ["Program log: 0x1, 0x2, 0x3, 0x4, 0x5", EVENT];
     expect(parseAdlEvent(logs)?.targetIdx).toBe(7);
   });
 });
@@ -356,6 +360,6 @@ describe("fetchAdlRankings", () => {
     [{ ...good, rankings: [{ idx: 1.5 }] }, "invalid ranking idx: 1.5"],
     [{ ...good, rankings: [{ idx: "1" }] }, "invalid ranking idx: 1"],
   ])("rejects malformed response %#", async (body, msg) => {
-    await expect(fetchAdlRankings("https://x", "s", resp(body))).rejects.toThrow(msg);
+    await expect(fetchAdlRankings("https://x", "s", resp(body))).rejects.toThrow(new RegExp(`^.*${msg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
   });
 });
