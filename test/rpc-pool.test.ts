@@ -788,6 +788,11 @@ describe("#351 RpcPool timeout failover", () => {
 });
 
 describe("RpcPool healthCheck-marked unhealthy endpoint recovery", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
   it("an endpoint marked unhealthy by healthCheck() is retried after recoveryAfterMs", async () => {
     vi.useFakeTimers();
     // Primary probe fails, secondary probe succeeds.
