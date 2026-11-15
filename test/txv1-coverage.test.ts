@@ -4,6 +4,7 @@ import {
   Connection,
   Keypair,
   PublicKey,
+  Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
 import {
@@ -113,12 +114,17 @@ describe("txv1 compute-budget placement", () => {
 
 describe("txv1 measureTxBytes + packing at the byte limits", () => {
   const budget = { computeUnitLimit: 1000 };
-  it("measures legacy, v0 and v1; legacy equals the real serialization", () => {
+  it("measures legacy, v0 and v1 (legacy matches a real signed Transaction.serialize())", () => {
     const ixs = [ix(2, 10)];
     const legacy = measureTxBytes("legacy", payer, ixs, budget);
     const v0 = measureTxBytes("v0", payer, ixs, budget);
     const v1 = measureTxBytes("v1", payer, ixs, budget);
-    expect(legacy).toBeGreaterThan(0);
+    const real = new Transaction();
+    real.add(...computeBudgetInstructions(budget), ...ixs);
+    real.feePayer = payer;
+    real.recentBlockhash = BH;
+    real.sign(payerKp);
+    expect(legacy).toBe(real.serialize().length);
     expect(v0).toBeGreaterThan(legacy); // v0 adds a version prefix and an empty lookup-table section; no ALTs are used
     expect(v1).toBeGreaterThan(0);
   });
@@ -147,12 +153,12 @@ describe("txv1 measureTxBytes + packing at the byte limits", () => {
     expect(() => packInstructionGroups([{ instructions: [over], computeUnits: 1000 }], { format: "legacy", payer })).toThrow(/does not fit/);
   });
 
-  it("v0 packer has the same 1232 cap: a group one byte over splits instead of merging", () => {
+  it("v0 packer has the same 1232 cap: one byte over a lone group is refused, and a third group opens a new tx", () => {
     const probe = measureTxBytes("v0", payer, [ix(0, 200)], budget);
     const exactLen = 200 + (TX_LEGACY_MAX_BYTES - probe);
     expect(measureTxBytes("v0", payer, [ix(0, exactLen)], budget)).toBe(TX_LEGACY_MAX_BYTES);
     expect(() => packInstructionGroups([{ instructions: [ix(0, exactLen + 1)], computeUnits: 1000 }], { format: "v0", payer })).toThrow(/does not fit/);
-    // two groups that fit separately but not together are split into two txs
+    // 3 x ~612 bytes: two fit together (1016), the third forces a second tx
     const half = ix(0, 400);
     const plan = packInstructionGroups(
       [
@@ -162,7 +168,7 @@ describe("txv1 measureTxBytes + packing at the byte limits", () => {
       ],
       { format: "v0", payer },
     );
-    expect(plan.length).toBeGreaterThan(1);
+    expect(plan.map((t) => t.groups.length)).toEqual([2, 1]);
     expect(plan.every((t) => t.bytes <= TX_LEGACY_MAX_BYTES)).toBe(true);
   });
 
@@ -183,9 +189,10 @@ describe("txv1 measureTxBytes + packing at the byte limits", () => {
     expect(withBudget).toBeGreaterThan(plain);
   });
 
-  it("a group with more than 64 v1 instructions cannot be packed as v1 but can be legacy-sized", () => {
+  it("a group with more than 64 v1 instructions cannot be packed as v1 but still measures as legacy", () => {
     const many = Array.from({ length: 65 }, () => ix(0, 0));
     expect(() => packInstructionGroups([{ instructions: many, computeUnits: 10 }], { format: "v1", payer })).toThrow(/does not fit/);
+    expect(measureTxBytes("legacy", payer, many, budget)).toBeGreaterThan(0);
   });
 });
 
