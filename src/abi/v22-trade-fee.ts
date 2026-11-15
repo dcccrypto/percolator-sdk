@@ -11,7 +11,8 @@
  * (percolator-match 2b08537a `v2::requested_fee_bps`: ceil(|exec - oracle| * 1e4 / oracle), at most
  * 1023), which the wrapper only accepts when the asset's `matcher_ext_mode == 1` and its
  * `max_requested_fee_bps != 0`. The matcher's total spread is clipped to its context's
- * `max_total_bps` (at most 9000), so its request never exceeds `max_total_bps + 1` (rounding).
+ * `max_total_bps` (at most 9000), so its request never exceeds `max_total_bps + 1` (rounding) for oracle prices >= 10_000 (e6);
+ * below that, integer rounding of the exec price can exceed it (see `oraclePriceE6`).
  *
  * Signing only the base fee therefore fails every fill that carries a matcher fee (QA Q-1: JUP base 30,
  * fills request ~23; a cap of 50 fails, 55 lands, above 500 fails). The fee signed is a ceiling: the
@@ -47,7 +48,8 @@ export interface TradeFeeInputsV22 {
   /**
    * Oracle price (e6) the matcher will quote against. Optional. The matcher rounds its exec price to an
    * integer e6 value, so below $0.01 (price < 10_000) the rounding alone can exceed `total + 1` bps
-   * (oracle 100, total 50 -> request 100). Supply it for sub-cent assets.
+   * (oracle 100, total 50 -> request 100). Supply it for sub-cent assets; the bound is evaluated at +-1 tick
+   * and never drops below `total + 1`. Moves of more than one tick between quote and fill are not covered.
    */
   oraclePriceE6?: bigint;
 }
@@ -107,8 +109,15 @@ export function matcherFeeWorstCaseBpsV22(i: TradeFeeInputsV22): number {
     const o = i.oraclePriceE6;
     if (o !== undefined && o > 0n) {
       // exec - oracle = ceil(oracle * total / 1e4) on both sides; request = ceil(diff * 1e4 / oracle).
-      const diff = (o * BigInt(total) + 9_999n) / 10_000n;
-      bound = Number((diff * 10_000n + o - 1n) / o > 1023n ? 1023n : (diff * 10_000n + o - 1n) / o);
+      // Evaluated at o-1, o, o+1 (the wrapper's oracle at fill may differ by a tick from the client's),
+      // and never below the generic total + 1.
+      const req = (p: bigint): number => {
+        if (p <= 0n) return 0;
+        const diff = (p * BigInt(total) + 9_999n) / 10_000n;
+        const bps = (diff * 10_000n + p - 1n) / p;
+        return Number(bps > BigInt(MATCHER_REQUESTED_FEE_BPS_MAX) ? BigInt(MATCHER_REQUESTED_FEE_BPS_MAX) : bps);
+      };
+      bound = Math.max(bound, req(o - 1n), req(o), req(o + 1n));
     }
     worst = Math.min(worst, bound);
   }

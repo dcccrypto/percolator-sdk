@@ -46,9 +46,17 @@ describe("matcherFeeWorstCaseBpsV22 vs percolator-match requested_fee_bps", () =
       for (const t of [0n, 1n, 25n, 50n, 333n, 9000n]) {
         const worst = matcherFeeWorstCaseBpsV22({ ...base, matcherMaxTotalBps: Number(t), oraclePriceE6: o });
         for (const buy of [true, false]) {
-          if (o * 10_000n >= 0n) expect(BigInt(worst)).toBeGreaterThanOrEqual(matcherRequestBps(o, t, buy));
+          expect(BigInt(worst)).toBeGreaterThanOrEqual(matcherRequestBps(o, t, buy));
         }
       }
+    }
+  });
+
+  it("never drops below total + 1 when the oracle drifts a tick between quote and fill", () => {
+    for (const [client, fill, t] of [[1_000_000n, 1_000_001n, 50n], [150_000_000n, 150_000_001n, 23n], [100n, 99n, 50n], [50n, 49n, 50n]]) {
+      const worst = matcherFeeWorstCaseBpsV22({ ...base, matcherMaxTotalBps: Number(t), oraclePriceE6: client });
+      for (const buy of [true, false]) expect(BigInt(worst)).toBeGreaterThanOrEqual(matcherRequestBps(fill, t, buy));
+      expect(worst).toBeGreaterThanOrEqual(Number(t) + 1);
     }
   });
 
