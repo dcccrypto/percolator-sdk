@@ -1,3 +1,8 @@
+## 9.0.0-candidate: lot_exp-aware profile decode, Pyth helper and Hybrid lot check (prog #711)
+
+- **Added:** `AssetOracleProfileV17.lotExp` (profile byte +19), `lotExpOfProfileV22`, `pythPriceToLotE6V22` (`$3e-7` -> 300000 at lot 6, 0 at lot 0), `ORACLE_MODE_V22`, `lotAllowedForOracleModeV22` (lot allowed on Manual, Hybrid, AuthMark; EWMA refuses), optional `InitMarketTrailerV22.oracleMode` (the encoder refuses lot + EWMA). Existing per-lot helpers are unchanged.
+- **Unchanged:** lot 0 markets and the no-lot trailer are bit-identical (regression test in `test/v22-lot-exp-profile.test.ts`).
+
 ## 9.0.0-candidate: v2.2 rc23 prog #653 (#572) occupancy rent PER NOTIONAL (178fedc4) - BREAKING within the candidate (removes #441)
 
 - **Removed (BREAKING vs the #441 tip):** prog #653 reverted the per-slot charge of #647, so every #441 addition is gone: `occ*` ports and constants, `occupancyRatesV22` / `occupancyRatesFromStateV22`, `decodeOccupancyStateV22`, `occupancyClocksFromProfileV22`, `occupancyClocksAtV22`, `occupancyDueV22`, `decodeOccupancyCheckpointV22`, `readBandRentViewV22().occupancy`, `LAYOUT_V22.bandRent.occupancy`, `parsePortfolioV17().occupancyCheckpoint`. `last_fee_slot` is never tagged and the asset-0 profile +408/+416 bytes are the GH#444 maintenance checkpoint again.

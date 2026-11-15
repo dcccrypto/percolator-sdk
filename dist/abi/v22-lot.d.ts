@@ -93,3 +93,32 @@ export declare function quantizeQToLotsV22(q: bigint): {
  * ```
  */
 export declare function lotsToTokensV22(lots: bigint, lotExp: number): bigint;
+/**
+ * Read `lot_exp` from an asset oracle profile block (profile byte +19, `_padding0[0]`).
+ *
+ * @param data        Bytes containing the profile.
+ * @param profileOff  Offset where the AssetOracleProfileV16 starts.
+ * @returns `lot_exp` 0..=15.
+ * @throws `RangeError` if the block is short or the byte is above 15.
+ * @example
+ * ```ts
+ * lotExpOfProfileV22(slab, profileOff);
+ * ```
+ */
+export declare function lotExpOfProfileV22(data: Uint8Array, profileOff: number): number;
+/**
+ * Convert a Pyth-style `price * 10^expo` quote into the engine per-lot e6 price: `floor(price * 10^(expo + 6 + lotExp))`.
+ * Mirrors the program's compose-then-floor-once (prog #711). 0 means the program would refuse it (at lot 0 a price
+ * below 1e-6 is unreadable; use a market with a larger `lotExp`).
+ *
+ * @param price   Pyth integer price (> 0).
+ * @param expo    Pyth exponent (usually negative).
+ * @param lotExp  Market `lot_exp`.
+ * @returns Per-lot e6 price (floored), possibly 0.
+ * @example
+ * ```ts
+ * pythPriceToLotE6V22(3_000n, -10, 6); // 300_000n  ($3e-7 per token)
+ * pythPriceToLotE6V22(3_000n, -10, 0); // 0n
+ * ```
+ */
+export declare function pythPriceToLotE6V22(price: bigint, expo: number, lotExp: number): bigint;
