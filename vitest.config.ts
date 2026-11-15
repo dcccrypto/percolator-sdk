@@ -90,6 +90,7 @@ export default defineConfig({
       "test/tx-branches.test.ts",
       "test/v22-lot-exp-profile.test.ts",
       "test/ata.test.ts",
+      "test/encode-edges.test.ts",
     ],
   },
 });
