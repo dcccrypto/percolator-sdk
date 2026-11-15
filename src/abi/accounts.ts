@@ -815,7 +815,7 @@ export const ACCOUNTS_WITHDRAW_INSURANCE_LP: readonly AccountSpec[] = [
 // ============================================================================
 
 /**
- * LpVaultWithdraw: 10 accounts (tag 39, PERC-627 / GH#1926 / PERC-8287)
+ * LpVaultWithdraw: 10 accounts (tag 76, PERC-627 / GH#1926 / PERC-8287)
  *
  * Burn LP vault tokens and withdraw proportional collateral from the LP vault.
  *
@@ -918,7 +918,7 @@ export const ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL: readonly AccountSpec[] = [
 // ============================================================================
 
 /**
- * ExecuteAdl: 4+ accounts (PERC-305, tag 50)
+ * ExecuteAdl: 4+ accounts (PERC-305, tag 101)
  * Permissionless — surgically close/reduce the most profitable position
  * when pnl_pos_tot > max_pnl_cap. For non-Hyperp markets with backup oracles,
  * pass additional oracle accounts at accounts[4..].
@@ -962,7 +962,7 @@ export const ACCOUNTS_ADMIN_FORCE_CLOSE: readonly AccountSpec[] = [
 // ============================================================================
 
 /**
- * CloseStaleSlabs: 2 accounts (tag 51)
+ * CloseStaleSlabs: 2 accounts (tag 100)
  * Admin closes a slab of an invalid/old layout and recovers rent SOL.
  */
 export const ACCOUNTS_CLOSE_STALE_SLABS: readonly AccountSpec[] = [
@@ -971,7 +971,7 @@ export const ACCOUNTS_CLOSE_STALE_SLABS: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * ReclaimSlabRent: 2 accounts (tag 52)
+ * ReclaimSlabRent: 2 accounts (tag 99)
  * Reclaim rent from an uninitialised slab. Both dest and slab must sign.
  */
 export const ACCOUNTS_RECLAIM_SLAB_RENT: readonly AccountSpec[] = [
@@ -984,7 +984,7 @@ export const ACCOUNTS_RECLAIM_SLAB_RENT: readonly AccountSpec[] = [
 // ============================================================================
 
 /**
- * AuditCrank: 1 account (tag 53)
+ * AuditCrank: 1 account (tag 91)
  * Permissionless. Verifies conservation invariants; pauses market on violation.
  */
 export const ACCOUNTS_AUDIT_CRANK: readonly AccountSpec[] = [

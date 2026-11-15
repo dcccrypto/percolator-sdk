@@ -6,7 +6,7 @@
  * on a market (PnL cap exceeded) AND the insurance fund is fully depleted (balance == 0).
  * The most profitable positions on the dominant side are deleveraged first.
  *
- * **Note on caller permissions:** `ExecuteAdl` (tag 101) requires the caller to be the
+ * **Note on caller permissions:** `ExecuteAdl` (tag 101, deprecated v12.x; not in v17) requires the caller to be the
  * market admin/keeper key (`header.admin`). It is NOT permissionless despite the
  * instruction being structurally available to any signer.
  *
