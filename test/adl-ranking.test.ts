@@ -203,6 +203,9 @@ describe("fetchAdlRankedPositions / buildAdlTransaction", () => {
     const slab = K();
     const r = await fetchAdlRankedPositions(conn, slab);
     expect(m.fetchSlab).toHaveBeenCalledWith(conn, slab);
+    expect(m.parseAllAccounts).toHaveBeenCalledWith(bytes);
+    expect(m.parseEngine).toHaveBeenCalledWith(bytes);
+    expect(m.parseConfig).toHaveBeenCalledWith(bytes, OI_LAYOUT);
     expect(r.ranked.map((p) => p.idx)).toEqual([4]);
   });
 
@@ -219,12 +222,14 @@ describe("fetchAdlRankedPositions / buildAdlTransaction", () => {
     expect(await buildAdlTransaction(conn, K(), K(), K(), K())).toBeNull();
   });
 
-  it("buildAdlTransaction reaches the v17 unsupported throw for the selected target", async () => {
+  it("buildAdlTransaction throws v17-unsupported when a target exists on the preferred side, null when that side is empty", async () => {
     m.fetchSlab.mockResolvedValue(new Uint8Array(8));
     setup({ pnlPosTot: 11n, maxPnlCap: 10n, accounts: [user(1, 1n, 1n, 1n)] });
     await expect(buildAdlTransaction(conn, K(), K(), K(), K(), "long")).rejects.toThrow(
       "not supported by the v17 SDK",
     );
+    // preferSide "short" with no short open -> no target, so null rather than a throw
+    expect(await buildAdlTransaction(conn, K(), K(), K(), K(), "short")).toBeNull();
   });
 });
 
@@ -281,6 +286,10 @@ describe("parseAdlEvent program-id filtering", () => {
   it("an unmatched callee exit at depth 0 cannot push depth negative", () => {
     const logs = [`Program ${PID} invoke [1]`, `Program ${OTHER} success`, EVENT];
     expect(parseAdlEvent(logs, PID)?.targetIdx).toBe(7);
+    // Without the clamp the stray exit would leave depth -1, and the next
+    // callee invoke would bring it back to 0, letting a callee's event through.
+    const spoof = [`Program ${PID} invoke [1]`, `Program ${OTHER} success`, `Program ${OTHER} invoke [2]`, EVENT];
+    expect(parseAdlEvent(spoof, PID)).toBeNull();
   });
 
   it("without a program id, takes the first matching line regardless of nesting", () => {
