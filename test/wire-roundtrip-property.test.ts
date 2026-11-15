@@ -4,7 +4,7 @@
  *
  * wire-size-v22.test.ts checks each row once with one fixed value per field. This file
  * re-runs every row with boundary and seeded-random values for each field that the table does not pin:
- *   0, 1, type max, signed min / max / -1, and 24 seeded random values per type.
+ *   0, 1, type max, signed min / max / -1, and 8 seeded random values per type.
  * The encoded bytes are decoded with an independent DataView reader and must equal the input exactly.
  *
  * An encoder is allowed to REJECT a value (it throws; that is SDK validation such as a bps cap).
@@ -110,7 +110,7 @@ describe("v2.2 instruction encoders round-trip boundary and random values", () =
         for (const v of candidates(target.type, next)) {
           const fields = base.map((f) => (f.name === target.name ? { ...f, value: v } : f));
           let threw = false;
-          try { row.enc(valuesByName(fields)); } catch { threw = true; }
+          try { row.enc(valuesByName(fields)); } catch (e) { if (e instanceof TypeError) throw e; threw = true; }
           if (threw) { rejected++; continue; }
           accepted++;
           roundTrip(row, fields);
@@ -118,9 +118,9 @@ describe("v2.2 instruction encoders round-trip boundary and random values", () =
       }
       // 2) All free fields at once, seeded random, to catch cross-field offset bleed.
       for (let i = 0; i < SEED_COUNT; i++) {
-        const fields = base.map((f) => (isPinned(row.spec, f.name) ? f : { ...f, value: candidates(f.type, next)[3 + (i % SEED_COUNT)] }));
+        const fields = base.map((f) => (isPinned(row.spec, f.name) ? f : { ...f, value: (() => { const c = candidates(f.type, next); return c[c.length - SEED_COUNT + i]; })() }));
         let threw = false;
-        try { row.enc(valuesByName(fields)); } catch { threw = true; }
+        try { row.enc(valuesByName(fields)); } catch (e) { if (e instanceof TypeError) throw e; threw = true; }
         if (threw) { rejected++; continue; }
         accepted++;
         roundTrip(row, fields);
@@ -133,7 +133,7 @@ describe("v2.2 instruction encoders round-trip boundary and random values", () =
           return { ...f, value: pick === "zero" ? c[0] : f.type === "pk" ? c[1] : SIGNED(f.type) ? c[3] : c[2] };
         });
         let threw = false;
-        try { row.enc(valuesByName(fields)); } catch { threw = true; }
+        try { row.enc(valuesByName(fields)); } catch (e) { if (e instanceof TypeError) throw e; threw = true; }
         if (threw) { rejected++; continue; }
         accepted++;
         roundTrip(row, fields);
@@ -147,7 +147,6 @@ describe("v2.2 instruction encoders round-trip boundary and random values", () =
   });
 
   afterAll(() => {
-    // eslint-disable-next-line no-console
     process.stderr.write(
       `[roundtrip] rows=${stats.rows} withFreeFields=${stats.rowsWithFreeFields} accepted=${stats.accepted} rejected=${stats.rejected}\n` +
         rejectedByRow.join("\n") + "\n",
