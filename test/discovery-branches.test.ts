@@ -113,7 +113,8 @@ describe("pure helpers", () => {
     expect(layout).not.toBeNull();
     // Just long enough for base + bitmap but not for numUsed / nextAccountId on a large tier.
     const minLen = layout!.engineOff + layout!.engineBitmapOff;
-    const e = parseEngineLight(new Uint8Array(Math.max(minLen, 1940)), layout, 4096);
+    const buf = new Uint8Array(minLen + 8).fill(0xff); // non-zero, shorter than numUsed+2
+    const e = parseEngineLight(buf, layout, 4096);
     expect(e.numUsedAccounts).toBe(0);
     expect(e.nextAccountId).toBe(0n);
   });
@@ -133,16 +134,13 @@ describe("discoverMarkets: RPC error surfacing (parallel)", () => {
     const out = await discoverMarkets(c, programId);
     expect(warn).toHaveBeenCalledWith("[discoverMarkets] Tier query rejected:", "boom-tier");
     // slice is 1940 bytes on a medium tier: either parsed or skipped, but never thrown
-    expect(Array.isArray(out)).toBe(true);
+    expect(out).toHaveLength(1);
   });
 
   it("logs non-Error rejection reasons verbatim", async () => {
     const c = conn();
     c.getProgramAccounts.mockImplementation(async (_p: unknown, opts: any) => {
       if (isMemcmp(opts)) return [];
-      throw "string-reason"; // eslint-disable-line no-throw-literal
-    });
-    c.getProgramAccounts.mockImplementationOnce(async () => {
       throw "string-reason"; // eslint-disable-line no-throw-literal
     });
     await discoverMarkets(c, programId);
@@ -162,7 +160,7 @@ describe("discoverMarkets: RPC error surfacing (parallel)", () => {
     const fullCalls = c.getProgramAccounts.mock.calls.filter(([, o]) => isFullMemcmp(o));
     expect(fullCalls).toHaveLength(1);
     expect(fullCalls[0][1].filters[0].memcmp.bytes).toBe("F6P2QNqpQV5");
-    expect(Array.isArray(out)).toBe(true);
+    expect(out).toHaveLength(1);
   });
 
   it("falls back to maxAccounts=4096 when the memcmp account has an unrecognised size", async () => {
@@ -219,6 +217,7 @@ describe("discoverMarkets: sequential mode and 429 retry", () => {
     await vi.runAllTimersAsync();
     await p;
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("429 on tier dataSize="));
+    expect(c.getProgramAccounts.mock.calls.filter(([, o]) => o.filters[0].dataSize)).toHaveLength(3);
   });
 
   it("gives up after exhausting retries and warns, returning [] for that tier", async () => {
@@ -239,6 +238,7 @@ describe("discoverMarkets: sequential mode and 429 retry", () => {
       expect.stringContaining("Tier query failed (dataSize="),
       "rate limit exceeded",
     );
+    expect(c.getProgramAccounts.mock.calls.filter(([, o]) => o.filters[0].dataSize)).toHaveLength(2);
   });
 
   it("a non-429 error is not retried", async () => {
@@ -256,7 +256,7 @@ describe("discoverMarkets: sequential mode and 429 retry", () => {
     );
   });
 
-  it("sequential results are collected from every tier", async () => {
+  it("sequential: unparseable slices from tiers are warned and skipped, not thrown", async () => {
     const c = conn();
     const data = slab(123);
     c.getProgramAccounts.mockImplementation(async (_p: unknown, opts: any) =>
@@ -268,7 +268,8 @@ describe("discoverMarkets: sequential mode and 429 retry", () => {
       interTierDelayMs: 0,
     });
     // dedup by pubkey + unrecognised layout (dataSize taken from the tier) => skipped, no throw
-    expect(Array.isArray(out)).toBe(true);
+    expect(out).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Failed to parse account"), expect.any(String));
   });
 });
 
@@ -396,6 +397,8 @@ describe("discoverMarkets: fallback tiers", () => {
       "[discoverMarkets] dataSize filters failed, falling back to memcmp:",
       "first-fail",
     );
+    expect(c.getProgramAccounts.mock.calls.filter(([, o]) => isFullMemcmp(o))).toHaveLength(2);
+    expect(warn).not.toHaveBeenCalledWith("[discoverMarkets] memcmp fallback also failed:", expect.anything());
   });
 
   it("uses the REST API when RPC returns nothing, and returns its markets", async () => {
@@ -486,8 +489,8 @@ describe("getMarketsByAddress", () => {
     await p;
     expect(c.getMultipleAccountsInfo).toHaveBeenCalledTimes(3);
     const big = conn();
-    await getMarketsByAddress(big, programId, [pk(50)], { batchSize: 1000 });
-    expect(big.getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
+    await getMarketsByAddress(big, programId, Array.from({ length: 101 }, (_, i) => pk(i + 100)), { batchSize: 1000 });
+    expect(big.getMultipleAccountsInfo).toHaveBeenCalledTimes(2);
   });
 
   it("propagates a getMultipleAccountsInfo RPC error to the caller (thrown, not swallowed)", async () => {
