@@ -211,7 +211,7 @@ export const ROWS: Row[] = [
     enc: (o) => w22.encodeRequestRedeemLpSharesV22({ shares: o.shares, minPayoutAtoms: o.minPayoutAtoms, keeperOk: o.keeperOk === 1 }),
   },
   {
-    tag: 76, name: "RequestRedeemLpShares", prog: 10557, form: "legacy 17 B (shares only): RETIRED by the program (line 10552)",
+    tag: 76, name: "RequestRedeemLpShares", prog: 10557, form: "legacy 17 B (shares only): RETIRED by the program (line 10565)",
     spec: "shares:u128", enc: (o) => ix.encodeRequestRedeemLpShares(o),
     mismatch: "encodeRequestRedeemLpShares emits the retired 17-byte form; program decode returns InvalidInstructionData (v16_program.rs:10565). Already @deprecated in the SDK (kept for pre-v2.2 programs), so this is known, not a new bug.",
   },

@@ -58,7 +58,7 @@ Generated from `test/wire-size-v22/table.ts` (`pnpm exec tsx scripts/gen-wire-si
 | 74 | CreateLpVault | fixed | 15 | 1:u16 3:u64 11:u16 13:u16 | v16_program.rs:10542 |
 | 75 | DepositToLpVault | fixed | 19 | 1:u128 17:u16 | v16_program.rs:10548 |
 | 76 | RequestRedeemLpShares | v2.2 (shares, floor, keeper_ok) = 26 B | 26 | 1:u128 17:u64 25:u8 | v16_program.rs:10557 |
-| 76 | RequestRedeemLpShares | legacy 17 B (shares only): RETIRED by the program (line 10552) **(SDK emits a rejected shape)** | 17 | 1:u128 | v16_program.rs:10557 |
+| 76 | RequestRedeemLpShares | legacy 17 B (shares only): RETIRED by the program (line 10565) **(SDK emits a rejected shape)** | 17 | 1:u128 | v16_program.rs:10557 |
 | 77 | ExecuteRedemption | legacy domain only = 3 B | 3 | 1:u16 | v16_program.rs:10583 |
 | 77 | ExecuteRedemptionV22 | domain, floor, n_refresh = 12 B | 12 | 1:u16 3:u64 11:u8 | v16_program.rs:10583 |
 | 78 | LpVaultCrankFees | fixed | 3 | 1:u16 | v16_program.rs:10602 |

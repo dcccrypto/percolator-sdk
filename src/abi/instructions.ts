@@ -122,7 +122,7 @@ export const IX_TAG = {
    * Wire (v2.2): tag(1) + asset_index(u16) + market_id(u64) + kind(u8) + new_pubkey[32] +
    * authority_epoch(u64) = 52 bytes (v16_program.rs:10333). The v17 36-byte form is rejected.
    *
-   * kind values (matches v16_program.rs ASSET_AUTH_* constants, lines 5246-5250):
+   * kind values (matches v16_program.rs ASSET_AUTH_* constants, lines 14271-14275):
    *   0 = ASSET_ADMIN       — asset_admin (burnable when asset_index != 0)
    *   1 = INSURANCE         — insurance_authority
    *   2 = INSURANCE_OPERATOR — insurance_operator
@@ -380,7 +380,7 @@ export const IX_TAG = {
    * feat/protocol-fee-taker-only@2b3a6a65). Sets the three stored fee shares.
    *
    * Wire: tag(1) + creator_share_bps(u16) + lp_share_bps(u16) +
-   * insurance_share_bps(u16) + policy_sequence(u64) = 15 bytes (v16_program.rs:10709). Accounts: see ACCOUNTS_UPDATE_FEE_SPLIT
+   * insurance_share_bps(u16) + authority_epoch(u64) = 15 bytes (v16_program.rs:10709). Accounts: see ACCOUNTS_UPDATE_FEE_SPLIT
    * in abi/accounts.ts. Gated on `cfg.marketauth`.
    *
    * The three shares are bps *of T* (`trade_fee_base_bps`) and must sum to
@@ -3913,7 +3913,7 @@ export function encodeUpdateAuthority(args: UpdateAuthorityArgs): Uint8Array {
 /**
  * Per-asset authority kind for UpdateAssetAuthority (tag 65).
  *
- * Exact mapping from v16_program.rs lines 5246-5250:
+ * Exact mapping from v16_program.rs lines 14271-14275:
  *   ASSET_AUTH_ADMIN              = 0  →  AssetAdmin
  *   ASSET_AUTH_INSURANCE          = 1  →  Insurance
  *   ASSET_AUTH_INSURANCE_OPERATOR = 2  →  InsuranceOperator
