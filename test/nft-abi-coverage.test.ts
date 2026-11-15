@@ -4,9 +4,9 @@
  * (process.env is never mutated).
  *
  * Byte pins: the NFT program's wire tags are fixed by the SDK's own tag table (NFT_IX_TAG) and its
- * header doc (src/abi/nft.ts:5-12: Mint=0, Burn=1, SettleFunding=2, GetPositionValue=3,
+ * header doc (src/abi/nft.ts:6-13: Mint=0, Burn=1, SettleFunding=2, GetPositionValue=3,
  * ExecuteTransferHook=4, EmergencyBurn=5, RepairExtraMetas=6, ReconcileBurnedNft=7; Mint data =
- * tag + asset_index u16 LE, src/abi/nft.ts:107). The percolator-nft program source is not
+ * tag + asset_index u16 LE, src/abi/nft.ts:108). The percolator-nft program source is not
  * checked out in this environment, so the pins below are literal bytes (not derived from
  * NFT_IX_TAG) to catch a drifted tag table.
  */
@@ -33,11 +33,11 @@ import {
   parsePositionNftAccount,
   resolveNftProgramOverride,
 } from "../src/abi/nft.js";
-import { PROGRAM_IDS_DEVNET_V1, PROGRAM_IDS_V17 } from "../src/config/program-ids.js";
+import { NFT_PROGRAM_IDS, PROGRAM_IDS_DEVNET_V1, PROGRAM_IDS_V17 } from "../src/config/program-ids.js";
 
 const env = (o: Record<string, string>) => (k: string) => o[k];
 const k = () => Keypair.generate().publicKey;
-const OTHER_PROGRAM = PROGRAM_IDS_DEVNET_V1.nft === PROGRAM_IDS_V17.nft ? k().toBase58() : PROGRAM_IDS_DEVNET_V1.nft;
+const OTHER_PROGRAM = PROGRAM_IDS_DEVNET_V1.nft === NFT_PROGRAM_ID.toBase58() ? PROGRAM_IDS_V17.nft : PROGRAM_IDS_DEVNET_V1.nft;
 
 describe("NFT encoders (literal byte pins)", () => {
   it("tag table", () => {
@@ -78,10 +78,10 @@ describe("buildNftAccountMetas", () => {
     expect(() => buildNftAccountMetas(["s"], [k(), k()])).toThrow(/expected 1, got 2/);
   });
   it("template lengths match the documented account counts", () => {
-    expect(ACCOUNTS_NFT_MINT).toHaveLength(12);
-    expect(ACCOUNTS_NFT_BURN).toHaveLength(10);
-    expect(ACCOUNTS_NFT_EMERGENCY_BURN).toHaveLength(10);
-    expect(ACCOUNTS_NFT_RECONCILE).toHaveLength(9);
+    expect(ACCOUNTS_NFT_MINT).toEqual(["sw", "w", "sw", "w", "w", "r", "r", "r", "r", "w", "r", "r"]);
+    expect(ACCOUNTS_NFT_BURN).toEqual(["sw", "w", "w", "w", "w", "r", "r", "w", "r", "r"]);
+    expect(ACCOUNTS_NFT_EMERGENCY_BURN).toEqual(["sw", "w", "w", "w", "w", "r", "r", "w", "r", "r"]);
+    expect(ACCOUNTS_NFT_RECONCILE).toEqual(["w", "w", "w", "r", "r", "r", "w", "w", "r"]);
     const m = buildNftAccountMetas(ACCOUNTS_NFT_MINT, Array.from({ length: 12 }, k));
     expect(m[0]).toMatchObject({ isSigner: true, isWritable: true });
     expect(m[2]).toMatchObject({ isSigner: true, isWritable: true });
@@ -137,6 +137,14 @@ describe("resolveNftProgramOverride (injected env)", () => {
   });
   it("allowlisted devnet-v1 and mainnet ids pass with no opt-in", () => {
     expect(resolveNftProgramOverride(env({ NFT_PROGRAM_ID: PROGRAM_IDS_DEVNET_V1.nft }))).toBe(PROGRAM_IDS_DEVNET_V1.nft);
+    expect(resolveNftProgramOverride(env({ NFT_PROGRAM_ID: NFT_PROGRAM_IDS.mainnet }))).toBe(NFT_PROGRAM_IDS.mainnet);
+  });
+  it("unlisted valid key + opt-in '1' is returned with a warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fresh = k().toBase58();
+    expect(resolveNftProgramOverride(env({ NFT_PROGRAM_ID: fresh, PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE: "1" }))).toBe(fresh);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(fresh));
+    warn.mockRestore();
   });
   it("trims whitespace around an allowlisted value", () => {
     expect(resolveNftProgramOverride(env({ NFT_PROGRAM_ID: ` ${PROGRAM_IDS_V17.nft} ` }))).toBe(PROGRAM_IDS_V17.nft);
