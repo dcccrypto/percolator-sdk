@@ -1,5 +1,5 @@
 /** Branch coverage for src/solana/v22.ts: guard/refusal branches and optional-field defaults. */
-import { Keypair, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
+import { Keypair, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import * as B from "../src/solana/v22.js";
 import { deriveVaultLpExtP2b } from "../src/solana/p2b-earn.js";
@@ -82,30 +82,29 @@ describe("classifyRedemptionSimulationV22", () => {
 });
 
 describe("buildLaunchBundleV22 serialization failure", () => {
+  // Deterministic (no Keypair.generate: that is slow) unique keys.
+  const key = (i: number) => new PublicKey(Buffer.alloc(32, i + 1));
+  const mk = (tag: number, nKeys = 0) => new TransactionInstruction({ programId: P, data: Buffer.from([tag]), keys: Array.from({ length: nKeys }, (_, i) => ({ pubkey: key(i), isSigner: false, isWritable: false })) });
+  const build = (supportsV1: boolean) => B.buildLaunchBundleV22({ payer: key(200), market: m, createAccounts: [], createVaultLp: mk(74), initVaultLp: mk(94), initBondTranche: mk(107, 100), supportsV1 });
+  const catchErr = (fn: () => unknown): B.LaunchBundleTooLargeError => {
+    try { fn(); } catch (e) { return e as B.LaunchBundleTooLargeError; }
+    throw new Error("expected LaunchBundleTooLargeError");
+  };
   it("an unserializable legacy bundle raises LaunchBundleTooLargeError with null bytes", () => {
-    const payer = pk();
-    const mk = (tag: number, nKeys = 0) => new TransactionInstruction({ programId: P, data: Buffer.from([tag]), keys: Array.from({ length: nKeys }, () => ({ pubkey: pk(), isSigner: false, isWritable: false })) });
-    // Many unique accounts overflow the legacy wire encoder (it throws instead of returning a size).
-    const input = { payer, market: m, createAccounts: [], createVaultLp: mk(74), initVaultLp: mk(94), initBondTranche: mk(107, 100), supportsV1: false };
-    let err: unknown;
-    try { B.buildLaunchBundleV22(input); } catch (e) { err = e; }
-    expect(err).toBeInstanceOf(B.LaunchBundleTooLargeError);
-    const e = err as B.LaunchBundleTooLargeError;
+    const e = catchErr(() => build(false));
+    expect(e).toBeInstanceOf(B.LaunchBundleTooLargeError);
+    expect(e.bytes).toBeNull();
     expect(e.limit).toBe(1232);
-    if (e.bytes === null) expect(e.message).toMatch(/too large to serialize/);
-    else expect(e.message).toMatch(/bytes, over the/);
+    expect(e.message).toMatch(/too large to serialize/);
   });
-  it("supportsV1 with a bundle over the v1 cap falls through to the legacy size check", () => {
-    const payer = pk();
-    const mk = (tag: number, nKeys = 0) => new TransactionInstruction({ programId: P, data: Buffer.from([tag]), keys: Array.from({ length: nKeys }, () => ({ pubkey: pk(), isSigner: false, isWritable: false })) });
-    for (const n of [100]) {
-      expect(() => B.buildLaunchBundleV22({ payer, market: m, createAccounts: [], createVaultLp: mk(74), initVaultLp: mk(94), initBondTranche: mk(107, n), supportsV1: true })).toThrow(B.LaunchBundleTooLargeError);
-    }
+  it("supportsV1 with a v1 compile failure (over the account cap) falls through to legacy and still refuses", () => {
+    const e = catchErr(() => build(true));
+    expect(e).toBeInstanceOf(B.LaunchBundleTooLargeError);
+    expect(e.bytes).toBeNull();
+    expect(e.limit).toBe(1232);
   });
   it("message wording for an explicit byte size", () => {
     expect(new B.LaunchBundleTooLargeError(2000, 1232).message).toMatch(/2000 bytes/);
     expect(new B.LaunchBundleTooLargeError(null, 1232).message).toMatch(/too large to serialize/);
   });
 });
-
-void SystemProgram;
