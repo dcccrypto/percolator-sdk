@@ -148,9 +148,9 @@ describe("v2.2 instruction encoders round-trip boundary and random values", () =
 
   afterAll(() => {
     // eslint-disable-next-line no-console
-    console.log(
+    process.stderr.write(
       `[roundtrip] rows=${stats.rows} withFreeFields=${stats.rowsWithFreeFields} accepted=${stats.accepted} rejected=${stats.rejected}\n` +
-        rejectedByRow.join("\n"),
+        rejectedByRow.join("\n") + "\n",
     );
   });
 });
