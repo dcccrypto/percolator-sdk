@@ -4497,6 +4497,8 @@ export interface AssetOracleProfileV17 {
   backingTradeFeeBpsShort: number;
   backingTradeFeeInsuranceShareBpsLong: number;
   backingTradeFeeInsuranceShareBpsShort: number;
+  /** Immutable per-market `lot_exp` (profile byte +19, 0..=15). Engine prices are quote-E6 per `10^lotExp` base units; 0 = per-token E6. */
+  lotExp: number;
   insuranceAuthority: PublicKey;
   insuranceOperator: PublicKey;
   backingBucketAuthority: PublicKey;
@@ -4585,6 +4587,7 @@ export function parseAssetOracleProfileV17(data: Uint8Array, profileOff: number)
     backingTradeFeeBpsShort: readU16LE(data, b + 12),
     backingTradeFeeInsuranceShareBpsLong: readU16LE(data, b + 14),
     backingTradeFeeInsuranceShareBpsShort: readU16LE(data, b + 16),
+    lotExp: readU8(data, b + 19),
     insuranceAuthority: new PublicKey(data.subarray(b + 24, b + 56)),
     insuranceOperator: new PublicKey(data.subarray(b + 56, b + 88)),
     backingBucketAuthority: new PublicKey(data.subarray(b + 88, b + 120)),

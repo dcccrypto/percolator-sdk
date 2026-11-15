@@ -81,6 +81,27 @@ export declare const DEFAULT_FLOOR_SLIPPAGE_BPS_V22 = 5;
 export declare const EXECUTE_REDEMPTION_COMPUTE_UNITS_V22 = 1300000;
 /** `LOT_EXP_MAX`: `lot_exp` is `1..=15` on the wire (0 = the 4-byte form). */
 export declare const LOT_EXP_MAX_V22 = 15;
+/** Wrapper `ORACLE_MODE_*` bytes (profile byte +0). */
+export declare const ORACLE_MODE_V22: {
+    readonly Manual: 0;
+    readonly Hybrid: 1;
+    readonly EwmaMark: 2;
+    readonly AuthMark: 3;
+};
+/**
+ * Mirror of prog `profile_lot_and_p4_bytes_ok` (lot half): is a non-zero `lot_exp` allowed for this oracle mode?
+ * Since prog #711 it is allowed on Manual, AuthMark and HYBRID_AFTER_HOURS; EWMA refuses it. `lotExp` 0 is always fine.
+ *
+ * @param oracleMode  `ORACLE_MODE_*` byte (0 Manual, 1 Hybrid, 2 EWMA, 3 AuthMark).
+ * @param lotExp      `lot_exp` 0..=15.
+ * @returns `true` if the program accepts the pair.
+ * @example
+ * ```ts
+ * lotAllowedForOracleModeV22(ORACLE_MODE_V22.Hybrid, 6); // true
+ * lotAllowedForOracleModeV22(ORACLE_MODE_V22.EwmaMark, 6); // false
+ * ```
+ */
+export declare function lotAllowedForOracleModeV22(oracleMode: number, lotExp: number): boolean;
 /** `LOT_PRICE_FLOOR_E6`: a growth market opens (and every ConfigureAuthMark on it stays) at or above 10 per lot. */
 export declare const LOT_PRICE_FLOOR_E6_V22 = 10000000n;
 /** `RENT_MIN_E9_PER_SLOT`: a rent market (`rent_max != 0`) needs `rent_max >= 10`. */
@@ -205,6 +226,11 @@ export interface InitMarketTrailerV22 {
     lLaunchX100: number;
     /** `lot_exp` `1..=15`; omit for no lot (an odd-length trailer carries the lot byte; 0 is refused). */
     lotExp?: number;
+    /**
+     * Oracle mode the market will be configured with (optional). When set together with `lotExp`, the encoder refuses a
+     * pair the program refuses ({@link lotAllowedForOracleModeV22}: EWMA with a lot). Omit to skip the check.
+     */
+    oracleMode?: number;
     /** Rent block (required for a band). */
     rent?: RentBlockV22;
     /** Band block (requires `rent`, the grammar is `[rent [band]]`). */
