@@ -78,8 +78,10 @@ describe("parseAssetOracleProfileV17", () => {
     expect(throwsMsg(() => parseAssetOracleProfileV17(new Uint8Array(10), 0))).toMatch(/data too short/);
     const need = 40 + V17_ASSET_ORACLE_PROFILE_LEN;
     expect(throwsMsg(() => parseAssetOracleProfileV17(new Uint8Array(need - 1), 40))).toMatch(/data too short/);
-    const ok = parseAssetOracleProfileV17(shifted(new Uint8Array(need)), 40);
-    expect(ok).toBeTruthy();
+    const src = new Uint8Array(need);
+    for (let i = 40; i < need; i++) src[i] = (i * 7) & 0xff;
+    const ok = parseAssetOracleProfileV17(shifted(src), 40);
+    expect(ok).toEqual(parseAssetOracleProfileV17(src, 40));
   });
 });
 
@@ -123,6 +125,7 @@ describe("parseMarketGroupV17OI guards", () => {
     });
     it(`VERSION ${version}: a trailing partial slot is tolerated (non-strict) and ignored`, () => {
       const buf = stampMarket(new Uint8Array(slotsBase + L.assetSlotStride + 5), version);
+      buf.fill(0xff, slotsBase + L.assetSlotStride);
       const oi = parseMarketGroupV17OI(buf);
       expect(oi.assets).toEqual([]);
       expect(oi.totalLongOiQ).toBe(0n);
@@ -167,13 +170,33 @@ describe("parsePortfolioV17 guards and truncated tails", () => {
       // Sentinel values in each optional field so a present field is distinguishable from the default 0n.
       for (let off = minLen; off + 16 <= 116 + 240; off += 16) put128(full, off, BigInt(off));
       const seen = new Set<string>();
-      // Walk through every optional-field boundary (16 B apart) plus the exact boundary - 1.
+      // Walk through the optional-field region in 8-byte steps; exact boundaries are asserted below.
       for (let len = minLen; len <= 116 + 240 + 8; len += 8) {
         const p = parsePortfolioV17(full.subarray(0, len));
         seen.add(`${p.residualCrystallizedLossAtomsTotal}/${p.feeCredits}/${p.activeBitmap}/${p.lastFeeSlot}`);
         expect(p.legs.length).toBeLessThanOrEqual(G.legCount);
       }
       expect(seen.size).toBeGreaterThan(3);
+      const fields: [number, (p: ReturnType<typeof parsePortfolioV17>) => bigint][] = [
+        [116 + 80, p => p.residualCrystallizedLossAtomsTotal],
+        [116 + 96, p => p.residualSpentPrincipalAtomsTotal],
+        [116 + 112, p => p.residualReceivedAtomsTotal],
+        [116 + 128, p => p.fundingLongPaidAtomsTotal],
+        [116 + 144, p => p.fundingLongReceivedAtomsTotal],
+        [116 + 160, p => p.fundingShortPaidAtomsTotal],
+        [116 + 176, p => p.fundingShortReceivedAtomsTotal],
+        [116 + 192, p => p.feeCredits],
+        [116 + 208, p => p.cancelDepositEscrow],
+      ];
+      for (const [off, get] of fields) {
+        expect(get(parsePortfolioV17(full.subarray(0, off + 15)))).toBe(0n);
+        expect(get(parsePortfolioV17(full.subarray(0, off + 16)))).toBe(BigInt(off));
+      }
+      put64(full, 116 + 232, 0xabcdn);
+      expect(parsePortfolioV17(full.subarray(0, 116 + 224 + 7)).lastFeeSlot).toBe(0n);
+      expect(parsePortfolioV17(full.subarray(0, 116 + 224 + 8)).lastFeeSlot).toBe(BigInt(116 + 224));
+      expect(parsePortfolioV17(full.subarray(0, 116 + 232 + 7)).activeBitmap).toBe(0n);
+      expect(parsePortfolioV17(full.subarray(0, 116 + 232 + 8)).activeBitmap).toBe(0xabcdn);
       // Truncated mid-way through the legs and the source domains / matcher config: loops `break`, matcher defaults.
       const midLegs = parsePortfolioV17(full.subarray(0, G.legsOff + 2 * G.legStride + 3));
       expect(midLegs.legs.length).toBe(2);
@@ -280,14 +303,14 @@ describe("detectSlabLayout across every tier table", () => {
     for (const t of TIER_TABLES) {
       for (const tier of Object.values(t)) {
         const L = detectSlabLayout(tier.dataSize);
-        if (!L) continue; // a size shadowed by another registry yields null only if invalid
+        expect(L).not.toBeNull();
         seen++;
-        expect(L.maxAccounts).toBeGreaterThan(0);
-        expect(L.accountsOff).toBeGreaterThan(L.engineOff);
-        expect(L.accountsOff + L.maxAccounts * L.accountSize).toBeLessThanOrEqual(tier.dataSize + 8);
+        expect(L!.maxAccounts).toBe(tier.maxAccounts);
+        expect(L!.accountsOff).toBeGreaterThan(L!.engineOff);
+        expect(L!.accountsOff + L!.maxAccounts * L!.accountSize).toBeLessThanOrEqual(tier.dataSize);
       }
     }
-    expect(seen).toBeGreaterThan(20);
+    expect(seen).toBeGreaterThanOrEqual(34);
   });
   it("returns null for a size no registry knows", () => {
     expect(detectSlabLayout(12345)).toBeNull();
@@ -303,21 +326,20 @@ describe("parseConfig / parseParams / parseEngine on every layout", () => {
         if (seenSizes.has(tier.dataSize) || tier.dataSize > 700_000) continue; // skip the largest tiers: no new branches
         seenSizes.add(tier.dataSize);
         const L = detectSlabLayout(tier.dataSize);
-        if (!L) continue;
+        if (!L) throw new Error(`no layout for ${tier.dataSize}`);
         const buf = new Uint8Array(tier.dataSize);
         put64(buf, 0, SLAB_MAGIC);
         const cfg = parseConfig(buf, L);
         const params = parseParams(buf, L);
-        let engine;
-        try { engine = parseEngine(buf); } catch { engine = undefined; }
+        const engine = parseEngine(buf);
         const view = shifted(buf);
         expect(parseConfig(view, L)).toEqual(cfg);
         expect(parseParams(view, L)).toEqual(params);
-        if (engine) expect(parseEngine(view)).toEqual(engine);
+        expect(parseEngine(view)).toEqual(engine);
         n++;
       }
     }
-    expect(n).toBeGreaterThan(15);
+    expect(n).toBeGreaterThanOrEqual(22);
   });
 
   it("parseConfig / parseParams / parseEngine reject buffers too small for any layout", () => {
@@ -332,17 +354,16 @@ describe("parseConfig / parseParams / parseEngine on every layout", () => {
       for (const tier of Object.values(t)) {
         if (tier.dataSize > 120_000) continue;
         const L = detectSlabLayout(tier.dataSize);
-        if (!L) continue;
+        if (!L) throw new Error(`no layout for ${tier.dataSize}`);
         const buf = new Uint8Array(tier.dataSize);
         put64(buf, 0, SLAB_MAGIC);
         buf[L.engineOff + L.engineBitmapOff] = 0x01; // account 0 used
-        let all;
-        try { all = parseAllAccounts(buf); } catch { continue; }
+        const all = parseAllAccounts(buf);
         expect(all.length).toBe(1);
         expect(parseAccount(shifted(buf), 0)).toEqual(all[0].account);
         n++;
       }
     }
-    expect(n).toBeGreaterThan(3);
+    expect(n).toBeGreaterThanOrEqual(14);
   });
 });
