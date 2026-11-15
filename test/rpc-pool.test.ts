@@ -786,3 +786,40 @@ describe("#351 RpcPool timeout failover", () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("RpcPool healthCheck-marked unhealthy endpoint recovery", () => {
+  it("an endpoint marked unhealthy by healthCheck() is retried after recoveryAfterMs", async () => {
+    vi.useFakeTimers();
+    // Primary probe fails, secondary probe succeeds.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("primary")) throw new Error("ECONNREFUSED");
+        return { ok: true, status: 200, json: async () => ({ result: 42 }) };
+      }),
+    );
+    const pool = new RpcPool({
+      endpoints: [
+        { url: "https://primary.example.com", label: "primary" },
+        { url: "https://secondary.example.com", label: "secondary" },
+      ],
+      strategy: "failover",
+      retry: false,
+      verbose: false,
+      recoveryAfterMs: 1_000,
+    });
+
+    await pool.healthCheck(100);
+    expect(pool.status()[0].healthy).toBe(false);
+
+    // Well past the recovery window; the primary should be selectable again.
+    vi.advanceTimersByTime(10_000);
+
+    const used: string[] = [];
+    await pool.call(async (conn) => {
+      used.push(conn.rpcEndpoint);
+      return 1;
+    });
+    expect(used[0]).toContain("primary");
+  });
+});
