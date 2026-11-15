@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TokenOwnerOffCurveError,
+  TokenInvalidAccountOwnerError,
+  TokenAccountNotFoundError,
+} from "@solana/spl-token";
 import { getAta, getAtaSync, fetchTokenAccount } from "../src/solana/ata.js";
 import { TOKEN_2022_PROGRAM_ID } from "../src/solana/token-program.js";
 
@@ -29,7 +35,7 @@ describe("getAtaSync", () => {
   it("rejects an off-curve owner unless allowOwnerOffCurve is set", () => {
     const [pda] = PublicKey.findProgramAddressSync([Buffer.from("x")], TOKEN_PROGRAM_ID);
     expect(PublicKey.isOnCurve(pda.toBytes())).toBe(false);
-    expect(() => getAtaSync(pda, mint)).toThrow();
+    expect(() => getAtaSync(pda, mint)).toThrow(TokenOwnerOffCurveError);
     expect(getAtaSync(pda, mint, true).equals(expectedAta(pda, mint, TOKEN_PROGRAM_ID))).toBe(true);
   });
 });
@@ -46,7 +52,7 @@ describe("getAta", () => {
 
   it("rejects off-curve owners by default and allows them when flagged", async () => {
     const [pda] = PublicKey.findProgramAddressSync([Buffer.from("y")], TOKEN_PROGRAM_ID);
-    await expect(getAta(pda, mint)).rejects.toThrow();
+    await expect(getAta(pda, mint)).rejects.toThrow(TokenOwnerOffCurveError);
     expect((await getAta(pda, mint, true)).equals(getAtaSync(pda, mint, true))).toBe(true);
   });
 });
@@ -90,11 +96,13 @@ describe("fetchTokenAccount", () => {
     };
     await expect(
       fetchTokenAccount(conn as never, Keypair.generate().publicKey, TOKEN_2022_PROGRAM_ID),
-    ).rejects.toThrow();
+    ).rejects.toThrow(TokenInvalidAccountOwnerError);
   });
 
   it("throws when the account does not exist", async () => {
     const conn = { getAccountInfo: vi.fn().mockResolvedValue(null) };
-    await expect(fetchTokenAccount(conn as never, Keypair.generate().publicKey)).rejects.toThrow();
+    await expect(fetchTokenAccount(conn as never, Keypair.generate().publicKey)).rejects.toThrow(
+      TokenAccountNotFoundError,
+    );
   });
 });
