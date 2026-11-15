@@ -44,6 +44,12 @@ export interface TradeFeeInputsV22 {
   matcherExtMode?: number;
   /** Matcher context `max_total_bps`, when known (tightens the worst-case request). */
   matcherMaxTotalBps?: number;
+  /**
+   * Oracle price (e6) the matcher will quote against. Optional. The matcher rounds its exec price to an
+   * integer e6 value, so below $0.01 (price < 10_000) the rounding alone can exceed `total + 1` bps
+   * (oracle 100, total 50 -> request 100). Supply it for sub-cent assets.
+   */
+  oraclePriceE6?: bigint;
 }
 
 /** Options for {@link computeTradeFeeBpsToSignV22}. */
@@ -97,7 +103,14 @@ export function matcherFeeWorstCaseBpsV22(i: TradeFeeInputsV22): number {
   let worst = Math.min(maxReq, MATCHER_REQUESTED_FEE_BPS_MAX);
   if (i.matcherMaxTotalBps !== undefined) {
     const total = Math.min(nonNegInt("matcherMaxTotalBps", i.matcherMaxTotalBps), MATCHER_MAX_TOTAL_BPS_CEILING);
-    worst = Math.min(worst, total + 1);
+    let bound = total + 1;
+    const o = i.oraclePriceE6;
+    if (o !== undefined && o > 0n) {
+      // exec - oracle = ceil(oracle * total / 1e4) on both sides; request = ceil(diff * 1e4 / oracle).
+      const diff = (o * BigInt(total) + 9_999n) / 10_000n;
+      bound = Number((diff * 10_000n + o - 1n) / o > 1023n ? 1023n : (diff * 10_000n + o - 1n) / o);
+    }
+    worst = Math.min(worst, bound);
   }
   return worst;
 }
