@@ -86,6 +86,7 @@ export default defineConfig({
       "test/trading-math-behaviour.test.ts",
       "test/trading-parity.test.ts",
       "test/warmup-math.test.ts",
+      "test/validation-behaviour.test.ts",
     ],
   },
 });
