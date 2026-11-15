@@ -1040,6 +1040,8 @@ export interface AssetOracleProfileV17 {
     backingTradeFeeBpsShort: number;
     backingTradeFeeInsuranceShareBpsLong: number;
     backingTradeFeeInsuranceShareBpsShort: number;
+    /** Immutable per-market `lot_exp` (profile byte +19, 0..=15). Engine prices are quote-E6 per `10^lotExp` base units; 0 = per-token E6. */
+    lotExp: number;
     insuranceAuthority: PublicKey;
     insuranceOperator: PublicKey;
     backingBucketAuthority: PublicKey;
