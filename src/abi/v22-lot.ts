@@ -165,7 +165,7 @@ export function lotExpOfProfileV22(data: Uint8Array, profileOff: number): number
 
 /**
  * Convert a Pyth-style `price * 10^expo` quote into the engine per-lot e6 price: `floor(price * 10^(expo + 6 + lotExp))`.
- * Mirrors the program's compose-then-floor-once (prog #711). 0 means the program would refuse it (at lot 0 a price
+ * Mirrors the single-leg path of prog #711: read at E12 (truncating, so feeds finer than expo -12 lose digits), then `* 10^lotExp` floored once to E6. The program's final `<= MAX_ORACLE_PRICE` check is not applied here. 0 means the program would refuse it (at lot 0 a price
  * below 1e-6 is unreadable; use a market with a larger `lotExp`).
  *
  * @param price   Pyth integer price (> 0).
@@ -181,6 +181,7 @@ export function lotExpOfProfileV22(data: Uint8Array, profileOff: number): number
 export function pythPriceToLotE6V22(price: bigint, expo: number, lotExp: number): bigint {
   assertLotExp(lotExp);
   if (price <= 0n) throw new Error("price must be > 0");
-  const k = expo + 6 + lotExp;
-  return k >= 0 ? price * pow10(k) : price / pow10(-k);
+  // Program order: the leg is read at E12 (truncating feeds finer than 1e-12), then * 10^lot / 1e6 floors once.
+  const e12 = expo + 12 >= 0 ? price * pow10(expo + 12) : price / pow10(-(expo + 12));
+  return (e12 * pow10(lotExp)) / 1_000_000n;
 }

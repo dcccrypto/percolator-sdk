@@ -108,7 +108,7 @@ export declare function lotsToTokensV22(lots: bigint, lotExp: number): bigint;
 export declare function lotExpOfProfileV22(data: Uint8Array, profileOff: number): number;
 /**
  * Convert a Pyth-style `price * 10^expo` quote into the engine per-lot e6 price: `floor(price * 10^(expo + 6 + lotExp))`.
- * Mirrors the program's compose-then-floor-once (prog #711). 0 means the program would refuse it (at lot 0 a price
+ * Mirrors the single-leg path of prog #711: read at E12 (truncating, so feeds finer than expo -12 lose digits), then `* 10^lotExp` floored once to E6. The program's final `<= MAX_ORACLE_PRICE` check is not applied here. 0 means the program would refuse it (at lot 0 a price
  * below 1e-6 is unreadable; use a market with a larger `lotExp`).
  *
  * @param price   Pyth integer price (> 0).

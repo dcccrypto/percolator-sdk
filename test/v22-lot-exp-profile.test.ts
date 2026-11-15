@@ -32,6 +32,9 @@ describe("price / size helpers at lot 0 and lot 6", () => {
     expect(pythPriceToLotE6V22(3_000n, -10, 0)).toBe(0n);
     expect(pythPriceToLotE6V22(3_000n, -10, 6)).toBe(300_000n);
   });
+  it("expo finer than -12 truncates at E12 first, like the program", () => {
+    expect(pythPriceToLotE6V22(12_345n, -14, 15)).toBe(123_000_000_000n);
+  });
   it("lot 0 is the per-token e6 price unchanged", () => {
     expect(pythPriceToLotE6V22(150_000_000n, -8, 0)).toBe(1_500_000n);
     expect(lotPriceToTokenE6V22(1_234_567n, 0)).toBe(1_234_567n);

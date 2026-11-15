@@ -9348,8 +9348,8 @@ function lotExpOfProfileV22(data, profileOff) {
 function pythPriceToLotE6V22(price, expo, lotExp) {
   assertLotExp(lotExp);
   if (price <= 0n) throw new Error("price must be > 0");
-  const k = expo + 6 + lotExp;
-  return k >= 0 ? price * pow10(k) : price / pow10(-k);
+  const e12 = expo + 12 >= 0 ? price * pow10(expo + 12) : price / pow10(-(expo + 12));
+  return e12 * pow10(lotExp) / 1000000n;
 }
 
 // src/abi/v22-fill-events.ts
