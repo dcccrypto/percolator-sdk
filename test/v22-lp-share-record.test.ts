@@ -27,7 +27,7 @@ function rec(o: Opts = {}): Uint8Array {
   ];
   const c = o.creators ?? "none";
   if (c === "none") parts.push(Uint8Array.of(0));
-  else if (typeof c === "number") parts.push(Uint8Array.of(1), u32(c), new Uint8Array(c * 34));
+  else if (typeof c === "number") parts.push(Uint8Array.of(1), u32(c), new Uint8Array(c * 34).fill(0xff));
   else parts.push(Uint8Array.of(c.tag), ...(c.count !== undefined ? [u32(c.count)] : []), new Uint8Array(c.bytes ?? 0));
   parts.push(Uint8Array.of(o.primarySale ? 1 : 0));
   if (o.isMutable !== null) parts.push(Uint8Array.of(o.isMutable ?? 1));
@@ -84,7 +84,7 @@ describe("parseLpShareMetadataRecordV22 edges", () => {
   it("missing key / owner fields and every prefix truncation return null without throwing", () => {
     const b = rec({ creators: 2 });
     for (let i = 0; i < b.length; i++) expect(() => parseLpShareMetadataRecordV22(b.subarray(0, i))).not.toThrow();
-    for (const i of [0, 1, 20, 33, 65, 66, 69]) expect(parseLpShareMetadataRecordV22(b.subarray(0, i))).toBeNull();
+    for (let i = 0; i < b.length; i++) expect(parseLpShareMetadataRecordV22(b.subarray(0, i))).toBeNull();
     expect(parseLpShareMetadataRecordV22(rec({ key: 0 }))).toBeNull();
   });
 });
