@@ -16,6 +16,7 @@ export default defineConfig({
       "test/price-router.test.ts",
       "test/discovery.test.ts",      "test/slab-parser.test.ts",
       "test/adl.test.ts",
+      "test/adl-ranking.test.ts",
       "test/accounts.test.ts",
       "test/program-ids.test.ts",
       "test/stake.test.ts",
