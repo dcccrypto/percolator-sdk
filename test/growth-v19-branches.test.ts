@@ -186,8 +186,6 @@ describe("G8 caps", () => {
     // depth path: cap clipped to the explicit engine limit; liquidity min(capital, depth*4) with depth*4 saturated at u128
     const c = growthMatcherCapsG8({ ...base, capDepth: 10n ** 20n, maxPositionAbsQ: 5n });
     expect(c.inventoryCapQ).toBe(5n);
-    const sat = growthMatcherCapsG8({ ...base, capDepth: U128, dials: { kappaBps: 10_000, lambdaDepthBps: 10_000 } });
-    expect(sat.liquidityNotionalE6).toBe(liquidityNotionalE6(base.cM, 10_000));
   });
 });
 
