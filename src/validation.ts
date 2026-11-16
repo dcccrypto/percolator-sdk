@@ -124,10 +124,6 @@ export function validateAmount(value: string, field: string): bigint {
   const t = requireDecimalUIntString(value, field);
   const num = BigInt(t);
 
-  if (num < 0n) {
-    throw new ValidationError(field, `must be non-negative, got ${num}`);
-  }
-
   if (num > U64_MAX) {
     throw new ValidationError(
       field,
@@ -144,10 +140,6 @@ export function validateAmount(value: string, field: string): bigint {
 export function validateU128(value: string, field: string): bigint {
   const t = requireDecimalUIntString(value, field);
   const num = BigInt(t);
-
-  if (num < 0n) {
-    throw new ValidationError(field, `must be non-negative, got ${num}`);
-  }
 
   if (num > U128_MAX) {
     throw new ValidationError(
