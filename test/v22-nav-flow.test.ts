@@ -161,6 +161,55 @@ describe("withNavFlowTailV22 (the helper a keeper / app applies to its own instr
   });
 });
 
+describe("withNavFlowTailV22: remaining fail-closed counts and guards", () => {
+  const mk = (tag: number, n: number, extra: number[] = []): TransactionInstruction =>
+    new TransactionInstruction({ programId: P, data: Buffer.from([tag, ...extra]), keys: Array.from({ length: n }, () => ({ pubkey: pk(), isSigner: false, isWritable: false })) });
+
+  it("97 / 98 / 103 reject an account count outside their known forms, naming the allowed counts", () => {
+    expect(() => S.withNavFlowTailV22(mk(97, 10), MARKET)).toThrow("tag 97 must have 11..13 (or 14) accounts, got 10");
+    expect(() => S.withNavFlowTailV22(mk(97, 15), MARKET)).toThrow("tag 97 must have 11..13 (or 14) accounts, got 15");
+    expect(() => S.withNavFlowTailV22(mk(98, 7), MARKET)).toThrow("tag 98 must have 8 or 9 (or 10) accounts, got 7");
+    expect(() => S.withNavFlowTailV22(mk(98, 11), MARKET)).toThrow("tag 98 must have 8 or 9 (or 10) accounts, got 11");
+    expect(() => S.withNavFlowTailV22(mk(103, 8), MARKET)).toThrow("tag 103 must have 9 or 10 (or 11) accounts, got 8");
+    expect(() => S.withNavFlowTailV22(mk(103, 12), MARKET)).toThrow("tag 103 must have 9 or 10 (or 11) accounts, got 12");
+  });
+
+  it("111 with fewer than 7 accounts throws", () => {
+    expect(() => S.withNavFlowTailV22(mk(111, 6, [0]), MARKET)).toThrow("tag 111 needs at least 7 accounts, got 6");
+  });
+
+  it("the builders that need the vault LP portfolio refuse a market without one", () => {
+    const noLp = { programId: P, market: MARKET, registryDomain: DOMAIN };
+    expect(() => S.buildDepositJuniorTrancheIxV22(noLp, pk(), pk(), pk(), 1n)).toThrow("tag 96 needs the vault LP portfolio (m.lpPortfolio)");
+    expect(() => S.buildVaultLpRecallIxV22(noLp, pk(), 1n, 0)).toThrow("tag 98 needs the vault LP portfolio");
+    expect(() => S.buildVaultLpReleaseSurplusLiveIxV22(noLp, pk(), 1n, 0)).toThrow("tag 102 needs the vault LP portfolio");
+    expect(() => S.buildVaultLpAllocateIxV22(noLp, pk(), 1n)).toThrow("tag 103 needs the vault LP portfolio");
+  });
+
+  it("hasNavFlowTailV22: a tag with no tail is false; 111 needs the guard at [7..]; a wrong key at the guard slot is false", () => {
+    expect(S.hasNavFlowTailV22(mk(75, 13), MARKET)).toBe(false);
+    expect(S.hasNavFlowTailV22(mk(111, 9, [1]), MARKET)).toBe(false);
+    const ok = S.buildVaultLpRecallIxV22(m, pk(), 1n, 0);
+    const bad = new TransactionInstruction({ programId: P, data: ok.data, keys: ok.keys.map((k, i) => (i === 9 ? { ...k, pubkey: pk() } : k)) });
+    expect(S.hasNavFlowTailV22(bad, MARKET)).toBe(false);
+    // the guard of ANOTHER market does not count
+    expect(S.hasNavFlowTailV22(ok, pk())).toBe(false);
+  });
+
+  it("accepted optional forms: 98 with the ext at [8] and 103 with a bond tranche at [9] each gain only the guard", () => {
+    const k8 = mk(98, 9);
+    k8.keys[8] = { pubkey: EXT, isSigner: false, isWritable: false };
+    const o98 = S.withNavFlowTailV22(k8, MARKET);
+    expect(o98.keys).toHaveLength(10);
+    expect([o98.keys[8]!.isWritable, o98.keys[9]!.pubkey.toBase58(), o98.keys[9]!.isWritable]).toEqual([true, GUARD.toBase58(), true]);
+    const k103 = mk(103, 10);
+    k103.keys[7] = { pubkey: EXT, isSigner: false, isWritable: false };
+    const bond = k103.keys[9]!.pubkey;
+    const o103 = S.withNavFlowTailV22(k103, MARKET);
+    expect(keys(o103).slice(9)).toEqual([bond.toBase58(), GUARD.toBase58()]);
+  });
+});
+
 describe("compute-unit limits (always explicit for the flow tags)", () => {
   it("pinned values, each at least 2x the worst measured case", () => {
     const want = { 96: 250_000, 97: 300_000, 98: 400_000, 102: 300_000, 103: 600_000, 108: 600_000, 110: 600_000, 111: 600_000 };
