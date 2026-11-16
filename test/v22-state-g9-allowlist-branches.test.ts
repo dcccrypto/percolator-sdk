@@ -6,14 +6,11 @@
 import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { V22_VECTORS } from "./v22-vector-inputs.js";
 import { decodeG9FeedAllowlistV22 } from "../src/abi/v22-state.js";
-import { UnknownLayoutError } from "../src/abi/layout.js";
 
 const FX = JSON.parse(readFileSync(new URL("./fixtures/v22-parity.json", import.meta.url), "utf8")) as {
   accounts: Record<string, { hex: string }>;
 };
-void V22_VECTORS;
 const HEADER = 16;
 const ARR = (idx: number, i: number) => HEADER + 16 + 32 * (idx * 16 + i);
 const base = () => Uint8Array.from(Buffer.from(FX.accounts.g9Allowlist.hex, "hex"));
