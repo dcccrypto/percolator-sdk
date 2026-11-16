@@ -279,6 +279,10 @@ describe("isAdlTriggered", () => {
 // Tests for parseAdlEvent — PERC-8312
 // ---------------------------------------------------------------------------
 
+/** Real sol_log_64 format (agave syscalls/logging.rs): "Program log: 0xa, 0xb, ..." */
+const hexLog = (...v: Array<number | bigint>) =>
+  `Program log: ${v.map((x) => "0x" + x.toString(16)).join(", ")}`;
+
 describe("parseAdlEvent", () => {
   /** ADL_EVENT_TAG = 0xAD1E_0001 = 2904424449 */
   const TAG = 0xAD1E_0001; // 2904424449
@@ -302,7 +306,7 @@ describe("parseAdlEvent", () => {
     const lo = closedAbs & 0xFFFF_FFFF_FFFF_FFFFn;
     const hi = closedAbs >> 64n;   // 0
 
-    const logLine = `Program log: ${TAG} ${targetIdx} ${price} ${lo} ${hi}`;
+    const logLine = hexLog(TAG, targetIdx, price, lo, hi);
     const event = parseAdlEvent([logLine]);
 
     expect(event).not.toBeNull();
@@ -318,7 +322,7 @@ describe("parseAdlEvent", () => {
     const lo = closedAbs & 0xFFFF_FFFF_FFFF_FFFFn;
     const hi = closedAbs >> 64n; // = 3
 
-    const logLine = `Program log: ${TAG} 10 12345 ${lo} ${hi}`;
+    const logLine = hexLog(TAG, 10, 12345, lo, hi);
     const event = parseAdlEvent([logLine]);
 
     expect(event).not.toBeNull();
@@ -335,18 +339,18 @@ describe("parseAdlEvent", () => {
 
   it("skips log lines with wrong tag (different tag value)", () => {
     // Tag 0xC8A4C (liquidation debug tag) should not match
-    const logs = [`Program log: 821324 1 100 200 0`];
+    const logs = [hexLog(821324, 1, 100, 200, 0)];
     expect(parseAdlEvent(logs)).toBeNull();
   });
 
   it("returns null for a line with only 4 values (too few)", () => {
-    const logs = [`Program log: ${TAG} 1 100 200`];
+    const logs = [hexLog(TAG, 1, 100, 200)];
     expect(parseAdlEvent(logs)).toBeNull();
   });
 
   it("returns first AdlEvent when multiple matches exist (e.g. retried ADL)", () => {
-    const logLine1 = `Program log: ${TAG} 1 100 500 0`;
-    const logLine2 = `Program log: ${TAG} 2 200 600 0`;
+    const logLine1 = hexLog(TAG, 1, 100, 500, 0);
+    const logLine2 = hexLog(TAG, 2, 200, 600, 0);
     const event = parseAdlEvent([logLine1, logLine2]);
 
     expect(event).not.toBeNull();
@@ -355,7 +359,7 @@ describe("parseAdlEvent", () => {
 
   it("gracefully skips non-string entries", () => {
     // logs array might contain non-strings in edge cases
-    const logs = [null as unknown as string, `Program log: ${TAG} 5 999 100 0`];
+    const logs = [null as unknown as string, hexLog(TAG, 5, 999, 100, 0)];
     const event = parseAdlEvent(logs);
     expect(event).not.toBeNull();
     expect(event!.targetIdx).toBe(5);
