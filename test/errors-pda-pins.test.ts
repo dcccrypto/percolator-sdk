@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   PERCOLATOR_ERRORS,
@@ -29,7 +29,7 @@ import {
   derivePythPushOraclePDA,
 } from "../src/solana/pda.js";
 
-// Pinned from percolator-prog feat/v22-rc23-2026-10-22 src/v16_program.rs `pub enum PercolatorError` (discriminant = code).
+// Pinned from percolator-prog feat/v22-rc23-2026-10-22 src/v16_program.rs `pub enum PercolatorError` (implicit discriminants count up; codes 100+ are explicit in the prog).
 export const PROG_RC23_ERROR_TABLE: ReadonlyArray<readonly [number, string]> = [
   [0, "InvalidMagic"],
   [1, "InvalidVersion"],
@@ -217,8 +217,7 @@ describe("parseErrorFromLogs attribution", () => {
     expect(parseErrorFromLogs([5 as unknown as string, "nothing"])).toBeNull();
     expect(parseErrorFromLogs(["custom program error: 0x1ffffffff"])).toBeNull();
   });
-  it("skips a code the finiteness guard rejects (regex caps at 8 hex digits, so only a stubbed isFinite reaches it)", async () => {
-    const { vi } = await import("vitest");
+  it("skips a code the finiteness guard rejects (regex caps at 8 hex digits, so only a stubbed isFinite reaches it)", () => {
     const spy = vi.spyOn(Number, "isFinite").mockReturnValueOnce(false);
     try {
       expect(parseErrorFromLogs(["custom program error: 0x8"])).toBeNull();
@@ -315,7 +314,7 @@ describe("PDA seeds pinned to percolator-prog rc23 derivations", () => {
   });
   it("lp pda and creator lock (SDK-side seeds; no rc23 prog counterpart)", () => {
     expect(deriveLpPda(prog, a, 258)).toEqual(find([enc("lp"), a.toBytes(), new Uint8Array([2, 1])], prog));
-    expect(deriveCreatorLockPda(prog, a)[0]).toBeInstanceOf(PublicKey);
+    expect(deriveCreatorLockPda(prog, a)).toEqual(find([enc("creator_lock"), a.toBytes()], prog));
   });
   it("u16 validation", () => {
     for (const bad of [-1, 65536, 1.5, NaN, "1" as unknown as number]) {
