@@ -1247,6 +1247,7 @@ export function encodePermissionlessCrank(args: PermissionlessCrankArgs): Uint8A
       `rejects this with InvalidInstructionData before reading any hint bytes.`,
     );
   }
+  encU8(observations.length); // same validation/error as before for non-array-like input
   const w = new FastWriter(10 + observations.length * 3)
     .u8(IX_TAG.PermissionlessCrank)
     .u64(args.nowSlot)

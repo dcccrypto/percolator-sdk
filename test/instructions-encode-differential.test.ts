@@ -137,8 +137,5 @@ describe("optimised encoders are byte-identical to concatBytes(encU*) reference"
       if ("ok" in got) expect(got).toEqual(want);
       else if ("ok" in want) expect(BigInt(a.markE6) <= 0n || got.err).toBeTruthy();
     }
-    expect(true).toBe(true);
-    for (let i = 0; i < 1; i++) {
-    }
   });
 });
