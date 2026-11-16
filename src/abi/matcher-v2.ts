@@ -383,7 +383,8 @@ function writeSetParams(out: Uint8Array, o: number, p: MatcherSetParams): void {
 }
 
 /** u128 LE (the caller has range-checked 0..=2^128-1). */
-function setU128(v: DataView, o: number, n: bigint): void {
+function setU128(v: DataView, o: number, x: bigint): void {
+  const n = typeof x === "bigint" ? x : BigInt(x); // keep accepting decimal strings like the old encU128 path
   v.setBigUint64(o, n & U64_MAX, true);
   v.setBigUint64(o + 8, n >> 64n, true);
 }
