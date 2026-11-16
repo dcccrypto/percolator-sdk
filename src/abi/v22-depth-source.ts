@@ -407,7 +407,9 @@ export function plus2PctDepthE6(r: bigint): bigint {
  */
 export function reserveValueE6(path: "quote-is-collateral" | "base-at-mark", baseAtoms: bigint, quoteAtoms: bigint, markE6: bigint, baseDecimals: number, lotExp: number): bigint | null {
   if (path === "quote-is-collateral") return quoteAtoms;
-  if (markE6 === 0n || baseDecimals > DEPTH_SRC_MAX_DECIMALS || lotExp > 15) return null;
+  // Rust takes `u8`s: a negative, fractional or non-finite input cannot exist there, so refuse it (null), never throw a RangeError from BigInt().
+  const isU8 = (x: number) => Number.isInteger(x) && x >= 0 && x <= 255;
+  if (markE6 === 0n || !isU8(baseDecimals) || !isU8(lotExp) || baseDecimals > DEPTH_SRC_MAX_DECIMALS || lotExp > 15) return null;
   const v = (baseAtoms * markE6) / 10n ** BigInt(baseDecimals + lotExp);
   return v > U64_MAX ? U64_MAX : v;
 }
