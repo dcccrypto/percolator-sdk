@@ -94,6 +94,7 @@ export default defineConfig({
       "test/v22-lot-exp-profile.test.ts",
       "test/slab-branch-coverage.test.ts",
       "test/discovery-branches.test.ts",
+      "test/instructions-compat-branches.test.ts",
       "test/ata.test.ts",
     ],
   },
