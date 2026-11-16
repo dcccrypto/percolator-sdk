@@ -92,6 +92,7 @@ export default defineConfig({
       "test/v22-lot-exp-profile.test.ts",
       "test/discovery-branches.test.ts",
       "test/ata.test.ts",
+      "test/stake-encoders-cov.test.ts",
     ],
   },
 });
