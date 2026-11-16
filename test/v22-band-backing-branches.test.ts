@@ -33,7 +33,7 @@ describe("v22-band: rent_rate_e9 overflow arms (rust: checked_mul -> None)", () 
   });
   it("num = max * (lhs - rhs) above u128 (users < nCap, kink 0) -> null, fail-closed = max", () => {
     const max = (1n << 64n) - 1n; // rust: u64 ceiling
-    const users = 1n << 120n, nCap = 1n << 121n; // lhs, den fit u128; max * lhs ~ 2^198 does not
+    const users = 1n << 113n, nCap = 1n << 114n; // lhs, den fit u128; max * lhs ~ 2^190 does not
     expect(users * 10_000n).toBeLessThan(U128);
     expect(Band.rentRateE9V22(users, nCap, 0, max)).toBeNull();
     expect(Band.rentRateE9FailClosedV22(users, nCap, 0, max)).toBe(max);
