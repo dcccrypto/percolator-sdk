@@ -342,7 +342,7 @@ export interface LevGuardV22 {
   holderDumpSlot: bigint;
   pbLastPx: bigint;
   pbLastSlot: bigint;
-  /** v1: the fixed reference. v2: derived, the OLDEST non-empty mark (0n when none); the stored field no longer exists. */
+  /** v1: the fixed reference. v2: derived, the OLDEST non-empty mark (0n when none); the stored field no longer exists. NOT the program's v2 band rule (max move vs every mark < 1 h old): `levObservePriceV22` previews stay v1-only until they read `pbMarksPx`. */
   pbRefPx: bigint;
   pbRefSlot: bigint;
   /** v2 sliding window marks (8 each, 0n = empty); empty arrays for v1 records. */
@@ -405,8 +405,8 @@ export function decodeLevGuardV22(data: Uint8Array, table: LayoutTable = LAYOUT_
   const L = resolveLayout(data, { parser, kind: ACCOUNT_KIND.LevGuard, versions: [table.version] });
   const b = L.headerLen;
   if (b !== 16) throw new UnknownLayoutError("INVALID_RECORD", parser, `invalid account data: header length ${b} != 16`, { kind: ACCOUNT_KIND.LevGuard });
-  // Exact lengths only (security review M-1): 4456 (record 344, prog#604) or 4472 (record 360, prog#605 burst
-  // memory). Anything else is refused rather than decoded at shifted offsets.
+  // Exact lengths only (security review M-1): 4456 (record 344, prog#604), 4472 (record 360, prog#605 burst
+  // memory) or 4600 (record 488, v2, prog#721). Anything else is refused rather than decoded at shifted offsets.
   const recLen = data.length - b - LEV_GUARD_TOUCHED_LEN_V22;
   if (recLen !== LEV_GUARD_REC_LEN_V22 && recLen !== LEV_GUARD_REC_LEN_PRE_BURST_V22 && recLen !== LEV_GUARD_REC_LEN_V2_V22) {
     throw new UnknownLayoutError(
