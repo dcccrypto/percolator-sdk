@@ -911,7 +911,7 @@ describe("isAdlTriggered + rankAdlPositions — pure path (PERC-8339)", () => {
     const logs = [
       `Program ${PROGRAM_ID.toBase58()} invoke [1]`,
       "Program log: Instruction: ExecuteAdl",
-      `Program log: 2904424449 ${targetIdx} ${price} ${lo} ${hi}`,
+      `Program log: ${[0xad1e0001, targetIdx, price, lo, hi].map((x) => "0x" + x.toString(16)).join(", ")}`,
       `Program ${PROGRAM_ID.toBase58()} success`,
     ];
 
