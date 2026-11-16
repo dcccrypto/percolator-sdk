@@ -121,7 +121,7 @@ describe("decodeDepositPda guards", () => {
 describe("recoverTerminalInsuranceAccounts riskMode guards", () => {
   const k = () => Keypair.generate().publicKey;
   const base = () => ({
-    caller: k(), poolPda: k(), poolVault: k(), vaultAuth: k(), market: k(),
+    caller: k(), pool: k(), poolVault: k(), vaultAuth: k(), market: k(),
     wrapperVault: k(), wrapperVaultAuthority: k(), wrapperProgram: k(),
   });
   const call = (extra: Record<string, unknown>) =>
@@ -133,6 +133,16 @@ describe("recoverTerminalInsuranceAccounts riskMode guards", () => {
   it("riskMode 2 rejects insuranceUnits and requires creatorToken", () => {
     expect(() => call({ riskMode: 2, insuranceUnits: k(), creatorToken: k() })).toThrow(/takes no insuranceUnits/);
     expect(() => call({ riskMode: 2 })).toThrow(/requires creatorToken/);
+  });
+  it("riskMode 1 with units but no creator throws", () => {
+    expect(() => call({ riskMode: 1, insuranceUnits: k() })).toThrow(/first-loss pool requires creatorToken/);
+  });
+  it("valid configs build", () => {
+    const fee = call({ riskMode: 2, creatorToken: k() });
+    const first = call({ riskMode: 1, insuranceUnits: k(), creatorToken: k() });
+    expect(fee.length).toBeGreaterThan(0);
+    expect(first.length).toBeGreaterThan(0);
+    expect(call({ riskMode: 0 }).length).toBeGreaterThan(0);
   });
   it("riskMode 0 rejects insuranceUnits / creatorToken", () => {
     expect(() => call({ riskMode: 0, insuranceUnits: k() })).toThrow(/legacy pool/);
