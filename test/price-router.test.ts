@@ -706,3 +706,46 @@ describe("#353 DexScreener base/quote attribution", () => {
     expect(dex.map((s) => s.price)).toEqual([0.0066]);
   });
 });
+
+describe("DexScreener non-finite liquidity", () => {
+  const MINT = "FiniteMint1111111111111111111111111111111111";
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("dexscreener.com")) {
+          const mk = (addr: string, usd: number, price: string) => ({
+            chainId: "solana",
+            dexId: "raydium",
+            pairAddress: addr,
+            liquidity: { usd },
+            priceUsd: price,
+            baseToken: { address: MINT, symbol: "T" },
+            quoteToken: { address: "Q", symbol: "Q" },
+          });
+          return {
+            ok: true,
+            json: async () => ({
+              pairs: [
+                mk("small", 5_000, "1"),
+                mk("nan", NaN, "9"),
+                mk("big", 2_000_000, "2"),
+                mk("inf", Infinity, "8"),
+                mk("mid", 200_000, "3"),
+              ],
+            }),
+          };
+        }
+        return { ok: true, json: async () => ({}) };
+      }),
+    );
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("drops NaN/Infinity liquidity pairs and keeps valid ones sorted", async () => {
+    const r = await resolvePrice(MINT);
+    const dex = r.allSources.filter((s) => s.type === "dex");
+    expect(dex.map((s) => s.address)).toEqual(["big", "mid", "small"]);
+    expect(r.bestSource?.address).toBe("big");
+  });
+});
