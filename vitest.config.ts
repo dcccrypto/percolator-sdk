@@ -51,6 +51,7 @@ export default defineConfig({
       "test/growth-v19.test.ts", "test/growth-depth-v22.test.ts", "test/growth-tiers-v22.test.ts", "test/growth-controller-v22.test.ts", "test/growth-curve-parity.test.ts", "test/v22-depth-source.test.ts", "test/v22-f3-dex-pin.test.ts",
       "test/p2b-lock-exits.test.ts",
       "test/p2b-earn.test.ts",
+      "test/p2b-floor-code-diff.test.ts",
       "test/tx-v1.test.ts",
       "test/v22-parity.test.ts",
       "test/layout-guard.test.ts",
