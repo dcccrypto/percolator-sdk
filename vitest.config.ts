@@ -95,6 +95,7 @@ export default defineConfig({
       "test/slab-branch-coverage.test.ts",
       "test/discovery-branches.test.ts",
       "test/ata.test.ts",
+      "test/v22-state-g9-allowlist-branches.test.ts",
     ],
   },
 });
