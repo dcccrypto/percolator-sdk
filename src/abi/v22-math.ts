@@ -1460,6 +1460,7 @@ const LOT_EXP_MIN_PRICE_E6: readonly bigint[] = POW10_V22.map((p) => (LOT_PRICE_
  * ```
  */
 export function lotExpForTokenPriceV22(tokenPriceE6: bigint): number | null {
+  if (typeof tokenPriceE6 !== "bigint") throw new TypeError("tokenPriceE6 must be a bigint");
   if (tokenPriceE6 <= 0n) return null;
   // p * 10^k >= FLOOR  <=>  p >= ceil(FLOOR / 10^k): precomputed, so no pow or multiply per probe.
   for (let k = 0; k <= LOT_EXP_MAX_V22; k++) {

@@ -28,6 +28,12 @@ describe("v22-math perf rewrite is output-identical", () => {
     }
     expect(bad).toBe(0);
   }, 60_000);
+  it("lotExpForTokenPriceV22 still throws on non-bigint input", () => {
+    for (const x of [5, "5", NaN, 1e7] as unknown[]) {
+      expect(() => lotExpForTokenPriceRef(x as bigint)).toThrow();
+      expect(() => lotExpForTokenPriceV22(x as bigint)).toThrow();
+    }
+  });
   it("displayPriceV22: edges x all lotExp (+ invalid) + 100k random", () => {
     for (const x of [...withNeg, ...pow10Edges]) for (const k of [-1, 0, 1, 5, 15, 16, 1.5, NaN]) expect(call(() => displayPriceV22(x, k))).toEqual(call(() => displayPriceRef(x, k)));
     let bad = 0;
