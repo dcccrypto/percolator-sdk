@@ -29,7 +29,7 @@ describe("LAYOUT_V22 offsets pinned to percolator-prog v16_program.rs (rc23 d27f
     const engineLen = P.accountLen - 104 - 24; // PORTFOLIO_ENGINE_ACCOUNT_LEN
     expect(P.matcherConfigOff).toBe(engineLen); // :748 PORTFOLIO_MATCHER_CONFIG_OFF == ENGINE_ACCOUNT_LEN
     expect(P.matcherConfigOff).toBe(10479);
-    // matcher config 104 B (:750), id 8 B (:771-772), sequence 8 B (:779-780), expiry 8 B (:787-788)
+    // matcher config 104 B (:749), id 8 B (:771-772), sequence 8 B (:779-780), expiry 8 B (:787-788)
     expect(P.matcherConfigOff + 104 + 8 + 8 + 8).toBe(P.accountLen);
     expect(P.identityTrailerLen).toBe(24);
   });
@@ -89,6 +89,7 @@ describe("resolveMarketGeometry branches", () => {
   it("rethrows non-version resolveLayout errors untouched (TOO_SHORT header)", () => {
     const reg = new Map([[19, tiny]]);
     expect(code(() => resolveMarketGeometry(new Uint8Array(10), { parser: "g", registry: reg }))).toBe("TOO_SHORT");
+    expect(() => resolveMarketGeometry(new Uint8Array(10), { parser: "g", registry: reg })).not.toThrow(/not a v17/);
   });
   it("maps BAD_MAGIC / UNKNOWN_VERSION / WRONG_KIND to the historical phrase", () => {
     expect(() => resolveMarketGeometry(new Uint8Array(4000), { parser: "g" })).toThrow(/not a v17 market account/);
