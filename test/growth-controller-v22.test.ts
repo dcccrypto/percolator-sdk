@@ -81,7 +81,7 @@ describe("Rust r3_item6_vol_term", () => {
       const r = isqrtCeil(x);
       if (r !== want) throw new Error(`ceil sqrt(${x}) = ${r}, want ${want}`);
     }
-    for (const k of [(1n << 64n) - 1n, (1n << 64n) + 1n, U128 - 1n, (1n << 127n) + 12_345n]) {
+    for (const k of [(1n << 52n) - 1n, 1n << 52n, (1n << 52n) + 1n, (1n << 52n) - 7_919n, (1n << 64n) - 1n, (1n << 64n) + 1n, U128 - 1n, (1n << 127n) + 12_345n]) {
       const r = isqrtCeil(k);
       expect(r * r >= k && (r - 1n) * (r - 1n) < k, `ceil sqrt(${k}) = ${r}`).toBe(true);
     }
