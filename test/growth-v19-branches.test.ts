@@ -85,8 +85,8 @@ describe("u128 overflow guards (n_cap_q / liquidity_notional_e6 / dyn_imr_bps)",
     expect(huge.inventoryCapQ).toBe(GROWTH_MAX_POSITION_ABS_Q);
     expect(growthMatcherCapsV3({ lambdaBps: 10_000 }, 1_000n, 0n, false)).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
     expect(growthMatcherCapsV3({ lambdaBps: 10_000 }, 1_000n, 1n, true)).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
-    // cap > 0 but liquidity overflows -> 0 via ?? 0n
-    expect(growthMatcherCapsV3({ lambdaBps: 10_000 }, U128 / 3n, 10n ** 30n, false).inventoryCapQ).toBeGreaterThanOrEqual(0n);
+    // cap > 0 but liquidity overflows u128 -> liquidity 0 via ?? 0n (posScale 1 keeps nCapQ finite)
+    expect(growthMatcherCapsV3({ lambdaBps: 1 }, U128 / 2n, 1n, false, 1n)).toEqual({ inventoryCapQ: GROWTH_MAX_POSITION_ABS_Q, liquidityNotionalE6: 0n });
   });
 });
 
@@ -250,12 +250,12 @@ describe("volatility maths", () => {
     expect(volUpdateX100(1_000, true, 984n)).toBe(999); // floor(16/16)=1
     expect(volUpdateX100(1_000, true, 985n)).toBe(1_000); // floor(15/16)=0
   });
-  it("isqrtCeil rejects negatives and rounds up; sigmaHBps saturates at u64", () => {
+  it("isqrtCeil rejects negatives and rounds up; sigmaHBps at the u32/u64 extremes", () => {
     expect(() => isqrtCeil(-1n)).toThrow(/negative input/);
     expect(isqrtCeil(0n)).toBe(0n);
     expect(isqrtCeil(16n)).toBe(4n);
     expect(isqrtCeil(17n)).toBe(5n);
-    expect(sigmaHBps(0xffff_ffff, U64)).toBe(U64 < isqrtCeil((0xffff_ffffn * U64 + 99n) / 100n) ? U64 : isqrtCeil((0xffff_ffffn * U64 + 99n) / 100n));
+    expect(sigmaHBps(0xffff_ffff, U64)).toBe(28_147_497_667_789n); // ceil sqrt(u32max * u64max / 100): far below u64, so no saturation is reachable
     expect(sigmaHBps(100, 100n)).toBe(10n);
   });
   it("lVolX100: zero denominator -> 0xffff; huge denominator saturates; large caps at u16", () => {
@@ -332,7 +332,7 @@ describe("kappa / lambda caps", () => {
   });
   it("lambdaFallbackBps min of the volatility term and the pre-W1 cap (LEV_W1_LIVE = false)", () => {
     expect(lambdaFallbackBps(1_000_000, 0n)).toBe(10_000);
-    expect(lambdaFallbackBps(100, 1_000n)).toBeLessThanOrEqual(100);
+    expect(lambdaFallbackBps(100, 1_000n)).toBe(100);
     expect(lambdaFallbackBps(100, 0n)).toBe(100);
   });
 });
