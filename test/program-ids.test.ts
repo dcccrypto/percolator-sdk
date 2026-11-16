@@ -381,11 +381,15 @@ describe("v2.2 deployed ids table vs program-ids.ts", () => {
 
 describe("safeEnv branches", () => {
   it("returns undefined when process is not defined (browser)", () => {
+    vi.stubEnv("PROGRAM_ID", PROGRAM_IDS.devnet.percolator);
+    expect(safeEnv("PROGRAM_ID")).toBe(PROGRAM_IDS.devnet.percolator);
     vi.stubGlobal("process", undefined);
     expect(safeEnv("PROGRAM_ID")).toBeUndefined();
   });
 
   it("returns undefined when process.env access throws", () => {
+    vi.stubEnv("PROGRAM_ID", PROGRAM_IDS.devnet.percolator);
+    expect(safeEnv("PROGRAM_ID")).toBe(PROGRAM_IDS.devnet.percolator);
     vi.stubGlobal("process", {
       get env(): never {
         throw new Error("denied");
@@ -418,7 +422,7 @@ describe("network selection for ids", () => {
     expect(getMatcherProgramId().toBase58()).toBe(PROGRAM_IDS.mainnet.matcher);
   });
 
-  it("an unknown network argument throws (no silent fallback)", () => {
+  it("an unknown network argument throws (incidental TypeError, never resolves to an id)", () => {
     expect(() => getProgramId("nope" as never)).toThrow(TypeError);
     expect(() => getMatcherProgramId("nope" as never)).toThrow(TypeError);
   });
@@ -463,7 +467,8 @@ describe("PROGRAM_ID / MATCHER_PROGRAM_ID env override", () => {
     vi.stubEnv("PROGRAM_ID", "not-a-valid-key!!");
     vi.stubEnv("MATCHER_PROGRAM_ID", "not-a-valid-key!!");
     expect(() => getProgramId()).toThrow();
+    expect(() => getProgramId()).not.toThrow(/not a known/);
     expect(() => getMatcherProgramId()).toThrow();
+    expect(() => getMatcherProgramId()).not.toThrow(/not a known/);
   });
 });
-
