@@ -59,6 +59,19 @@ describe("slab decode: old vs new are identical", () => {
     }
   });
 
+  it("LP vault registry (kind 5) and redemption (kind 6) decode identically and successfully", () => {
+    for (const version of LAYOUTS_BY_VERSION.keys()) {
+      for (const [kind, len, f] of [
+        [5, 200, (m: typeof cur, d: Uint8Array) => m.parseLpVaultRegistry(d)],
+        [6, 160, (m: typeof cur, d: Uint8Array) => m.parseLpRedemption(d)],
+      ] as const) {
+        const buf = stampHeader(fillRandom(new Uint8Array(len), 99 + kind + version, 16), kind, version);
+        same(`kind ${kind} v${version}`, (mod) => f(mod, buf));
+        expect(attempt(() => f(cur, buf)).ok, `kind ${kind} v${version} decodes`).toBe(true);
+      }
+    }
+  });
+
   it("decodes a full portfolio and market to non-trivial values (guards against a vacuous comparison)", () => {
     const pf = cur.parsePortfolioV17(portfolioFixture(19));
     expect(pf.legs.length).toBeGreaterThan(0);
@@ -84,6 +97,7 @@ describe("slab decode: old vs new are identical", () => {
     const versions = [...LAYOUTS_BY_VERSION.keys()];
     const lens = [16, 100, 116, 200, 592, 1350, 4000, 9563, 12000, 30000];
     let okCount = 0;
+    const okBy: Record<string, number> = {};
     for (let i = 0; i < 1000; i++) {
       const len = r() < 0.7 ? lens[Math.floor(r() * lens.length)] + Math.floor(r() * 3) : Math.floor(r() * 40_000);
       const buf = fillRandom(new Uint8Array(len), 1000 + i);
@@ -95,7 +109,7 @@ describe("slab decode: old vs new are identical", () => {
         const a = attempt(() => f(ref as typeof cur, buf));
         const b = attempt(() => f(cur, buf));
         expect(b, `#${i} ${name} len=${len}`).toEqual(a);
-        if (a.ok) okCount++;
+        if (a.ok) { okCount++; okBy[name] = (okBy[name] ?? 0) + 1; }
       }
     }
     expect(okCount).toBeGreaterThan(500);

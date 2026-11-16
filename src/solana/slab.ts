@@ -13,8 +13,9 @@ let lastDv: DataView | null = null;
 function dv(data: Uint8Array): DataView {
   // One-entry cache: decoders read hundreds of fields from the same buffer, so reuse the view instead of allocating one per read.
   if (data === lastDvData && lastDv!.buffer === data.buffer && lastDv!.byteOffset === data.byteOffset && lastDv!.byteLength === data.byteLength) return lastDv!;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   lastDvData = data;
-  return (lastDv = new DataView(data.buffer, data.byteOffset, data.byteLength));
+  return (lastDv = view);
 }
 /** Read a single unsigned byte at `off`. */
 function readU8(data: Uint8Array, off: number): number {
