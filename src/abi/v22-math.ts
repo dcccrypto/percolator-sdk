@@ -1443,6 +1443,11 @@ export function bandGenesisPriceOkV22(price: bigint, bandBps: number): boolean {
   return min !== null && price >= min * BigInt(BAND_GENESIS_FLOOR_MULTIPLE_V22);
 }
 
+/** `10^k` for `k = 0..=LOT_EXP_MAX_V22`. */
+const POW10_V22: readonly bigint[] = Array.from({ length: LOT_EXP_MAX_V22 + 1 }, (_, k) => 10n ** BigInt(k));
+/** `ceil(LOT_PRICE_FLOOR_E6 / 10^k)`: the smallest token price (e6) that reaches the floor at `lot_exp = k`. */
+const LOT_EXP_MIN_PRICE_E6: readonly bigint[] = POW10_V22.map((p) => (LOT_PRICE_FLOOR_E6_V22 + p - 1n) / p);
+
 /**
  * The smallest `lot_exp` (0..=15) that puts the per-lot price at or above 10 (the 1e7 e6 floor):
  * `clamp(ceil(log10(10 / P)), 0, 15)`, computed exactly in integers from the token price in e6.
@@ -1455,9 +1460,11 @@ export function bandGenesisPriceOkV22(price: bigint, bandBps: number): boolean {
  * ```
  */
 export function lotExpForTokenPriceV22(tokenPriceE6: bigint): number | null {
+  if (typeof tokenPriceE6 !== "bigint") throw new TypeError("tokenPriceE6 must be a bigint");
   if (tokenPriceE6 <= 0n) return null;
+  // p * 10^k >= FLOOR  <=>  p >= ceil(FLOOR / 10^k): precomputed, so no pow or multiply per probe.
   for (let k = 0; k <= LOT_EXP_MAX_V22; k++) {
-    if (tokenPriceE6 * 10n ** BigInt(k) >= LOT_PRICE_FLOOR_E6_V22) return k;
+    if (tokenPriceE6 >= LOT_EXP_MIN_PRICE_E6[k]!) return k;
   }
   return null;
 }
@@ -1478,9 +1485,10 @@ export function displayPriceV22(markE6: bigint, lotExp: number): string {
   if (!Number.isInteger(lotExp) || lotExp < 0 || lotExp > LOT_EXP_MAX_V22) throw new Error(`lotExp must be 0..=${LOT_EXP_MAX_V22}`);
   const scale = 6 + lotExp;
   const s = markE6.toString().padStart(scale + 1, "0");
-  const int = s.slice(0, s.length - scale);
-  const frac = s.slice(s.length - scale).replace(/0+$/, "");
-  return frac === "" ? int : `${int}.${frac}`;
+  const cut = s.length - scale;
+  let end = s.length;
+  while (end > cut && s.charCodeAt(end - 1) === 48) end--; // trim trailing zeros of the fraction
+  return end === cut ? s.slice(0, cut) : `${s.slice(0, cut)}.${s.slice(cut, end)}`;
 }
 
 /**
@@ -1497,6 +1505,6 @@ export function displayPriceV22(markE6: bigint, lotExp: number): string {
  */
 export function tokensToLotsV22(tokens: bigint, lotExp: number): { lots: bigint; remainderTokens: bigint } {
   if (!Number.isInteger(lotExp) || lotExp < 0 || lotExp > LOT_EXP_MAX_V22) throw new Error(`lotExp must be 0..=${LOT_EXP_MAX_V22}`);
-  const f = 10n ** BigInt(lotExp);
+  const f = POW10_V22[lotExp]!;
   return { lots: tokens / f, remainderTokens: tokens % f };
 }
