@@ -91,6 +91,7 @@ export default defineConfig({
       "test/tx-branches.test.ts",
       "test/v22-lot-exp-profile.test.ts",
       "test/discovery-branches.test.ts",
+      "test/p3-vault-lp-branches.test.ts",
       "test/ata.test.ts",
     ],
   },
