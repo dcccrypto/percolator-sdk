@@ -260,27 +260,12 @@ const HEADER_SLICE_LENGTH = 1940;
 function dv(data: Uint8Array): DataView {
   return new DataView(data.buffer, data.byteOffset, data.byteLength);
 }
-function readU16LE(data: Uint8Array, off: number): number {
-  return dv(data).getUint16(off, true);
+function vU128(v: DataView, off: number): bigint {
+  return (v.getBigUint64(off + 8, true) << 64n) | v.getBigUint64(off, true);
 }
-function readU64LE(data: Uint8Array, off: number): bigint {
-  return dv(data).getBigUint64(off, true);
-}
-function readI64LE(data: Uint8Array, off: number): bigint {
-  return dv(data).getBigInt64(off, true);
-}
-function readU128LE(buf: Uint8Array, offset: number): bigint {
-  const lo = readU64LE(buf, offset);
-  const hi = readU64LE(buf, offset + 8);
-  return (hi << 64n) | lo;
-}
-function readI128LE(buf: Uint8Array, offset: number): bigint {
-  const lo = readU64LE(buf, offset);
-  const hi = readU64LE(buf, offset + 8);
-  const unsigned = (hi << 64n) | lo;
-  const SIGN_BIT = 1n << 127n;
-  if (unsigned >= SIGN_BIT) return unsigned - (1n << 128n);
-  return unsigned;
+function vI128(v: DataView, off: number): bigint {
+  const u = (v.getBigUint64(off + 8, true) << 64n) | v.getBigUint64(off, true);
+  return u >= 1n << 127n ? u - (1n << 128n) : u;
 }
 
 /**
@@ -313,6 +298,9 @@ export function parseEngineLight(
   const canReadNumUsed = data.length >= base + numUsedOff + 2;
   const canReadNextId = data.length >= base + nextAccountIdOff + 8;
 
+  // One DataView for the whole parse (was one per field read); output is identical.
+  const view = dv(data);
+
   if (isV0) {
     // V0 engine struct (deployed devnet): ENGINE_OFF=480
     // vault(0,16) + insurance(16,32) + params(48,56) + currentSlot(104,8)
@@ -323,38 +311,38 @@ export function parseEngineLight(
     // + lifetimeLiquidations(240,8) + lifetimeForceCloses(248,8)
     // + netLpPos(256,16) + lpSumAbs(272,16) + lpMaxAbs(288,16) + bitmap(320)
     return {
-      vault: readU128LE(data, base + 0),
+      vault: vU128(view, base + 0),
       insuranceFund: {
-        balance: readU128LE(data, base + 16),
-        feeRevenue: readU128LE(data, base + 32),
+        balance: vU128(view, base + 16),
+        feeRevenue: vU128(view, base + 32),
         isolatedBalance: 0n,
         isolationBps: 0,
       },
-      currentSlot: readU64LE(data, base + 104),
-      fundingIndexQpbE6: readI128LE(data, base + 112),
-      lastFundingSlot: readU64LE(data, base + 128),
-      fundingRateBpsPerSlotLast: readI64LE(data, base + 136),
+      currentSlot: view.getBigUint64(base + 104, true),
+      fundingIndexQpbE6: vI128(view, base + 112),
+      lastFundingSlot: view.getBigUint64(base + 128, true),
+      fundingRateBpsPerSlotLast: view.getBigInt64(base + 136, true),
       fundingRateE9: 0n,
       marketMode: null,
-      lastCrankSlot: readU64LE(data, base + 144),
-      maxCrankStalenessSlots: readU64LE(data, base + 152),
-      totalOpenInterest: readU128LE(data, base + 160),
+      lastCrankSlot: view.getBigUint64(base + 144, true),
+      maxCrankStalenessSlots: view.getBigUint64(base + 152, true),
+      totalOpenInterest: vU128(view, base + 160),
       longOi: 0n,
       shortOi: 0n,
-      cTot: readU128LE(data, base + 176),
-      pnlPosTot: readU128LE(data, base + 192),
+      cTot: vU128(view, base + 176),
+      pnlPosTot: vU128(view, base + 192),
       pnlMaturedPosTot: 0n,
-      liqCursor: readU16LE(data, base + 208),
-      gcCursor: readU16LE(data, base + 210),
-      lastSweepStartSlot: readU64LE(data, base + 216),
-      lastSweepCompleteSlot: readU64LE(data, base + 224),
-      crankCursor: readU16LE(data, base + 232),
-      sweepStartIdx: readU16LE(data, base + 234),
-      lifetimeLiquidations: readU64LE(data, base + 240),
-      lifetimeForceCloses: readU64LE(data, base + 248),
-      netLpPos: readI128LE(data, base + 256),
-      lpSumAbs: readU128LE(data, base + 272),
-      lpMaxAbs: readU128LE(data, base + 288),
+      liqCursor: view.getUint16(base + 208, true),
+      gcCursor: view.getUint16(base + 210, true),
+      lastSweepStartSlot: view.getBigUint64(base + 216, true),
+      lastSweepCompleteSlot: view.getBigUint64(base + 224, true),
+      crankCursor: view.getUint16(base + 232, true),
+      sweepStartIdx: view.getUint16(base + 234, true),
+      lifetimeLiquidations: view.getBigUint64(base + 240, true),
+      lifetimeForceCloses: view.getBigUint64(base + 248, true),
+      netLpPos: vI128(view, base + 256),
+      lpSumAbs: vU128(view, base + 272),
+      lpMaxAbs: vU128(view, base + 288),
       lpMaxAbsSweep: 0n,
       emergencyOiMode: false,
       emergencyStartSlot: 0n,
@@ -363,8 +351,8 @@ export function parseEngineLight(
       oraclePriceE6: 0n,
       fLongNum: 0n, fShortNum: 0n, negPnlAccountCount: 0n, fundPxLast: 0n,
       resolvedKLongTerminalDelta: 0n, resolvedKShortTerminalDelta: 0n, resolvedLivePrice: 0n,
-      numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
-      nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
+      numUsedAccounts: canReadNumUsed ? view.getUint16(base + numUsedOff, true) : 0,
+      nextAccountId: canReadNextId ? view.getBigUint64(base + nextAccountIdOff, true) : 0n,
     };
   }
 
@@ -394,27 +382,27 @@ export function parseEngineLight(
     // garbage straddling the byte before the engine region rather than failing.
     // V12_15 has 25 such fields and V12_17/V12_19 have 22 each, so every read
     // below goes through these instead of reading the offset directly.
-    const u16At = (off: number): number => (off >= 0 ? readU16LE(data, base + off) : 0);
-    const u64At = (off: number): bigint => (off >= 0 ? readU64LE(data, base + off) : 0n);
-    const i64At = (off: number): bigint => (off >= 0 ? readI64LE(data, base + off) : 0n);
-    const u128At = (off: number): bigint => (off >= 0 ? readU128LE(data, base + off) : 0n);
-    const i128At = (off: number): bigint => (off >= 0 ? readI128LE(data, base + off) : 0n);
+    const u16At = (off: number): number => (off >= 0 ? view.getUint16(base + off, true) : 0);
+    const u64At = (off: number): bigint => (off >= 0 ? view.getBigUint64(base + off, true) : 0n);
+    const i64At = (off: number): bigint => (off >= 0 ? view.getBigInt64(base + off, true) : 0n);
+    const u128At = (off: number): bigint => (off >= 0 ? vU128(view, base + off) : 0n);
+    const i128At = (off: number): bigint => (off >= 0 ? vI128(view, base + off) : 0n);
     return {
-      vault: readU128LE(data, base + 0),
+      vault: vU128(view, base + 0),
       insuranceFund: {
-        balance: readU128LE(data, base + l.engineInsuranceOff),
-        feeRevenue: readU128LE(data, base + l.engineInsuranceOff + 16),
-        isolatedBalance: hasInsuranceIsolation ? readU128LE(data, base + l.engineInsuranceIsolatedOff) : 0n,
-        isolationBps: hasInsuranceIsolation ? readU16LE(data, base + l.engineInsuranceIsolationBpsOff) : 0,
+        balance: vU128(view, base + l.engineInsuranceOff),
+        feeRevenue: vU128(view, base + l.engineInsuranceOff + 16),
+        isolatedBalance: hasInsuranceIsolation ? vU128(view, base + l.engineInsuranceIsolatedOff) : 0n,
+        isolationBps: hasInsuranceIsolation ? view.getUint16(base + l.engineInsuranceIsolationBpsOff, true) : 0,
       },
-      currentSlot: readU64LE(data, base + l.engineCurrentSlotOff),
+      currentSlot: view.getBigUint64(base + l.engineCurrentSlotOff, true),
       // engineFundingIndexOff is -1 on V12_15/17/19 (this field doesn't exist in those
       // engine structs) — guard the same way the heavy parser does (slab.ts parseEngine)
       // or `base + (-1)` reads 16 bytes starting one byte before the engine region.
       fundingIndexQpbE6: l.engineFundingIndexOff >= 0
         ? ((l.engineLastFundingSlotOff >= 0 && l.engineLastFundingSlotOff - l.engineFundingIndexOff === 8)
-            ? BigInt(readI64LE(data, base + l.engineFundingIndexOff))
-            : readI128LE(data, base + l.engineFundingIndexOff))
+            ? BigInt(view.getBigInt64(base + l.engineFundingIndexOff, true))
+            : vI128(view, base + l.engineFundingIndexOff))
         : 0n,
       lastFundingSlot: u64At(l.engineLastFundingSlotOff),
       fundingRateBpsPerSlotLast: i64At(l.engineFundingRateBpsOff),
@@ -425,8 +413,8 @@ export function parseEngineLight(
       totalOpenInterest: u128At(l.engineTotalOiOff),
       longOi: u128At(l.engineLongOiOff),
       shortOi: u128At(l.engineShortOiOff),
-      cTot: readU128LE(data, base + l.engineCTotOff),
-      pnlPosTot: readU128LE(data, base + l.enginePnlPosTotOff),
+      cTot: vU128(view, base + l.engineCTotOff),
+      pnlPosTot: vU128(view, base + l.enginePnlPosTotOff),
       pnlMaturedPosTot: 0n,
       liqCursor: u16At(l.engineLiqCursorOff),
       gcCursor: u16At(l.engineGcCursorOff),
@@ -452,8 +440,8 @@ export function parseEngineLight(
       resolvedKLongTerminalDelta: 0n,
       resolvedKShortTerminalDelta: 0n,
       resolvedLivePrice: 0n,
-      numUsedAccounts: canReadNumUsed ? readU16LE(data, base + numUsedOff) : 0,
-      nextAccountId: canReadNextId ? readU64LE(data, base + nextAccountIdOff) : 0n,
+      numUsedAccounts: canReadNumUsed ? view.getUint16(base + numUsedOff, true) : 0,
+      nextAccountId: canReadNextId ? view.getBigUint64(base + nextAccountIdOff, true) : 0n,
     };
   }
 
@@ -860,9 +848,11 @@ export async function discoverMarkets(
   const seenPubkeys = new Set<string>();
 
   for (const { pubkey, account, maxAccounts, dataSize } of accounts) {
-    const pkStr = pubkey.toBase58();
-    if (seenPubkeys.has(pkStr)) continue;
-    seenPubkeys.add(pkStr);
+    // Dedup on the raw 32 bytes (bijective with base58) — base58-encoding every
+    // account just to build a Set key dominated scan time. Encode lazily, only for logs.
+    const seenKey = Buffer.from(pubkey.toBytes()).toString("latin1");
+    if (seenPubkeys.has(seenKey)) continue;
+    seenPubkeys.add(seenKey);
     const data = new Uint8Array(account.data);
 
     // Check for v17 market group account (magic = "PERCV16\0", kind == KIND_MARKET).
@@ -876,7 +866,7 @@ export async function discoverMarkets(
     {
       const unknownV = unknownMarketVersion(data);
       if (unknownV !== null) {
-        console.warn(`[discoverMarkets] skipping ${pkStr}: wrapper VERSION ${unknownV} is not a layout this SDK knows (decodes ${knownWrapperVersions().join(", ")})`);
+        console.warn(`[discoverMarkets] skipping ${pubkey.toBase58()}: wrapper VERSION ${unknownV} is not a layout this SDK knows (decodes ${knownWrapperVersions().join(", ")})`);
         continue;
       }
     }
@@ -895,7 +885,7 @@ export async function discoverMarkets(
         });
       } catch (err) {
         console.warn(
-          `[discoverMarkets] Failed to parse v17 account ${pkStr}:`,
+          `[discoverMarkets] Failed to parse v17 account ${pubkey.toBase58()}:`,
           err instanceof Error ? err.message : err,
         );
       }
@@ -918,7 +908,7 @@ export async function discoverMarkets(
 
     if (!layout) {
       console.warn(
-        `[discoverMarkets] Skipping account ${pkStr}: unrecognized layout for dataSize=${dataSize}`,
+        `[discoverMarkets] Skipping account ${pubkey.toBase58()}: unrecognized layout for dataSize=${dataSize}`,
       );
       continue;
     }
