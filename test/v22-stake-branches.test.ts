@@ -143,7 +143,10 @@ describe("decodeStakePoolV5", () => {
     const d = poolBytes();
     const big = new Uint8Array(STAKE_POOL_SIZE_V5 + 20);
     big.set(d, 10);
-    expect(decodeStakePoolV5(big.subarray(10)).riskMode).toBe(1);
+    const sub = decodeStakePoolV5(big.subarray(10));
+    expect(sub.riskMode).toBe(1);
+    expect(sub.deployTargetBps).toBe(5000);
+    expect(sub.hysteresisBps).toBe(500);
     expect(decodeStakePoolV5(poolBytes()).riskMode).toBe(1);
   });
   it("rejects short, bad discriminator, bad version", () => {
@@ -210,12 +213,19 @@ describe("close-out math", () => {
     const c = closeoutSplit({ surplus: 10n, seed: 5n, forwarded: 0n, creatorClassReleased: 2n, hasRealStakers: true });
     expect(c.creator + c.stakers + c.unclaimed).toBe(10n);
     expect(c.creator).toBe(2n);
+    expect(c.stakers).toBe(8n);
+    expect(c.unclaimed).toBe(0n);
   });
 });
 
 describe("errors", () => {
   it("decodes 33..48 and returns undefined elsewhere", () => {
-    for (let c = 33; c <= 48; c++) expect(decodeStakeErrorV5(c)).toBe(STAKE_ERRORS_V5[c]);
+    for (let c = 33; c <= 48; c++) {
+      expect(decodeStakeErrorV5(c)).toBe(STAKE_ERRORS_V5[c]);
+      expect(decodeStakeErrorV5(c)?.name.length).toBeGreaterThan(0);
+      expect(decodeStakeErrorV5(c)?.hint.length).toBeGreaterThan(0);
+    }
+    expect(Object.keys(STAKE_ERRORS_V5)).toHaveLength(16);
     expect(decodeStakeErrorV5(33)?.name).toBe("ConsentRequired");
     expect(decodeStakeErrorV5(32)).toBeUndefined();
     expect(decodeStakeErrorV5(49)).toBeUndefined();
@@ -240,8 +250,10 @@ describe("stakePoolValue", () => {
     expect(stakePoolValue({ ...f, totalDeposited: U64 + 1000n }, { unitsStake: 0n, unitsTotal: 0n }, 0n)).toBeNull();
     expect(stakePoolValue(f, { unitsStake: 3n, unitsTotal: 2n }, 1n)).toBeNull();
     expect(stakePoolValue(f, { unitsStake: 1n << 100n, unitsTotal: 1n << 100n }, 1n << 100n)).toBeNull();
-    // deployed > u64 (units equal, insurance huge but product within u128)
-    expect(stakePoolValue(f, { unitsStake: 1n << 64n, unitsTotal: 1n << 64n }, 1n << 63n)).not.toBeNull();
+    // deployed = 2^63 fits u64, so this is a valid value
+    expect(stakePoolValue(f, { unitsStake: 1n << 64n, unitsTotal: 1n << 64n }, 1n << 63n)!.deployed).toBe(1n << 63n);
+    // deployed > u64: units equal, insurance above u64 max
+    expect(stakePoolValue(f, { unitsStake: 1n, unitsTotal: 1n }, U64 + 1n)).toBeNull();
     expect(stakePoolValue({ ...f, totalDeposited: 0n, totalWithdrawn: 0n, totalFlushed: 0n, totalReturned: 0n, totalFeesEarned: 0n, realizedJuniorLoss: 0n }, { unitsStake: 2n, unitsTotal: 1n << 1n }, U64 + 5n)).toBeNull();
     // total overflow: liquid at u64 max plus any deployed
     expect(stakePoolValue({ ...f, totalDeposited: U64 + 240n }, { unitsStake: 1n, unitsTotal: 1n }, 1n)).toBeNull();
@@ -253,8 +265,8 @@ describe("collateralForLpV5", () => {
     expect(collateralForLpV5(1n, 0n, 100n)).toBeNull();
     expect(collateralForLpV5(10n, 99n, 99n)).toBe(10n);
     expect(collateralForLpV5(0n, 5n, 5n)).toBe(0n);
-    expect(collateralForLpV5(U64, 0n + 0n + 1n, U64)).toBeNull();
-    expect(collateralForLpV5(1n << 64n, 1n << 64n, U64 - 1n)).not.toBeNull();
+    expect(collateralForLpV5(U64, 1n, U64)).toBeNull();
+    expect(collateralForLpV5(1n << 64n, 1n << 64n, U64 - 1n)).toBe(((1n << 64n) * U64) / ((1n << 64n) + 1n));
   });
 });
 
@@ -273,17 +285,21 @@ describe("quoteStakeWithdrawNowV5", () => {
     expect(q.liquidCap).toBe(6_000n);
     expect(q.maxCollateralNow).toBe(6_000n);
     expect(q.deferred).toBe(q.redeemable - 6_000n);
-    expect(q.maxLpNow < 10_000n).toBe(true);
+    expect(q.maxLpNow).toBe(6_000n);
+    expect(collateralForLpV5(q.maxLpNow, pool.totalLpSupply, 10_000n)! <= q.liquidCap).toBe(true);
+    expect(collateralForLpV5(q.maxLpNow + 1n, pool.totalLpSupply, 10_000n)! > q.liquidCap).toBe(true);
     // userLp smaller than maxLp: fits entirely
     const small = quoteStakeWithdrawNowV5(pool, units, 4_000n, 6_000n, 100n)!;
     expect(small.capBinds).toBe(false);
     expect(small.maxLpNow).toBe(100n);
   });
-  it("maxLpNow clamps to userLp when the formula would exceed it", () => {
+  it("tiny supply with a binding cap: documents the current dust result (maxLpNow 0 while maxCollateralNow 10)", () => {
+    // NOTE: the `maxLpNow > userLp` clamp (src line 715) is unreachable when redeemable > liquidCap.
     const p = { ...pool, totalLpSupply: 1n };
-    const q = quoteStakeWithdrawNowV5(p, units, 100_000n, 10n, 1n);
-    expect(q).not.toBeNull();
-    expect(q!.maxLpNow <= 1n).toBe(true);
+    const q = quoteStakeWithdrawNowV5(p, units, 100_000n, 10n, 1n)!;
+    expect(q.capBinds).toBe(true);
+    expect(q.maxLpNow).toBe(0n);
+    expect(q.maxCollateralNow).toBe(10n);
   });
   it("zero liquid forces maxLpNow 0", () => {
     const q = quoteStakeWithdrawNowV5(pool, units, 4_000n, 0n, 5_000n)!;
