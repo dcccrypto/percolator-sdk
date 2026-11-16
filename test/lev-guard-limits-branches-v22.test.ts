@@ -88,11 +88,11 @@ describe("levGuardOpenLimitsV22 market numbers", () => {
   it("with vol data: sigma feeds the band sample and the leverage term (lower L_eff than the no-data day band)", () => {
     const base = levGuardOpenLimitsV22(input());
     const withVol = levGuardOpenLimitsV22(input({ volHasData: true, volVarX100: 4_000_000 }));
-    expect(withVol.lEffX100).toBeLessThanOrEqual(base.lEffX100);
+    expect(withVol.lEffX100).toBeLessThan(base.lEffX100);
     expect(withVol.applies).toBe(true);
     // A decayed burst peak floors var at peak/4 even when the live variance is zero.
     const burst = levGuardOpenLimitsV22(input({ volHasData: true, volVarX100: 0, guard: guard({ burstVarPeakX100: 4_000_000, burstPeakSlot: 1_000_000n }) }));
-    expect(burst.lEffX100).toBeLessThanOrEqual(base.lEffX100);
+    expect(burst.lEffX100).toBeLessThan(base.lEffX100);
   });
   it("a zero price gives no N_floor (nCapQ null -> 0): n_eff falls to the scaled cap only", () => {
     const month = 1_000_000n + 40n * DAY;
@@ -202,7 +202,7 @@ describe("levGuardRefusalV22 order and bounds", () => {
     const l = levGuardOpenLimitsV22(i);
     expect(levGuardRefusalV22(l, i, 0n, 1n, 10n ** 18n)).toBe("age_under_6h");
   });
-  it("leverage beats size beats short cap", () => {
+  it("leverage is checked before size", () => {
     const month = 1_000_000n + 40n * DAY;
     const i = input({ nowSlot: month, guard: guard({ repNMultBps: 1_000, repSlot: month - 1n }) });
     const l = levGuardOpenLimitsV22(i);
