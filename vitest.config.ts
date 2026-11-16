@@ -90,6 +90,7 @@ export default defineConfig({
       "test/validation-behaviour.test.ts",
       "test/tx-branches.test.ts",
       "test/v22-lot-exp-profile.test.ts",
+      "test/slab-branch-coverage.test.ts",
       "test/discovery-branches.test.ts",
       "test/ata.test.ts",
     ],
