@@ -2053,6 +2053,8 @@ export function volUpdateX100(varX100: number, hasData: boolean, sampleX100: big
 export function isqrtCeil(x: bigint): bigint {
   if (x < 0n) throw new Error("isqrtCeil: negative input");
   if (x < 2n) return x;
+  // x < 2^52: Math.sqrt is correctly rounded and a non-square's sqrt sits >> 1 ulp from an integer, so ceil is exact.
+  if (x < 4503599627370496n) return BigInt(Math.ceil(Math.sqrt(Number(x))));
   let r = x;
   let y = x / 2n + (x & 1n);
   while (y < r) { r = y; y = (r + x / r) / 2n; }
