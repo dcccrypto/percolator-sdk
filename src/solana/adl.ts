@@ -502,7 +502,7 @@ export function parseAdlEvent(
           cpiDepth++;
           continue;
         }
-        if (/^Program \S+ (?:success|failed)$/.test(line)) {
+        if (/^Program \S+ (?:success|failed(?:: .*)?)$/.test(line)) {
           cpiDepth = Math.max(0, cpiDepth - 1);
           continue;
         }
@@ -511,9 +511,10 @@ export function parseAdlEvent(
       if (!insidePercolator || cpiDepth > 0) continue;
     }
 
-    // sol_log_64 emits: "Program log: a b c d e" (5 space-separated decimals)
+    // sol_log_64 emits (agave syscalls/logging.rs): "Program log: 0xa, 0xb, 0xc, 0xd, 0xe"
+    // (5 comma-separated lowercase hex values with 0x prefix).
     const match = line.match(
-      /^Program log: (\d+) (\d+) (\d+) (\d+) (\d+)$/,
+      /^Program log: (0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+)$/,
     );
     if (!match) continue;
 

@@ -13,6 +13,8 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   detectTokenProgram,
+  isToken2022,
+  isStandardToken,
   TOKEN_2022_PROGRAM_ID,
 } from "../src/solana/token-program.js";
 
@@ -53,5 +55,31 @@ describe("#266 — detectTokenProgram fails closed", () => {
   it("throws when the mint account does not exist", async () => {
     const conn = makeConn(null);
     await expect(detectTokenProgram(conn, mint)).rejects.toThrow(/not found/);
+  });
+});
+
+describe("isToken2022 / isStandardToken", () => {
+  const other = PublicKey.unique();
+
+  it("TOKEN_2022_PROGRAM_ID is the canonical Token Extensions id", () => {
+    expect(TOKEN_2022_PROGRAM_ID.toBase58()).toBe("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+  });
+
+  it("isToken2022 is true only for Token-2022", () => {
+    expect(isToken2022(TOKEN_2022_PROGRAM_ID)).toBe(true);
+    expect(isToken2022(TOKEN_PROGRAM_ID)).toBe(false);
+    expect(isToken2022(other)).toBe(false);
+  });
+
+  it("isStandardToken is true only for SPL Token", () => {
+    expect(isStandardToken(TOKEN_PROGRAM_ID)).toBe(true);
+    expect(isStandardToken(TOKEN_2022_PROGRAM_ID)).toBe(false);
+    expect(isStandardToken(other)).toBe(false);
+  });
+
+  it("the two predicates are mutually exclusive for the two real programs", () => {
+    for (const id of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+      expect(isToken2022(id)).not.toBe(isStandardToken(id));
+    }
   });
 });
