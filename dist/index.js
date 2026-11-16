@@ -12909,6 +12909,11 @@ var LEV_GUARD_REC_LEN_PRE_BURST_V22 = 344;
 var LEV_GUARD_KEY_TAG_LEN_V22 = 16;
 var LEV_GUARD_TOUCHED_CAP_V22 = 256;
 var LEV_GUARD_TOUCHED_LEN_V22 = LEV_GUARD_KEY_TAG_LEN_V22 * LEV_GUARD_TOUCHED_CAP_V22;
+var LEV_GUARD_REC_LEN_V2_V22 = 488;
+var LEV_GUARD_BAND_MARKS_V22 = 8;
+var LEV_GUARD_BODY_LEN_V2_V22 = LEV_GUARD_REC_LEN_V2_V22 + LEV_GUARD_TOUCHED_LEN_V22;
+var LEV_GUARD_ACCOUNT_LEN_V2_V22 = 16 + LEV_GUARD_BODY_LEN_V2_V22;
+var LEV_GUARD_VERSION_V2_V22 = 2;
 var LEV_GUARD_BODY_LEN_V22 = LEV_GUARD_REC_LEN_V22 + LEV_GUARD_TOUCHED_LEN_V22;
 var LEV_GUARD_ACCOUNT_LEN_V22 = 16 + LEV_GUARD_BODY_LEN_V22;
 var LEV_GUARD_VERSION_V22 = 1;
@@ -13051,7 +13056,11 @@ var LEV_GUARD_FIELD_OFF_V22 = Object.freeze({
   roundOpenSlot: 336,
   burstVarPeakX100: 344,
   pad3: 348,
-  burstPeakSlot: 352
+  burstPeakSlot: 352,
+  /** v2 only (record 488 B, prog#721). */
+  pad4: 128,
+  pbMarksPx: 360,
+  pbMarksSlot: 424
 });
 function u128At(v, off) {
   return v.getBigUint64(off + 8, true) << 64n | v.getBigUint64(off, true);
@@ -13066,21 +13075,40 @@ function decodeLevGuardV22(data, table = LAYOUT_V22) {
   const b = L.headerLen;
   if (b !== 16) throw new UnknownLayoutError("INVALID_RECORD", parser, `invalid account data: header length ${b} != 16`, { kind: ACCOUNT_KIND.LevGuard });
   const recLen = data.length - b - LEV_GUARD_TOUCHED_LEN_V22;
-  if (recLen !== LEV_GUARD_REC_LEN_V22 && recLen !== LEV_GUARD_REC_LEN_PRE_BURST_V22) {
+  if (recLen !== LEV_GUARD_REC_LEN_V22 && recLen !== LEV_GUARD_REC_LEN_PRE_BURST_V22 && recLen !== LEV_GUARD_REC_LEN_V2_V22) {
     throw new UnknownLayoutError(
       data.length < b + LEV_GUARD_REC_LEN_PRE_BURST_V22 + LEV_GUARD_TOUCHED_LEN_V22 ? "TOO_SHORT" : "INVALID_RECORD",
       parser,
-      `lev guard account length ${data.length}: expected ${b + LEV_GUARD_REC_LEN_PRE_BURST_V22 + LEV_GUARD_TOUCHED_LEN_V22} or ${LEV_GUARD_ACCOUNT_LEN_V22}`,
+      `lev guard account length ${data.length}: expected ${b + LEV_GUARD_REC_LEN_PRE_BURST_V22 + LEV_GUARD_TOUCHED_LEN_V22}, ${LEV_GUARD_ACCOUNT_LEN_V22} or ${LEV_GUARD_ACCOUNT_LEN_V2_V22}`,
       { version: L.version, kind: ACCOUNT_KIND.LevGuard }
     );
   }
-  const burst = recLen === LEV_GUARD_REC_LEN_V22;
+  const v2 = recLen === LEV_GUARD_REC_LEN_V2_V22;
+  const burst = recLen !== LEV_GUARD_REC_LEN_PRE_BURST_V22;
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const F = LEV_GUARD_FIELD_OFF_V22;
   const u163 = (o) => v.getUint16(b + o, true);
   const u645 = (o) => v.getBigUint64(b + o, true);
   const u1287 = (o) => u128At(v, b + o);
   const flags = data[b + F.flags];
+  const marksPx = [];
+  const marksSlot = [];
+  if (v2) {
+    for (let i = 0; i < LEV_GUARD_BAND_MARKS_V22; i++) {
+      marksPx.push(u645(F.pbMarksPx + 8 * i));
+      marksSlot.push(u645(F.pbMarksSlot + 8 * i));
+    }
+  }
+  let refPx = v2 ? 0n : u645(F.pbRefPx);
+  let refSlot = v2 ? 0n : u645(F.pbRefSlot);
+  if (v2) {
+    for (let i = 0; i < marksPx.length; i++) {
+      if (marksPx[i] !== 0n && (refPx === 0n || marksSlot[i] < refSlot)) {
+        refPx = marksPx[i];
+        refSlot = marksSlot[i];
+      }
+    }
+  }
   const g = {
     market: new PublicKey17(data.slice(b + F.market, b + F.market + 32)),
     riskKey: new PublicKey17(data.slice(b + F.riskKey, b + F.riskKey + 32)),
@@ -13104,8 +13132,10 @@ function decodeLevGuardV22(data, table = LAYOUT_V22) {
     holderDumpSlot: u645(F.holderDumpSlot),
     pbLastPx: u645(F.pbLastPx),
     pbLastSlot: u645(F.pbLastSlot),
-    pbRefPx: u645(F.pbRefPx),
-    pbRefSlot: u645(F.pbRefSlot),
+    pbRefPx: refPx,
+    pbRefSlot: refSlot,
+    pbMarksPx: marksPx,
+    pbMarksSlot: marksSlot,
     pbFreezeUntil: u645(F.pbFreezeUntil),
     pbOracleUntil: u645(F.pbOracleUntil),
     frozenLX100: u163(F.frozenLX100),
@@ -13127,7 +13157,7 @@ function decodeLevGuardV22(data, table = LAYOUT_V22) {
     touchedTags: []
   };
   const rawBool = (o) => data[b + o] <= 1;
-  const bad3 = g.version !== LEV_GUARD_VERSION_V22 || (flags & ~(LEV_GUARD_FLAG_V22.MINT_AUTH_LIVE | LEV_GUARD_FLAG_V22.FREEZE_AUTH_LIVE)) !== 0 || !rawBool(F.roundActive) || !rawBool(F.roundLpLong) || g.touchedN > LEV_GUARD_TOUCHED_CAP_V22 || g.roundKeepBps > 1e4 || g.repJDumpBps > 1e4 || g.repMIndBps > 1e4 || g.repNMultBps > 1e4 || data[b + F.pad0] !== 0 || !allZero(data.subarray(b + F.pad1, b + F.pad1 + 2)) || !allZero(data.subarray(b + F.pad2, b + F.pad2 + 6)) || burst && !allZero(data.subarray(b + F.pad3, b + F.pad3 + 4));
+  const bad3 = g.version !== (v2 ? LEV_GUARD_VERSION_V2_V22 : LEV_GUARD_VERSION_V22) || (flags & ~(LEV_GUARD_FLAG_V22.MINT_AUTH_LIVE | LEV_GUARD_FLAG_V22.FREEZE_AUTH_LIVE)) !== 0 || !rawBool(F.roundActive) || !rawBool(F.roundLpLong) || g.touchedN > LEV_GUARD_TOUCHED_CAP_V22 || g.roundKeepBps > 1e4 || g.repJDumpBps > 1e4 || g.repMIndBps > 1e4 || g.repNMultBps > 1e4 || data[b + F.pad0] !== 0 || !allZero(data.subarray(b + F.pad1, b + F.pad1 + 2)) || !allZero(data.subarray(b + F.pad2, b + F.pad2 + 6)) || burst && !allZero(data.subarray(b + F.pad3, b + F.pad3 + 4)) || v2 && !allZero(data.subarray(b + F.pad4, b + F.pad4 + 16));
   if (bad3) throw new UnknownLayoutError("INVALID_RECORD", parser, "invalid account data: lev guard fails the program's validate_guard", { kind: ACCOUNT_KIND.LevGuard });
   const t = b + recLen;
   for (let i = 0; i < g.touchedN; i++) g.touchedTags.push(u128At(v, t + LEV_GUARD_KEY_TAG_LEN_V22 * i));
@@ -15280,7 +15310,7 @@ function parseAdlEvent(logs, percolatorProgramId) {
           cpiDepth++;
           continue;
         }
-        if (/^Program \S+ (?:success|failed)$/.test(line)) {
+        if (/^Program \S+ (?:success|failed(?:: .*)?)$/.test(line)) {
           cpiDepth = Math.max(0, cpiDepth - 1);
           continue;
         }
@@ -15288,7 +15318,7 @@ function parseAdlEvent(logs, percolatorProgramId) {
       if (!insidePercolator || cpiDepth > 0) continue;
     }
     const match = line.match(
-      /^Program log: (\d+) (\d+) (\d+) (\d+) (\d+)$/
+      /^Program log: (0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+)$/
     );
     if (!match) continue;
     let tag;
@@ -19678,17 +19708,22 @@ export {
   LEV_BURST_VAR_FLOOR_DIV,
   LEV_FREEZE_SLOTS,
   LEV_GUARD_ACCOUNT_LEN_V22,
+  LEV_GUARD_ACCOUNT_LEN_V2_V22,
+  LEV_GUARD_BAND_MARKS_V22,
   LEV_GUARD_BODY_LEN_V22,
+  LEV_GUARD_BODY_LEN_V2_V22,
   LEV_GUARD_FIELD_OFF_V22,
   LEV_GUARD_FLAG_V22,
   LEV_GUARD_KEY_TAG_LEN_V22,
   LEV_GUARD_OP_V22,
   LEV_GUARD_REC_LEN_PRE_BURST_V22,
   LEV_GUARD_REC_LEN_V22,
+  LEV_GUARD_REC_LEN_V2_V22,
   LEV_GUARD_SEEDS_V22,
   LEV_GUARD_TOUCHED_CAP_V22,
   LEV_GUARD_TOUCHED_LEN_V22,
   LEV_GUARD_VERSION_V22,
+  LEV_GUARD_VERSION_V2_V22,
   LEV_HOLDER_PROOF_SLOTS,
   LEV_J_DUMP_DEFAULT_DAY_BPS,
   LEV_J_DUMP_DEFAULT_WEEK_BPS,
