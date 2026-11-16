@@ -28,7 +28,7 @@ import {
 import { stampPortfolio } from "./helpers/stamp.js";
 
 describe("p3-vault-lp guards", () => {
-  it("rejects bad asset indices and short buffers", () => {
+  it("rejects bad asset indices and too-short unstamped buffers (header-length guard, not the per-asset guards)", () => {
     expect(() => assetVaultLpAccountOffsetP3(-1)).toThrow(/non-negative integer/);
     expect(() => assetVaultLpAccountOffsetP3(1.5)).toThrow(/non-negative integer/);
     expect(() => readAssetPricesP3(new Uint8Array(8), -1)).toThrow(/non-negative integer/);
@@ -55,7 +55,8 @@ describe("p3-vault-lp pricing parity (vault_lp_v18.rs)", () => {
     expect(liveExitSeniorValueP3(1_000n, 800n, 200n, -100n)).toBe(700n); // min(800-100, 1000-100)
     expect(liveExitSeniorValueP3(1_000n, 1_500n, 0n, -100n)).toBe(1_000n); // surplus 500 covers d: C'=1000, min(1400,1000)
     expect(liveExitSeniorValueP3(1_000n, 50n, 0n, -100n)).toBe(0n); // nav - d saturates
-    expect(boundVaultSeniorValueP3({ nav: 800n, seniorClaim: 1_000n, lpValue: 200n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -100n })).toBe(700n); // lpValue ignored when worse < 0
+    expect(boundVaultSeniorValueP3({ nav: 800n, seniorClaim: 1_000n, lpValue: 200n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -100n })).toBe(700n);
+    expect(boundVaultSeniorValueP3({ nav: 99n, seniorClaim: 1_000n, lpValue: 200n, resolved: true, physicalIdleBacking: 40n, lpEquityWorse: 0n })).toBe(40n); // resolved: min(idle, C)
   });
 
   it("senior_atoms_for_redemption :140 floors and fails closed on S == 0 / shares > S", () => {
