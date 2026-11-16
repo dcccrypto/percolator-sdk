@@ -1,8 +1,8 @@
 /**
  * Branch pins for src/abi/risk-limits-p1.ts and src/abi/v22-lot.ts (input-guard branches).
- * Source of truth: percolator-prog 58e379f1 src/v16_program.rs — handler bound check at :2514-2516
- * (`max_requested_fee_bps > MAX_REQUESTED_FEE_BPS` (1023, :9994), `exec_band_bps > MAX_EXEC_BAND_BPS` (10_000, :9748)),
- * and oracle prices must be non-zero (`price == 0` is refused, e.g. :1677 / `out == 0` at percolator-prog main :6172).
+ * Source of truth: percolator-prog 58e379f1 src/v16_program.rs — `validate_asset_risk_limits` (:2514-2516) bounds the record the same way the SDK `int()` checks do
+ * (those bounds are covered in risk-limits-p1.test.ts); oracle prices must be non-zero (`effective_price == 0` refused, :1677;
+ * `out == 0` refused at percolator-prog 1dd268ad :6172).
  * The u128 / assetIndex / short-account guards are SDK-side shape checks (u128 wire field; slot must fit in the account).
  */
 import { describe, it, expect } from "vitest";
@@ -22,13 +22,14 @@ describe("risk-limits-p1 guard branches", () => {
     expect(encodeSetAssetRiskLimitsP1({ ...base, lpFloorAtoms: (1n << 128n) - 1n }).length).toBe(41);
   });
   it("sideOiCapQ bounds: negative and above MAX_OI_SIDE_Q", () => {
+    expect(encodeSetAssetRiskLimitsP1({ ...base, sideOiCapQ: 100_000_000_000_000n }).length).toBe(41);
     expect(() => encodeSetAssetRiskLimitsP1({ ...base, sideOiCapQ: -1n })).toThrow(/sideOiCapQ/);
     expect(() => encodeSetAssetRiskLimitsP1({ ...base, sideOiCapQ: 100_000_000_000_001n })).toThrow(/sideOiCapQ/);
   });
   it("assetRiskLimitsAccountOffsetP1 rejects negative and fractional slots", () => {
     expect(() => assetRiskLimitsAccountOffsetP1(-1)).toThrow(/bad assetIndex/);
     expect(() => assetRiskLimitsAccountOffsetP1(1.5)).toThrow(/bad assetIndex/);
-    expect(assetRiskLimitsAccountOffsetP1(0, LAYOUT_V22)).toBeGreaterThan(0);
+    expect(assetRiskLimitsAccountOffsetP1(0, LAYOUT_V22)).toBe(2006);
   });
   it("decodeAssetRiskLimitsP1 throws when the account ends before the record", () => {
     const m = stampMarket(new Uint8Array(1398 + 2661), 19);
