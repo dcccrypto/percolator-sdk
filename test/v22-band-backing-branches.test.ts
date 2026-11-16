@@ -32,9 +32,11 @@ describe("v22-band: rent_rate_e9 overflow arms (rust: checked_mul -> None)", () 
     expect(Band.rentRateE9V22(1n, U128, 5000, 9n)).toBeNull();
   });
   it("num = max * (lhs - rhs) above u128 (users < nCap, kink 0) -> null, fail-closed = max", () => {
-    const max = 1n << 127n;
-    expect(Band.rentRateE9V22(1000n, 2000n, 0, max)).toBeNull();
-    expect(Band.rentRateE9FailClosedV22(1000n, 2000n, 0, max)).toBe(max);
+    const max = (1n << 64n) - 1n; // rust: u64 ceiling
+    const users = 1n << 120n, nCap = 1n << 121n; // lhs, den fit u128; max * lhs ~ 2^198 does not
+    expect(users * 10_000n).toBeLessThan(U128);
+    expect(Band.rentRateE9V22(users, nCap, 0, max)).toBeNull();
+    expect(Band.rentRateE9FailClosedV22(users, nCap, 0, max)).toBe(max);
   });
   it("den = nCap * (10_000 - kink) above u128 -> null", () => {
     // lhs = users*1e4 fits, rhs = 0 (kink 0), den = nCap * 1e4 overflows.
@@ -71,7 +73,7 @@ describe("v22-band: band_floor_stuck_view / favourable close", () => {
 describe("v22-band: decoder guards and null paths", () => {
   const v19 = () => stampMarket(new Uint8Array(LAYOUT_V22.marketGroupOff + LAYOUT_V22.marketGroupLen + LAYOUT_V22.assetSlotStride), 19);
 
-  it("decodeBandConfigV22: a market shorter than the config block is TOO_SHORT or a typed geometry refusal", () => {
+  it("decodeBandConfigV22: a truncated market is refused by resolveMarketGeometry (the :329 TOO_SHORT guard is unreachable behind it)", () => {
     const short = stampMarket(new Uint8Array(LAYOUT_V22.marketGroupOff + 8), 19);
     expect(() => Band.decodeBandConfigV22(short)).toThrow(UnknownLayoutError);
   });
