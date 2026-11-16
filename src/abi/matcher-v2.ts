@@ -25,7 +25,7 @@
  */
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import type { AccountMeta } from "@solana/web3.js";
-import { concatBytes, encPubkey, encU8, encU16, encU32, encU64, encU128 } from "./encode.js";
+import { encPubkey } from "./encode.js";
 import { MATCHER_RETURN_KNOWN_FLAGS } from "./instructions.js";
 
 // ============================================================================
@@ -344,19 +344,48 @@ export function validateMatcherSetParams(p: MatcherSetParams): void {
  */
 export function encodeMatcherSetParams(p: MatcherSetParams): Uint8Array {
   validateMatcherSetParams(p);
-  const c = p.enableV2 ? p.v2 : ZERO_V2;
-  const out = concatBytes(
-    encU8(p.kind), encU32(p.tradingFeeBps), encU32(p.baseSpreadBps), encU32(p.maxTotalBps), encU32(p.impactKBps),
-    encU128(p.liquidityNotionalE6), encU128(p.maxFillAbs), encU128(p.maxInventoryAbs),
-    encU16(p.feeToInsuranceBps), encU16(p.skewSpreadMultBps), encU8(p.enableV2 ? 1 : 0), encU8(c.flags),
-    encU16(c.feeLoBps), encU16(c.feeHiBps), encU16(c.feeColdBps), encU16(c.volAMilli), encU16(c.volBDen), encU16(c.volAlphaBps),
-    encU8(c.volWarmup), encU8(c.volMoveCap10bps),
-    encU16(c.volRefSlots), encU16(c.thinRebateMultBps), encU16(c.skewCapBps), encU16(c.rebateCapBps),
-    encU16(c.maxMarkAgeSlots), encU16(c.observedStaleSlots),
-    encU64(c.skewRefInventory),
-  );
-  if (out.length !== MATCHER_SET_PARAMS_LEN) throw new Error(`encodeMatcherSetParams: internal length ${out.length} != 105`);
+  const out = new Uint8Array(MATCHER_SET_PARAMS_LEN);
+  writeSetParams(out, 0, p);
   return out;
+}
+
+/** Write an already-validated SetParams payload (105 bytes) into `out` at `o` with one DataView. */
+function writeSetParams(out: Uint8Array, o: number, p: MatcherSetParams): void {
+  const c = p.enableV2 ? p.v2 : ZERO_V2;
+  const v = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  v.setUint8(o, p.kind);
+  v.setUint32(o + 1, p.tradingFeeBps, true);
+  v.setUint32(o + 5, p.baseSpreadBps, true);
+  v.setUint32(o + 9, p.maxTotalBps, true);
+  v.setUint32(o + 13, p.impactKBps, true);
+  setU128(v, o + 17, p.liquidityNotionalE6);
+  setU128(v, o + 33, p.maxFillAbs);
+  setU128(v, o + 49, p.maxInventoryAbs);
+  v.setUint16(o + 65, p.feeToInsuranceBps, true);
+  v.setUint16(o + 67, p.skewSpreadMultBps, true);
+  v.setUint8(o + 69, p.enableV2 ? 1 : 0);
+  v.setUint8(o + 70, c.flags);
+  v.setUint16(o + 71, c.feeLoBps, true);
+  v.setUint16(o + 73, c.feeHiBps, true);
+  v.setUint16(o + 75, c.feeColdBps, true);
+  v.setUint16(o + 77, c.volAMilli, true);
+  v.setUint16(o + 79, c.volBDen, true);
+  v.setUint16(o + 81, c.volAlphaBps, true);
+  v.setUint8(o + 83, c.volWarmup);
+  v.setUint8(o + 84, c.volMoveCap10bps);
+  v.setUint16(o + 85, c.volRefSlots, true);
+  v.setUint16(o + 87, c.thinRebateMultBps, true);
+  v.setUint16(o + 89, c.skewCapBps, true);
+  v.setUint16(o + 91, c.rebateCapBps, true);
+  v.setUint16(o + 93, c.maxMarkAgeSlots, true);
+  v.setUint16(o + 95, c.observedStaleSlots, true);
+  v.setBigUint64(o + 97, c.skewRefInventory, true);
+}
+
+/** u128 LE (the caller has range-checked 0..=2^128-1). */
+function setU128(v: DataView, o: number, n: bigint): void {
+  v.setBigUint64(o, n & U64_MAX, true);
+  v.setBigUint64(o + 8, n >> 64n, true);
 }
 
 // ============================================================================
@@ -373,12 +402,17 @@ export interface MatcherOwnerProof {
   bump: number;
 }
 
-function ownerProofHeader(proof: MatcherOwnerProof): Uint8Array {
+/** Owner-proof header length (tag, auth, 3 pubkeys, bump). */
+const OWNER_PROOF_HEADER_LEN = MATCHER_CONFIGURE_HEADER_OWNER_PROOF_LEN;
+
+function writeOwnerProofHeader(out: Uint8Array, proof: MatcherOwnerProof): void {
   checkRange("bump", proof.bump, 255);
-  return concatBytes(
-    encU8(MATCHER_CONFIGURE_TAG), encU8(MATCHER_CONFIGURE_AUTH_OWNER_PROOF),
-    encPubkey(proof.wrapperProgramId), encPubkey(proof.market), encPubkey(proof.lpPortfolio), encU8(proof.bump),
-  );
+  out[0] = MATCHER_CONFIGURE_TAG;
+  out[1] = MATCHER_CONFIGURE_AUTH_OWNER_PROOF;
+  out.set(encPubkey(proof.wrapperProgramId), 2);
+  out.set(encPubkey(proof.market), 34);
+  out.set(encPubkey(proof.lpPortfolio), 66);
+  out[98] = proof.bump;
 }
 
 /**
@@ -396,7 +430,11 @@ function ownerProofHeader(proof: MatcherOwnerProof): Uint8Array {
  */
 export function encodeMatcherConfigureBackingFeeCap(proof: MatcherOwnerProof, capBps: number): Uint8Array {
   checkRange("capBps", capBps, MATCHER_BACKING_FEE_CAP_BPS_MAX);
-  return concatBytes(ownerProofHeader(proof), encU8(MATCHER_CONFIGURE_OP_BACKING_FEE_CAP), encU16(capBps));
+  const out = new Uint8Array(OWNER_PROOF_HEADER_LEN + 3);
+  writeOwnerProofHeader(out, proof);
+  out[OWNER_PROOF_HEADER_LEN] = MATCHER_CONFIGURE_OP_BACKING_FEE_CAP;
+  new DataView(out.buffer).setUint16(OWNER_PROOF_HEADER_LEN + 1, capBps, true);
+  return out;
 }
 
 /**
@@ -411,7 +449,12 @@ export function encodeMatcherConfigureBackingFeeCap(proof: MatcherOwnerProof, ca
  * ```
  */
 export function encodeMatcherConfigureSetParams(proof: MatcherOwnerProof, params: MatcherSetParams): Uint8Array {
-  return concatBytes(ownerProofHeader(proof), encU8(MATCHER_CONFIGURE_OP_SET_PARAMS), encodeMatcherSetParams(params));
+  const out = new Uint8Array(OWNER_PROOF_HEADER_LEN + 1 + MATCHER_SET_PARAMS_LEN);
+  writeOwnerProofHeader(out, proof);
+  validateMatcherSetParams(params);
+  out[OWNER_PROOF_HEADER_LEN] = MATCHER_CONFIGURE_OP_SET_PARAMS;
+  writeSetParams(out, OWNER_PROOF_HEADER_LEN + 1, params);
+  return out;
 }
 
 /**
@@ -526,10 +569,14 @@ export function encodeMatcherCallExt(ext: MatcherCallExt): Uint8Array {
   if (ext.acceptsFeeRequest) flags |= MATCHER_CALL_EXT_FLAG.ACCEPTS_FEE_REQUEST;
   if (ext.takerReducing) flags |= MATCHER_CALL_EXT_FLAG.TAKER_REDUCING;
   if (ext.execBandBps !== undefined) { checkRange("execBandBps", ext.execBandBps, U16_MAX); flags |= MATCHER_CALL_EXT_FLAG.EXEC_BAND; }
-  return concatBytes(
-    encU8(MATCHER_CALL_EXT_VERSION_V1), encU8(flags), encU16(ext.execBandBps ?? 0),
-    encU64(ext.markSlot ?? 0n), encU64(ext.headroomQ ?? 0n), encU32(0),
-  );
+  const out = new Uint8Array(MATCHER_CALL_EXT_LEN);
+  const v = new DataView(out.buffer);
+  out[0] = MATCHER_CALL_EXT_VERSION_V1;
+  out[1] = flags;
+  v.setUint16(2, ext.execBandBps ?? 0, true);
+  v.setBigUint64(4, ext.markSlot ?? 0n, true);
+  v.setBigUint64(12, ext.headroomQ ?? 0n, true);
+  return out;
 }
 
 /**
@@ -547,29 +594,29 @@ export function encodeMatcherCallExt(ext: MatcherCallExt): Uint8Array {
 export function decodeMatcherCallExt(bytes: Uint8Array): MatcherCallExt | null {
   const b = bytes.length === 67 ? bytes.subarray(MATCHER_CALL_EXT_OFFSET) : bytes;
   if (b.length !== MATCHER_CALL_EXT_LEN) throw new Error(`call ext must be 24 bytes, got ${b.length}`);
-  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  const version = b[0];
+  const version = b[0]!;
   if (version === 0) {
-    if (b.some((x) => x !== 0)) throw new Error("legacy call ext (version 0) must be all zero");
+    for (let i = 0; i < MATCHER_CALL_EXT_LEN; i++) if (b[i] !== 0) throw new Error("legacy call ext (version 0) must be all zero");
     return null;
   }
   if (version !== MATCHER_CALL_EXT_VERSION_V1) throw new Error(`unknown call ext version ${version}`);
-  const flags = b[1];
+  const flags = b[1]!;
   if ((flags & ~EXT_FLAGS_KNOWN) !== 0) throw new Error(`call ext flags 0x${flags.toString(16)} has reserved bits`);
-  const band = v.getUint16(2, true);
-  const markSlot = v.getBigUint64(4, true);
-  const headroom = v.getBigUint64(12, true);
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
   if (v.getUint32(20, true) !== 0) throw new Error("call ext reserved bytes must be 0");
-  const has = (f: number): boolean => (flags & f) !== 0;
-  if (!has(MATCHER_CALL_EXT_FLAG.EXEC_BAND) && band !== 0) throw new Error("exec_band_bps set without EXEC_BAND");
-  if (!has(MATCHER_CALL_EXT_FLAG.MARK_SLOT) && markSlot !== 0n) throw new Error("mark_slot set without MARK_SLOT");
-  if (!has(MATCHER_CALL_EXT_FLAG.HEADROOM) && headroom !== 0n) throw new Error("lp_headroom_q set without HEADROOM");
+  const hasBand = (flags & MATCHER_CALL_EXT_FLAG.EXEC_BAND) !== 0;
+  const hasMark = (flags & MATCHER_CALL_EXT_FLAG.MARK_SLOT) !== 0;
+  const hasHeadroom = (flags & MATCHER_CALL_EXT_FLAG.HEADROOM) !== 0;
+  const band = v.getUint16(2, true);
+  if (!hasBand && band !== 0) throw new Error("exec_band_bps set without EXEC_BAND");
+  if (!hasMark && (v.getUint32(4, true) | v.getUint32(8, true)) !== 0) throw new Error("mark_slot set without MARK_SLOT");
+  if (!hasHeadroom && (v.getUint32(12, true) | v.getUint32(16, true)) !== 0) throw new Error("lp_headroom_q set without HEADROOM");
   return {
-    headroomQ: has(MATCHER_CALL_EXT_FLAG.HEADROOM) ? headroom : undefined,
-    markSlot: has(MATCHER_CALL_EXT_FLAG.MARK_SLOT) ? markSlot : undefined,
-    acceptsFeeRequest: has(MATCHER_CALL_EXT_FLAG.ACCEPTS_FEE_REQUEST),
-    takerReducing: has(MATCHER_CALL_EXT_FLAG.TAKER_REDUCING),
-    execBandBps: has(MATCHER_CALL_EXT_FLAG.EXEC_BAND) ? band : undefined,
+    headroomQ: hasHeadroom ? v.getBigUint64(12, true) : undefined,
+    markSlot: hasMark ? v.getBigUint64(4, true) : undefined,
+    acceptsFeeRequest: (flags & MATCHER_CALL_EXT_FLAG.ACCEPTS_FEE_REQUEST) !== 0,
+    takerReducing: (flags & MATCHER_CALL_EXT_FLAG.TAKER_REDUCING) !== 0,
+    execBandBps: hasBand ? band : undefined,
   };
 }
 
@@ -681,19 +728,22 @@ export function encodeMatcherBatchCall(reqId: bigint, lpAccountId: bigint, legs:
   out[1] = legs.length;
   v.setBigUint64(2, reqId, true);
   v.setBigUint64(10, lpAccountId, true);
-  legs.forEach((l, i) => {
-    const b = MATCHER_BATCH_HEADER_LEN + i * MATCHER_BATCH_LEG_LEN;
+  const n = legs.length;
+  for (let i = 0, b = MATCHER_BATCH_HEADER_LEN; i < n; i++, b += MATCHER_BATCH_LEG_LEN) {
+    const l = legs[i]!;
     v.setUint16(b, l.assetIndex, true);
     v.setBigUint64(b + 2, l.oraclePriceE6, true);
-    const u = l.reqSize < 0n ? (1n << 128n) + l.reqSize : l.reqSize;
-    v.setBigUint64(b + 10, u & ((1n << 64n) - 1n), true);
-    v.setBigUint64(b + 18, u >> 64n, true);
-  });
+    // setBigUint64 wraps mod 2^64, so two's-complement i128 needs no sign branch.
+    v.setBigUint64(b + 10, l.reqSize, true);
+    v.setBigUint64(b + 18, l.reqSize >> 64n, true);
+  }
   if (exts) {
-    exts.forEach((e, i) => {
+    const extBase = MATCHER_BATCH_HEADER_LEN + n * MATCHER_BATCH_LEG_LEN;
+    for (let i = 0; i < n; i++) {
+      const e = exts[i]!;
       if (e.length !== MATCHER_CALL_EXT_LEN) throw new Error(`ext ${i} must be 24 bytes`);
-      out.set(e, MATCHER_BATCH_HEADER_LEN + legs.length * MATCHER_BATCH_LEG_LEN + i * MATCHER_CALL_EXT_LEN);
-    });
+      out.set(e, extBase + i * MATCHER_CALL_EXT_LEN);
+    }
   }
   return out;
 }
