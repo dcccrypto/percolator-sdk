@@ -71,12 +71,12 @@ describe("validation hostile inputs", () => {
     expect(() => validateBps("10001", "f")).toThrow(/10000/);
   });
 
-  it("-0 signed parses to 0n (not negative zero)", () => {
-    expect(Object.is(validateI64("-0", "f"), 0n)).toBe(true);
+  it("-0 is accepted by signed validators and returns 0n", () => {
+    expect(validateI64("-0", "f")).toBe(0n);
     expect(validateI128("-0", "f")).toBe(0n);
   });
 
-  it("safeBigInt rejects non-strings-as-decimal", () => {
+  it("safeBigInt rejects non-decimal strings", () => {
     for (const h of ["NaN", "", "1.5", "0x1", "1e5", "1_0", "007"]) {
       expect(() => safeBigInt(h, "caller")).toThrow(/caller/);
     }
