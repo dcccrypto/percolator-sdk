@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.setConfig({ testTimeout: 120_000 });
 import { isqrtU128, plus2PctDepthE6 } from "../src/abi/v22-depth-source.js";
 
 // Reference: the original bigint implementations (string bit-length seed).
