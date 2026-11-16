@@ -358,13 +358,13 @@ const U128_MAX = (1n << 128n) - 1n;
 export function isqrtU128(n: bigint): bigint {
   if (n < 0n || n > U128_MAX) throw new Error("isqrtU128 input must be a u128");
   if (n < 2n) return n;
-  const bits = n.toString(2).length;
-  let x = 1n << BigInt(Math.ceil(bits / 2));
-  for (;;) {
-    const y = (x + n / x) >> 1n;
-    if (y >= x) return x;
-    x = y;
-  }
+  const f = Number(n);
+  // Below 2^52 the correctly-rounded float sqrt floors to the exact root.
+  if (n < 4503599627370496n) return BigInt(Math.floor(Math.sqrt(f)));
+  // The float seed is within ~2^-52 relative error; one Newton step lands on isqrt(n) or isqrt(n)+1 (never below, by AM-GM), so one compare fixes it.
+  const x = BigInt(Math.floor(Math.sqrt(f)));
+  const y = (x + n / x) >> 1n;
+  return y * y > n ? y - 1n : y;
 }
 
 /**
