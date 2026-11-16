@@ -118,8 +118,12 @@ describe("skewFundingRateE9V22 (prog vault_lp_v18.rs:272 skew_funding_rate_e9)",
     expect(skewFundingRateE9V22(-1n, 3n, 10n, 100n)).toBe(3n); // floor(10/3)
   });
   it("i128 / u64 limits: i128::MIN magnitude is handled (unsigned_abs in prog), u64 slope times huge OI", () => {
-    expect(skewFundingRateE9V22(I128_MIN, U128_MAX, U64_MAX, U64_MAX)).toBe(U64_MAX * (1n << 127n) / U128_MAX);
-    expect(skewFundingRateE9V22(I128_MAX, I128_MAX, U64_MAX, U64_MAX)).toBe(-U64_MAX);
+    // Inputs stay within engine-valid OI (MAX_OI_SIDE_Q = 1e14, vault_lp_v18.rs:280-282). Beyond that the prog's
+    // checked_mul overflow arm returns 0 (vault_lp_v18.rs:283-286); this TS port is bigint and is NOT pinned there.
+    const MAX_OI = 100_000_000_000_000n;
+    expect(skewFundingRateE9V22(I128_MIN, MAX_OI, U64_MAX, U64_MAX)).toBe(U64_MAX); // share clamps to 1 (unsigned_abs of i128::MIN)
+    expect(skewFundingRateE9V22(I128_MAX, MAX_OI, U64_MAX, U64_MAX)).toBe(-U64_MAX);
+    expect(skewFundingRateE9V22(-MAX_OI / 2n, MAX_OI, U64_MAX, U64_MAX)).toBe(U64_MAX / 2n);
   });
 });
 
