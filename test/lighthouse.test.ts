@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PublicKey, TransactionInstruction, Transaction } from "@solana/web3.js";
+import { Keypair, PublicKey, TransactionInstruction, Transaction } from "@solana/web3.js";
 import {
   LIGHTHOUSE_PROGRAM_ID,
   LIGHTHOUSE_PROGRAM_ID_STR,
@@ -12,6 +12,7 @@ import {
   countLighthouseInstructions,
   classifyLighthouseError,
   LIGHTHOUSE_USER_MESSAGE,
+  LIGHTHOUSE_ERROR_CODES,
 } from "../src/runtime/lighthouse.js";
 
 import {
@@ -400,5 +401,131 @@ describe("PERC-8442: L2TEx 0x1900 on ESa89R5 slab", () => {
     expect(userMsg).toContain("Blowfish");
     expect(userMsg).toContain("Lighthouse");
     expect(userMsg).toContain("Backpack");
+  });
+});
+
+// Branch coverage additions
+const PERC_RANDOM = Keypair.generate().publicKey;
+const mkIx = (programId: PublicKey) =>
+  new TransactionInstruction({ programId, keys: [], data: Buffer.alloc(0) });
+
+describe("lighthouse: error-message extraction branches", () => {
+  it("detects a plain string", () => {
+    expect(isLighthouseError("custom program error: 0x1900")).toBe(true);
+  });
+
+  it("reads .message from non-Error objects", () => {
+    expect(isLighthouseError({ message: "custom program error: 0x1900" })).toBe(true);
+    expect(isLighthouseError({ message: "custom program error: 0x1" })).toBe(false);
+  });
+
+  it("JSON-stringifies objects without a message", () => {
+    expect(
+      isLighthouseError({ InstructionError: [0, { Custom: 6400 }] }),
+    ).toBe(true);
+    // Custom 6400 without InstructionError context is not enough
+    expect(isLighthouseError({ other: { Custom: 6400 } })).toBe(false);
+  });
+
+  it("returns false when JSON.stringify throws (circular / bigint)", () => {
+    const circ: Record<string, unknown> = {};
+    circ.self = circ;
+    expect(isLighthouseError(circ)).toBe(false);
+    expect(isLighthouseError({ n: 1n })).toBe(false);
+  });
+
+  it("returns false for falsy and empty-message inputs", () => {
+    for (const v of [0, "", false, null, undefined, new Error("")]) {
+      expect(isLighthouseError(v)).toBe(false);
+    }
+  });
+
+  it("returns false for non-object primitives that are truthy", () => {
+    // number 5 -> JSON "5": no Lighthouse signature
+    expect(isLighthouseError(5)).toBe(false);
+  });
+
+  it("classifyLighthouseError maps object errors", () => {
+    expect(classifyLighthouseError({ message: LIGHTHOUSE_PROGRAM_ID_STR })).toBe(
+      LIGHTHOUSE_USER_MESSAGE,
+    );
+    expect(classifyLighthouseError(undefined)).toBeNull();
+  });
+});
+
+describe("lighthouse: log scanning branches", () => {
+  const id = LIGHTHOUSE_PROGRAM_ID_STR;
+
+  it("returns false for non-array input", () => {
+    expect(isLighthouseFailureInLogs("nope" as unknown as string[])).toBe(false);
+    expect(isLighthouseFailureInLogs(undefined as unknown as string[])).toBe(false);
+  });
+
+  it("skips non-string entries", () => {
+    const logs = [42, null, { a: 1 }, `Program ${id} failed: x`] as unknown as string[];
+    expect(isLighthouseFailureInLogs(logs)).toBe(true);
+  });
+
+  it("success without a prior invoke does not underflow or flag", () => {
+    expect(isLighthouseFailureInLogs([`Program ${id} success`])).toBe(false);
+  });
+
+  it("invoke/success pairs are not failures", () => {
+    expect(
+      isLighthouseFailureInLogs([
+        `Program ${id} invoke [1]`,
+        `Program ${id} success`,
+        `Program ${PERC_RANDOM.toBase58()} failed: custom program error: 0x1900`,
+      ]),
+    ).toBe(false);
+  });
+
+  it("invoke followed by failed is a failure", () => {
+    expect(
+      isLighthouseFailureInLogs([`Program ${id} invoke [1]`, `Program ${id} failed: boom`]),
+    ).toBe(true);
+  });
+});
+
+describe("lighthouse: strip with percolatorProgramId guard", () => {
+  it("instructions: leaves guards intact when no Percolator ix is present", () => {
+    const ixs = [mkIx(LIGHTHOUSE_PROGRAM_ID), mkIx(Keypair.generate().publicKey)];
+    expect(stripLighthouseInstructions(ixs, PERC_RANDOM)).toBe(ixs);
+  });
+
+  it("instructions: strips when a Percolator ix is present", () => {
+    const ixs = [mkIx(LIGHTHOUSE_PROGRAM_ID), mkIx(PERC_RANDOM), mkIx(LIGHTHOUSE_PROGRAM_ID)];
+    const out = stripLighthouseInstructions(ixs, PERC_RANDOM);
+    expect(out).toHaveLength(1);
+    expect(out[0].programId.equals(PERC_RANDOM)).toBe(true);
+  });
+
+  it("transaction: returns same tx when no Percolator ix is present", () => {
+    const tx = new Transaction().add(mkIx(LIGHTHOUSE_PROGRAM_ID));
+    expect(stripLighthouseFromTransaction(tx, PERC_RANDOM)).toBe(tx);
+  });
+
+  it("transaction: strips and preserves blockhash/feePayer when Percolator ix present", () => {
+    const payer = Keypair.generate().publicKey;
+    const tx = new Transaction().add(mkIx(LIGHTHOUSE_PROGRAM_ID), mkIx(PERC_RANDOM));
+    tx.recentBlockhash = "11111111111111111111111111111111";
+    tx.feePayer = payer;
+    const out = stripLighthouseFromTransaction(tx, PERC_RANDOM);
+    expect(out).not.toBe(tx);
+    expect(out.instructions).toHaveLength(1);
+    expect(out.recentBlockhash).toBe(tx.recentBlockhash);
+    expect(out.feePayer?.equals(payer)).toBe(true);
+  });
+
+  it("transaction: no Lighthouse ix returns same tx even with Percolator ix", () => {
+    const tx = new Transaction().add(mkIx(PERC_RANDOM));
+    expect(stripLighthouseFromTransaction(tx, PERC_RANDOM)).toBe(tx);
+  });
+});
+
+describe("lighthouse: error code table", () => {
+  it("contains the constraint-address code and 18 entries", () => {
+    expect(LIGHTHOUSE_ERROR_CODES.has(LIGHTHOUSE_CONSTRAINT_ADDRESS)).toBe(true);
+    expect(LIGHTHOUSE_ERROR_CODES.size).toBe(18);
   });
 });
