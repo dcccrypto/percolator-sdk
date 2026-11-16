@@ -1,8 +1,9 @@
 /**
  * Differential test: SDK depth maths vs percolator-prog `src/depth_src_v22.rs` at
  * feat/v22-rc23-2026-10-22 d27f3d73 (isqrt_u128, plus2pct_depth_e6, reserve_value_e6; LOT_EXP_MAX = 15).
- * Vectors in fixtures/depth-math-vectors-d27f3d73.json were printed by the verbatim Rust functions
- * (fixtures/depth-math-prog-d27f3d73.rs + fixtures/depth-math-gen.rs, built with plain rustc).
+ * Vectors in fixtures/depth-math-vectors-d27f3d73.json: the verbatim Rust functions (fixtures/depth-math-prog-d27f3d73.rs) are
+ * run by fixtures/depth-math-gen.rs (`rustc -O`, prints the full 1.4M-row set to stdout -> /tmp/dm/vec.json), then
+ * fixtures/depth-math-mkfixture.mjs subsamples it into the committed JSON (u64s as strings).
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";

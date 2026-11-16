@@ -1,5 +1,5 @@
 use std::fmt::Write;
-include!("lib_part.rs");
+include!("depth-math-prog-d27f3d73.rs");
 fn main(){
   let mut o=String::new();
   let mut rs:Vec<u64>=(0..=1_000_000u64).collect();
