@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { FastWriter } from "./fast-write.js";
 import {
   encU8,
   encU16,
@@ -1080,12 +1081,11 @@ export interface DepositCollateralArgs {
 }
 
 export function encodeDepositCollateral(args: DepositCollateralArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.DepositCollateral),
-    encU64(args.portfolioId),
-    encU64(args.expectedSequence),
-    encU128(args.amount),
-  );
+  return new FastWriter(33)
+    .u8(IX_TAG.DepositCollateral)
+    .u64(args.portfolioId)
+    .u64(args.expectedSequence)
+    .u128(args.amount).buf;
 }
 
 /**
@@ -1120,12 +1120,11 @@ export interface WithdrawCollateralArgs {
 }
 
 export function encodeWithdrawCollateral(args: WithdrawCollateralArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.WithdrawCollateral),
-    encU64(args.portfolioId),
-    encU64(args.expectedSequence),
-    encU128(args.amount),
-  );
+  return new FastWriter(33)
+    .u8(IX_TAG.WithdrawCollateral)
+    .u64(args.portfolioId)
+    .u64(args.expectedSequence)
+    .u128(args.amount).buf;
 }
 
 /**
@@ -1248,15 +1247,14 @@ export function encodePermissionlessCrank(args: PermissionlessCrankArgs): Uint8A
       `rejects this with InvalidInstructionData before reading any hint bytes.`,
     );
   }
-  const parts: Uint8Array[] = [
-    encU8(IX_TAG.PermissionlessCrank),
-    encU64(args.nowSlot),
-    encU8(observations.length),
-  ];
+  const w = new FastWriter(10 + observations.length * 3)
+    .u8(IX_TAG.PermissionlessCrank)
+    .u64(args.nowSlot)
+    .u8(observations.length);
   for (const obs of observations) {
-    parts.push(encU16(obs.assetIndex), encU8(obs.oracleAccounts));
+    w.u16(obs.assetIndex).u8(obs.oracleAccounts);
   }
-  return concatBytes(...parts);
+  return w.buf;
 }
 
 /**
@@ -1337,19 +1335,18 @@ export interface TradeNoCpiArgs {
 }
 
 export function encodeTradeNoCpi(args: TradeNoCpiArgs): Uint8Array {
-  const data = concatBytes(
-    encU8(IX_TAG.TradeNoCpi),
-    encU64(args.accountAPortfolioId),
-    encU64(args.accountAPositionEpoch),
-    encU64(args.accountBPortfolioId),
-    encU64(args.accountBPositionEpoch),
-    encU16(args.assetIndex),
-    encU64(args.marketId),
-    encI128(args.sizeQ),
-    encU64(args.execPrice),
-    encU64(args.feeBps),
-    encU16(args.backingFeeCapBps),
-  );
+  const data = new FastWriter(77)
+    .u8(IX_TAG.TradeNoCpi)
+    .u64(args.accountAPortfolioId)
+    .u64(args.accountAPositionEpoch)
+    .u64(args.accountBPortfolioId)
+    .u64(args.accountBPositionEpoch)
+    .u16(args.assetIndex)
+    .u64(args.marketId)
+    .i128(args.sizeQ)
+    .u64(args.execPrice)
+    .u64(args.feeBps)
+    .u16(args.backingFeeCapBps).buf;
   if (data.length !== 77) {
     throw new Error(
       `encodeTradeNoCpi: expected 77 bytes, got ${data.length}`,
@@ -1411,12 +1408,11 @@ export interface CloseAccountArgs {
 }
 
 export function encodeCloseAccount(args: CloseAccountArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.ClosePortfolio),
-    encU64(args.portfolioId),
-    encU64(args.expectedSequence),
-    encU64(args.positionEpoch),
-  );
+  return new FastWriter(25)
+    .u8(IX_TAG.ClosePortfolio)
+    .u64(args.portfolioId)
+    .u64(args.expectedSequence)
+    .u64(args.positionEpoch).buf;
 }
 
 /**
@@ -1458,13 +1454,12 @@ export interface TopUpInsuranceArgs {
 }
 
 export function encodeTopUpInsurance(args: TopUpInsuranceArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.TopUpInsurance),
-    encU64(args.marketId),
-    encU64(args.intentId),
-    encU64(args.authorityEpoch),
-    encU128(args.amount),
-  );
+  return new FastWriter(41)
+    .u8(IX_TAG.TopUpInsurance)
+    .u64(args.marketId)
+    .u64(args.intentId)
+    .u64(args.authorityEpoch)
+    .u128(args.amount).buf;
 }
 
 /**
@@ -1589,15 +1584,14 @@ export interface TopUpBackingBucketArgs {
 }
 
 export function encodeTopUpBackingBucket(args: TopUpBackingBucketArgs): Uint8Array {
-  return concatBytes(
-    encU8(IX_TAG.TopUpBackingBucket),
-    encU16(args.domain),
-    encU64(args.marketId),
-    encU64(args.intentId),
-    encU64(args.authorityEpoch),
-    encU128(args.amount),
-    encU64(args.expirySlot),
-  );
+  return new FastWriter(51)
+    .u8(IX_TAG.TopUpBackingBucket)
+    .u16(args.domain)
+    .u64(args.marketId)
+    .u64(args.intentId)
+    .u64(args.authorityEpoch)
+    .u128(args.amount)
+    .u64(args.expirySlot).buf;
 }
 
 /**
@@ -1804,20 +1798,19 @@ export interface TradeCpiArgs {
 }
 
 export function encodeTradeCpi(args: TradeCpiArgs): Uint8Array {
-  const data = concatBytes(
-    encU8(IX_TAG.TradeCpi),
-    encU64(args.accountAPortfolioId),
-    encU64(args.accountAPositionEpoch),
-    encU64(args.accountBPortfolioId),
-    encU64(args.accountBPositionEpoch),
-    encU64(args.accountBMatcherSequence),
-    encU16(args.assetIndex),
-    encU64(args.marketId),
-    encI128(args.sizeQ),
-    encU64(args.feeBps),
-    encU64(args.limitPrice),
-    encU16(args.backingFeeCapBps),
-  );
+  const data = new FastWriter(85)
+    .u8(IX_TAG.TradeCpi)
+    .u64(args.accountAPortfolioId)
+    .u64(args.accountAPositionEpoch)
+    .u64(args.accountBPortfolioId)
+    .u64(args.accountBPositionEpoch)
+    .u64(args.accountBMatcherSequence)
+    .u16(args.assetIndex)
+    .u64(args.marketId)
+    .i128(args.sizeQ)
+    .u64(args.feeBps)
+    .u64(args.limitPrice)
+    .u16(args.backingFeeCapBps).buf;
   if (data.length !== 85) {
     throw new Error(
       `encodeTradeCpi: expected 85 bytes, got ${data.length}`,
@@ -4869,14 +4862,13 @@ export interface PushEwmaMarkArgs {
 export function encodePushEwmaMark(args: PushEwmaMarkArgs): Uint8Array {
   requirePositiveU64(args.markE6, "markE6");
 
-  return concatBytes(
-    encU8(IX_TAG.PushEwmaMark),
-    encU16(args.assetIndex),
-    encU64(args.marketId),
-    encU64(args.nowSlot),
-    encU64(args.markE6),
-    encU64(args.observationSequence),
-  );
+  return new FastWriter(35)
+    .u8(IX_TAG.PushEwmaMark)
+    .u16(args.assetIndex)
+    .u64(args.marketId)
+    .u64(args.nowSlot)
+    .u64(args.markE6)
+    .u64(args.observationSequence).buf;
 }
 
 /**
