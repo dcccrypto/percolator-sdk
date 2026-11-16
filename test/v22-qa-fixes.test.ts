@@ -334,3 +334,23 @@ describe("Minor QA items", () => {
     expect(getContextualErrorHint(21, { action: "trade" })).toBe(PERCOLATOR_ERRORS[21]!.hint);
   });
 });
+
+describe("staleResolveStatusV22 (permissionless resolve disabled / clock behind)", () => {
+  // WrapperConfig starts at V17_HEADER_LEN (16); permissionlessResolveStaleSlots is at +136.
+  const OFF = 16 + 136;
+  const disabled = () => { const d = new Uint8Array(acct("solV0Market")); new DataView(d.buffer).setBigUint64(OFF, 0n, true); return d; };
+  it("staleSlots = 0: never matures, no maturity slot, no remaining count, refused 27", () => {
+    const st = staleResolveStatusV22(disabled(), BigInt(FX.accounts.capturedAtSlot));
+    expect(st).toMatchObject({ staleSlots: 0n, maturesAtSlot: null, slotsRemaining: null, canResolve: false, refusalCode: 27 });
+  });
+  it("cluster slot at or behind lastGoodOracleSlot: not matured, full window remains", () => {
+    const v0 = staleResolveStatusV22(acct("solV0Market"), BigInt(FX.accounts.capturedAtSlot));
+    const st = staleResolveStatusV22(acct("solV0Market"), v0.lastGoodOracleSlot);
+    expect(st.canResolve).toBe(false);
+    expect(st.slotsRemaining).toBe(v0.staleSlots);
+  });
+  it("matured: slotsRemaining is 0", () => {
+    const v0 = staleResolveStatusV22(acct("solV0Market"), BigInt(FX.accounts.capturedAtSlot));
+    expect(staleResolveStatusV22(acct("solV0Market"), v0.maturesAtSlot! + 5n).slotsRemaining).toBe(0n);
+  });
+});

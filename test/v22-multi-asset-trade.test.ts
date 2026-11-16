@@ -115,3 +115,19 @@ describe("Q-7 refineMultiAssetTradePlanV22 (client rules)", () => {
     expect(refineMultiAssetTradePlanV22(plan, "BlockhashNotFound")).toMatchObject({ action: "fail", code: null });
   });
 });
+
+describe("Q-7 multi-asset builder: remaining branches", () => {
+  it("observeAssets overrides the default of every market slot", () => {
+    const p = buildMultiAssetTradeIxsV22({ ...input(tradeOf(FX.cases[0]!)), observeAssets: [2] });
+    const lpObserve = p.cranks.find((k) => k.role === "lpObserve")!;
+    expect(lpObserve.observations).toEqual([2]);
+    const dflt = buildMultiAssetTradeIxsV22(input(tradeOf(FX.cases[0]!)));
+    expect(dflt.cranks.find((k) => k.role === "lpObserve")!.observations).toHaveLength(dflt.marketSlots);
+  });
+  it("refine: an InstructionError that is not Custom reports code null and the generic reason", () => {
+    const plan = buildMultiAssetTradeIxsV22(input(tradeOf(FX.cases[0]!)));
+    const r = refineMultiAssetTradePlanV22(plan, { InstructionError: [plan.budgetIxs.length, "InvalidArgument"] });
+    expect(r).toMatchObject({ action: "fail", code: null, reason: "refused" });
+    expect(r.plan).toBe(plan);
+  });
+});
