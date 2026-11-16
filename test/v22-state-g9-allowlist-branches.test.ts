@@ -36,7 +36,7 @@ describe("decodeG9FeedAllowlistV22 rejection branches", () => {
     expect(() => decodeG9FeedAllowlistV22(mut((d) => d.fill(0, ARR(0, 1), ARR(0, 1) + 32)))).toThrow(/listed key 1 is zero or duplicated/);
   });
   it("duplicate listed key", () => {
-    expect(() => decodeG9FeedAllowlistV22(mut((d) => d.copyWithin(ARR(0, 1), ARR(0, 0), ARR(0, 0) + 32)))).toThrow(UnknownLayoutError);
+    expect(() => decodeG9FeedAllowlistV22(mut((d) => d.copyWithin(ARR(0, 1), ARR(0, 0), ARR(0, 0) + 32)))).toThrow(/listed key 1 is zero or duplicated/);
   });
   it("non-zero unlisted owner slot", () => {
     expect(() => decodeG9FeedAllowlistV22(mut((d) => { d[ARR(1, 5)] = 1; }))).toThrow(/unlisted owner slot 5 is not zero/);
