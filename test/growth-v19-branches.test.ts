@@ -336,3 +336,192 @@ describe("kappa / lambda caps", () => {
     expect(lambdaFallbackBps(100, 0n)).toBe(100);
   });
 });
+
+// ============================================================================
+// growthCeilingView: depth rate-limit ETA, stored ceiling, ratchet ETA
+// ============================================================================
+describe("growthCeilingView depth-rate ETA and ratchet branches", () => {
+  const BAND = 1_000; // bandRGapBps(1000) = 3445 -> clamp enforced
+  const T1 = 25_000_000_000n, T2 = 100_000_000_000n; // default thresholds, 6-dec collateral
+  const now = 1_000_000n;
+  // volatility data on (var 100 -> L_vol 20x) so the signal is not pinned to launch by the no-data rule
+  const VOL = { engineImrBps: 500n, liquidationFeeBps: 50n, bandMaxEpochSlots: 600n };
+  const pool = (over: Partial<AssetGrowthV19> = {}): AssetGrowthV19 => G({
+    volHasData: true, volVarX100: 100, rGapBps: 3_445, depthSource: 2, depthE6: 150_000_000_000n, depthPrevE6: 150_000_000_000n, depthSlot: now, depthPrevReal: true,
+    depthEver: true, depthLastGoodE6: 10_000_000_000n, depthLastGoodSlot: now, depthRiseSlot64: 0, ...over,
+  });
+  /** Independent reference of `depth_rate_limit_eta`: the earliest slot the doubling rise reaches the threshold. */
+  const refEta = (ever: boolean, lastGood: bigint, stamp0: number, fresh: bigint, thr: bigint, nowSlot: bigint, seed: bigint): bigint | null => {
+    let cur = lastGood, stamp = stamp0;
+    if (!ever) { const f = seed / 16n; cur = fresh < f ? fresh : f; stamp = Number(nowSlot / 64n); }
+    if (cur >= thr) return 0n;
+    let slot = nowSlot;
+    for (let n = 0; n < 80; n++) {
+      if (stamp === 0xffff_ffff) return null;
+      const open = BigInt(stamp) * 64n + 63n + 9_000n;
+      if (open > slot) slot = open;
+      const floor = seed / 16n;
+      const up = cur * 2n > floor ? cur * 2n : floor;
+      cur = fresh < up ? fresh : up;
+      stamp = Number(slot / 64n);
+      if (cur >= thr) return slot - nowSlot;
+    }
+    return null;
+  };
+
+  it("a rate-limited pool depth reports the doubling ETA to the next tier", () => {
+    const v = growthCeilingView(pool(), BAND, now, null, STRESS_NONE, VOL);
+    expect(v.nextTierUnlock).toMatchObject({ kind: "both", tier: 2, depthRateLimited: true }); // cM unknown: the book tier reads 0 too
+    const eta = refEta(true, 10_000_000_000n, 0, 150_000_000_000n, T2, now, T1 - 1n) as bigint;
+    expect(v.nextTierUnlock.depthEtaSlots).toBe(eta);
+    expect(v.nextTierUnlock.depthEtaMinutes).toBe(Number((eta * 400n + 59_999n) / 60_000n));
+  });
+  it("the doubling floors at seed/16 when the last good depth is 0 (up = floor)", () => {
+    const g = pool({ depthLastGoodE6: 0n });
+    const v = growthCeilingView(g, BAND, now, null, STRESS_NONE, VOL);
+    expect(v.nextTierUnlock.depthEtaSlots).toBe(refEta(true, 0n, 0, 150_000_000_000n, T2, now, T1 - 1n) as bigint);
+  });
+  it("a fresh reading below the doubled depth caps the step at fresh", () => {
+    const g = pool({ depthE6: 110_000_000_000n, depthPrevE6: 110_000_000_000n, depthLastGoodE6: 60_000_000_000n });
+    const v = growthCeilingView(g, BAND, now, null, STRESS_NONE, VOL);
+    expect(v.nextTierUnlock.depthEtaSlots).toBe(refEta(true, 60_000_000_000n, 0, 110_000_000_000n, T2, now, T1 - 1n) as bigint);
+  });
+  it("a window already open at `now` does not move the slot (open <= slot)", () => {
+    const late = 5_000_000n;
+    const g = pool({ depthSlot: late, depthLastGoodSlot: late });
+    const v = growthCeilingView(g, BAND, late, null, STRESS_NONE, VOL);
+    expect(v.nextTierUnlock.depthEtaSlots).toBe(refEta(true, 10_000_000_000n, 0, 150_000_000_000n, T2, late, T1 - 1n) as bigint);
+  });
+  it("the not-yet-ever path seeds from seed/16 and the fresh reading", () => {
+    // depth flag EVER unset in the byte: seed/16 = 1_562_499_999
+    const g = pool({ depthEver: false, depthLastGoodE6: 0n });
+    const v = growthCeilingView(g, BAND, now, null, STRESS_NONE, VOL);
+    expect(v.nextTierUnlock.depthEtaSlots).toBe(refEta(false, 0n, 0, 150_000_000_000n, T2, now, T1 - 1n) as bigint);
+  });
+  it("a saturated rise stamp cannot rise again: no ETA, plain depth requirement", () => {
+    const g = pool({ depthRiseSlot64: 0xffff_ffff });
+    const v = growthCeilingView(g, BAND, now, null, STRESS_NONE, VOL);
+    expect(v.nextTierUnlock.kind).toBe("both");
+    expect(v.nextTierUnlock.depthRateLimited).toBeUndefined();
+    expect(v.nextTierUnlock.depthEtaSlots).toBeUndefined();
+  });
+  it("last good already past the threshold while the window minimum holds the usable depth back: ETA 0", () => {
+    const tw = { curTokens: 50_000, prevTokens: 50_000, bucketP1: 5 }; // window min 50_000 tokens = $50k < tier 2
+    const g = pool({ depthLastGoodE6: 200_000_000_000n, depthTw: tw });
+    const v = growthCeilingView(g, BAND, now, null, STRESS_NONE, VOL);
+    expect(v.depthTwMinE6).toBe(50_000_000_000n);
+    expect(v.nextTierUnlock).toMatchObject({ tier: 2, depthRateLimited: true, depthEtaSlots: 0n, depthEtaMinutes: 0 });
+  });
+  it("a record without a depth window decodes as an empty window (depthTw undefined)", () => {
+    const g = pool();
+    delete (g as { depthTw?: unknown }).depthTw;
+    expect(growthCeilingView(g, BAND, now, null, STRESS_NONE, VOL).depthTwMinE6).toBeNull();
+  });
+  it("a stored ceiling of 0 reads as launch; a due ratchet reports ETA 0", () => {
+    const g = pool({ ceilX100: 0, ceilSlot: 0n, depthLastGoodE6: 150_000_000_000n });
+    const v = growthCeilingView(g, BAND, now, 1_000_000_000_000n, STRESS_NONE, VOL);
+    expect(v.nextUnlock).toMatchObject({ kind: "ratchet", leverageX100: 600, etaSlots: 0n, etaMinutes: 0 });
+    const early = growthCeilingView({ ...g, ceilX100: 500, ceilSlot: now - 100n }, BAND, now, 1_000_000_000_000n, STRESS_NONE, VOL);
+    expect(early.nextUnlock).toMatchObject({ kind: "ratchet", etaSlots: GROWTH_RATCHET_EPOCH_SLOTS - 100n });
+  });
+  it("book-only shortfall asks for backing; a 0-lambda record gives no backing figure", () => {
+    const g = pool({ depthLastGoodE6: 150_000_000_000n, lambdaBps: 0 });
+    const v = growthCeilingView(g, BAND, now, 0n, STRESS_NONE, VOL);
+    expect(v.nextTierUnlock.backingUsd).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// quoteMaxLeverage / previewGrowthOpenFee error paths
+// ============================================================================
+describe("quoteMaxLeverage and previewGrowthOpenFee edge paths", () => {
+  const growth = G({ lLaunchX100: 1_000, lTierX100: 1_000, ceilX100: 1_000, kinkBps: 5_000, lambdaBps: 10_000 });
+  const q = { engineImrBps: 1_000n, growth, lpCapital: 1_000_000_000n, lpPnl: 0n, lpFeeCredits: 0n, priceE6: 1_000_000n, bankruptcyHlockActive: false,
+    assetBound: true, lpEffectivePositionQ: 0n, oiEffLongQ: 0n, oiEffShortQ: 0n };
+  it("growth off: engine IMR 0 or above 100% is invalid-config; IMR 100% = 1x", () => {
+    expect(quoteMaxLeverage({ ...q, growth: null, engineImrBps: 0n }, "long")).toMatchObject({ closed: true, closedReason: "invalid-config" });
+    expect(quoteMaxLeverage({ ...q, growth: null, engineImrBps: 10_001n }, "long")).toMatchObject({ closed: true, closedReason: "invalid-config" });
+    expect(quoteMaxLeverage({ ...q, growth: null, engineImrBps: 10_000n }, "long")).toMatchObject({ closed: false, maxLeverageX100: 100 });
+  });
+  it("engine IMR above 100% under growth is invalid-config (ceilingImrBps null)", () => {
+    expect(quoteMaxLeverage({ ...q, engineImrBps: 10_001n }, "long")).toMatchObject({ closed: true, closedReason: "invalid-config" });
+  });
+  it("a corrupt kink above 100% refuses the crowd side (dyn_imr_bps null -> capacity-full)", () => {
+    const bad = { ...q, growth: { ...growth, kinkBps: 20_000 }, oiEffLongQ: 1n, oiEffShortQ: 1n, lpEffectivePositionQ: -1n };
+    expect(quoteMaxLeverage(bad, "long")).toMatchObject({ closed: true, closedReason: "capacity-full", headroomQ: 0n });
+  });
+  it("v22 input with a volatility block feeds the vol inputs into the ceiling view", () => {
+    const g = pool22();
+    const v22 = { bandBps: 1_000, nowSlot: 1_000_000n, vol: { liquidationFeeBps: 50n, bandMaxEpochSlots: 600n } };
+    const r = quoteMaxLeverage({ ...q, growth: g, v22 }, "short");
+    expect(r.ceilingX100).toBeGreaterThan(0);
+    expect(r.closed).toBe(false);
+    // the vol term caps the signal: with huge variance L_vol collapses to the floor of 1x-ish
+    const hot = quoteMaxLeverage({ ...q, growth: { ...g, volHasData: true, volVarX100: 4_000_000_000 }, v22 }, "short");
+    expect(hot.ceilingX100).toBeLessThanOrEqual(r.ceilingX100);
+  });
+  it("previewGrowthOpenFee: zero price (nCap null) charges nothing; a corrupt kink charges nothing", () => {
+    const base = { ...q, oiEffLongQ: 10n, oiEffShortQ: 10n };
+    expect(previewGrowthOpenFee({ ...base, priceE6: 0n }, 0n, 10n, 10n).utilFeeBps).toBe(0);
+    expect(previewGrowthOpenFee({ ...base, growth: { ...growth, kinkBps: 20_000 } }, 0n, 10n, 10n).utilFeeBps).toBe(0);
+    expect(utilisationFeeBps(1n, 0n, 0, 5)).toBeNull();
+    expect(utilFeeMaxEffectiveBps(0)).toBe(500);
+    expect(openingPartQ(5n, -3n)).toBe(3n);
+  });
+  function pool22(): AssetGrowthV19 {
+    return G({ rGapBps: 3_445, lLaunchX100: 500, lTierX100: 2_000, ceilX100: 500, depthSource: 2, depthE6: 150_000_000_000n, depthPrevE6: 150_000_000_000n, depthSlot: 1_000_000n,
+      depthPrevReal: true, depthEver: true, depthLastGoodE6: 150_000_000_000n, depthLastGoodSlot: 1_000_000n });
+  }
+  it("stressLevel feeds the ceiling view as numbers", () => {
+    expect(stressLevel(false, false, true)).toBe(STRESS_HLOCK);
+  });
+});
+
+// ============================================================================
+// encoders
+// ============================================================================
+describe("encoder argument guards", () => {
+  const args = { admin: undefined } as never;
+  it("encodeInitMarketV19 rejects collateral decimals above the cap before reading args", () => {
+    expect(() => encodeInitMarketV19(args, 500, 550, 13)).toThrow(/13 decimals/);
+  });
+  it("encodeInitVaultLpV19 / V22Tiers reject a non-u16 junior floor", () => {
+    expect(() => encodeInitVaultLpV19(-1, 500)).toThrow(/juniorFloorBps must be a u16/);
+    expect(() => encodeInitVaultLpV19(0x1_0000, 500)).toThrow(/juniorFloorBps must be a u16/);
+    expect(() => encodeInitVaultLpV19(1.5, 500)).toThrow(/juniorFloorBps must be a u16/);
+    const tiers = { thresholdUsd: [0, 0, 0], leverageX100: [0, 0, 0] } as const;
+    expect(() => encodeInitVaultLpV22Tiers(-1, 500, tiers)).toThrow(/juniorFloorBps must be a u16/);
+    expect(() => encodeInitVaultLpV22Tiers(0x1_0000, 500, tiers)).toThrow(/juniorFloorBps must be a u16/);
+    expect(encodeInitVaultLpV22Tiers(0xffff, 500, tiers)[0]).toBe(94);
+  });
+  it("encodeSetAssetRiskLimitsV22Tiers rejects bad asset index, kink and fee cap", () => {
+    const tiers = { thresholdUsd: [0, 0, 0], leverageX100: [0, 0, 0] } as const;
+    expect(() => encodeSetAssetRiskLimitsV22Tiers(-1, 10_000, 5_000, tiers, 1)).toThrow(/assetIndex must be a u16/);
+    expect(() => encodeSetAssetRiskLimitsV22Tiers(0x1_0000, 10_000, 5_000, tiers, 1)).toThrow(/assetIndex must be a u16/);
+    expect(() => encodeSetAssetRiskLimitsV22Tiers(0, 0, 5_000, tiers, 1)).toThrow(/lambdaBps must be a u32/);
+    expect(() => encodeSetAssetRiskLimitsV22Tiers(0, 10_000, -1, tiers, 1)).toThrow(/kinkBps must be a u16/);
+    expect(() => encodeSetAssetRiskLimitsV22Tiers(0, 10_000, 0x1_0000, tiers, 1)).toThrow(/kinkBps must be a u16/);
+    expect(() => encodeSetAssetRiskLimitsV22Tiers(0, 10_000, 5_000, tiers, 1, -1)).toThrow(/utilFeeMaxBps must be a u16/);
+    expect(() => encodeSetAssetRiskLimitsV22Tiers(0, 10_000, 5_000, tiers, 1, 0x1_0000)).toThrow(/utilFeeMaxBps must be a u16/);
+    expect(encodeSetAssetRiskLimitsV22Tiers(0xffff, 10_000, 0xffff, tiers, 1, 0xffff).length).toBe(44 + 27);
+  });
+  const ext = { requestId: 1n, lpAccountId: 0n, oracleE6: 1_000_000n, reqSize: 1n, lpPositionQ: 0n, staleCtx: 0, flags: 0, nonce: 0n } as never;
+  it("matcher ext v3 block-length and cap-range guards", () => {
+    expect(() => encodeMatcherCallExtV3FromV2(new Uint8Array(39), { inventoryCapQ: 0n, liquidityNotionalE6: 0n })).toThrow(/v2 block must be 40 bytes, got 39/);
+    const v2 = new Uint8Array(40);
+    expect(() => encodeMatcherCallExtV3FromV2(v2, { inventoryCapQ: -1n, liquidityNotionalE6: 0n })).toThrow(/inventoryCapQ must fit i128/);
+    expect(() => encodeMatcherCallExtV3FromV2(v2, { inventoryCapQ: 1n << 127n, liquidityNotionalE6: 0n })).toThrow(/inventoryCapQ must fit i128/);
+    expect(() => encodeMatcherCallExtV3FromV2(v2, { inventoryCapQ: 0n, liquidityNotionalE6: -1n })).toThrow(/liquidityNotionalE6 out of u128 range/);
+    expect(() => encodeMatcherCallExtV3FromV2(v2, { inventoryCapQ: 0n, liquidityNotionalE6: 1n << 128n })).toThrow(/liquidityNotionalE6 out of u128 range/);
+    const ok = encodeMatcherCallExtV3FromV2(v2, { inventoryCapQ: (1n << 127n) - 1n, liquidityNotionalE6: U128 });
+    expect(ok.length).toBe(72);
+    expect(Buffer.from(ok.subarray(56, 72)).equals(Buffer.alloc(16, 0xff))).toBe(true);
+    expect(() => encodeMatcherCallExtV2({ ...(ext as object), lpPositionQ: -(1n << 127n) } as never)).toThrow(/non-MIN i128/);
+    expect(() => encodeMatcherCallExtV2({ ...(ext as object), lpPositionQ: 1n << 127n } as never)).toThrow(/non-MIN i128/);
+    expect(() => encodeMatcherCallExtV3({ ...(ext as object), lpPositionQ: 1n << 127n } as never, { inventoryCapQ: 0n, liquidityNotionalE6: 0n })).toThrow(/non-MIN/);
+  });
+  it("GROWTH_U64_MAX is u64 max; depthRiseStamp saturates", () => {
+    expect(GROWTH_U64_MAX).toBe(U64);
+    expect(depthRiseStamp(1n << 60n)).toBe(0xffff_ffff);
+  });
+});
