@@ -41,6 +41,7 @@ export default defineConfig({
       "test/parity/v12.19-encoder-bytes.parity.test.ts",
       "test/vanilla.test.ts",
       "test/matcher-v2.test.ts",
+      "test/matcher-v2-guards.test.ts",
       "test/market-lifecycle.test.ts",
       "test/p3.test.ts",
       "test/p3-final.test.ts",
