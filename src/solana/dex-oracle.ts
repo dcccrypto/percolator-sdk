@@ -477,6 +477,30 @@ function parseMeteoraPool(poolAddress: PublicKey, data: Uint8Array): DexPoolInfo
 const MAX_BIN_STEP = 10_000;
 const MAX_ACTIVE_ID_ABS = 500_000;
 
+const DLMM_SCALE = 1_000_000_000_000_000_000n; // 1e18
+const DLMM_SQUARES_CACHE_MAX = 256;
+// binStep -> [base, base^2, base^4, ...] at 1e18 scale, each truncated like the loop did.
+// Bounded: cleared wholesale when full (binStep is at most 10_000 distinct values).
+const dlmmSquaresCache = new Map<number, bigint[]>();
+
+/**
+ * base^(2^k) table for `binStep`, extended lazily to at least `len` entries so a
+ * small |activeId| never pays for large squarings (they grow to ~2^18 bits).
+ */
+function dlmmSquares(binStep: number, len: number): bigint[] {
+  let sq = dlmmSquaresCache.get(binStep);
+  if (!sq) {
+    if (dlmmSquaresCache.size >= DLMM_SQUARES_CACHE_MAX) dlmmSquaresCache.clear();
+    sq = [DLMM_SCALE + (BigInt(binStep) * DLMM_SCALE) / 10_000n];
+    dlmmSquaresCache.set(binStep, sq);
+  }
+  while (sq.length < len) {
+    const b = sq[sq.length - 1];
+    sq.push((b * b) / DLMM_SCALE);
+  }
+  return sq;
+}
+
 function computeMeteoraDlmmPriceE6(
   data: Uint8Array,
   decimalsBase: number,
@@ -487,14 +511,13 @@ function computeMeteoraDlmmPriceE6(
   }
   assertTokenDecimals("Meteora DLMM", "base", decimalsBase);
   assertTokenDecimals("Meteora DLMM", "quote", decimalsQuote);
-  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
-
   // bin_step is at offset 80 (u16 LE), not 73 which is bin_step_seed ([u8;2]).
   // They happen to encode the same integer for most pools (explaining why the
   // old code produced correct prices), but reading the correct field is required
   // for correctness once those fields diverge.
-  const binStep = dv.getUint16(80, true);
-  const activeId = dv.getInt32(76, true);
+  // Plain byte reads (no DataView allocation); active_id at 76 is i32 LE.
+  const binStep = data[80] | (data[81] << 8);
+  const activeId = data[76] | (data[77] << 8) | (data[78] << 16) | (data[79] << 24);
 
   // #338: FAIL CLOSED — see the PumpSwap note above. A zero bin step is an
   // uninitialized LbPair, and it is also the divisor of the bin formula below.
@@ -512,22 +535,17 @@ function computeMeteoraDlmmPriceE6(
     );
   }
 
-  const SCALE = 1_000_000_000_000_000_000n; // 1e18
-  const base = SCALE + (BigInt(binStep) * SCALE) / 10_000n;
-
   const isNeg = activeId < 0;
-  let exp = isNeg ? BigInt(-activeId) : BigInt(activeId);
+  let exp = isNeg ? -activeId : activeId;
 
-  let result = SCALE;
-  let b = base;
-
-  while (exp > 0n) {
-    if (exp & 1n) {
-      result = (result * b) / SCALE;
-    }
-    exp >>= 1n;
-    if (exp > 0n) {
-      b = (b * b) / SCALE;
+  // Square-and-multiply. The squarings b_k = trunc(b_{k-1}^2 / SCALE) depend only on
+  // binStep, so they are memoised; the result accumulation keeps the exact same order
+  // and truncation points, so the output is bit-identical to the uncached loop.
+  const squares = dlmmSquares(binStep, 32 - Math.clz32(exp));
+  let result = DLMM_SCALE;
+  for (let k = 0; exp > 0; k++, exp >>>= 1) {
+    if (exp & 1) {
+      result = (result * squares[k]) / DLMM_SCALE;
     }
   }
 
