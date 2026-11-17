@@ -21,7 +21,7 @@
  *
  * @module p3
  */
-import { concatBytes, encPubkey, encU8, encU16, encU32, encU64, encU128 } from "./encode.js";
+import { encPubkey, encU64, encU128 } from "./encode.js";
 import type { AccountSpec } from "./accounts.js";
 import type { PublicKey } from "@solana/web3.js";
 
@@ -93,6 +93,12 @@ export function usdToQCappedP3(usd: bigint, priceE6: bigint): bigint | null {
   return q === 0n ? null : q;
 }
 
+// Precomputed pin constants (usd * 1e12 / liquidity * 1e6): avoids two BigInt multiplies and
+// frozen-object property loads per call. Same arithmetic as usdToQCappedP3 on the pinned USD values.
+const PIN_FILL_NUM = VAULT_LP_PIN_P3.MAX_FILL_USD * 1_000_000_000_000n;
+const PIN_INV_NUM = VAULT_LP_PIN_P3.MAX_INVENTORY_USD * 1_000_000_000_000n;
+const PIN_LIQUIDITY_E6 = VAULT_LP_PIN_P3.LIQUIDITY_USD * 1_000_000n;
+
 /**
  * Port of `vault_lp_v18::pinned_matcher_caps`: the FINITE matcher caps tag 94 pins from the
  * asset's effective price at bind time. null = tag 94 fails (InvalidInstruction).
@@ -104,10 +110,14 @@ export function usdToQCappedP3(usd: bigint, priceE6: bigint): bigint | null {
  * ```
  */
 export function pinnedMatcherCapsP3(priceE6: bigint): { liquidityNotionalE6: bigint; maxFillAbs: bigint; maxInventoryAbs: bigint } | null {
-  const maxFillAbs = usdToQCappedP3(VAULT_LP_PIN_P3.MAX_FILL_USD, priceE6);
-  const maxInventoryAbs = usdToQCappedP3(VAULT_LP_PIN_P3.MAX_INVENTORY_USD, priceE6);
-  if (maxFillAbs === null || maxInventoryAbs === null) return null;
-  return { liquidityNotionalE6: VAULT_LP_PIN_P3.LIQUIDITY_USD * 1_000_000n, maxFillAbs, maxInventoryAbs };
+  if (priceE6 === 0n) return null;
+  let maxFillAbs = PIN_FILL_NUM / priceE6;
+  if (maxFillAbs > ENGINE_MAX_POSITION_ABS_Q_P3) maxFillAbs = ENGINE_MAX_POSITION_ABS_Q_P3;
+  if (maxFillAbs === 0n) return null;
+  let maxInventoryAbs = PIN_INV_NUM / priceE6;
+  if (maxInventoryAbs > ENGINE_MAX_POSITION_ABS_Q_P3) maxInventoryAbs = ENGINE_MAX_POSITION_ABS_Q_P3;
+  if (maxInventoryAbs === 0n) return null;
+  return { liquidityNotionalE6: PIN_LIQUIDITY_E6, maxFillAbs, maxInventoryAbs };
 }
 
 const U16 = 0xffff;
@@ -119,6 +129,22 @@ function int(name: string, v: number, min: number, max: number): void {
 }
 function big(name: string, v: bigint, max: bigint, min = 0n): void {
   if (v < min || v > max) throw new Error(`${name} must be in ${min}..=${max}, got ${v}`);
+}
+
+// ----------------------------------------------------------------------------
+// Single-buffer writers. Callers validate first (int()/big()), so these never throw for typed
+// input; non-bigint (decimal-string) JS callers fall through to the original encU64/encU128 path
+// so error behaviour is unchanged.
+// ----------------------------------------------------------------------------
+const MASK64 = 0xffff_ffff_ffff_ffffn;
+function put64(buf: Uint8Array, dv: DataView, off: number, v: bigint): void {
+  if (typeof v !== "bigint") { buf.set(encU64(v), off); return; }
+  dv.setBigUint64(off, v, true);
+}
+function put128(buf: Uint8Array, dv: DataView, off: number, v: bigint): void {
+  if (typeof v !== "bigint") { buf.set(encU128(v), off); return; }
+  dv.setBigUint64(off, v & MASK64, true);
+  dv.setBigUint64(off + 8, v >> 64n, true);
 }
 
 // ============================================================================
@@ -137,7 +163,11 @@ function big(name: string, v: bigint, max: bigint, min = 0n): void {
  */
 export function encodeInitVaultLpP3(juniorFloorBps: number): Uint8Array {
   int("juniorFloorBps", juniorFloorBps, VAULT_LP_JUNIOR_FLOOR_BPS_RANGE_P3.min, VAULT_LP_JUNIOR_FLOOR_BPS_RANGE_P3.max);
-  return concatBytes(encU8(IX_TAG_P3.InitVaultLp), encU16(juniorFloorBps));
+  const buf = new Uint8Array(3);
+  buf[0] = IX_TAG_P3.InitVaultLp;
+  buf[1] = juniorFloorBps & 0xff;
+  buf[2] = juniorFloorBps >>> 8;
+  return buf;
 }
 
 /** VaultLpSetMatcher (tag 95) fields, in wire order. */
@@ -192,17 +222,32 @@ export function encodeVaultLpSetMatcherP3(a: VaultLpSetMatcherArgsP3): Uint8Arra
   big("maxInventoryAbs", a.maxInventoryAbs, U128, 1n);
   int("feeToInsuranceBps", a.feeToInsuranceBps, 0, U16);
   int("skewSpreadMultBps", a.skewSpreadMultBps, 0, U16);
-  return concatBytes(
-    encU8(IX_TAG_P3.VaultLpSetMatcher), encU64(a.expectedSequence), encU64(a.assetGenerationFrontier),
-    encU16(a.tradeFeeCapBps), encU64(a.expirySlot), encU8(a.kind), encU32(a.tradingFeeBps), encU32(a.baseSpreadBps),
-    encU32(a.maxTotalBps), encU32(a.impactKBps), encU128(a.liquidityNotionalE6), encU128(a.maxFillAbs),
-    encU128(a.maxInventoryAbs), encU16(a.feeToInsuranceBps), encU16(a.skewSpreadMultBps),
-  );
+  const buf = new Uint8Array(96);
+  const dv = new DataView(buf.buffer);
+  buf[0] = IX_TAG_P3.VaultLpSetMatcher;
+  put64(buf, dv, 1, a.expectedSequence);
+  put64(buf, dv, 9, a.assetGenerationFrontier);
+  dv.setUint16(17, a.tradeFeeCapBps, true);
+  put64(buf, dv, 19, a.expirySlot);
+  buf[27] = a.kind;
+  dv.setUint32(28, a.tradingFeeBps, true);
+  dv.setUint32(32, a.baseSpreadBps, true);
+  dv.setUint32(36, a.maxTotalBps, true);
+  dv.setUint32(40, a.impactKBps, true);
+  put128(buf, dv, 44, a.liquidityNotionalE6);
+  put128(buf, dv, 60, a.maxFillAbs);
+  put128(buf, dv, 76, a.maxInventoryAbs);
+  dv.setUint16(92, a.feeToInsuranceBps, true);
+  dv.setUint16(94, a.skewSpreadMultBps, true);
+  return buf;
 }
 
 function amountOnly(tag: number, name: string, amount: bigint): Uint8Array {
   big(name, amount, U128);
-  return concatBytes(encU8(tag), encU128(amount));
+  const buf = new Uint8Array(17);
+  buf[0] = tag;
+  put128(buf, new DataView(buf.buffer), 1, amount);
+  return buf;
 }
 
 /**
@@ -244,7 +289,12 @@ export function encodeWithdrawJuniorTrancheP3(amount: bigint): Uint8Array {
 export function encodeVaultLpRecallP3(amount: bigint, targetDomain: number): Uint8Array {
   big("amount", amount, U128);
   int("targetDomain", targetDomain, 0, U16);
-  return concatBytes(encU8(IX_TAG_P3.VaultLpRecall), encU128(amount), encU16(targetDomain));
+  const buf = new Uint8Array(19);
+  buf[0] = IX_TAG_P3.VaultLpRecall;
+  const dv = new DataView(buf.buffer);
+  put128(buf, dv, 1, amount);
+  dv.setUint16(17, targetDomain, true);
+  return buf;
 }
 
 /** SetVaultLpRisk (tag 99) fields, in wire order. */
@@ -283,10 +333,17 @@ export function encodeSetVaultLpRiskP3(a: SetVaultLpRiskArgsP3): Uint8Array {
   big("levCapQ", a.levCapQ, U128);
   int("levMaxImrBps", a.levMaxImrBps, 0, 10_000);
   int("vaultLpMaxLevBps", a.vaultLpMaxLevBps, 0, VAULT_LP_MAX_LEV_BPS_P3);
-  return concatBytes(
-    encU8(IX_TAG_P3.SetVaultLpRisk), encU16(a.assetIndex), encU64(a.skewSlopeE9), encU64(a.skewMaxE9),
-    encU128(a.levCapQ), encU16(a.levMaxImrBps), encU32(a.vaultLpMaxLevBps), encPubkey(a.approvedMatcherProgram),
-  );
+  const buf = new Uint8Array(1 + 2 + 8 + 8 + 16 + 2 + 4 + 32);
+  const dv = new DataView(buf.buffer);
+  buf[0] = IX_TAG_P3.SetVaultLpRisk;
+  dv.setUint16(1, a.assetIndex, true);
+  put64(buf, dv, 3, a.skewSlopeE9);
+  put64(buf, dv, 11, a.skewMaxE9);
+  put128(buf, dv, 19, a.levCapQ);
+  dv.setUint16(35, a.levMaxImrBps, true);
+  dv.setUint32(37, a.vaultLpMaxLevBps, true);
+  buf.set(encPubkey(a.approvedMatcherProgram), 41);
+  return buf;
 }
 
 /**
@@ -315,7 +372,10 @@ export function encodeVaultLpConvertPnlP3(amount: bigint): Uint8Array {
  */
 export function encodeVaultLpSettleResolvedP3(topup: 0 | 1): Uint8Array {
   int("topup", topup, 0, 1);
-  return concatBytes(encU8(IX_TAG_P3.VaultLpSettleResolved), encU8(topup));
+  const buf = new Uint8Array(2);
+  buf[0] = IX_TAG_P3.VaultLpSettleResolved;
+  buf[1] = topup;
+  return buf;
 }
 
 /**
@@ -331,7 +391,12 @@ export function encodeVaultLpSettleResolvedP3(topup: 0 | 1): Uint8Array {
 export function encodeVaultLpReleaseSurplusP3(amount: bigint, sourceDomain: number): Uint8Array {
   big("amount", amount, U128);
   int("sourceDomain", sourceDomain, 0, U16);
-  return concatBytes(encU8(IX_TAG_P3.VaultLpReleaseSurplus), encU128(amount), encU16(sourceDomain));
+  const buf = new Uint8Array(19);
+  buf[0] = IX_TAG_P3.VaultLpReleaseSurplus;
+  const dv = new DataView(buf.buffer);
+  put128(buf, dv, 1, amount);
+  dv.setUint16(17, sourceDomain, true);
+  return buf;
 }
 
 // ============================================================================
