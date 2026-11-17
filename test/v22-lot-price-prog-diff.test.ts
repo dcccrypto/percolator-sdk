@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { UnknownLayoutError } from "../src/abi/layout.js";
 import { pythPriceToLotE6V22, tokenPriceToLotE6V22, lotExpOfMarketV22, lotExpOfProfileV22 } from "../src/abi/v22-lot.js";
 
 // Differential vs percolator-prog origin/feat/v22-rc23-2026-10-22 src/v16_program.rs (read_pyth_price_e12 :12579,
@@ -35,8 +36,7 @@ describe("pythPriceToLotE6V22 vs prog rc23 single-leg path", () => {
       if (r.res.startsWith("ok:")) continue;
       const got = pythPriceToLotE6V22(r.price, r.expo, r.lot);
       const documented = got === 0n || got > MAX_ORACLE_PRICE;
-      const expoOutOfProgRange = r.expo < -18 || r.expo > 18;
-      if (!documented && !expoOutOfProgRange) bad.push(`${r.price} ${r.expo} ${r.lot}: sdk ${got} prog ${r.res}`);
+      if (!documented) bad.push(`${r.price} ${r.expo} ${r.lot}: sdk ${got} prog ${r.res}`);
     }
     expect(bad).toEqual([]);
   });
@@ -58,10 +58,19 @@ describe("pythPriceToLotE6V22 vs prog rc23 single-leg path", () => {
   });
 });
 
+describe("expo outside the prog's +-18 window (read_pyth_price_e12 :12606)", () => {
+  it("returns 0 (= the program would refuse), not a usable price", () => {
+    expect(pythPriceToLotE6V22(10n ** 17n, -19, 6)).toBe(0n);
+    expect(pythPriceToLotE6V22(1n, 19, 0)).toBe(0n);
+    expect(pythPriceToLotE6V22(1n, 18, 0)).toBeGreaterThan(0n);
+  });
+});
+
 describe("lead 2 and 3: guards", () => {
   it("lotExp guard: assertLotExp throws plain Error, byte readers throw RangeError (documented split)", () => {
     expect(() => pythPriceToLotE6V22(1n, -6, 16)).toThrow(Error);
     expect(() => pythPriceToLotE6V22(1n, -6, 16)).not.toThrow(RangeError);
+    expect(() => tokenPriceToLotE6V22(1n, 16)).toThrow(Error);
     expect(() => tokenPriceToLotE6V22(1n, 16)).not.toThrow(RangeError);
     const d = new Uint8Array(32);
     d[19] = 16;
@@ -69,7 +78,8 @@ describe("lead 2 and 3: guards", () => {
     expect(() => lotExpOfProfileV22(d, 0)).toThrow("lot_exp byte 16 is above 15");
   });
   it("lotExpOfMarketV22 on garbage is UnknownLayoutError, not RangeError", () => {
-    expect(() => lotExpOfMarketV22(new Uint8Array(8))).toThrow();
+    expect(() => lotExpOfMarketV22(new Uint8Array(8))).toThrow(UnknownLayoutError);
+    expect(() => lotExpOfMarketV22(new Uint8Array(8))).not.toThrow(RangeError);
   });
   it("price <= 0 throws, matching the prog (read_pyth_price_e12 :12606 rejects msg.price <= 0)", () => {
     expect(() => pythPriceToLotE6V22(0n, -6, 0)).toThrow("price must be > 0");
