@@ -10,7 +10,6 @@
  * @module lev-guard-v22
  */
 import { PublicKey } from "@solana/web3.js";
-import { concatBytes, encU16, encU64, encU8 } from "./encode.js";
 import type { AccountSpec } from "./accounts.js";
 import { ACCOUNT_KIND, LAYOUT_V22, UnknownLayoutError, resolveLayout } from "./layout.js";
 import type { LayoutTable } from "./layout.js";
@@ -92,6 +91,14 @@ const U16 = 0xffff;
 function u16In(name: string, v: number, max = U16): void {
   if (!Number.isInteger(v) || v < 0 || v > max) throw new Error(`${name} must be an integer in 0..=${max}, got ${v}`);
 }
+/** `[tag, op, u64 LE]` (10 bytes); `t0` is already validated as a u64 by `slotIn`. */
+function encTagOpU64(op: number, t0: bigint): Uint8Array {
+  const out = new Uint8Array(10);
+  out[0] = TAG_LEV_GUARD_V22;
+  out[1] = op;
+  new DataView(out.buffer).setBigUint64(2, t0, true);
+  return out;
+}
 function slotIn(name: string, v: bigint, min: bigint): void {
   if (typeof v !== "bigint" || v < min || v > (1n << 64n) - 1n) throw new Error(`${name} must be a u64 bigint >= ${min}, got ${String(v)}`);
 }
@@ -109,7 +116,7 @@ function slotIn(name: string, v: bigint, min: bigint): void {
  */
 export function encodeLevGuardInitV22(t0: bigint = 0n): Uint8Array {
   slotIn("t0", t0, 0n);
-  return concatBytes(encU8(TAG_LEV_GUARD_V22), encU8(LEV_GUARD_OP_V22.Init), encU64(t0));
+  return encTagOpU64(LEV_GUARD_OP_V22.Init, t0);
 }
 
 /**
@@ -126,7 +133,11 @@ export function encodeLevGuardInitV22(t0: bigint = 0n): Uint8Array {
 export function encodeLevGuardSetRiskKeyV22(key: PublicKey | Uint8Array | null): Uint8Array {
   const k = key === null ? new Uint8Array(32) : key instanceof PublicKey ? key.toBytes() : key;
   if (k.length !== 32) throw new Error(`risk key must be 32 bytes, got ${k.length}`);
-  return concatBytes(encU8(TAG_LEV_GUARD_V22), encU8(LEV_GUARD_OP_V22.SetRiskKey), k);
+  const out = new Uint8Array(34);
+  out[0] = TAG_LEV_GUARD_V22;
+  out[1] = LEV_GUARD_OP_V22.SetRiskKey;
+  out.set(k, 2);
+  return out;
 }
 
 /** Op 2 REPORT fields. Each bps field is at most 10 000. */
@@ -157,10 +168,15 @@ export function encodeLevGuardReportV22(r: LevGuardReportV22): Uint8Array {
   u16In("mIndBps", r.mIndBps, LEV_REPORT_BPS_MAX_V22);
   u16In("lCapX100", r.lCapX100);
   u16In("nMultBps", r.nMultBps, LEV_REPORT_BPS_MAX_V22);
-  return concatBytes(
-    encU8(TAG_LEV_GUARD_V22), encU8(LEV_GUARD_OP_V22.Report),
-    encU16(r.jDumpBps), encU16(r.mIndBps), encU16(r.lCapX100), encU16(r.nMultBps),
-  );
+  const out = new Uint8Array(10);
+  const dv = new DataView(out.buffer);
+  out[0] = TAG_LEV_GUARD_V22;
+  out[1] = LEV_GUARD_OP_V22.Report;
+  dv.setUint16(2, r.jDumpBps, true);
+  dv.setUint16(4, r.mIndBps, true);
+  dv.setUint16(6, r.lCapX100, true);
+  dv.setUint16(8, r.nMultBps, true);
+  return out;
 }
 
 /**
@@ -172,7 +188,7 @@ export function encodeLevGuardReportV22(r: LevGuardReportV22): Uint8Array {
  * ```
  */
 export function encodeLevGuardTightenV22(): Uint8Array {
-  return concatBytes(encU8(TAG_LEV_GUARD_V22), encU8(LEV_GUARD_OP_V22.Tighten));
+  return new Uint8Array([TAG_LEV_GUARD_V22, LEV_GUARD_OP_V22.Tighten]);
 }
 
 /**
@@ -184,7 +200,7 @@ export function encodeLevGuardTightenV22(): Uint8Array {
  * ```
  */
 export function encodeLevGuardPokeV22(): Uint8Array {
-  return concatBytes(encU8(TAG_LEV_GUARD_V22), encU8(LEV_GUARD_OP_V22.Poke));
+  return new Uint8Array([TAG_LEV_GUARD_V22, LEV_GUARD_OP_V22.Poke]);
 }
 
 /**
@@ -196,7 +212,7 @@ export function encodeLevGuardPokeV22(): Uint8Array {
  * ```
  */
 export function encodeLevGuardLpStopV22(): Uint8Array {
-  return concatBytes(encU8(TAG_LEV_GUARD_V22), encU8(LEV_GUARD_OP_V22.LpStop));
+  return new Uint8Array([TAG_LEV_GUARD_V22, LEV_GUARD_OP_V22.LpStop]);
 }
 
 /**
@@ -212,7 +228,7 @@ export function encodeLevGuardLpStopV22(): Uint8Array {
  */
 export function encodeLevGuardSetT0V22(t0: bigint): Uint8Array {
   slotIn("t0", t0, 1n);
-  return concatBytes(encU8(TAG_LEV_GUARD_V22), encU8(LEV_GUARD_OP_V22.SetT0), encU64(t0));
+  return encTagOpU64(LEV_GUARD_OP_V22.SetT0, t0);
 }
 
 // ============================================================================
