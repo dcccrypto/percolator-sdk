@@ -21,7 +21,7 @@
  *
  * @module p3
  */
-import { concatBytes, encPubkey, encU8, encU16, encU32, encU64, encU128 } from "./encode.js";
+import { encPubkey, encU64, encU128 } from "./encode.js";
 import type { AccountSpec } from "./accounts.js";
 import type { PublicKey } from "@solana/web3.js";
 
