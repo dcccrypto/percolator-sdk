@@ -5,11 +5,14 @@
  */
 import { describe, it, expect } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { readFileSync } from "node:fs";
 import {
   buildRebalanceReduceIx,
   planReduceOnlyExit,
   planCloseSlabAttempt,
+  planPayeeGraceCloseSequenceV22,
+  type CloseSlabAttemptArgs,
   isClosedMarketTombstone,
   V17_KIND_CLOSED_MARKET,
 } from "../src/solana/market-lifecycle.js";
@@ -94,5 +97,130 @@ describe("CloseSlab retirement plan", () => {
     const wrongKind = new Uint8Array(16);
     wrongKind[10] = 1;
     expect(isClosedMarketTombstone(wrongKind)).toBe(false);
+  });
+});
+
+// ---- creator-fee legs + payee-grace sequence ----
+const cfMarket = pk(), cfVaultToken = pk(), cfCloser = pk(), cfCloserDest = pk();
+const payee = pk(), vaultMint = pk();
+const base: CloseSlabAttemptArgs = { programId: W, market: cfMarket, vaultToken: cfVaultToken, closer: cfCloser, closerDestToken: cfCloserDest, closeAuthorityEpoch: 2n, hasLpVault: false };
+const fee = { authority: pk(), destToken: pk(), authorityEpoch: 5n, owed: 100n };
+const tags = (ixs: { data: Uint8Array }[]) => ixs.map((i) => i.data[0]);
+
+describe("planCloseSlabAttempt creator-fee legs", () => {
+  it("skips legs with owed <= 0 and Refused legs", () => {
+    const ixs = planCloseSlabAttempt({
+      ...base,
+      creatorFees: [
+        { assetIndex: 0, route: "Payee", owed: 0n, authorityEpoch: 0n },
+        { assetIndex: 1, route: "Refused", owed: 9n, authorityEpoch: 0n },
+      ],
+    });
+    expect(tags(ixs)).toEqual([13]);
+  });
+
+  it("skips a Payee leg once the grace is over (no tag 90)", () => {
+    const ixs = planCloseSlabAttempt({
+      ...base,
+      payeeGraceOver: true,
+      creatorFees: [{ assetIndex: 0, route: "Payee", owed: 9n, authorityEpoch: 0n, payee, vaultMint }],
+    });
+    expect(tags(ixs)).toEqual([13]);
+  });
+
+  it("still throws AdminSigned after grace-over (grace only skips Payee)", () => {
+    expect(() =>
+      planCloseSlabAttempt({
+        ...base,
+        payeeGraceOver: true,
+        creatorFees: [{ assetIndex: 3, route: "AdminSigned", owed: 9n, authorityEpoch: 0n }],
+      }),
+    ).toThrow(/asset 3 owes 9/);
+  });
+
+  it("requires payee and vaultMint on a Payee leg", () => {
+    const leg = { assetIndex: 2, route: "Payee" as const, owed: 9n, authorityEpoch: 0n };
+    expect(() => planCloseSlabAttempt({ ...base, creatorFees: [{ ...leg, vaultMint }] })).toThrow(/pass payee and vaultMint/);
+    expect(() => planCloseSlabAttempt({ ...base, creatorFees: [{ ...leg, payee }] })).toThrow(/pass payee and vaultMint/);
+  });
+
+  it("rejects a claim amount that is non-positive or above owed", () => {
+    const leg = { assetIndex: 0, route: "Payee" as const, owed: 9n, authorityEpoch: 0n, payee, vaultMint };
+    expect(() => planCloseSlabAttempt({ ...base, creatorFees: [{ ...leg, amount: 0n }] })).toThrow(/must be in \(0, 9\]/);
+    expect(() => planCloseSlabAttempt({ ...base, creatorFees: [{ ...leg, amount: 10n }] })).toThrow(/must be in \(0, 9\]/);
+  });
+
+  it("accepts a partial amount and defaults to owed", () => {
+    const leg = { assetIndex: 0, route: "Payee" as const, owed: 9n, authorityEpoch: 0n, payee, vaultMint };
+    const partial = planCloseSlabAttempt({ ...base, creatorFees: [{ ...leg, amount: 4n }] });
+    const full = planCloseSlabAttempt({ ...base, creatorFees: [leg] });
+    expect(partial.length).toBe(full.length);
+    expect(tags(partial).at(-1)).toBe(13);
+    expect(tags(partial)).toContain(90);
+    expect(Buffer.from(partial[partial.length - 2].data).equals(Buffer.from(full[full.length - 2].data))).toBe(false);
+  });
+
+  it("honours a custom tokenProgram", () => {
+    const tp = pk();
+    const ixs = planCloseSlabAttempt({ ...base, tokenProgram: tp });
+    expect(ixs[0].keys.some((k) => k.pubkey.equals(tp))).toBe(true);
+    expect(ixs[0].keys.some((k) => k.pubkey.equals(TOKEN_PROGRAM_ID))).toBe(false);
+  });
+
+  it("ignores insuranceRecredit with amount 0 and omits the ledger key when absent", () => {
+    expect(tags(planCloseSlabAttempt({ ...base, insuranceRecredit: { authority: pk(), destToken: pk(), amount: 0n } }))).toEqual([13]);
+    const ixs = planCloseSlabAttempt({ ...base, insuranceRecredit: { authority: pk(), destToken: pk(), amount: 5n } });
+    expect(tags(ixs)).toEqual([41, 13]);
+    expect(ixs[0].keys.length).toBe(6);
+  });
+});
+
+describe("planPayeeGraceCloseSequenceV22", () => {
+  const payeeLeg = { assetIndex: 0, route: "Payee" as const, owed: 40n, authorityEpoch: 1n, payee, vaultMint };
+
+  it("requires protocolFee", () => {
+    expect(() => planPayeeGraceCloseSequenceV22({ ...base, creatorFees: [payeeLeg] })).toThrow(/pass protocolFee/);
+  });
+
+  it("throws when there is no unpaid payee pot", () => {
+    expect(() => planPayeeGraceCloseSequenceV22({ ...base, protocolFee: fee })).toThrow(/no unpaid payee pot/);
+    expect(() =>
+      planPayeeGraceCloseSequenceV22({
+        ...base,
+        protocolFee: fee,
+        creatorFees: [
+          { ...payeeLeg, owed: 0n },
+          { assetIndex: 1, route: "Refused", owed: 7n, authorityEpoch: 0n },
+        ],
+      }),
+    ).toThrow(/no unpaid payee pot/);
+  });
+
+  it("returns [tx1: 84,41,13 without tag 90] and [tx2: 84 for the re-booked sum, 13]", () => {
+    const [tx1, tx2] = planPayeeGraceCloseSequenceV22({
+      ...base,
+      protocolFee: fee,
+      insuranceRecredit: { authority: pk(), destToken: pk(), amount: 3n },
+      creatorFees: [
+        payeeLeg,
+        { ...payeeLeg, assetIndex: 1, owed: 2n },
+        { assetIndex: 2, route: "Refused", owed: 99n, authorityEpoch: 0n },
+      ],
+    });
+    expect(tags(tx1)).toEqual([84, 41, 13]);
+    expect(tags(tx2)).toEqual([84, 13]);
+    // tx2 keeps the protocol authority epoch (u128 amount 0 then epoch)
+    expect(tx2[0].data.length).toBe(1 + 16 + 8);
+    expect(new DataView(tx2[0].data.buffer, tx2[0].data.byteOffset).getBigUint64(17, true)).toBe(5n);
+  });
+
+  it("tx1 is just CloseSlab when no protocol fee is owed yet", () => {
+    const [tx1, tx2] = planPayeeGraceCloseSequenceV22({
+      ...base,
+      protocolFee: { ...fee, owed: 0n },
+      creatorFees: [payeeLeg],
+    });
+    expect(tags(tx1)).toEqual([13]);
+    expect(tags(tx2)).toEqual([84, 13]);
   });
 });

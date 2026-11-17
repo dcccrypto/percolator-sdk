@@ -44,7 +44,7 @@ import {
   tierRampU64,
   venueDepthCapped,
 } from "../src/abi/growth-v19.js";
-import type { Triple } from "../src/abi/growth-v19.js";
+import type { CurvePos, Triple } from "../src/abi/growth-v19.js";
 
 type Tab = [bigint, bigint, bigint, bigint];
 interface Fx {
@@ -65,23 +65,46 @@ const tableNames = Object.keys(FX.tables);
 const tables: Tab[] = tableNames.map((n) => (FX.tables[n] as string[]).map((x) => BigInt(x)) as Tab);
 const th3 = (xs: string[]): Triple<bigint> => [BigInt(xs[0] as string), BigInt(xs[1] as string), BigInt(xs[2] as string)];
 const U64_MAX = (1n << 64n) - 1n;
+/** Exhaustive grids: ~1-3 s alone, past the 5 s default once the full suite loads the CPU (measured, see PR). */
+const HEAVY = 30_000;
 const NT = 9; // tables per curve row
 /** Curve row layout: [d, seg, num, den, value x 9 (leading), lag seg, lag num, lag den, lag value x 9]. */
 const LAG0 = 4 + NT;
 
+/** Flat (config, case, table) value matrices, computed once per implementation and shared by every test that needs them. */
+const valueCache = new Map<string, bigint[]>();
+function curveValues(name: string, f: (d: bigint, th: Triple<bigint>, t: Tab) => bigint, pos?: (d: bigint, th: Triple<bigint>) => CurvePos): bigint[] {
+  let v = valueCache.get(name);
+  if (!v) {
+    v = [];
+    for (const c of FX.curve) {
+      const th = th3(c.th);
+      for (const row of c.cases) {
+        const d = BigInt(row[0] as string);
+        // `pos` hoists the curve position (the log2 work) out of the 9-table loop; table 0 still goes through the exported `f` end to end.
+        const p = pos ? pos(d, th) : null;
+        tables.forEach((t, k) => v!.push(p && k > 0 ? curveValue(p, t) : f(d, th, t)));
+      }
+    }
+    valueCache.set(name, v);
+  }
+  return v;
+}
+
 /** Count curve-value mismatches of `f(d, th, t)` against the Rust values (leading, or `lag` = the lagging columns) over every (config, depth, table). */
-function curveMismatches(f: (d: bigint, th: Triple<bigint>, t: Tab) => bigint, lag = false): { n: number; total: number; first: string | null } {
+function curveMismatches(name: string, f: (d: bigint, th: Triple<bigint>, t: Tab) => bigint, lag = false, pos?: (d: bigint, th: Triple<bigint>) => CurvePos): { n: number; total: number; first: string | null } {
+  const vals = curveValues(name, f, pos);
   let n = 0;
   let total = 0;
   let first: string | null = null;
+  let i = 0;
   for (const c of FX.curve) {
-    const th = th3(c.th);
     for (const row of c.cases) {
       const d = BigInt(row[0] as string);
-      tables.forEach((t, k) => {
+      tables.forEach((_t, k) => {
         total++;
         const want = BigInt(row[(lag ? LAG0 + 3 : 4) + k] as string);
-        const got = f(d, th, t);
+        const got = vals[i++] as bigint;
         if (got !== want) {
           n++;
           if (first === null) first = `${c.name} d=${d} ${tableNames[k]}: got ${got}, rust ${want}`;
@@ -135,7 +158,7 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
     expect(log2Q16(0n)).toBeNull();
     expect(log2Q16(1n << 64n)).toBeNull(); // outside u64: fail closed
     expect(log2Q16(-1n)).toBeNull();
-  });
+  }, HEAVY);
 
   it("fixture covers every anchor, anchor +-1 and T1/4 of every config", () => {
     for (const c of FX.curve) {
@@ -153,7 +176,7 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
     }
     expect(FX.curve.reduce((s, c) => s + c.cases.length, 0)).toBeGreaterThan(12_000);
     expect(FX.curve.length).toBe(17);
-  });
+  }, HEAVY);
 
   it("curvePos equals curve_pos (seg, num, den) at every depth of every config", () => {
     let bad = 0;
@@ -170,14 +193,14 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
     }
     expect(first).toBe("");
     expect(bad).toBe(0);
-  });
+  }, HEAVY);
 
   it("curveU64 equals curve_value for all 9 tables (L, κ, λ_depth, non-monotone, wide span)", () => {
-    const r = curveMismatches((d, th, t) => curveU64(d, th, t));
+    const r = curveMismatches("lead", (d, th, t) => curveU64(d, th, t), false, curvePos);
     expect(r.first).toBeNull();
     expect(r.n).toBe(0);
     expect(r.total).toBeGreaterThan(80_000);
-  });
+  }, HEAVY);
 
   it("curvePosLag equals curve_pos_lag (seg, num, den) at every depth of every config (κ / λ_depth position, review M-1)", () => {
     let bad = 0;
@@ -198,14 +221,14 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
     expect(first).toBe("");
     expect(bad).toBe(0);
     expect([...segs].sort((x, y) => x - y)).toEqual([0, 1, 2, 3, 4]); // every lag segment reached
-  });
+  }, HEAVY);
 
   it("curveLagU64 equals curve_lag_u64 for all 9 tables", () => {
-    const r = curveMismatches((d, th, t) => curveLagU64(d, th, t), true);
+    const r = curveMismatches("lag", (d, th, t) => curveLagU64(d, th, t), true, (d, th) => curvePosLag(curvePos(d, th), d, th));
     expect(r.first).toBeNull();
     expect(r.n).toBe(0);
     expect(r.total).toBeGreaterThan(110_000);
-  });
+  }, HEAVY);
 
   it("the lagging κ / λ_depth are never looser than the round-2 step (review M-1) at every fixture depth", () => {
     let n = 0;
@@ -221,7 +244,7 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
       }
     }
     expect(n).toBeGreaterThan(24_000);
-  });
+  }, HEAVY);
 
   it("CURVE_POS_FAIL reads t[0] for every table", () => {
     const f = curvePosLag(CURVE_POS_FAIL, 1n, [100n, 200n, 300n]);
@@ -249,7 +272,7 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
     expect(FX.dials.length).toBeGreaterThan(2_000);
     expect(first).toBe("");
     expect(bad).toBe(0);
-  });
+  }, HEAVY);
 
   it("venueDepthCapped equals venue_depth_capped (attested cap = the anchor T_m)", () => {
     let bad = 0;
@@ -332,7 +355,7 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
     expect(r.n).toBe(0);
     expect(r.total).toBeGreaterThan(25_000);
     expect(FX.stress_target.length).toBeGreaterThan(5_000);
-  });
+  }, HEAVY);
 
   it("NEGATIVE CONTROL (M-2): 3198539a's continuous stress cap at the signal position FAILS the stressed-target parity", () => {
     const cont = (st: number, _tier: number, v: bigint, b: bigint, th: Triple<bigint>, lt: readonly [number, number, number, number]): number =>
@@ -343,7 +366,7 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
     const th: Triple<bigint> = [25_000_000_000n, 100_000_000_000n, 500_000_000_000n];
     expect(stressCapCurveX100(STRESS_DRAW, curvePos(200_000_000_000n, th), [500, 500, 1_000, 2_000])).toBe(715);
     expect(stressCapX100(STRESS_DRAW, depthTierFor(200_000_000_000n, th), [500, 500, 1_000, 2_000])).toBe(500);
-  });
+  }, HEAVY);
 
   it("NEGATIVE CONTROL (M-1): 3198539a's κ / λ_depth (the leading curve) FAIL the dial and lag parity", () => {
     let bad = 0;
@@ -353,13 +376,13 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
       if (o.kappaBps !== r[5] || o.lambdaDepthBps !== r[6]) bad++;
     }
     expect(bad).toBeGreaterThan(1_000);
-    const lead = curveMismatches((d, th, t) => curveU64(d, th, t), true);
+    const lead = curveMismatches("lead", (d, th, t) => curveU64(d, th, t), true, curvePos);
     expect(lead.n).toBeGreaterThan(20_000);
-  });
+  }, HEAVY);
 
   it("NEGATIVE CONTROL: the removed 25% ramp and the round-2 step table FAIL the same parity check", () => {
-    const ramp = curveMismatches((d, th, t) => tierRampU64(d, th, t));
-    const step = curveMismatches((d, th, t) => t[depthTierFor(d, th)] as bigint);
+    const ramp = curveMismatches("ramp", (d, th, t) => tierRampU64(d, th, t));
+    const step = curveMismatches("step", (d, th, t) => t[depthTierFor(d, th)] as bigint);
     // a stale mirror disagrees with the program at a large share of the probed points
     expect(ramp.n).toBeGreaterThan(10_000);
     expect(step.n).toBeGreaterThan(10_000);
@@ -368,5 +391,5 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
     const L: Tab = [500n, 500n, 1_000n, 2_000n];
     expect(curveU64(50_000_000_000n, th, L)).toBe(750n);
     expect(tierRampU64(50_000_000_000n, th, L)).toBe(500n);
-  });
+  }, HEAVY);
 });
