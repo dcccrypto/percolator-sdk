@@ -16,6 +16,18 @@ function parseDecimalBigInt(val: unknown, fnName: string): bigint {
   return BigInt(val);
 }
 
+const U64_MAX = 0xffff_ffff_ffff_ffffn;
+const I64_MIN = -(1n << 63n);
+const I64_MAX = (1n << 63n) - 1n;
+const U128_MAX = (1n << 128n) - 1n;
+const I128_MIN = -(1n << 127n);
+const I128_MAX = (1n << 127n) - 1n;
+
+// Module-level scratch (JS is single-threaded; every write is fully
+// overwritten and copied out via slice() before returning).
+const SCRATCH = new Uint8Array(16);
+const SCRATCH_VIEW = new DataView(SCRATCH.buffer);
+
 /**
  * Encode u8 (1 byte)
  */
@@ -23,7 +35,9 @@ export function encU8(val: number): Uint8Array {
   if (!Number.isInteger(val) || val < 0 || val > U8_MAX) {
     throw new Error(`encU8: value out of range (0..255), got ${val}`);
   }
-  return new Uint8Array([val]);
+  const buf = new Uint8Array(1);
+  buf[0] = val;
+  return buf;
 }
 
 /**
@@ -34,7 +48,8 @@ export function encU16(val: number): Uint8Array {
     throw new Error(`encU16: value out of range (0..65535), got ${val}`);
   }
   const buf = new Uint8Array(2);
-  new DataView(buf.buffer).setUint16(0, val, true);
+  buf[0] = val & 0xff;
+  buf[1] = val >>> 8;
   return buf;
 }
 
@@ -46,7 +61,10 @@ export function encU32(val: number): Uint8Array {
     throw new Error(`encU32: value out of range (0..4294967295), got ${val}`);
   }
   const buf = new Uint8Array(4);
-  new DataView(buf.buffer).setUint32(0, val, true);
+  buf[0] = val & 0xff;
+  buf[1] = (val >>> 8) & 0xff;
+  buf[2] = (val >>> 16) & 0xff;
+  buf[3] = val >>> 24;
   return buf;
 }
 
@@ -55,12 +73,11 @@ export function encU32(val: number): Uint8Array {
  * Input: bigint or string (decimal)
  */
 export function encU64(val: bigint | string): Uint8Array {
-  const n = parseDecimalBigInt(val, "encU64");
+  const n = typeof val === "bigint" ? val : parseDecimalBigInt(val, "encU64");
   if (n < 0n) throw new Error("encU64: value must be non-negative");
-  if (n > 0xffff_ffff_ffff_ffffn) throw new Error("encU64: value exceeds u64 max");
-  const buf = new Uint8Array(8);
-  new DataView(buf.buffer).setBigUint64(0, n, true);
-  return buf;
+  if (n > U64_MAX) throw new Error("encU64: value exceeds u64 max");
+  SCRATCH_VIEW.setBigUint64(0, n, true);
+  return SCRATCH.slice(0, 8);
 }
 
 /**
@@ -68,13 +85,10 @@ export function encU64(val: bigint | string): Uint8Array {
  * Input: bigint or string (decimal, may be negative)
  */
 export function encI64(val: bigint | string): Uint8Array {
-  const n = parseDecimalBigInt(val, "encI64");
-  const min = -(1n << 63n);
-  const max = (1n << 63n) - 1n;
-  if (n < min || n > max) throw new Error("encI64: value out of range");
-  const buf = new Uint8Array(8);
-  new DataView(buf.buffer).setBigInt64(0, n, true);
-  return buf;
+  const n = typeof val === "bigint" ? val : parseDecimalBigInt(val, "encI64");
+  if (n < I64_MIN || n > I64_MAX) throw new Error("encI64: value out of range");
+  SCRATCH_VIEW.setBigInt64(0, n, true);
+  return SCRATCH.slice(0, 8);
 }
 
 /**
@@ -82,17 +96,12 @@ export function encI64(val: bigint | string): Uint8Array {
  * Input: bigint or string (decimal)
  */
 export function encU128(val: bigint | string): Uint8Array {
-  const n = parseDecimalBigInt(val, "encU128");
+  const n = typeof val === "bigint" ? val : parseDecimalBigInt(val, "encU128");
   if (n < 0n) throw new Error("encU128: value must be non-negative");
-  const max = (1n << 128n) - 1n;
-  if (n > max) throw new Error("encU128: value exceeds u128 max");
-  const buf = new Uint8Array(16);
-  const view = new DataView(buf.buffer);
-  const lo = n & 0xffff_ffff_ffff_ffffn;
-  const hi = n >> 64n;
-  view.setBigUint64(0, lo, true);
-  view.setBigUint64(8, hi, true);
-  return buf;
+  if (n > U128_MAX) throw new Error("encU128: value exceeds u128 max");
+  SCRATCH_VIEW.setBigUint64(0, BigInt.asUintN(64, n), true);
+  SCRATCH_VIEW.setBigUint64(8, n >> 64n, true);
+  return SCRATCH.slice(0, 16);
 }
 
 /**
@@ -100,24 +109,12 @@ export function encU128(val: bigint | string): Uint8Array {
  * Input: bigint or string (decimal, may be negative)
  */
 export function encI128(val: bigint | string): Uint8Array {
-  const n = parseDecimalBigInt(val, "encI128");
-  const min = -(1n << 127n);
-  const max = (1n << 127n) - 1n;
-  if (n < min || n > max) throw new Error("encI128: value out of range");
-
-  // Convert to unsigned representation (two's complement)
-  let unsigned = n;
-  if (n < 0n) {
-    unsigned = (1n << 128n) + n;
-  }
-
-  const buf = new Uint8Array(16);
-  const view = new DataView(buf.buffer);
-  const lo = unsigned & 0xffff_ffff_ffff_ffffn;
-  const hi = unsigned >> 64n;
-  view.setBigUint64(0, lo, true);
-  view.setBigUint64(8, hi, true);
-  return buf;
+  const n = typeof val === "bigint" ? val : parseDecimalBigInt(val, "encI128");
+  if (n < I128_MIN || n > I128_MAX) throw new Error("encI128: value out of range");
+  // lo = low 64 bits unsigned; hi = arithmetic shift, signed (two's complement)
+  SCRATCH_VIEW.setBigUint64(0, BigInt.asUintN(64, n), true);
+  SCRATCH_VIEW.setBigInt64(8, n >> 64n, true);
+  return SCRATCH.slice(0, 16);
 }
 
 /**
