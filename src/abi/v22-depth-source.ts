@@ -391,7 +391,7 @@ export function plus2PctDepthE6(r: bigint): bigint {
 
 /**
  * The reserve value `R` in collateral atoms. `quote-is-collateral`: the quote reserve. `base-at-mark`: `floor(base * mark / 10^(baseDecimals +
- * lotExp))` capped at u64::MAX (a cap only lowers the depth); `null` for a zero mark, decimals > 18 or `lotExp > 15`. Port of `reserve_value_e6`.
+ * lotExp))` capped at u64::MAX (a cap only lowers the depth); `null` for a zero mark, decimals > 18, `lotExp > 15`, or a decimals/lotExp that is not an integer in 0..255 (a Rust `u8`). Port of `reserve_value_e6`.
  *
  * @param path           Which side gives the value.
  * @param baseAtoms      The asset-side reserve.
@@ -407,7 +407,9 @@ export function plus2PctDepthE6(r: bigint): bigint {
  */
 export function reserveValueE6(path: "quote-is-collateral" | "base-at-mark", baseAtoms: bigint, quoteAtoms: bigint, markE6: bigint, baseDecimals: number, lotExp: number): bigint | null {
   if (path === "quote-is-collateral") return quoteAtoms;
-  if (markE6 === 0n || baseDecimals > DEPTH_SRC_MAX_DECIMALS || lotExp > 15) return null;
+  // Rust takes `u8`s: a negative, fractional or non-finite input cannot exist there, so refuse it (null), never throw a RangeError from BigInt().
+  const isU8 = (x: number) => Number.isInteger(x) && x >= 0 && x <= 255;
+  if (markE6 === 0n || !isU8(baseDecimals) || !isU8(lotExp) || baseDecimals > DEPTH_SRC_MAX_DECIMALS || lotExp > 15) return null;
   const v = (baseAtoms * markE6) / 10n ** BigInt(baseDecimals + lotExp);
   return v > U64_MAX ? U64_MAX : v;
 }
