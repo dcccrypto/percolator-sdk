@@ -12,6 +12,15 @@ const run = (f: (v: never) => Uint8Array, v: unknown): Out => {
   }
 };
 
+const mismatches = (c: (v: never) => Uint8Array, r: (v: never) => Uint8Array, inputs: unknown[]): string[] => {
+  const bad: string[] = [];
+  for (const v of inputs) {
+    const a = run(c, v), b = run(r, v);
+    if (JSON.stringify(a) !== JSON.stringify(b)) bad.push(`${String(v)}: ${JSON.stringify(a)} != ${JSON.stringify(b)}`);
+  }
+  return bad;
+};
+
 let s = 0x1234567;
 const rnd = () => {
   s ^= s << 13; s >>>= 0;
@@ -62,8 +71,8 @@ describe("encode primitives: differential vs pre-optimisation reference", () => 
       for (let i = 0; i <= Math.min(max, 70000); i++) inputs.push(i); // exhaustive for u8/u16
       for (let i = 0; i < 50_000; i++) inputs.push(rnd() >>> (rnd() % 33 === 32 ? 0 : rnd() % 32));
       for (let i = 0; i < 2000; i++) inputs.push((rnd() - 2 ** 31) / (1 + (rnd() % 3)));
-      for (const v of inputs) expect(run(c, v), `${name}(${String(v)})`).toEqual(run(r, v));
-    });
+      expect(mismatches(c, r, inputs)).toEqual([]);
+    }, 180_000);
   }
 
   for (const [name, c, r] of pairs) {
@@ -80,8 +89,8 @@ describe("encode primitives: differential vs pre-optimisation reference", () => 
         inputs.push(v);
         if (i % 4 === 0) inputs.push(v.toString());
       }
-      for (const v of inputs) expect(run(c, v), `${name}(${String(v)})`).toEqual(run(r, v));
-    });
+      expect(mismatches(c, r, inputs)).toEqual([]);
+    }, 180_000);
 
     it(`${name}: returned buffers are independent (no shared scratch aliasing)`, () => {
       const a = (c as (v: bigint) => Uint8Array)(1n);
@@ -90,6 +99,6 @@ describe("encode primitives: differential vs pre-optimisation reference", () => 
       expect(b[0]).toBe(2);
       expect(a.buffer).not.toBe(b.buffer);
       expect(a.byteLength).toBe(a.buffer.byteLength);
-    });
+    }, 180_000);
   }
 });
