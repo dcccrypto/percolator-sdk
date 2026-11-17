@@ -181,6 +181,8 @@ export function lotExpOfProfileV22(data: Uint8Array, profileOff: number): number
 export function pythPriceToLotE6V22(price: bigint, expo: number, lotExp: number): bigint {
   assertLotExp(lotExp);
   if (price <= 0n) throw new Error("price must be > 0");
+  // Program refuses |expo| > 18 (read_pyth_price_e12, MAX_EXPO_ABS): 0 = refused, like the other refusals.
+  if (expo < -18 || expo > 18) return 0n;
   // Program order: the leg is read at E12 (truncating feeds finer than 1e-12), then * 10^lot / 1e6 floors once.
   const e12 = expo + 12 >= 0 ? price * pow10(expo + 12) : price / pow10(-(expo + 12));
   return (e12 * pow10(lotExp)) / 1_000_000n;
