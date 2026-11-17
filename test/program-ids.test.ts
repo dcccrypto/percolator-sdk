@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
 import {
   safeEnv,
@@ -9,6 +10,8 @@ import {
   PROGRAM_IDS_V17,
   PROGRAM_ID_V17,
   PROGRAM_IDS_DEVNET_V1,
+  PROGRAM_IDS_DEVNET_V22,
+  NFT_PROGRAM_IDS,
 } from "../src/config/program-ids.js";
 import { STAKE_PROGRAM_IDS, STAKE_PROGRAM_ID, getStakeProgramId } from "../src/solana/stake.js";
 import { NFT_PROGRAM_ID } from "../src/abi/nft.js";
@@ -350,5 +353,122 @@ describe("devnet v2.2 default set vs PROGRAM_IDS_DEVNET_V1 (v1 / close-only)", (
         else process.env[k] = v;
       }
     }
+  });
+});
+
+// ===== SDK-COV10 branch coverage (deployed-ids table: test/fixtures/v22-qa-devnet-2026-10-11.json) =====
+const deployed = JSON.parse(
+  readFileSync(new URL("./fixtures/v22-qa-devnet-2026-10-11.json", import.meta.url), "utf8"),
+).programs as { wrapper: string; stake: string; matcher: string; nft: string };
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("v2.2 deployed ids table vs program-ids.ts", () => {
+  it("devnet defaults equal the deployed v2.2 ids", () => {
+    expect(PROGRAM_IDS_DEVNET_V22.percolator).toBe(deployed.wrapper);
+    expect(PROGRAM_IDS_DEVNET_V22.matcher).toBe(deployed.matcher);
+    expect(PROGRAM_IDS_DEVNET_V22.vault).toBe(deployed.stake);
+    expect(PROGRAM_IDS_DEVNET_V22.nft).toBe(deployed.nft);
+    expect(NFT_PROGRAM_IDS.devnet).toBe(deployed.nft);
+    expect(PROGRAM_IDS.devnet.percolator).toBe(deployed.wrapper);
+    expect(PROGRAM_IDS.devnet.matcher).toBe(deployed.matcher);
+  });
+});
+
+describe("safeEnv branches", () => {
+  it("returns undefined when process is not defined (browser)", () => {
+    vi.stubEnv("PROGRAM_ID", PROGRAM_IDS.devnet.percolator);
+    expect(safeEnv("PROGRAM_ID")).toBe(PROGRAM_IDS.devnet.percolator);
+    vi.stubGlobal("process", undefined);
+    expect(safeEnv("PROGRAM_ID")).toBeUndefined();
+  });
+
+  it("returns undefined when process.env access throws", () => {
+    vi.stubEnv("PROGRAM_ID", PROGRAM_IDS.devnet.percolator);
+    expect(safeEnv("PROGRAM_ID")).toBe(PROGRAM_IDS.devnet.percolator);
+    vi.stubGlobal("process", {
+      get env(): never {
+        throw new Error("denied");
+      },
+    });
+    expect(safeEnv("PROGRAM_ID")).toBeUndefined();
+  });
+});
+
+describe("getCurrentNetwork", () => {
+  it.each(["mainnet", "MAINNET", "mainnet-beta"])("NETWORK=%s -> mainnet", (v) => {
+    vi.stubEnv("NETWORK", v);
+    expect(getCurrentNetwork()).toBe("mainnet");
+  });
+
+  it("testnet / unknown values fail open to devnet", () => {
+    vi.stubEnv("NETWORK", "testnet");
+    expect(getCurrentNetwork()).toBe("devnet");
+    vi.stubEnv("NETWORK", "bogus");
+    expect(getCurrentNetwork()).toBe("devnet");
+  });
+});
+
+describe("network selection for ids", () => {
+  it("NETWORK=mainnet routes ambient resolution to mainnet ids", () => {
+    vi.stubEnv("NETWORK", "mainnet");
+    vi.stubEnv("PROGRAM_ID", "");
+    vi.stubEnv("MATCHER_PROGRAM_ID", "");
+    expect(getProgramId().toBase58()).toBe(PROGRAM_IDS.mainnet.percolator);
+    expect(getMatcherProgramId().toBase58()).toBe(PROGRAM_IDS.mainnet.matcher);
+  });
+
+  it("an unknown network argument throws (incidental TypeError, never resolves to an id)", () => {
+    expect(() => getProgramId("nope" as never)).toThrow(TypeError);
+    expect(() => getMatcherProgramId("nope" as never)).toThrow(TypeError);
+  });
+});
+
+describe("PROGRAM_ID / MATCHER_PROGRAM_ID env override", () => {
+  it("empty override is ignored and falls through to the network default", () => {
+    vi.stubEnv("NETWORK", "devnet");
+    vi.stubEnv("PROGRAM_ID", "");
+    vi.stubEnv("MATCHER_PROGRAM_ID", "");
+    expect(getProgramId().toBase58()).toBe(deployed.wrapper);
+    expect(getMatcherProgramId().toBase58()).toBe(deployed.matcher);
+  });
+
+  it("a known allowlisted override is accepted without opt-in and warns", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("PROGRAM_ID", PROGRAM_IDS.mainnet.percolator);
+    vi.stubEnv("MATCHER_PROGRAM_ID", PROGRAM_IDS.mainnet.matcher);
+    expect(getProgramId().toBase58()).toBe(PROGRAM_IDS.mainnet.percolator);
+    expect(getMatcherProgramId().toBase58()).toBe(PROGRAM_IDS.mainnet.matcher);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it("an explicit network argument ignores the env override", () => {
+    vi.stubEnv("PROGRAM_ID", PROGRAM_IDS.mainnet.percolator);
+    vi.stubEnv("MATCHER_PROGRAM_ID", PROGRAM_IDS.mainnet.matcher);
+    expect(getProgramId("devnet").toBase58()).toBe(deployed.wrapper);
+    expect(getMatcherProgramId("devnet").toBase58()).toBe(deployed.matcher);
+  });
+
+  it("an unlisted override with opt-in set to anything but '1' is rejected", () => {
+    vi.stubEnv("PROGRAM_ID", PublicKey.unique().toBase58());
+    vi.stubEnv("MATCHER_PROGRAM_ID", PublicKey.unique().toBase58());
+    vi.stubEnv("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE", "true");
+    expect(() => getProgramId()).toThrow(/not a known program address/);
+    expect(() => getMatcherProgramId()).toThrow(/not a known matcher program address/);
+  });
+
+  it("an opted-in but malformed (non-base58) override throws from PublicKey", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE", "1");
+    vi.stubEnv("PROGRAM_ID", "not-a-valid-key!!");
+    vi.stubEnv("MATCHER_PROGRAM_ID", "not-a-valid-key!!");
+    expect(() => getProgramId()).toThrow();
+    expect(() => getProgramId()).not.toThrow(/not a known/);
+    expect(() => getMatcherProgramId()).toThrow();
+    expect(() => getMatcherProgramId()).not.toThrow(/not a known/);
   });
 });

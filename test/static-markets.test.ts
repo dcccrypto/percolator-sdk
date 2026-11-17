@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { PublicKey } from "@solana/web3.js";
 import {
   getStaticMarkets,
   registerStaticMarkets,
@@ -149,5 +150,21 @@ describe("static-markets", () => {
       expect(getStaticMarkets("mainnet").some(e => e.slabAddress === "5U8K4DGwK8vBoAz8BY9QMCgo43JJbHCoDvJa2ECGVHFd")).toBe(false);
       expect(getStaticMarkets("devnet")).toHaveLength(0);
     });
+  });
+});
+
+afterEach(() => { vi.restoreAllMocks(); clearStaticMarkets(); });
+
+describe("static-markets missing entries", () => {
+  it("unknown network yields an empty list (builtin and user fallbacks)", () => {
+    expect(getStaticMarkets("nope" as never)).toEqual([]);
+  });
+
+  it("registerStaticMarkets skips an invalid base58 slab with a warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const good = PublicKey.unique().toBase58();
+    registerStaticMarkets("devnet", [{ slabAddress: "0OIl-not-base58" }, { slabAddress: good }]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Skipping invalid slabAddress"));
+    expect(getStaticMarkets("devnet").map((e) => e.slabAddress)).toEqual([good]);
   });
 });
