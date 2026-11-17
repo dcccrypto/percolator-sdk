@@ -411,7 +411,22 @@ export function isLpVaultRegistryBoundP3(registryData: Uint8Array): boolean {
  * ```
  */
 export function deriveVaultLpStateP3(programId: PublicKey, market: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([new TextEncoder().encode("vault_lp"), market.toBytes()], programId);
+  return memoPda(`s${programId.toBase58()}:${market.toBase58()}`, () =>
+    PublicKey.findProgramAddressSync([new TextEncoder().encode("vault_lp"), market.toBytes()], programId));
+}
+
+/** Bounded memo for PDA derivations (findProgramAddressSync costs ~1-3 ms). Cleared wholesale at the cap. */
+const PDA_MEMO_MAX_P3 = 1024;
+const pdaMemoP3 = new Map<string, [PublicKey, number]>();
+function memoPda(key: string, derive: () => [PublicKey, number]): [PublicKey, number] {
+  let hit = pdaMemoP3.get(key);
+  if (!hit) {
+    hit = derive();
+    if (pdaMemoP3.size >= PDA_MEMO_MAX_P3) pdaMemoP3.clear();
+    pdaMemoP3.set(key, hit);
+  }
+  // Fresh tuple per call so callers mutating the array cannot poison the cache (PublicKey is treated as immutable).
+  return [hit[0], hit[1]];
 }
 
 /** BPF upgradeable loader id. */
@@ -428,7 +443,8 @@ export const BPF_LOADER_UPGRADEABLE_ID_P3 = new PublicKey("BPFLoaderUpgradeab1e1
  * ```
  */
 export function deriveProgramDataAddressP3(programId: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3);
+  return memoPda(`d${programId.toBase58()}`, () =>
+    PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3));
 }
 
 /** Own + sibling backing-ledger PDAs for a registry domain (`sibling = domain ^ 1`). */
@@ -541,7 +557,7 @@ export function buildInitVaultLpIxP3(
     vaultLpState: deriveVaultLpStateP3(m.programId, m.market)[0], lpPortfolio: m.lpPortfolio,
     systemProgram: SystemProgram.programId, ...ledgers(m.programId, m.market, m.registryDomain),
     matcherProgram, matcherCtx, matcherDelegate,
-    ...(withExt ? { vaultLpExt: PublicKey.findProgramAddressSync([new TextEncoder().encode(VAULT_LP_EXT_SEED_P2B), m.market.toBytes()], m.programId)[0] } : {}),
+    ...(withExt ? { vaultLpExt: memoPda(`e${m.programId.toBase58()}:${m.market.toBase58()}`, () => PublicKey.findProgramAddressSync([new TextEncoder().encode(VAULT_LP_EXT_SEED_P2B), m.market.toBytes()], m.programId))[0] } : {}),
   }, data);
 }
 
