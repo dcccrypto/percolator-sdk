@@ -204,7 +204,7 @@ function memoSet<V>(m: Map<string, V>, key: string, v: V): void {
   m.set(key, v);
 }
 
-/** Current total memo entries (test/diagnostic hook; always <= 2 * {@link CREATOR_FEE_PAYEE_MEMO_MAX_V22}). */
+/** Larger of the two memo sizes (test/diagnostic hook; always <= {@link CREATOR_FEE_PAYEE_MEMO_MAX_V22}). */
 export function creatorFeePayeeMemoSizeV22(): number {
   return Math.max(PAYEE_PDA_MEMO.size, PAYEE_ATA_MEMO.size);
 }
