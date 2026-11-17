@@ -11,7 +11,7 @@ type Out = { ok: true; v: string } | { ok: false; name: string; msg: string; fie
 function run(f: (v: string, field: string) => unknown, v: string): Out {
   try {
     const r = f(v, "fld");
-    return { ok: true, v: `${typeof r}:${String(r)}` };
+    return { ok: true, v: `${typeof r}:${Object.is(r, -0) ? "-0" : String(r)}` };
   } catch (e) {
     const err = e as Error & { field?: string };
     return { ok: false, name: err.name, msg: err.message, field: err.field };
