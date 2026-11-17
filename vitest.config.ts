@@ -90,6 +90,7 @@ export default defineConfig({
       "test/trading-math-behaviour.test.ts",
       "test/trading-parity.test.ts",
       "test/warmup-math.test.ts",
+      "test/warmup-property.test.ts",
       "test/validation-behaviour.test.ts",
       "test/tx-branches.test.ts",
       "test/v22-lot-exp-profile.test.ts",
