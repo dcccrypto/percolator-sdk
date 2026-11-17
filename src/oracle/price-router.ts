@@ -96,7 +96,7 @@ function parseDexScreenerPairs(json: unknown, mint: string): PriceSource[] {
     if (!SUPPORTED_DEX_IDS.has(dexId)) continue;
 
     let liquidity = 0;
-    if (isRecord(pair.liquidity) && typeof pair.liquidity.usd === "number") {
+    if (isRecord(pair.liquidity) && typeof pair.liquidity.usd === "number" && Number.isFinite(pair.liquidity.usd)) {
       liquidity = pair.liquidity.usd;
     }
     if (liquidity < 100) continue;
