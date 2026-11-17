@@ -55,6 +55,8 @@ describe("warmup property: SDK vs reference model", () => {
     };
     const N = 20000;
     let mismatches = 0;
+    let invariantBreaks = 0;
+    let first = "";
     for (let i = 0; i < N; i++) {
       const total = r() < 0.1 ? -big(20) : r() < 0.1 ? 0n : big(1 + Math.floor(r() * 80));
       const start = r() < 0.1 ? 0n : big(1 + Math.floor(r() * 40));
@@ -67,13 +69,21 @@ describe("warmup property: SDK vs reference model", () => {
       const ru = refUnlocked(total, now, start, h);
       if (u !== ru || BigInt(l) !== refLev(im, total, now, start, h) || m !== ru * (10000n / im)) {
         mismatches++;
+        if (!first) first = JSON.stringify({ total: String(total), now: String(now), start: String(start), h: String(h), im: String(im) });
       }
-      // invariants for sane (positive) capital
-      if (total > 0n && h !== 0n && start !== 0n) {
-        expect(u >= 0n && u <= total).toBe(true);
-        expect(l).toBeGreaterThanOrEqual(1);
+      // model-independent invariants
+      const live = h !== 0n && start !== 0n;
+      if (total >= 0n && (u < 0n || u > total || m < 0n)) invariantBreaks++;
+      if (live && total > 0n) {
+        if (l < 1) invariantBreaks++;
+        if (now - start >= h && u !== total) invariantBreaks++;
+        if (now <= start && u !== 0n) invariantBreaks++;
+        const u2 = computeWarmupUnlockedCapital(total, now + 1n, start, h);
+        if (u2 < u) invariantBreaks++; // monotone in time
       }
     }
+    expect(first).toBe("");
     expect(mismatches).toBe(0);
-  });
+    expect(invariantBreaks).toBe(0);
+  }, 60_000);
 });
