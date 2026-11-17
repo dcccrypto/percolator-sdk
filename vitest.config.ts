@@ -96,6 +96,7 @@ export default defineConfig({
       "test/v22-math-edges.test.ts",
       "test/slab-branch-coverage.test.ts",
       "test/discovery-branches.test.ts",
+      "test/instructions-compat-branches.test.ts",
       "test/ata.test.ts",
       "test/encode-edges.test.ts",
     ],
