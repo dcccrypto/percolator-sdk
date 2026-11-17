@@ -489,7 +489,7 @@ function dv(data: Uint8Array): DataView {
  */
 export function readWrapperHeader(data: Uint8Array, parser = "readWrapperHeader"): { magic: bigint; version: number; kind: number } {
   if (data.length < 16) throw new UnknownLayoutError("TOO_SHORT", parser, `data too short (${data.length} < 16)`);
-  // Byte reads, not `new DataView(...)`: constructing a DataView over a large account buffer costs ~5us.
+  // Byte reads, not `new DataView(...)`: avoids a DataView allocation per call.
   const lo = (data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24)) >>> 0;
   const hi = (data[4] | (data[5] << 8) | (data[6] << 16) | (data[7] << 24)) >>> 0;
   return { magic: (BigInt(hi) << 32n) | BigInt(lo), version: data[8] | (data[9] << 8), kind: data[10] };

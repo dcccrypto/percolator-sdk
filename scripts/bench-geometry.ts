@@ -1,6 +1,7 @@
 /**
  * Bench for resolveMarketGeometry on a 43,974 B v2.2 market buffer.
- *   pnpm exec tsx scripts/bench-geometry.ts   # ns/op, median of 5 runs
+ * Bundle first: tsx's keepNames `__name` helper dominates the two per-call closures and hides the gain.
+ *   esbuild scripts/bench-geometry.ts --bundle --platform=node --format=esm --outfile=/tmp/bg.mjs && node /tmp/bg.mjs   # ns/op, median of 5
  */
 import { LAYOUT_V22, resolveMarketGeometry } from "../src/abi/layout.js";
 import { stampMarket } from "../test/helpers/stamp.js";
