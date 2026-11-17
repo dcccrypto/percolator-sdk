@@ -1,5 +1,5 @@
 import { bench, describe } from "vitest";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import {
   parsePositionNftAccount,
   deriveNftPda,
@@ -41,4 +41,3 @@ describe("nft PDA derivation (1000 keys)", () => {
     for (let i = 0; i < 1000; i++) deriveMintAuthority();
   });
 });
-void PublicKey;

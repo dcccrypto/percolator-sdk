@@ -303,6 +303,8 @@ function u64Buf(value: bigint | number, label: string): Uint8Array {
 
 // PDA derivation (findProgramAddressSync) is ~2 ms each; the result is a pure
 // function of (kind, programId, seeds), so memoise. Bounded; cleared when full.
+// Keys concatenate fixed-length seeds only (32+8, 32, none); add a length prefix
+// before ever passing variable-length seeds.
 const EMPTY = new Uint8Array(0);
 const PDA_CACHE_MAX = 4096;
 const pdaCache = new Map<string, [PublicKey, number]>();
