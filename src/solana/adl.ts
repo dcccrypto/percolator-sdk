@@ -474,41 +474,29 @@ export function parseAdlEvent(
   logs: string[],
   percolatorProgramId?: string,
 ): AdlEvent | null {
-  // Track whether we are currently inside a top-level Percolator invocation.
+  // Track the runtime invoke stack so we know which program emitted each line.
   // When percolatorProgramId is omitted we skip the filter (legacy behaviour).
-  let insidePercolator = percolatorProgramId === undefined;
-  let cpiDepth = 0;
+  const stack: string[] = [];
 
   for (const line of logs) {
     if (typeof line !== "string") continue;
 
     if (percolatorProgramId !== undefined) {
-      // Detect Percolator entry / exit.
-      if (line.startsWith(`Program ${percolatorProgramId} invoke`)) {
-        insidePercolator = true;
-        cpiDepth = 0;
+      const inv = /^Program (\S+) invoke \[\d+\]$/.exec(line);
+      if (inv) {
+        stack.push(inv[1]);
         continue;
       }
-      if (
-        line.startsWith(`Program ${percolatorProgramId} success`) ||
-        line.startsWith(`Program ${percolatorProgramId} failed`)
-      ) {
-        insidePercolator = false;
+      const exit = /^Program (\S+) (?:success|failed(?:: .*)?)$/.exec(line);
+      if (exit) {
+        // Only pop a matching frame: a stray exit must not unwind Percolator.
+        if (stack[stack.length - 1] === exit[1]) stack.pop();
         continue;
       }
-      // Track nested CPI depth so we ignore sol_log_64 from inner programs.
-      if (insidePercolator) {
-        if (/^Program \S+ invoke/.test(line)) {
-          cpiDepth++;
-          continue;
-        }
-        if (/^Program \S+ (?:success|failed(?:: .*)?)$/.test(line)) {
-          cpiDepth = Math.max(0, cpiDepth - 1);
-          continue;
-        }
-      }
-      // Skip log lines that are not inside Percolator or are from a CPI callee.
-      if (!insidePercolator || cpiDepth > 0) continue;
+      // Only accept lines logged while Percolator itself is the running
+      // program (not while a CPI callee is). A nested Percolator self-CPI or a
+      // callee returning must not desync this (stack, not a counter).
+      if (stack[stack.length - 1] !== percolatorProgramId) continue;
     }
 
     // sol_log_64 emits (agave syscalls/logging.rs): "Program log: 0xa, 0xb, 0xc, 0xd, 0xe"
@@ -528,10 +516,22 @@ export function parseAdlEvent(
     if (tag !== ADL_EVENT_TAG) continue;
 
     try {
-      const targetIdx = Number(BigInt(match[2]));
+      // sol_log_64 args are u64: reject anything wider (forged lines) rather
+      // than OR-ing into neighbouring bits or losing Number precision.
+      const U64_MAX = (1n << 64n) - 1n;
+      const rawIdx = BigInt(match[2]);
       const price = BigInt(match[3]);
       const closedLo = BigInt(match[4]);
       const closedHi = BigInt(match[5]);
+      if (
+        rawIdx > BigInt(Number.MAX_SAFE_INTEGER) ||
+        price > U64_MAX ||
+        closedLo > U64_MAX ||
+        closedHi > U64_MAX
+      ) {
+        continue;
+      }
+      const targetIdx = Number(rawIdx);
       // Reassemble i128 from lo/hi u64 parts (little-endian split).
       const closedAbs = (closedHi << 64n) | closedLo;
       return { tag, targetIdx, price, closedAbs };
