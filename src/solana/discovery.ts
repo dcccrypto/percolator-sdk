@@ -85,7 +85,7 @@ const MAGIC_BYTES = new Uint8Array([0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x
  * These are the first 8 bytes of every v17 percolator-owned market group account.
  * The program writes MAGIC.to_le_bytes() (v16_program.rs:966), so the on-chain bytes
  * are LITTLE-ENDIAN: 0x5045_5243_5631_3600 ("PERCV16\0") -> [0x00,0x36,0x31,0x56,0x43,0x52,0x45,0x50].
- * A memcmp filter at offset 0 must use this exact LE order (isV17Account reads it via readU64LE).
+ * A memcmp filter at offset 0 must use this exact LE order (isV17Account compares these 8 bytes).
  */
 const V17_MAGIC_BYTES = new Uint8Array([0x00, 0x36, 0x31, 0x56, 0x43, 0x52, 0x45, 0x50]);
 
@@ -850,7 +850,7 @@ export async function discoverMarkets(
   for (const { pubkey, account, maxAccounts, dataSize } of accounts) {
     // Dedup on the raw 32 bytes (bijective with base58) — base58-encoding every
     // account just to build a Set key dominated scan time. Encode lazily, only for logs.
-    const seenKey = Buffer.from(pubkey.toBytes()).toString("latin1");
+    const seenKey = pubkey.toBuffer().toString("latin1");
     if (seenPubkeys.has(seenKey)) continue;
     seenPubkeys.add(seenKey);
     const data = new Uint8Array(account.data);

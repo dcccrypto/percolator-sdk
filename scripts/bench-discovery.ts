@@ -90,4 +90,8 @@ console.log(`accounts fed: ${TOTAL}, markets decoded: ${first.length}`);
 console.log(`discoverMarkets median ${median.toFixed(2)} CPU ms / 1000 accounts (min ${times[0].toFixed(2)}, max ${times[RUNS - 1].toFixed(2)}, ${RUNS} runs)`);
 
 const di = process.argv.indexOf("--dump");
-if (di > 0) writeFileSync(process.argv[di + 1], JSON.stringify(first, replacer));
+if (di > 0) {
+  const out = process.argv[di + 1];
+  if (!out || out.startsWith("--")) { console.error("--dump requires a filename"); process.exit(1); }
+  writeFileSync(out, JSON.stringify(first, replacer));
+}
