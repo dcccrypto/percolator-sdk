@@ -77,7 +77,7 @@ export default defineConfig({
       "test/sdk421-backstop-mode3.test.ts",
       // #636 / #636b (prog #640 + #641): flow-tag account lists + CU limits
       "test/v22-nav-flow.test.ts",
-      "test/v22-launch-settings.test.ts", "test/v22-init-signer.test.ts",
+      "test/v22-launch-settings.test.ts", "test/v22-launch-settings-prog-diff.test.ts","test/v22-init-signer.test.ts",
       "test/creator-fee-payee-v22.test.ts",
       "test/v22-band-safety-law.test.ts",
       "test/bond-carry-571.test.ts",
