@@ -3,9 +3,9 @@
  * decoder accepts; the other 13 have no SDK encoder), checked against
  * the table of what the wrapper decoder reads (test/wire-size-v22/table.ts).
  *
- * Table source: dcccrypto/percolator-prog @ feat/v22-rc23-2026-10-22 (ab85662),
- * src/v16_program.rs `Instruction::decode` (lines 10052-10950). The decoder rejects any trailing
- * byte (line 10945), so the encoded length has to match exactly, and each field has to sit at the
+ * Table source: dcccrypto/percolator-prog @ feat/v22-rc23-2026-10-22 (d27f3d73),
+ * src/v16_program.rs `Instruction::decode` (lines 10065-10963). The decoder rejects any trailing
+ * byte (line 10958), so the encoded length has to match exactly, and each field has to sit at the
  * offset the decoder reads it from.
  *
  * For each row: byte 0 is the tag, total length is 1 + sum of the field sizes, and every field is

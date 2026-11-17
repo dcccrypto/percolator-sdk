@@ -69,7 +69,8 @@ export const IX_TAG = {
   ConvertReleasedPnl: 28,
   CloseResolved: 30,
   /**
-   * UpdateAuthority (tag 32) — v17 wire: tag(1) + new_pubkey[32].
+   * UpdateAuthority (tag 32) — v2.2 wire: tag(1) + new_pubkey[32] + authority_epoch(u64) = 41 bytes
+   * (v16_program.rs:10329, `Instruction::decode`).
    *
    * BREAKING vs v12.18.x: NO kind byte in v17. The kind byte was removed;
    * tag 32 now ONLY rotates the single marketauth key. Per-asset authority
@@ -100,7 +101,8 @@ export const IX_TAG = {
   UpdateTradeFeePolicy: 55,
   TopUpInsuranceDomain: 56,
   /**
-   * WithdrawInsuranceAsset (tag 57) — v17 wire: tag(1) + asset_index(u16) + amount(u128).
+   * WithdrawInsuranceAsset (tag 57) — v2.2 wire: tag(1) + asset_index(u16) + market_id(u64) +
+   * amount(u128) + authority_epoch(u64) = 35 bytes (v16_program.rs:10507).
    *
    * Replaces the v12.x gap at tag 57. Withdraws from a specific asset's
    * insurance fund. asset_index is u16 (domain u8→u16 migration).
@@ -117,9 +119,10 @@ export const IX_TAG = {
   /**
    * UpdateAssetAuthority (tag 65) — per-asset authority rotation.
    *
-   * Wire: tag(1) + asset_index(u16) + kind(u8) + new_pubkey[32] = 36 bytes.
+   * Wire (v2.2): tag(1) + asset_index(u16) + market_id(u64) + kind(u8) + new_pubkey[32] +
+   * authority_epoch(u64) = 52 bytes (v16_program.rs:10333). The v17 36-byte form is rejected.
    *
-   * kind values (matches v16_program.rs ASSET_AUTH_* constants, lines 5246-5250):
+   * kind values (matches v16_program.rs ASSET_AUTH_* constants, lines 14271-14275):
    *   0 = ASSET_ADMIN       — asset_admin (burnable when asset_index != 0)
    *   1 = INSURANCE         — insurance_authority
    *   2 = INSURANCE_OPERATOR — insurance_operator
@@ -133,25 +136,33 @@ export const IX_TAG = {
   /**
    * BatchTradeNoCpi (tag 66) — multi-leg NoCpi trade in one instruction.
    *
-   * Wire: tag(1) + n_legs(u8) + [asset_index(u16)+size_q(i128)+exec_price(u64)+fee_bps(u64)]×n
+   * Wire (v2.2): tag(1) + n_legs(u8) + [asset_index(u16)+market_id(u64)+size_q(i128)+exec_price(u64)+fee_bps(u64)]×n
+   *   + account_a_portfolio_id(u64) + account_a_position_epoch(u64) + account_b_portfolio_id(u64) +
+   *   account_b_position_epoch(u64) = 1 + 1 + 42n + 32 bytes (v16_program.rs:10224).
    */
   BatchTradeNoCpi: 66,
   /**
    * BatchTradeCpi (tag 67) — multi-leg CPI trade in one instruction.
    *
-   * Wire: tag(1) + n_legs(u8) + [asset_index(u16)+size_q(i128)+fee_bps(u64)+limit_price(u64)]×n
+   * Wire (v2.2): tag(1) + n_legs(u8) + [asset_index(u16)+market_id(u64)+size_q(i128)+fee_bps(u64)+limit_price(u64)]×n
+   *   + max_slippage_atoms(u128) + max_fee_atoms(u128) + account_a_portfolio_id(u64) +
+   *   account_a_position_epoch(u64) + account_b_portfolio_id(u64) + account_b_position_epoch(u64) +
+   *   account_b_matcher_sequence(u64) = 1 + 1 + 42n + 72 bytes (v16_program.rs:10244).
    */
   BatchTradeCpi: 67,
   /**
    * SetMatcherConfig (tag 68) — enable/disable the matcher for this portfolio.
    *
-   * Wire: tag(1) + enabled(u8) = 2 bytes.
+   * Wire (v2.2): tag(1) + portfolio_id(u64) + expected_sequence(u64) + asset_generation_frontier(u64) +
+   * enabled(u8) + trade_fee_cap_bps(u16) + expiry_slot(u64) = 36 bytes (v16_program.rs:10269).
+   * The SDK has no encoder for this tag yet.
    */
   SetMatcherConfig: 68,
   /**
    * RestartAssetOracle (tag 69) — permissionless oracle restart after stale/stuck state.
    *
-   * Wire: tag(1) + asset_index(u16) + now_slot(u64) + initial_price(u64) = 19 bytes.
+   * Wire (v2.2): tag(1) + asset_index(u16) + market_id(u64) + now_slot(u64) + initial_price(u64) +
+   * observation_sequence(u64) = 35 bytes (v16_program.rs:10428). The SDK has no encoder for this tag yet.
    */
   RestartAssetOracle: 69,
   // ── Fork NFT / B-3 (tags 72/73) — kept from v16 ─────────────────────────
@@ -181,12 +192,15 @@ export const IX_TAG = {
   DepositToLpVault: 75,
   /**
    * RequestRedeemLpShares (tag 76).
-   * Wire: tag(1) + shares(u128) = 17 bytes.
+   * Wire (v2.2): tag(1) + shares(u128) + min_payout_atoms(u64) + keeper_ok(u8) = 26 bytes
+   * (v16_program.rs:10557). The legacy 17-byte shares-only form is RETIRED: the decoder returns
+   * InvalidInstructionData for it (AUD-S1-18), and a zero floor is refused too.
    */
   RequestRedeemLpShares: 76,
   /**
    * ExecuteRedemption (tag 77).
    * Wire: tag(1) + domain(u16) = 3 bytes.  // GH#381: was 1 byte; `domain` was missing
+   * The v2.2 form adds min_payout_atoms(u64) + n_refresh(u8) = 12 bytes (v16_program.rs:10583).
    */
   ExecuteRedemption: 77,
   /**
@@ -366,7 +380,7 @@ export const IX_TAG = {
    * feat/protocol-fee-taker-only@2b3a6a65). Sets the three stored fee shares.
    *
    * Wire: tag(1) + creator_share_bps(u16) + lp_share_bps(u16) +
-   * insurance_share_bps(u16) = 7 bytes. Accounts: see ACCOUNTS_UPDATE_FEE_SPLIT
+   * insurance_share_bps(u16) + authority_epoch(u64) = 15 bytes (v16_program.rs:10709). Accounts: see ACCOUNTS_UPDATE_FEE_SPLIT
    * in abi/accounts.ts. Gated on `cfg.marketauth`.
    *
    * The three shares are bps *of T* (`trade_fee_base_bps`) and must sum to
@@ -3899,7 +3913,7 @@ export function encodeUpdateAuthority(args: UpdateAuthorityArgs): Uint8Array {
 /**
  * Per-asset authority kind for UpdateAssetAuthority (tag 65).
  *
- * Exact mapping from v16_program.rs lines 5246-5250:
+ * Exact mapping from v16_program.rs lines 14271-14275:
  *   ASSET_AUTH_ADMIN              = 0  →  AssetAdmin
  *   ASSET_AUTH_INSURANCE          = 1  →  Insurance
  *   ASSET_AUTH_INSURANCE_OPERATOR = 2  →  InsuranceOperator

@@ -4,8 +4,8 @@ import { ROWS, NO_SDK_ENCODER, SIZE, parseSpec, expectedLength } from "./table.j
 export function renderDoc(): string {
   const out: string[] = [];
 out.push("# v2.2 instruction wire table", "",
-"Source: `dcccrypto/percolator-prog` @ `feat/v22-rc23-2026-10-22` (ab85662), `src/v16_program.rs`, `Instruction::decode` (lines 10052-10950).",
-"The decoder rejects trailing bytes (line 10945), so the length is exact. `len` includes the tag byte. Offsets are from byte 0 (tag at 0).",
+"Source: `dcccrypto/percolator-prog` @ `feat/v22-rc23-2026-10-22` (d27f3d73), `src/v16_program.rs`, `Instruction::decode` (lines 10065-10963).",
+"The decoder rejects trailing bytes (line 10958), so the length is exact. `len` includes the tag byte. Offsets are from byte 0 (tag at 0).",
 "Generated from `test/wire-size-v22/table.ts` (`pnpm exec tsx scripts/gen-wire-size-doc.ts > specs/WIRE_SIZES_V22.md`); checked by `test/wire-size-v22.test.ts`.", "",
 "| tag | name | form | len | fields (offset:type) | program line |", "|---|---|---|---|---|---|");
 for (const r of [...ROWS].sort((a,b)=>a.tag-b.tag)) {
