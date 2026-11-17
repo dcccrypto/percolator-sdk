@@ -188,6 +188,7 @@ describe("RpcPool constructor", () => {
     const pool = new RpcPool({ endpoints: [URL_A, URL_B], verbose: false });
     expect(pool.size).toBe(2);
     expect(pool.healthyCount).toBe(2);
+    expect(pool.status().map(s => s.failures)).toEqual([0, 0]);
     expect(pool.status().map(s => s.label)).toEqual(["a.example.com", "b.example.com"]);
   });
 
@@ -278,8 +279,13 @@ describe("RpcPool.call selection / retry / failover", () => {
       if (++n < 3) throw new Error("503 Service Unavailable");
       return "done";
     });
-    await vi.advanceTimersByTimeAsync(100);
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(99);
+    expect(n).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(n).toBe(2);
+    await vi.advanceTimersByTimeAsync(199);
+    expect(n).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
     await expect(p).resolves.toBe("done");
     expect(n).toBe(3);
   });
@@ -320,7 +326,7 @@ describe("RpcPool.call selection / retry / failover", () => {
     expect(conns[0]).not.toBe(conns[1]);
   });
 
-  it("marks endpoint unhealthy after threshold failures and logs once verbose", async () => {
+  it("marks endpoint unhealthy after threshold failures and warns when verbose", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const pool = new RpcPool({ endpoints: [URL_A], retry: false, verbose: true });
     for (let i = 0; i < 3; i++) {
@@ -353,15 +359,12 @@ describe("RpcPool.call selection / retry / failover", () => {
     expect(pool.status()[0]).toMatchObject({ healthy: true, failures: 0 });
   });
 
-  it("all-unhealthy: selection falls back to the first non-excluded endpoint", async () => {
+  it("after exhaustion the pool is reset and usable again", async () => {
     const pool = new RpcPool({ endpoints: [URL_A, URL_B], retry: false, verbose: false, recoveryAfterMs: 0 });
     for (let i = 0; i < 3; i++) await pool.call(async () => { throw new Error("x"); }).catch(() => {});
-    // Exhausted calls end by resetting every endpoint (maybeRecoverEndpoints), so the
-    // pool is usable again afterwards.
-    expect(pool.healthyCount).toBeGreaterThan(0);
-    const conns: unknown[] = [];
-    await pool.call(async c => { conns.push(c); return 1; });
-    expect(conns[0]).toBe(pool.getConnection());
+    // A reached the threshold on call 3; the exhausted call reset both endpoints.
+    expect(pool.healthyCount).toBe(2);
+    await expect(pool.call(async () => "fine")).resolves.toBe("fine");
   });
 
   it("getConnection with no healthy endpoint returns the first endpoint's connection", async () => {
@@ -371,6 +374,8 @@ describe("RpcPool.call selection / retry / failover", () => {
     const conn = pool.getConnection();
     expect(conn).toBeDefined();
     expect(pool.getConnection()).toBe(conn);
+    // getConnection does not itself recover endpoints on this path.
+    expect(pool.status()[0].healthy).toBe(false);
   });
 });
 
@@ -420,18 +425,15 @@ describe("RpcPool round-robin", () => {
       retry: false,
       verbose: false,
     });
-    const labels = new Map<unknown, string>();
-    // Identify endpoints by connection identity via a failover-free probe.
     const picks: unknown[] = [];
     for (let i = 0; i < 6; i++) picks.push(await pool.call(async c => c));
     const distinct = [...new Set(picks)];
     expect(distinct).toHaveLength(2);
-    const counts = distinct.map(d => picks.filter(p => p === d).length).sort();
+    const counts = distinct.map(d => picks.filter(p => p === d).length).sort((x, y) => x - y);
     expect(counts).toEqual([2, 4]);
-    void labels;
   });
 
-  it("skips unhealthy endpoints", async () => {
+  it("skips an unhealthy endpoint", async () => {
     const pool = new RpcPool({
       endpoints: [URL_A, URL_B, URL_C],
       strategy: "round-robin",
@@ -439,18 +441,23 @@ describe("RpcPool round-robin", () => {
       verbose: false,
       recoveryAfterMs: 0,
     });
-    // Make endpoint A unhealthy by 3 failures targeted at it: use round-robin picks and
-    // fail only when we're handed A's connection.
-    const firstConn = pool.getConnection();
-    void firstConn;
-    const seen = new Set<unknown>();
-    for (let i = 0; i < 12; i++) {
+    // Learn each endpoint's connection identity.
+    const all = new Set<unknown>();
+    for (let i = 0; i < 6; i++) await pool.call(async c => { all.add(c); return 1; });
+    expect(all.size).toBe(3);
+    // Fail only the first-handed connection until it is marked unhealthy.
+    const bad = [...all][0];
+    for (let i = 0; i < 40 && pool.healthyCount === 3; i++) {
       await pool.call(async c => {
-        seen.add(c);
+        if (c === bad) throw new Error("fatal");
         return 1;
-      });
+      }).catch(() => {});
     }
-    expect(seen.size).toBe(3);
+    expect(pool.healthyCount).toBe(2);
+    const after = new Set<unknown>();
+    for (let i = 0; i < 12; i++) await pool.call(async c => { after.add(c); return 1; });
+    expect(after.has(bad)).toBe(false);
+    expect(after.size).toBe(2);
   });
 
   it("does not retry a non-retryable error across endpoints (throws)", async () => {
