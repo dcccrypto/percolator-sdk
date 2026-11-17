@@ -29,7 +29,7 @@ describe("p2b-earn branch gaps", () => {
     const m = new Uint8Array(L.marketGroupOff + L.marketGroupHeaderLen + 2 * L.assetSlotLen);
     stampMarket(m);
     expect(() => readPotEngineRecordsP2b(m, -1)).toThrow(/bad domain -1/);
-    expect(() => readPotEngineRecordsP2b(m, 1.5)).toThrow(/bad domain 1.5/);
+    expect(() => readPotEngineRecordsP2b(m, 1.5)).toThrow(/bad domain 1\.5/);
     expect(() => readPotEngineRecordsP2b(m, Number.NaN)).toThrow(/bad domain NaN/);
   });
 
