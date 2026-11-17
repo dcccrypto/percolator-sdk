@@ -98,6 +98,7 @@ export default defineConfig({
       "test/discovery-branches.test.ts",
       "test/ata.test.ts",
       "test/encode-edges.test.ts",
+      "test/rpc-pool-branches.test.ts",
     ],
   },
 });
