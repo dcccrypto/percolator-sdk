@@ -589,7 +589,7 @@ const TEXT = new TextEncoder();
 
 /**
  * Bounded memo for stake PDAs. findProgramAddressSync costs milliseconds (up to 255 sha256 +
- * curve checks). The key is the resolved programId (base58) plus tag and seed keys, so a changed
+ * curve checks). The key is the resolved programId (raw bytes as a latin1 string) plus tag and seed keys, so a changed
  * STAKE_PROGRAM_ID / NETWORK resolves to a different programId and can never hit a stale entry.
  * getStakeProgramId() is still called on every omitted-programId call (never cached).
  */
@@ -597,8 +597,8 @@ const PDA_MEMO_MAX = 4096;
 const pdaMemo = new Map<string, [PublicKey, number]>();
 
 function memoPda(tag: string, seeds: PublicKey[], programId: PublicKey): [PublicKey, number] {
-  let key = tag + programId.toBase58();
-  for (const s of seeds) key += ':' + s.toBase58();
+  let key = tag + String.fromCharCode(...programId.toBytes());
+  for (const s of seeds) key += String.fromCharCode(...s.toBytes());
   let hit = pdaMemo.get(key);
   if (!hit) {
     const [addr, bump] = PublicKey.findProgramAddressSync(
