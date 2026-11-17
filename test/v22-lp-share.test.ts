@@ -13,6 +13,25 @@ const M1 = new PublicKey(new Uint8Array(32).fill(1)); // 4vJ9JU1bJJE96FWSJKvHsmm
 const M2 = new PublicKey(new Uint8Array(32).fill(2)); // 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR
 
 describe("ticker derivation (client side: the program refuses, never truncates)", () => {
+  it("never lets Unicode case folding invent ticker characters", () => {
+    expect(S.lpShareTickerFromSymbolV22("\u00dfTC")).toBe("TC"); // ß would fold to SS
+    expect(S.lpShareTickerFromSymbolV22("\ufb01sh")).toBe("SH"); // ﬁ would fold to FI
+    expect(S.lpShareTickerFromSymbolV22("\u0131dx")).toBe("DX"); // dotless ı would fold to I
+    expect(S.lpShareTickerFromSymbolV22("\u017fol")).toBe("OL"); // long s would fold to S
+    expect(S.lpShareTickerFromSymbolV22("\u00dfABCDEFGH")).toBe("ABCDEFGH");
+  });
+  it("matches an ASCII-only reference for a random Unicode+ASCII corpus", () => {
+    let x = 12345;
+    const rnd = (n: number) => ((x = (x * 1103515245 + 12345) & 0x7fffffff), x % n);
+    const pool = "abzAZ09 -_$\u00df\ufb01\u0131\u017f\u212a\u65e5\u00e9\u{1f600}";
+    const chars = Array.from(pool);
+    for (let i = 0; i < 10000; i++) {
+      let sym = "";
+      for (let k = rnd(14); k > 0; k--) sym += rnd(3) === 0 ? String.fromCodePoint(rnd(0x3000) + 32) : chars[rnd(chars.length)];
+      const ref = sym.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 8);
+      expect(S.lpShareTickerFromSymbolV22(sym)).toBe(ref);
+    }
+  });
   it("uppercases, drops everything outside A-Z 0-9, keeps the first 8", () => {
     expect(S.lpShareTickerFromSymbolV22("1000pepe")).toBe("1000PEPE");
     expect(S.lpShareTickerFromSymbolV22("$wif-2")).toBe("WIF2");
