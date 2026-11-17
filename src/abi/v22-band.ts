@@ -26,10 +26,10 @@ import { bandWidthOkV22 } from "./v22-math.js";
 
 const BPS = 10_000n;
 const dv = (d: Uint8Array): DataView => new DataView(d.buffer, d.byteOffset, d.byteLength);
-const u64 = (d: Uint8Array, o: number): bigint => dv(d).getBigUint64(o, true);
-const u16 = (d: Uint8Array, o: number): number => dv(d).getUint16(o, true);
-const u128 = (d: Uint8Array, o: number): bigint => (dv(d).getBigUint64(o + 8, true) << 64n) | dv(d).getBigUint64(o, true);
-const i128 = (d: Uint8Array, o: number): bigint => (dv(d).getBigInt64(o + 8, true) << 64n) + dv(d).getBigUint64(o, true);
+const u64 = (v: DataView, o: number): bigint => v.getBigUint64(o, true);
+const u16 = (v: DataView, o: number): number => v.getUint16(o, true);
+const u128 = (v: DataView, o: number): bigint => (v.getBigUint64(o + 8, true) << 64n) | v.getBigUint64(o, true);
+const i128 = (v: DataView, o: number): bigint => (v.getBigInt64(o + 8, true) << 64n) + v.getBigUint64(o, true);
 
 /** Slots per day at 400 ms slots (`SLOTS_PER_YEAR / 365`). */
 export const SLOTS_PER_DAY_V22 = Number(SLOTS_PER_YEAR_V22 / 365n);
@@ -325,13 +325,14 @@ function bandLayout(data: Uint8Array, parser: string): { g: ReturnType<typeof re
  */
 export function decodeBandConfigV22(data: Uint8Array): BandConfigV22 {
   const { g, B } = bandLayout(data, "decodeBandConfigV22");
+  const v = dv(data);
   const base = g.groupOff + g.layout.group.config;
   if (data.length < base + B.configLen) throw new UnknownLayoutError("TOO_SHORT", "decodeBandConfigV22", "market too short for the config");
   const C = B.config;
   return {
-    maxAccrualDtSlots: u64(data, base + C.maxAccrualDtSlots), maxPriceMoveBpsPerSlot: u64(data, base + C.maxPriceMoveBpsPerSlot),
-    bandBps: Number(u64(data, base + C.bandBps)), bandMaxEpochSlots: u64(data, base + C.bandMaxEpochSlots), bandMaxPinSlots: u64(data, base + C.bandMaxPinSlots),
-    rentMaxE9PerSlot: u64(data, base + C.rentMaxE9PerSlot), bandMaxPositionsPerSide: u64(data, base + C.bandMaxPositionsPerSide), bandMinLegNotional: u64(data, base + C.bandMinLegNotional),
+    maxAccrualDtSlots: u64(v, base + C.maxAccrualDtSlots), maxPriceMoveBpsPerSlot: u64(v, base + C.maxPriceMoveBpsPerSlot),
+    bandBps: Number(u64(v, base + C.bandBps)), bandMaxEpochSlots: u64(v, base + C.bandMaxEpochSlots), bandMaxPinSlots: u64(v, base + C.bandMaxPinSlots),
+    rentMaxE9PerSlot: u64(v, base + C.rentMaxE9PerSlot), bandMaxPositionsPerSide: u64(v, base + C.bandMaxPositionsPerSide), bandMinLegNotional: u64(v, base + C.bandMinLegNotional),
   };
 }
 
@@ -350,17 +351,18 @@ export function decodeBandConfigV22(data: Uint8Array): BandConfigV22 {
 export function decodeAssetBandStateV22(data: Uint8Array, assetIndex = 0): AssetBandStateV22 {
   const { g, B } = bandLayout(data, "decodeAssetBandStateV22");
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex >= g.slotCount) throw new RangeError(`asset ${assetIndex} is not present`);
+  const v = dv(data);
   const e = g.engineOff(assetIndex);
   const S = B.assetState;
   const A = g.layout.assetState;
   return {
-    effectivePrice: u64(data, e + A.effectivePrice), rawOracleTargetPrice: u64(data, e + A.rawOracleTargetPrice),
-    bandAnchorPrice: u64(data, e + S.bandAnchorPrice), bandAnchorSlot: u64(data, e + S.bandAnchorSlot), bandEpoch: u64(data, e + S.bandEpoch),
-    bandUncertifiedLong: u64(data, e + S.bandUncertifiedLong), bandUncertifiedShort: u64(data, e + S.bandUncertifiedShort),
-    bandLiqPendingLong: u64(data, e + S.bandLiqPendingLong), bandLiqPendingShort: u64(data, e + S.bandLiqPendingShort),
-    bandPinSinceSlot: u64(data, e + S.bandPinSinceSlot), rentIndexLongNum: u128(data, e + S.rentIndexLongNum), rentIndexShortNum: u128(data, e + S.rentIndexShortNum),
-    rentUnroutedAtoms: u128(data, e + S.rentUnroutedAtoms), oiEffLongQ: u128(data, e + A.oiEffLongQ), oiEffShortQ: u128(data, e + A.oiEffShortQ),
-    storedPosCountLong: u64(data, e + S.storedPosCountLong), storedPosCountShort: u64(data, e + S.storedPosCountShort),
+    effectivePrice: u64(v, e + A.effectivePrice), rawOracleTargetPrice: u64(v, e + A.rawOracleTargetPrice),
+    bandAnchorPrice: u64(v, e + S.bandAnchorPrice), bandAnchorSlot: u64(v, e + S.bandAnchorSlot), bandEpoch: u64(v, e + S.bandEpoch),
+    bandUncertifiedLong: u64(v, e + S.bandUncertifiedLong), bandUncertifiedShort: u64(v, e + S.bandUncertifiedShort),
+    bandLiqPendingLong: u64(v, e + S.bandLiqPendingLong), bandLiqPendingShort: u64(v, e + S.bandLiqPendingShort),
+    bandPinSinceSlot: u64(v, e + S.bandPinSinceSlot), rentIndexLongNum: u128(v, e + S.rentIndexLongNum), rentIndexShortNum: u128(v, e + S.rentIndexShortNum),
+    rentUnroutedAtoms: u128(v, e + S.rentUnroutedAtoms), oiEffLongQ: u128(v, e + A.oiEffLongQ), oiEffShortQ: u128(v, e + A.oiEffShortQ),
+    storedPosCountLong: u64(v, e + S.storedPosCountLong), storedPosCountShort: u64(v, e + S.storedPosCountShort),
   };
 }
 
@@ -379,13 +381,14 @@ export function decodeAssetBandStateV22(data: Uint8Array, assetIndex = 0): Asset
 export function decodeAssetRentStateV22(data: Uint8Array, assetIndex = 0): AssetRentStateV22 {
   const { g, B } = bandLayout(data, "decodeAssetRentStateV22");
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex >= g.slotCount) throw new RangeError(`asset ${assetIndex} is not present`);
+  const v = dv(data);
   const s = g.slotOff(assetIndex);
   const W = g.layout.wrapperSlot;
   return {
     growthOn: data[s + W.growth + B.growth.version] !== 0,
-    rentKinkBps: u16(data, s + W.growth + B.growth.rentKinkBps),
-    rentNCapQ: u64(data, s + W.growth + B.growth.rentNCapQ),
-    vaultLpNetQ: i128(data, s + W.vaultLp + B.vaultLp.lpNetQ),
+    rentKinkBps: u16(v, s + W.growth + B.growth.rentKinkBps),
+    rentNCapQ: u64(v, s + W.growth + B.growth.rentNCapQ),
+    vaultLpNetQ: i128(v, s + W.vaultLp + B.vaultLp.lpNetQ),
     vaultLpBound: (data[s + W.vaultLp + B.vaultLp.flags] & 1) === 1,
   };
 }
