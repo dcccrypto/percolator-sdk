@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    coverage: { exclude: ["scripts/**", "test/**", "dist/**", "**/*.config.*"] },
     include: [
       "test/issue-370-regression.test.ts",
       "test/v17-kind-gate.test.ts",
@@ -96,6 +97,7 @@ export default defineConfig({
       "test/v22-math-edges.test.ts",
       "test/slab-branch-coverage.test.ts",
       "test/discovery-branches.test.ts",
+      "test/discovery-dedup-dataview.test.ts",
       "test/instructions-compat-branches.test.ts",
       "test/ata.test.ts",
       "test/encode-edges.test.ts",
