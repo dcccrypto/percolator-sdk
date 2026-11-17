@@ -50,6 +50,7 @@ export default defineConfig({
       "test/p3-final.test.ts",
       "test/stake-wind-down.test.ts",
       "test/risk-limits-p1.test.ts",
+      "test/risk-limits-p1-prog-diff.test.ts",
       "test/growth-v19.test.ts", "test/growth-depth-v22.test.ts", "test/growth-tiers-v22.test.ts", "test/growth-controller-v22.test.ts", "test/growth-curve-parity.test.ts", "test/v22-depth-source.test.ts", "test/v22-depth-math-parity.test.ts","test/v22-f3-dex-pin.test.ts",
       "test/p2b-lock-exits.test.ts",
       "test/p2b-earn.test.ts",
