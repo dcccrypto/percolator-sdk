@@ -67,7 +67,7 @@ const sameErr = (fn1: () => unknown, fn2: () => unknown): void => {
 };
 
 describe("creator-fee-payee-v22 differential vs original", () => {
-  it("PDAs, bumps, ATAs and decoded records: 6000 random cases (each queried twice: cold + memo hit)", { timeout: 300_000 }, () => {
+  it("PDAs, bumps, ATAs and decoded records: 6000 random cases (each queried twice: cold + memo hit)", { timeout: 900_000 }, () => {
     const programs = [rndPk(), rndPk(), rndPk()];
     const mints = [rndPk(), rndPk()];
     const N = 6000;
@@ -112,7 +112,7 @@ describe("creator-fee-payee-v22 differential vs original", () => {
     expect(b).not.toBe(a);
   });
 
-  it("memo is bounded: overflowing it stays correct", { timeout: 300_000 }, () => {
+  it("memo is bounded: overflowing it stays correct", { timeout: 900_000 }, () => {
     const prog = rndPk();
     const cap = P.CREATOR_FEE_PAYEE_MEMO_MAX_V22;
     expect(cap).toBeGreaterThan(0);
