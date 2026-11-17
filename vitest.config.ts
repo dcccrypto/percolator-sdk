@@ -55,6 +55,7 @@ export default defineConfig({
       "test/txv1-coverage.test.ts",
       "test/v22-parity.test.ts",
       "test/layout-guard.test.ts",
+      "test/layout-geometry-differential.test.ts",
       "test/v22-builders.test.ts",
       "test/v22-band.test.ts",
       "test/v22-fill-events.test.ts", "test/lev-guard-v22.test.ts", "test/lev-guard-limits-v22.test.ts",
