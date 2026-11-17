@@ -25,14 +25,17 @@ const rn = (max: number) => (rnd() < 0.3 ? pick(numEdges) : Math.floor(rnd() * (
 function run<T>(f: () => T): { ok: true; v: T } | { ok: false; e: string } {
   try { return { ok: true, v: f() }; } catch (e) { return { ok: false, e: (e as Error).message }; }
 }
+const ser = (r: ReturnType<typeof run>): string =>
+  r.ok ? "ok:" + JSON.stringify(r.v, (_k, v) => (typeof v === "bigint" ? `${v}n` : v instanceof Uint8Array ? `u8:${Buffer.from(v).toString("hex")}` : v)) : "err:" + r.e;
+// Cheap string comparison; only call expect() on a mismatch (expect per case is far too slow for 20k+ cases).
 function same(a: () => unknown, b: () => unknown): number {
-  const x = run(a), y = run(b);
-  expect(y).toEqual(x);
+  const x = ser(run(a)), y = ser(run(b));
+  if (x !== y) expect(y).toBe(x);
   return 1;
 }
 const N = 20_000;
 
-describe("p3 differential vs frozen copy", () => {
+describe("p3 differential vs frozen copy", { timeout: 300_000 }, () => {
   it("usdToQCappedP3 / pinnedMatcherCapsP3 over random + boundary prices", () => {
     const prices = [0n, 1n, 2n, 3n, 1_000_000n, 5_000_000_000n, 50_000_000_000n, 250_000_000_000n, 5_000_000_000_000_000n,
       25_000_000_000_000_000n, 25_000_000_000_000_000n + 1n, 25_000_000_000_000_000n - 1n, 5_000_000_000_000_000n + 1n,
@@ -40,8 +43,8 @@ describe("p3 differential vs frozen copy", () => {
       U64, U64 + 1n, U128, -1n, -1_000_000n];
     for (let i = 0; i < N; i++) prices.push(rnd() < 0.5 ? rbig(64) : BigInt(Math.floor(rnd() * 10 ** Math.floor(rnd() * 17))));
     for (const p of prices) {
-      expect(cur.pinnedMatcherCapsP3(p)).toEqual(old.pinnedMatcherCapsP3(p));
-      expect(cur.usdToQCappedP3(5_000n, p)).toEqual(old.usdToQCappedP3(5_000n, p));
+      same(() => cur.pinnedMatcherCapsP3(p), () => old.pinnedMatcherCapsP3(p));
+      same(() => cur.usdToQCappedP3(5_000n, p), () => old.usdToQCappedP3(5_000n, p));
     }
   });
   it("encodeInitVaultLpP3", () => {
