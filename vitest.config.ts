@@ -95,6 +95,7 @@ export default defineConfig({
       "test/warmup-math.test.ts",
       "test/validation-behaviour.test.ts",
       "test/tx-branches.test.ts",
+      "test/tx-blockhash-commitment.test.ts",
       "test/v22-lot-exp-profile.test.ts",
       "test/v22-math-edges.test.ts",
       "test/slab-branch-coverage.test.ts",
