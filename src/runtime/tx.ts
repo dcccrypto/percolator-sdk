@@ -130,6 +130,11 @@ export const V17_WRAPPER_HEAP_FRAME_BYTES = 128 * 1024;
 const MIN_HEAP_FRAME_BYTES = 32 * 1024;
 const MAX_HEAP_FRAME_BYTES = 256 * 1024;
 
+/** JSON.stringify that tolerates BigInt values (RPC errors can carry them). */
+function safeStringify(v: unknown): string {
+  return JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
+}
+
 export async function simulateOrSend(
   params: SimulateOrSendParams
 ): Promise<TxResult> {
@@ -201,7 +206,13 @@ export async function simulateOrSend(
   }
 
   tx.add(ix);
-  const latestBlockhash = await connection.getLatestBlockhash(effectiveCommitment);
+  // The blockhash is fetched at "confirmed" even when the send is CONFIRMED at "finalized":
+  // a finalized blockhash is ~32 slots (~13s) older, which eats into the ~150-block validity
+  // window (and lastValidBlockHeight derives from it), causing BlockhashNotFound / early
+  // expiry under load. Finality only matters for the confirm step below.
+  const blockhashCommitment: Commitment =
+    effectiveCommitment === "finalized" ? "confirmed" : effectiveCommitment;
+  const latestBlockhash = await connection.getLatestBlockhash(blockhashCommitment);
   tx.recentBlockhash = latestBlockhash.blockhash;
   tx.feePayer = signers[0].publicKey;
 
@@ -219,7 +230,7 @@ export async function simulateOrSend(
           err = `${parsed.name} (0x${parsed.code.toString(16)})`;
           hint = parsed.hint;
         } else {
-          err = JSON.stringify(result.value.err);
+          err = safeStringify(result.value.err);
         }
       }
 
@@ -293,7 +304,7 @@ export async function simulateOrSend(
         err = `${parsed.name} (0x${parsed.code.toString(16)})`;
         hint = parsed.hint;
       } else {
-        err = JSON.stringify(confirmation.value.err);
+        err = safeStringify(confirmation.value.err);
       }
     }
 
@@ -338,7 +349,7 @@ export async function simulateOrSend(
             err = `${parsed.name} (0x${parsed.code.toString(16)})`;
             hint = parsed.hint;
           } else {
-            err = JSON.stringify(status.value.err);
+            err = safeStringify(status.value.err);
           }
         }
         return {
