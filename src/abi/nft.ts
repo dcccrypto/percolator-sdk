@@ -301,6 +301,33 @@ function u64Buf(value: bigint | number, label: string): Uint8Array {
   return buf;
 }
 
+// PDA derivation (findProgramAddressSync) is ~2 ms each; the result is a pure
+// function of (kind, programId, seeds), so memoise. Bounded; cleared when full.
+const EMPTY = new Uint8Array(0);
+const PDA_CACHE_MAX = 4096;
+const pdaCache = new Map<string, [PublicKey, number]>();
+
+function memoPda(
+  kind: string,
+  programId: PublicKey,
+  a: Uint8Array,
+  b: Uint8Array,
+  compute: () => [PublicKey, number],
+): [PublicKey, number] {
+  const key =
+    kind +
+    String.fromCharCode(...programId.toBytes()) +
+    String.fromCharCode(...a) +
+    String.fromCharCode(...b);
+  const hit = pdaCache.get(key);
+  // Fresh tuple per call so callers cannot corrupt the cache entry.
+  if (hit) return [hit[0], hit[1]];
+  const res = compute();
+  if (pdaCache.size >= PDA_CACHE_MAX) pdaCache.clear();
+  pdaCache.set(key, res);
+  return [res[0], res[1]];
+}
+
 /**
  * Derive the PositionNft state PDA.
  * Seeds: ["position_nft", portfolio_account, market_id_u64_LE]
@@ -317,9 +344,13 @@ export function deriveNftPda(
   marketId: bigint | number,
   programId: PublicKey = NFT_PROGRAM_ID,
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [TEXT.encode("position_nft"), portfolioAccount.toBytes(), u64Buf(marketId, "marketId")],
-    programId,
+  const seedMarket = u64Buf(marketId, "marketId");
+  const portfolioBytes = portfolioAccount.toBytes();
+  return memoPda("n", programId, portfolioBytes, seedMarket, () =>
+    PublicKey.findProgramAddressSync(
+      [TEXT.encode("position_nft"), portfolioBytes, seedMarket],
+      programId,
+    ),
   );
 }
 
@@ -346,9 +377,8 @@ export function deriveNftMint(
 export function deriveMintAuthority(
   programId: PublicKey = NFT_PROGRAM_ID,
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [TEXT.encode("mint_authority")],
-    programId,
+  return memoPda("m", programId, EMPTY, EMPTY, () =>
+    PublicKey.findProgramAddressSync([TEXT.encode("mint_authority")], programId),
   );
 }
 
@@ -362,9 +392,12 @@ export function deriveExtraAccountMetas(
   nftMint: PublicKey,
   programId: PublicKey = NFT_PROGRAM_ID,
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [TEXT.encode("extra-account-metas"), nftMint.toBytes()],
-    programId,
+  const mintBytes = nftMint.toBytes();
+  return memoPda("x", programId, mintBytes, EMPTY, () =>
+    PublicKey.findProgramAddressSync(
+      [TEXT.encode("extra-account-metas"), mintBytes],
+      programId,
+    ),
   );
 }
 
