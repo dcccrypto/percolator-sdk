@@ -723,6 +723,10 @@ export class RpcPool {
         if (result.healthy) {
           ep.failures = 0;
           ep.unhealthySince = undefined;
+        } else {
+          // Start the recovery clock, otherwise selectEndpoint's time-based
+          // recovery never restores an endpoint that healthCheck marked down.
+          ep.unhealthySince = ep.unhealthySince ?? Date.now();
         }
         result.endpoint = redactUrl(result.endpoint);
         return result;

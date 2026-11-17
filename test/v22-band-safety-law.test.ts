@@ -19,6 +19,9 @@ const fixture = JSON.parse(
   readFileSync(fileURLToPath(new URL("./fixtures/v22-bsl/parity.json", import.meta.url)), "utf8"),
 ) as { rows: ParityRow[] };
 
+/** The 1.7k-row grid costs ~2 s alone (checkBandSafetyLawV22 ~1.9 ms/row) and passes 5 s only on an idle CPU (measured, see PR). */
+const HEAVY = 30_000;
+
 const revive = (o: Record<string, unknown>): BandSafetyLawInputV22 =>
   JSON.parse(JSON.stringify(o), (_k, v: unknown) => (typeof v === "string" && /^\d+n$/.test(v) ? BigInt(v.slice(0, -1)) : v)) as BandSafetyLawInputV22;
 
@@ -70,7 +73,7 @@ describe("Band Safety Law pre-check: parity with the program (LiteSVM, real .so)
     }
     expect(mismatches).toEqual([]);
     expect(compared).toBeGreaterThan(1500);
-  });
+  }, HEAVY);
 });
 
 describe("Band Safety Law pre-check: the decided settings", () => {
