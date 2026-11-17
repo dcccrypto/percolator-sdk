@@ -30,10 +30,13 @@ describe("decodeTerminalInsuranceCapacity differential vs per-field-DataView ref
       else if (mode === 2) len = 16 + (rnd() % 200_000);
       else len = 0 + (rnd() % 64);
       const off = rnd() % 64; // non-zero byteOffset view
-      const d = new Uint8Array(base.buffer, off, Math.min(len, FULL - off)).slice(0); // own copy
+      const n0 = Math.min(len, FULL - off);
+      const host = new Uint8Array(n0 + 64); // own copy placed at a non-zero byteOffset inside a larger buffer
+      host.set(base.subarray(off, off + n0), 32);
+      const d = host.subarray(32, 32 + n0);
       for (let i = 0; i < d.length; i += 1 + (rnd() % 4096)) d[i] = rnd() & 0xff; // perturb
       if (n % 3 !== 0) stampMarket(d.length >= 16 ? d : new Uint8Array(16), LAYOUT_V22.version);
-      const view = n % 5 === 0 ? new Uint8Array(d.buffer, d.byteOffset, d.length) : d;
+      const view = d;
       const asset = [0, 0, 1, 2, -1, 1.5, 7][n % 7];
       const a = run(next, view, asset), b = run(legacy, view, asset);
       expect(a).toEqual(b);
