@@ -374,11 +374,33 @@ export type RedemptionSimulationKindV22 = "ok" | "belowMinPayout" | "notLossCurr
 export function classifyRedemptionSimulationV22(r: { err: unknown; logs: readonly string[] }): { kind: RedemptionSimulationKindV22; code?: number } {
   if (r.err === null || r.err === undefined) return { kind: "ok" };
   const text = r.logs.join("\n");
-  if (/exceeded CUs meter|ComputationalBudgetExceeded|exceeded maximum number of instructions/i.test(text) || /ComputationalBudgetExceeded/.test(JSON.stringify(r.err))) return { kind: "computeBudgetExceeded" };
+  if (/exceeded CUs meter|ComputationalBudgetExceeded|exceeded maximum number of instructions/i.test(text) || /ComputationalBudgetExceeded/.test(safeStringifyV22(r.err))) return { kind: "computeBudgetExceeded" };
   const parsed = parseErrorFromLogs([...r.logs]);
-  if (parsed?.code === 117) return { kind: "belowMinPayout", code: 117 };
-  if (parsed?.code === 118) return { kind: "notLossCurrent", code: 118 };
-  return parsed ? { kind: "other", code: parsed.code } : { kind: "other" };
+  // A code raised by a CPI'd program (token, matcher, stake, nft) is never the wrapper's 117/118.
+  const cpi = parsed !== null && parsed.program !== "wrapper" && parsed.program !== "unknown";
+  const code = cpi ? parsed.code : customCodeFromErrV22(r.err) ?? parsed?.code;
+  if (code === 117 && !cpi) return { kind: "belowMinPayout", code: 117 };
+  if (code === 118 && !cpi) return { kind: "notLossCurrent", code: 118 };
+  return code !== undefined ? { kind: "other", code } : { kind: "other" };
+}
+
+/** JSON.stringify that never throws (BigInt, circular). */
+function safeStringifyV22(v: unknown): string {
+  try {
+    return JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** The `Custom` code of an `{ InstructionError: [ix, { Custom: n }] }` err, or undefined. Works when logs are truncated. */
+function customCodeFromErrV22(err: unknown): number | undefined {
+  if (typeof err !== "object" || err === null) return undefined;
+  const ie = (err as { InstructionError?: unknown }).InstructionError;
+  if (!Array.isArray(ie) || ie.length < 2) return undefined;
+  const c = (ie[1] as { Custom?: unknown } | null)?.Custom;
+  if (typeof c === "bigint") return c >= 0n && c <= 0xffff_ffffn ? Number(c) : undefined;
+  return typeof c === "number" && Number.isInteger(c) && c >= 0 ? c : undefined;
 }
 
 // ============================================================================
