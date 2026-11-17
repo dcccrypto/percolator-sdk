@@ -21,6 +21,7 @@ export default defineConfig({
       "test/accounts.test.ts",
       "test/program-ids.test.ts",
       "test/stake.test.ts",
+      "test/stake-pda-memo.test.ts",
       "test/stake-290-slab-accounts.test.ts",
       "test/tx.test.ts",
       "src/solana/__tests__/stake.test.ts",

@@ -587,22 +587,44 @@ Object.freeze(STAKE_ERRORS);
 
 const TEXT = new TextEncoder();
 
+/**
+ * Bounded memo for stake PDAs. findProgramAddressSync costs milliseconds (up to 255 sha256 +
+ * curve checks). The key is the resolved programId (base58) plus tag and seed keys, so a changed
+ * STAKE_PROGRAM_ID / NETWORK resolves to a different programId and can never hit a stale entry.
+ * getStakeProgramId() is still called on every omitted-programId call (never cached).
+ */
+const PDA_MEMO_MAX = 4096;
+const pdaMemo = new Map<string, [PublicKey, number]>();
+
+function memoPda(tag: string, seeds: PublicKey[], programId: PublicKey): [PublicKey, number] {
+  let key = tag + programId.toBase58();
+  for (const s of seeds) key += ':' + s.toBase58();
+  let hit = pdaMemo.get(key);
+  if (!hit) {
+    const [addr, bump] = PublicKey.findProgramAddressSync(
+      [TEXT.encode(tag), ...seeds.map((s) => s.toBytes())],
+      programId,
+    );
+    hit = [addr, bump];
+    if (pdaMemo.size >= PDA_MEMO_MAX) pdaMemo.delete(pdaMemo.keys().next().value as string); // FIFO evict
+    pdaMemo.set(key, hit);
+  }
+  return [hit[0], hit[1]]; // fresh tuple; PublicKey is treated as immutable
+}
+
 /** Derive the stake pool PDA for a given slab (market). */
-export function deriveStakePool(slab: PublicKey, programId?: PublicKey) {
-  return PublicKey.findProgramAddressSync(
-    [TEXT.encode('stake_pool'), slab.toBytes()],    programId ?? getStakeProgramId(),  );
+export function deriveStakePool(slab: PublicKey, programId?: PublicKey): [PublicKey, number] {
+  return memoPda('stake_pool', [slab], programId ?? getStakeProgramId());
 }
 
 /** Derive the vault authority PDA (signs CPI, owns LP mint + vault). */
-export function deriveStakeVaultAuth(pool: PublicKey, programId?: PublicKey) {
-  return PublicKey.findProgramAddressSync(
-    [TEXT.encode('vault_auth'), pool.toBytes()],    programId ?? getStakeProgramId(),  );
+export function deriveStakeVaultAuth(pool: PublicKey, programId?: PublicKey): [PublicKey, number] {
+  return memoPda('vault_auth', [pool], programId ?? getStakeProgramId());
 }
 
 /** Derive the per-user deposit PDA (tracks cooldown, deposit time). */
-export function deriveDepositPda(pool: PublicKey, user: PublicKey, programId?: PublicKey) {
-  return PublicKey.findProgramAddressSync(
-    [TEXT.encode('stake_deposit'), pool.toBytes(), user.toBytes()],    programId ?? getStakeProgramId(),  );
+export function deriveDepositPda(pool: PublicKey, user: PublicKey, programId?: PublicKey): [PublicKey, number] {
+  return memoPda('stake_deposit', [pool, user], programId ?? getStakeProgramId());
 }
 
 // ═══════════════════════════════════════════════════════════════
