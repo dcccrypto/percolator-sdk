@@ -72,11 +72,16 @@ describe("Rust r3_item6_vol_term", () => {
     const U128 = (1n << 128n) - 1n;
     expect(isqrtCeil(U128)).toBe(1n << 64n);
     expect([isqrtCeil(16n), isqrtCeil(17n), isqrtCeil(2n), isqrtCeil(3n), isqrtCeil(4n)]).toEqual([4n, 5n, 2n, 2n, 2n]);
+    // Incremental: ceil sqrt(x) == r exactly for x in ((r-1)^2, r^2]; walk r upward with a running bound
+    // (one compare per x, no per-x multiplications), so every x in 0..199,999 is still checked.
+    let want = 0n; // expected ceil sqrt for the current x
+    let top = 0n; // want^2: the largest x that still has ceil sqrt == want
     for (let x = 0n; x < 200_000n; x++) {
+      if (x > top) { want++; top = want * want; }
       const r = isqrtCeil(x);
-      if (!(r * r >= x && (r === 0n || (r - 1n) * (r - 1n) < x))) throw new Error(`ceil sqrt(${x}) = ${r}`);
+      if (r !== want) throw new Error(`ceil sqrt(${x}) = ${r}, want ${want}`);
     }
-    for (const k of [(1n << 64n) - 1n, (1n << 64n) + 1n, U128 - 1n, (1n << 127n) + 12_345n]) {
+    for (const k of [(1n << 52n) - 1n, 1n << 52n, (1n << 52n) + 1n, (1n << 52n) - 7_919n, (1n << 64n) - 1n, (1n << 64n) + 1n, U128 - 1n, (1n << 127n) + 12_345n]) {
       const r = isqrtCeil(k);
       expect(r * r >= k && (r - 1n) * (r - 1n) < k, `ceil sqrt(${k}) = ${r}`).toBe(true);
     }
