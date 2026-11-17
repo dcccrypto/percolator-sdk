@@ -78,6 +78,7 @@ export default defineConfig({
       "test/v22-launch-settings.test.ts", "test/v22-init-signer.test.ts",
       "test/creator-fee-payee-v22.test.ts",
       "test/v22-band-safety-law.test.ts",
+      "test/v22-band-safety-law-branches.test.ts",
       "test/bond-carry-571.test.ts",
       "test/v22-resolved-receipt-filter.security.test.ts",
       "test/instructions-wire-coverage.test.ts",
