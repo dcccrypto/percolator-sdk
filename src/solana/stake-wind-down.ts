@@ -69,12 +69,11 @@ export const ENGINE_BOUND_SCALE = 1_000_000_000_000n;
 /** Engine `MarketModeV16` byte. */
 export const MARKET_MODE_V18 = Object.freeze({ Live: 0, Resolved: 1, Recovery: 2 } as const);
 
-function u128(d: Uint8Array, o: number): bigint {
-  const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
+function u128(v: DataView, o: number): bigint {
   return (v.getBigUint64(o + 8, true) << 64n) | v.getBigUint64(o, true);
 }
-function u64(d: Uint8Array, o: number): bigint {
-  return new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(o, true);
+function u64(v: DataView, o: number): bigint {
+  return v.getBigUint64(o, true);
 }
 const min = (a: bigint, b: bigint): bigint => (a < b ? a : b);
 const subSat = (a: bigint, b: bigint): bigint => (a > b ? a - b : 0n);
@@ -158,16 +157,17 @@ export function decodeTerminalInsuranceCapacity(marketData: Uint8Array, assetInd
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || marketData.length < slotBase + E.insuranceReservationShort + 16) {
     throw new Error(`market account too short for asset ${assetIndex}`);
   }
-  const vault = u128(marketData, H + hdr.vault);
-  const insurance = u128(marketData, H + hdr.insurance);
-  const sourceReserved = u128(marketData, H + hdr.sourceInsuranceCreditReservedTotalAtoms);
+  const dv = new DataView(marketData.buffer, marketData.byteOffset, marketData.byteLength); // one view per decode
+  const vault = u128(dv, H + hdr.vault);
+  const insurance = u128(dv, H + hdr.insurance);
+  const sourceReserved = u128(dv, H + hdr.sourceInsuranceCreditReservedTotalAtoms);
   const globalAvailable = subSat(insurance, sourceReserved);
   const mode = marketData[H + hdr.mode];
   const dom = (side: "long" | "short"): InsuranceDomainBudget => {
     const L = side === "long";
-    const budget = u128(marketData, slotBase + (L ? E.insuranceDomainBudgetLong : E.insuranceDomainBudgetShort));
-    const spent = u128(marketData, slotBase + (L ? E.insuranceDomainSpentLong : E.insuranceDomainSpentShort));
-    const reservedAtoms = ceilDiv(u128(marketData, slotBase + (L ? E.insuranceReservationLong : E.insuranceReservationShort)), ENGINE_BOUND_SCALE);
+    const budget = u128(dv, slotBase + (L ? E.insuranceDomainBudgetLong : E.insuranceDomainBudgetShort));
+    const spent = u128(dv, slotBase + (L ? E.insuranceDomainSpentLong : E.insuranceDomainSpentShort));
+    const reservedAtoms = ceilDiv(u128(dv, slotBase + (L ? E.insuranceReservationLong : E.insuranceReservationShort)), ENGINE_BOUND_SCALE);
     const budgetRemaining = subSat(subSat(budget, spent), reservedAtoms);
     return {
       domain: assetIndex * 2 + (L ? 0 : 1), side, budget, spent, reservedAtoms, budgetRemaining,
@@ -178,10 +178,10 @@ export function decodeTerminalInsuranceCapacity(marketData: Uint8Array, assetInd
   const sum = domains[0].withdrawCapacity + domains[1].withdrawCapacity;
   return {
     assetIndex, mode, resolved: mode === MARKET_MODE_V18.Resolved, vault, insurance,
-    cTot: u128(marketData, H + hdr.cTot),
-    materializedPortfolioCount: u64(marketData, H + hdr.materializedPortfolioCount),
+    cTot: u128(dv, H + hdr.cTot),
+    materializedPortfolioCount: u64(dv, H + hdr.materializedPortfolioCount),
     sourceInsuranceCreditReservedTotalAtoms: sourceReserved, globalAvailable,
-    headerBudgetRemainingTotal: u128(marketData, H + hdr.insuranceDomainBudgetRemainingTotal),
+    headerBudgetRemainingTotal: u128(dv, H + hdr.insuranceDomainBudgetRemainingTotal),
     assetBudgetRemaining: subSat(domains[0].budget, domains[0].spent) + subSat(domains[1].budget, domains[1].spent),
     domains,
     terminalCapacity: min(min(sum, globalAvailable), vault),
