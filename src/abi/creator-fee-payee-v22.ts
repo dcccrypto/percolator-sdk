@@ -177,9 +177,36 @@ export const ACCOUNTS_WITHDRAW_CREATOR_FEE_TO_PAYEE_V22: readonly AccountSpec[] 
  */
 export function deriveCreatorFeePayeeV22(programId: PublicKey, market: PublicKey, assetIndex: number): [PublicKey, number] {
   checkAssetIndex(assetIndex, "deriveCreatorFeePayeeV22");
+  const progB = programId.toBytes();
+  const marketB = market.toBytes();
+  const key = memoKey(progB, marketB, assetIndex);
+  const hit = PAYEE_PDA_MEMO.get(key);
+  if (hit) return [hit[0], hit[1]];
   const idx = new Uint8Array(2);
   new DataView(idx.buffer).setUint16(0, assetIndex, true);
-  return PublicKey.findProgramAddressSync([Buffer.from(CREATOR_FEE_PAYEE_SEED_V22), market.toBuffer(), Buffer.from(idx)], programId);
+  const res = PublicKey.findProgramAddressSync([Buffer.from(CREATOR_FEE_PAYEE_SEED_V22), marketB, idx], programId);
+  memoSet(PAYEE_PDA_MEMO, key, res);
+  return [res[0], res[1]];
+}
+
+/** Max entries per derivation memo (FIFO eviction); 1k markets x 4 assets x a few programs fits comfortably. */
+export const CREATOR_FEE_PAYEE_MEMO_MAX_V22 = 16384;
+const PAYEE_PDA_MEMO = new Map<string, readonly [PublicKey, number]>();
+const PAYEE_ATA_MEMO = new Map<string, PublicKey>();
+
+/** Exact-bytes key (latin1 string of 32-byte a + 32-byte b + u16): collision-free, no base58. */
+function memoKey(a: Uint8Array, b: Uint8Array, n: number): string {
+  return String.fromCharCode(n & 0xff, n >> 8) + Buffer.from(a.buffer, a.byteOffset, 32).toString("latin1") + Buffer.from(b.buffer, b.byteOffset, 32).toString("latin1");
+}
+
+function memoSet<V>(m: Map<string, V>, key: string, v: V): void {
+  if (m.size >= CREATOR_FEE_PAYEE_MEMO_MAX_V22) m.delete(m.keys().next().value as string);
+  m.set(key, v);
+}
+
+/** Current total memo entries (test/diagnostic hook; always <= 2 * {@link CREATOR_FEE_PAYEE_MEMO_MAX_V22}). */
+export function creatorFeePayeeMemoSizeV22(): number {
+  return Math.max(PAYEE_PDA_MEMO.size, PAYEE_ATA_MEMO.size);
 }
 
 /** Associated Token Account program id (the one `canonical_vault_address` derives under). */
@@ -201,10 +228,14 @@ const SPL_TOKEN_PROGRAM_ID_V22 = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf
  * ```
  */
 export function creatorFeePayeeDestinationV22(payee: PublicKey, vaultMint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [payee.toBuffer(), SPL_TOKEN_PROGRAM_ID_V22.toBuffer(), vaultMint.toBuffer()],
-    ASSOCIATED_TOKEN_PROGRAM_ID_V22,
-  )[0];
+  const payeeB = payee.toBytes();
+  const mintB = vaultMint.toBytes();
+  const key = memoKey(payeeB, mintB, 0);
+  const hit = PAYEE_ATA_MEMO.get(key);
+  if (hit) return hit;
+  const ata = PublicKey.findProgramAddressSync([payeeB, SPL_TOKEN_PROGRAM_ID_V22.toBytes(), mintB], ASSOCIATED_TOKEN_PROGRAM_ID_V22)[0];
+  memoSet(PAYEE_ATA_MEMO, key, ata);
+  return ata;
 }
 
 // ============================================================================
@@ -261,8 +292,8 @@ export function decodeCreatorFeePayeeV22(data: Uint8Array, table: LayoutTable = 
   if (eq32(payee, ZERO32)) bad("zero payee");
   if (reserved.some((x) => x !== 0)) bad("reserved bytes not zero");
   return {
-    market: new PublicKey(market.slice()),
-    payee: new PublicKey(payee.slice()),
+    market: new PublicKey(market),
+    payee: new PublicKey(payee),
     assetIndex: data[b + F.assetIndex] | (data[b + F.assetIndex + 1] << 8),
     version,
     bump: data[b + F.bump],
