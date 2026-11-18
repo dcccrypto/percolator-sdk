@@ -62,7 +62,7 @@ export const DEPTH_AMM_PROGRAMS_V22 = Object.freeze({
  * ```
  */
 export function deriveDepthSourceV22(programId: PublicKey, market: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from(DEPTH_SOURCE_SEED_V22), market.toBuffer()], programId);
+  return memoDerive(memoDepthSource, hex(programId, market), () => PublicKey.findProgramAddressSync([Buffer.from(DEPTH_SOURCE_SEED_V22), market.toBuffer()], programId));
 }
 
 /** Decision 16 (prog#606): `["pool_claim", pool]`, kind 18, one growth market per spot pool. */
@@ -76,7 +76,7 @@ export const POOL_CLAIM_SEED_V22 = "pool_claim";
  * @returns `[pda, bump]`.
  */
 export function derivePoolClaimV22(programId: PublicKey, pool: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from(POOL_CLAIM_SEED_V22), pool.toBuffer()], programId);
+  return memoDerive(memoPoolClaim, hex(programId, pool), () => PublicKey.findProgramAddressSync([Buffer.from(POOL_CLAIM_SEED_V22), pool.toBuffer()], programId));
 }
 
 /**
@@ -129,6 +129,33 @@ export const ACCOUNTS_PUSH_AUTH_MARK_DEX_TAIL_V22: readonly AccountSpec[] = [
 
 const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
 
+/** Max entries per derivation memo (oldest-inserted evicted first). */
+export const DEPTH_SOURCE_PDA_MEMO_CAP_V22 = 4096;
+const memoProgramData = new Map<string, [PublicKey, number]>();
+const memoDepthSource = new Map<string, [PublicKey, number]>();
+const memoPoolClaim = new Map<string, [PublicKey, number]>();
+
+function memoDerive(memo: Map<string, [PublicKey, number]>, key: string, derive: () => [PublicKey, number]): [PublicKey, number] {
+  const hit = memo.get(key);
+  if (hit) return [hit[0], hit[1]];
+  const v = derive();
+  if (memo.size >= DEPTH_SOURCE_PDA_MEMO_CAP_V22) memo.delete(memo.keys().next().value as string);
+  memo.set(key, v);
+  return [v[0], v[1]];
+}
+const hex = (a: PublicKey, b?: PublicKey): string => Buffer.from(a.toBytes()).toString("latin1") + (b ? Buffer.from(b.toBytes()).toString("latin1") : "");
+
+/** @internal Memoised programData PDA of `programId` (BPF upgradeable loader). */
+export function programDataAddressV22(programId: PublicKey): PublicKey {
+  return memoDerive(memoProgramData, hex(programId), () => PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE))[0];
+}
+
+/** @internal Test hooks: memo sizes and reset. */
+export const _depthSourceMemoV22 = {
+  sizes: () => ({ programData: memoProgramData.size, depthSource: memoDepthSource.size, poolClaim: memoPoolClaim.size }),
+  clear: () => { memoProgramData.clear(); memoDepthSource.clear(); memoPoolClaim.clear(); },
+};
+
 /** Arguments of {@link buildSetDepthSourceIxV22}. */
 export interface SetDepthSourceArgsV22 {
   programId: PublicKey;
@@ -165,7 +192,7 @@ export interface SetDepthSourceArgsV22 {
  * ```
  */
 export function buildSetDepthSourceIxV22(a: SetDepthSourceArgsV22): TransactionInstruction {
-  const [programData] = PublicKey.findProgramAddressSync([a.programId.toBytes()], BPF_LOADER_UPGRADEABLE);
+  const programData = programDataAddressV22(a.programId);
   const keys = [
     ...buildAccountMetas(ACCOUNTS_SET_DEPTH_SOURCE_V22, {
       upgradeAuthority: a.upgradeAuthority, programData, market: a.market, depthSource: deriveDepthSourceV22(a.programId, a.market)[0], systemProgram: SystemProgram.programId,
@@ -203,7 +230,7 @@ export function buildClearDepthSourceIxV22(
   marketId: bigint | string = 0n,
   pinnedPool?: PublicKey,
 ): TransactionInstruction {
-  const [programData] = PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE);
+  const programData = programDataAddressV22(programId);
   const keys = buildAccountMetas(ACCOUNTS_SET_DEPTH_SOURCE_V22, {
     upgradeAuthority, programData, market, depthSource: deriveDepthSourceV22(programId, market)[0], systemProgram: SystemProgram.programId,
   });
