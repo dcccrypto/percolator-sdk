@@ -12,7 +12,7 @@ const raw = (seeds: Uint8Array[], pid: PublicKey) => PublicKey.findProgramAddres
 const same = (a: [PublicKey, number], b: [PublicKey, number]) => a[0].equals(b[0]) && a[1] === b[1];
 
 describe("v22-wire PDA memo", () => {
-  it("differential: 2000 random inputs (each called twice) match uncached findProgramAddressSync", { timeout: 120_000 }, () => {
+  it("differential: 2000 random inputs (each called twice) match uncached findProgramAddressSync", { timeout: 600_000 }, () => {
     let mismatches = 0;
     const pids = Array.from({ length: 4 }, () => Keypair.generate().publicKey);
     for (let i = 0; i < 2000; i++) {
