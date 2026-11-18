@@ -38,7 +38,7 @@ function hex(): string {
   if (style === 5) h = h.toUpperCase();
   if (style === 6) h = h.padStart(8 + ri(6), "0"); // overlong (>8 digits)
   if (style === 7) h = rnd() < 0.5 ? "g" + h : h + "zz"; // not-hex / boundary
-  return (rnd() < 0.3 ? "0X" : "0x") + h; // note "0X" will not match; same in both
+  return (rnd() < 0.3 ? "0X" : "0x") + h; // regex is case-insensitive, so "0X" matches too
 }
 const lineNoise = () =>
   pick([
@@ -71,7 +71,8 @@ function logs(): unknown {
   return a;
 }
 function opts() {
-  switch (ri(6)) {
+  switch (ri(7)) {
+    case 6: return { programIds: { wrapper: [IDS[5], IDS[6]], matcher: [IDS[0]] } }; // extras override built-in ids
     case 0: return undefined;
     case 1: return { context: { action: pick(["trade", "withdraw", "resolve"] as const), openLegs: ri(3), healthCheckStale: rnd() < 0.5 } };
     case 2: return { programIds: { wrapper: [extraKey, extraStr] } };
@@ -91,7 +92,7 @@ describe("parseErrorFromLogs differential vs frozen pre-perf copy", () => {
       const a = legacy(l, o);
       const b = current(l, o);
       if (a === null) nulls++; else errors++;
-      if (JSON.stringify(b) !== JSON.stringify(a) || (a === null) !== (b === null)) { if (mismatches++ < 3) console.error(JSON.stringify({ l, a, b }, (_k, v) => (typeof v === "bigint" ? `${v}n` : v))); }
+      if (JSON.stringify(b) !== JSON.stringify(a) || Object.keys(b ?? {}).join() !== Object.keys(a ?? {}).join() || (a === null) !== (b === null)) { if (mismatches++ < 3) console.error(JSON.stringify({ l, a, b }, (_k, v) => (typeof v === "bigint" ? `${v}n` : v))); }
     }
     expect(mismatches).toBe(0);
     // sanity: the generator exercises both outcomes
