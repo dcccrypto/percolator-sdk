@@ -150,3 +150,42 @@ describe("stress, tier, ramp and ceiling edges", () => {
     expect(growthMatcherCapsG8({ clamp: true, hlockActive: true, cM: 1n, lambdaBps: 1, tier: 0, capDepth: 5n, priceE6: 1n })).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
   });
 });
+
+import { mergeTierConfigAtBind, volSampleX100, graduationFallOnly, stressCapCurveX100, curvePos } from "../src/abi/growth-v19.js";
+
+describe("message formatting, merge and writer edges", () => {
+  it("below-floor message formats USD-like 6-decimal collateral as $, others with the symbol", () => {
+    const usd = validateTierConfig({ thresholdsUsd: [1, 1, 1], leverageX100: [0, 0, 0], lLaunchX100: 500, lTierX100: 2_000, collateral: { decimals: 6, usdLike: true, symbol: "USDC" } });
+    expect(usd.issues.some((x) => x.code === "below-floor" && /\$/.test(x.message))).toBe(true);
+    const sol = validateTierConfig({ thresholdsUsd: [1, 1, 1], leverageX100: [0, 0, 0], lLaunchX100: 500, lTierX100: 2_000, collateral: { decimals: 9, symbol: "SOL" } });
+    expect(sol.issues.some((x) => x.code === "below-floor" && /SOL/.test(x.message))).toBe(true);
+    const bare = validateTierConfig({ thresholdsUsd: [1, 1, 1], leverageX100: [0, 0, 0], lLaunchX100: 500, lTierX100: 2_000 });
+    expect(bare.issues.some((x) => x.code === "below-floor" && /tokens/.test(x.message))).toBe(true);
+  });
+  it("fractional leverage prints with its decimals", () => {
+    const r = validateTierConfig({ thresholdsUsd: [0, 0, 0], leverageX100: [100, 0, 0], lLaunchX100: 450, lTierX100: 2_000 });
+    expect(r.issues.some((x) => /4\.5x/.test(x.message))).toBe(true);
+  });
+  it("mergeTierConfigAtBind keeps every non-zero stored entry over the creator's", () => {
+    const m = mergeTierConfigAtBind({ thresholdUsd: [1, 2, 3], leverageX100: [4, 5, 6] }, { thresholdUsd: [9, 9, 9], leverageX100: [9, 9, 9] });
+    expect(m).toEqual({ thresholdUsd: [1, 2, 3], leverageX100: [4, 5, 6] });
+    const f = mergeTierConfigAtBind({ thresholdUsd: [0, 0, 0], leverageX100: [0, 0, 0] }, { thresholdUsd: [9, 8, 7], leverageX100: [6, 5, 4] });
+    expect(f).toEqual({ thresholdUsd: [9, 8, 7], leverageX100: [6, 5, 4] });
+  });
+  it("volSampleX100 uses |down move| and is null with no previous mark or no elapsed slots", () => {
+    expect(volSampleX100(1_010_000n, 1_000_000n, 10n)).not.toBeNull();
+    expect(volSampleX100(0n, 1n, 1n)).toBeNull();
+    expect(volSampleX100(1n, 1n, 0n)).toBeNull();
+  });
+  it("graduationFallOnly: explicit stress overrides forceDown; forceDown alone means h-lock", () => {
+    const i = { prevCeilX100: 2_000, prevSlot: 7n, graduation: true, lLaunchX100: 500, lTierX100: 2_000, lTableTierX100: 1_000, nowSlot: 99n };
+    expect(graduationFallOnly({ ...i, forceDown: true })).toEqual({ ceilX100: 500, ceilSlot: 99n });
+    expect(graduationFallOnly({ ...i, forceDown: true, stress: STRESS_NONE })).toEqual({ ceilX100: 1_000, ceilSlot: 99n });
+  });
+  it("stressCapCurveX100: none = no cap, h-lock = launch", () => {
+    const t = [500, 500, 1_000, 2_000] as const;
+    const p = curvePos(200_000n, [25_000n, 100_000n, 500_000n]);
+    expect(stressCapCurveX100(STRESS_NONE, p, t)).toBe(0xffff);
+    expect(stressCapCurveX100(STRESS_HLOCK, p, t)).toBe(500);
+  });
+});
