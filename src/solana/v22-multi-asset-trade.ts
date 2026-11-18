@@ -197,17 +197,24 @@ export type MultiAssetTradeRefinementV22 =
  *
  * @param plan  The plan that was simulated.
  * @param err   `simulateTransaction(...).value.err` (e.g. `{ InstructionError: [4, { Custom: 22 }] }`).
+ * @param logs  Optional `simulateTransaction(...).value.logs`; when given, a code raised by a program other than the wrapper (a matcher CPI) is a `fail`, never a stale-health signal.
  * @returns `retry` with the adjusted plan, `wait` (retry the same plan after ~1 slot), or `fail`.
  * @example
  * ```ts
  * const next = refineMultiAssetTradePlanV22(plan, sim.value.err);
  * ```
  */
-export function refineMultiAssetTradePlanV22(plan: MultiAssetTradePlanV22, err: unknown): MultiAssetTradeRefinementV22 {
+export function refineMultiAssetTradePlanV22(plan: MultiAssetTradePlanV22, err: unknown, logs?: readonly string[] | null): MultiAssetTradeRefinementV22 {
   const ie = (err as { InstructionError?: [number, unknown] } | null | undefined)?.InstructionError;
   const inner = ie?.[1];
   const code = typeof inner === "object" && inner !== null && typeof (inner as { Custom?: unknown }).Custom === "number" ? (inner as { Custom: number }).Custom : null;
   if (!ie) return { action: "fail", plan, code, reason: "not an instruction error" };
+  // The wrapper `?`-propagates a matcher CPI's error, so a matcher's Custom 19/22 reaches us as the trade's own code.
+  // The first "Program X failed" log names the program that raised it; only the wrapper's codes drive the rules below.
+  const origin = logs?.map((l) => /^Program (\S+) failed: /.exec(l)?.[1]).find((p) => p !== undefined);
+  if (code !== null && origin !== undefined && origin !== plan.programId.toBase58()) {
+    return { action: "fail", plan, code, reason: `refused with ${code} by program ${origin} (not the wrapper)` };
+  }
   const at = ie[0] - plan.budgetIxs.length; // index among [cranks..., trade]
   const base = { path: plan.path, programId: plan.programId, market: plan.market, cranker: plan.cranker, takerPortfolio: plan.takerPortfolio, lpPortfolio: plan.lpPortfolio, tradeIx: plan.tradeIx, marketSlots: plan.marketSlots, takerActiveLegs: plan.takerActiveLegs, lpActiveLegs: plan.lpActiveLegs };
   if (code === 22 && at >= 0 && at < plan.cranks.length) {

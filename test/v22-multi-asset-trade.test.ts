@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, TransactionInstruction, TransactionMessage } from "@solana/web3.js";
 import {
   buildMultiAssetTradeIxsV22, refineMultiAssetTradePlanV22, buildRefreshCrankIxV22, parseErrorFromLogs, getContextualErrorHint, PERCOLATOR_ERRORS,
   WRAPPER_PRE_CRANK_MIN_LEGS_V22, MULTI_ASSET_TRADE_COMPUTE_UNITS_V22, MULTI_ASSET_TRADE_MAX_EXTRA_CRANKS_V22, PROGRAM_IDS_DEVNET_V22,
@@ -129,5 +129,47 @@ describe("Q-7 multi-asset builder: remaining branches", () => {
     const r = refineMultiAssetTradePlanV22(plan, { InstructionError: [plan.budgetIxs.length, "InvalidArgument"] });
     expect(r).toMatchObject({ action: "fail", code: null, reason: "refused" });
     expect(r.plan).toBe(plan);
+  });
+});
+
+describe("refineMultiAssetTradePlanV22: which program raised the code (J-20261118-SDK-BUG-MULTIASSETREFINE)", () => {
+  const plan = buildMultiAssetTradeIxsV22(input(tradeOf(FX.cases[0]!)));
+  const tradeErr = { InstructionError: [plan.budgetIxs.length + plan.cranks.length, { Custom: 19 }] };
+  const MATCHER = PROGRAM_IDS_DEVNET_V22.nft; // any program id other than the wrapper
+  // prog feat/v22-rc23-2026-10-22 src/v16_program.rs:21463-21469 (`invoke_matcher_batch(...)?`) and :20265-20285
+  // (`invoke_matcher(...)?`): the wrapper `?`-propagates the matcher CPI's ProgramError, so a matcher's Custom(19)
+  // surfaces as the trade instruction's own Custom(19). EngineStale is Custom 19 only for the wrapper (:1477).
+  const matcherLogs = [
+    `Program ${W.toBase58()} invoke [1]`, `Program ${MATCHER} invoke [2]`,
+    `Program ${MATCHER} failed: custom program error: 0x13`, `Program ${W.toBase58()} failed: custom program error: 0x13`,
+  ];
+  const wrapperLogs = [`Program ${W.toBase58()} invoke [1]`, `Program ${W.toBase58()} failed: custom program error: 0x13`];
+  it("a Custom 19 raised by a matcher CPI inside the trade is a refusal, not a stale health check", () => {
+    const r = refineMultiAssetTradePlanV22(plan, tradeErr, matcherLogs);
+    expect(r).toMatchObject({ action: "fail", code: 19 });
+    expect(r.plan).toBe(plan);
+  });
+  it("negative control: the wrapper's own Custom 19 (logs given) still grows the plan", () => {
+    expect(refineMultiAssetTradePlanV22(plan, tradeErr, wrapperLogs).action).toBe("retry");
+  });
+  it("negative control: without logs the behaviour is unchanged", () => {
+    expect(refineMultiAssetTradePlanV22(plan, tradeErr).action).toBe("retry");
+  });
+  it("a Custom 22 from a matcher at the trade is not a crank refusal either (stays a failure)", () => {
+    expect(refineMultiAssetTradePlanV22(plan, { InstructionError: [plan.budgetIxs.length + plan.cranks.length, { Custom: 22 }] }, matcherLogs)).toMatchObject({ action: "fail", code: 22 });
+  });
+});
+
+describe("stalePeers duplicates (lead 3 measurement)", () => {
+  it("duplicate peers add no account keys; the packet cost is one instruction each", () => {
+    const peer = new PublicKey(PROGRAM_IDS_DEVNET_V22.nft);
+    const one = buildMultiAssetTradeIxsV22({ ...input(tradeOf(FX.cases[3]!)), stalePeers: [peer] });
+    const two = buildMultiAssetTradeIxsV22({ ...input(tradeOf(FX.cases[3]!)), stalePeers: [peer, peer] });
+    const size = (p: typeof one) => { const m = new TransactionMessage({ payerKey: OWNER, recentBlockhash: "11111111111111111111111111111111", instructions: p.instructions }).compileToLegacyMessage(); return m.serialize().length + 65; };
+    // measured 2026-11-18: 612 B -> 628 B (+16 B per duplicate), so ~38 duplicates are needed to pass 1232 B. Not a bug;
+    // the second crank is refused 22 and refine drops it.
+    expect(size(two) - size(one)).toBeLessThanOrEqual(16);
+    expect(size(two)).toBeLessThan(1232);
+    expect(two.cranks.filter((k) => k.role === "peer")).toHaveLength(2);
   });
 });
