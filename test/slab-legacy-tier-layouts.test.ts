@@ -58,6 +58,7 @@ describe("legacy size-keyed layouts: detect + every reader", () => {
         const L = detectSlabLayout(len);
         expect(L).not.toBeNull();
         expect(L!.maxAccounts).toBe(n);
+        expect([L!.engineOff, L!.accountSize]).toEqual([eo, as]);
         expect(detectLayout(len)).toEqual({
           bitmapWords: L!.bitmapWords,
           accountsOff: L!.accountsOff,
