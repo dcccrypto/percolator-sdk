@@ -387,3 +387,24 @@ describe("growthCeilingView ratchet ETA edges", () => {
     expect(["ratchet", "none", "depth", "backing", "both"]).toContain(v1.nextUnlock.kind);
   });
 });
+
+describe("growthCeilingView depth rate-limit ETA", () => {
+  const rec = decodeAssetGrowthRecordV19(growthRecord({ launch: 500, tier: 2_000, ceil: 500, slot: 1n })) as AssetGrowthV19;
+  const now = 100_000n;
+  const mk = (over: Partial<AssetGrowthV19>): AssetGrowthV19 => ({
+    ...rec, depthSource: 2, depthE6: 2_000_000_000_000n, depthPrevE6: 2_000_000_000_000n, depthPrevReal: true, depthSlot: now, depthDexPinned: false,
+    depthLastGoodE6: 1_000_000n, depthLastGoodSlot: now - 10n, depthRiseSlot64: 1, rGapBps: 3445, volHasData: true, volVarX100: 2_500, tierThresholdUsd: [25_000, 100_000, 500_000], tierLeverageX100: [600, 1_000, 1_500], ...over,
+  });
+  it("reports when the rate limit lets the usable depth reach the next tier (ever and first-reading paths)", () => {
+    const etas: Array<bigint | undefined> = [];
+    for (const ever of [true, false]) {
+      for (const stamp of [1, 0xffff_ffff]) {
+        const v = growthCeilingView(mk({ depthEver: ever, depthRiseSlot64: stamp }), 1_000, now, 1_000_000_000_000n, STRESS_NONE, { engineImrBps: 500n, liquidationFeeBps: 50n, bandMaxEpochSlots: 600n });
+        const n = v.nextTierUnlock as { depthEtaSlots?: bigint };
+        etas.push(n.depthEtaSlots);
+      }
+    }
+    // order: ever/stamp1, ever/stamp-saturated (never), first-reading/stamp1, first-reading/stamp-saturated
+    expect(etas).toEqual([45_127n, undefined, 45_127n, 45_127n]);
+  });
+});
