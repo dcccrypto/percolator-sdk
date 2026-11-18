@@ -694,7 +694,11 @@ const detectCache = new WeakMap<object, { at: number; ok: boolean }>();
  */
 export async function detectTxV1Support(connection: V1DetectConnection, ttlMs = 10 * 60_000): Promise<boolean> {
   const hit = detectCache.get(connection);
-  if (hit && Date.now() - hit.at < ttlMs) return hit.ok;
+  if (hit) {
+    // age < 0 means the wall clock stepped backwards: treat as expired, not fresh.
+    const age = Date.now() - hit.at;
+    if (age >= 0 && age < ttlMs) return hit.ok;
+  }
   try {
     const info = await connection.getAccountInfo(TX_V1_FEATURE_ID);
     const ok = isFeatureAccountActive(info?.data);
