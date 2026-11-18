@@ -10,6 +10,7 @@ export default defineConfig({
       "test/encode.test.ts",
       "test/errors.test.ts",
       "test/wrapper-errors.test.ts",
+      "test/errors-parse-differential.test.ts",
       "test/lp-redeem-floored.test.ts",
       "test/instructions.test.ts",
       "test/pda.test.ts",
