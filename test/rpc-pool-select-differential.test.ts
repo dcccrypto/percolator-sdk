@@ -1,10 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { RpcPool } from "../src/solana/rpc-pool.js";
 
 /** Verbatim copy of the pre-optimisation selectEndpoint body (array-based). */
 function oldSelect(pool: any, exclude?: Set<number>): number {
   if (pool.recoveryAfterMs > 0) {
-    const now = Date.now();
+    const now = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now);
     for (const ep of pool.endpoints) {
       if (!ep.healthy && ep.unhealthySince !== undefined && now - ep.unhealthySince >= pool.recoveryAfterMs) {
         ep.healthy = true;
@@ -42,7 +43,8 @@ function rng(seed: number) {
 describe("RpcPool.selectEndpoint differential vs old array implementation", () => {
   it("chooses identical indices (and rrIndex) over 10k randomized states", { timeout: 60_000 }, () => {
     const r = rng(0xc0ffee);
-    const now = Date.now();
+    const now = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now);
     let picks = 0;
     const cache = new Map<string, any[]>();
     for (let c = 0; c < 10_000; c++) {
@@ -88,18 +90,22 @@ describe("RpcPool.selectEndpoint differential vs old array implementation", () =
         const want = oldSelect(b, ex);
         expect(got).toBe(want);
         expect(a.rrIndex).toBe(b.rrIndex);
+        const st = (p: any) => p.endpoints.map((e: any) => [e.healthy, e.failures, e.unhealthySince]);
+        expect(st(a)).toEqual(st(b));
         picks++;
         // mutate health between calls to exercise state evolution
         if (r() < 0.3) {
           const i = Math.floor(r() * n);
           const h = r() < 0.5;
+          const age = Math.floor(r() * 2000);
           for (const p of [a, b]) {
             p.endpoints[i].healthy = h;
-            p.endpoints[i].unhealthySince = h ? undefined : Date.now();
+            p.endpoints[i].unhealthySince = h ? undefined : now - age;
           }
         }
       }
     }
     expect(picks).toBe(60_000);
+    vi.restoreAllMocks();
   });
 });
