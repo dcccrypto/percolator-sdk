@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Keypair, PublicKey, SystemProgram, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
   STAKE_POOL_FIELD_OFF_V5,
   STAKE_POOL_SIZE_V5,
@@ -108,6 +108,9 @@ describe("decodeStakePoolV5 optional tail", () => {
   });
   it("unclaimed is the full u64 (low 7 bytes at 281, high byte at 334)", () => {
     const d = mk();
+    for (let i = 0; i < 7; i++) d[281 + i] = i + 1;
+    d[334] = 8;
+    expect(decodeStakePoolV5(d).unclaimedAtoms).toBe(0x0807060504030201n);
     for (let i = 0; i < 7; i++) d[281 + i] = 0xff;
     d[334] = 0xff;
     expect(decodeStakePoolV5(d).unclaimedAtoms).toBe(U64_MAX);
@@ -224,6 +227,8 @@ describe("errors", () => {
   it("decodeStakeErrorV5 owns 33..48 only", () => {
     expect(decodeStakeErrorV5(33)?.name).toBe("ConsentRequired");
     expect(decodeStakeErrorV5(32)).toBeUndefined();
+    expect(decodeStakeErrorV5(48)?.name).toBe("MultiAssetMarketNotSupported");
+    expect(decodeStakeErrorV5(49)).toBeUndefined();
     expect(Object.keys(STAKE_ERRORS_V5).length).toBe(16);
   });
 });
@@ -274,11 +279,12 @@ describe("pool value and quote", () => {
     expect(none.maxCollateralNow).toBe(0n);
     expect(none.maxLpNow).toBe(0n);
   });
-  it("quote: maxLpNow clamped to userLp when the cap formula overshoots", () => {
-    // redeemable > liquidCap by 1 atom of rounding; cap formula can exceed userLp
+  it("quote: cap one atom below redeemable gives an exact maxLpNow", () => {
+    // (cap+1)(S+1)-1)/(pv+1) = (1000*1001-1)/1001 = 999 (the `> userLp` clamp at v22-stake.ts:715 is unreachable defensive code)
     const p = { ...pool, totalDeposited: 1000n, totalFlushed: 0n, totalLpSupply: 1000n };
     const q = quoteStakeWithdrawNowV5(p, { unitsStake: 0n, unitsTotal: 0n }, 0n, 999n, 1000n)!;
-    expect(q.maxLpNow <= 1000n).toBe(true);
+    expect(q.maxLpNow).toBe(999n);
+    expect(q.capBinds).toBe(true);
   });
 });
 
@@ -287,6 +293,6 @@ describe("creatorCollateralAtaV5", () => {
     const admin = Keypair.generate().publicKey;
     const collateralMint = Keypair.generate().publicKey;
     const a = creatorCollateralAtaV5({ admin, collateralMint } as Pick<StakePoolV5, "admin" | "collateralMint">);
-    expect(a.equals(creatorCollateralAtaV5({ admin, collateralMint }))).toBe(true);
+    expect(a.equals(getAssociatedTokenAddressSync(collateralMint, admin, true, TOKEN_PROGRAM_ID))).toBe(true);
   });
 });
