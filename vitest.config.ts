@@ -103,6 +103,7 @@ export default defineConfig({
       "test/instructions-compat-branches.test.ts",
       "test/ata.test.ts",
       "test/encode-edges.test.ts",
+      "test/v22-funding-band-decode-diff.test.ts",
     ],
   },
 });

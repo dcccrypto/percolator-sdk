@@ -78,9 +78,9 @@ const V_FLAGS = 90;
 const PRICE_MANAGED_MODES = new Set([1, 2, 3]);
 
 const dv = (d: Uint8Array): DataView => new DataView(d.buffer, d.byteOffset, d.byteLength);
-const u64 = (d: Uint8Array, o: number): bigint => dv(d).getBigUint64(o, true);
-const u128 = (d: Uint8Array, o: number): bigint => (dv(d).getBigUint64(o + 8, true) << 64n) | dv(d).getBigUint64(o, true);
-const i128 = (d: Uint8Array, o: number): bigint => (dv(d).getBigInt64(o + 8, true) << 64n) + dv(d).getBigUint64(o, true);
+const u64 = (v: DataView, o: number): bigint => v.getBigUint64(o, true);
+const u128 = (v: DataView, o: number): bigint => (v.getBigUint64(o + 8, true) << 64n) | v.getBigUint64(o, true);
+const i128 = (v: DataView, o: number): bigint => (v.getBigInt64(o + 8, true) << 64n) + v.getBigUint64(o, true);
 
 /** Who pays at the current rate. */
 export type FundingPayerV22 = "longs" | "shorts" | "none";
@@ -224,8 +224,9 @@ export function decodeMarketFundingV22(marketData: Uint8Array): MarketFundingV22
   if (g.layout.version !== 19) {
     throw new UnknownLayoutError("UNKNOWN_VERSION", "decodeMarketFundingV22", `needs a v2.2 market (VERSION 19), got VERSION ${g.layout.version}`, { version: g.layout.version });
   }
+  const v = dv(marketData);
   const cfg = g.groupOff + g.layout.group.config;
-  const maxAbs = u64(marketData, cfg + OFF_CFG_MAX_ABS_FUNDING);
+  const maxAbs = u64(v, cfg + OFF_CFG_MAX_ABS_FUNDING);
   const assets: AssetFundingV22[] = [];
   for (let i = 0; i < g.slotCount; i++) {
     const ws = g.slotOff(i);
@@ -233,34 +234,34 @@ export function decodeMarketFundingV22(marketData: Uint8Array): MarketFundingV22
     const wrapperProfile = ws + g.layout.wrapperSlot.oracleProfile;
     const vaultLp = ws + g.layout.wrapperSlot.vaultLp;
     const oracleMode = marketData[wrapperProfile + P_ORACLE_MODE]!;
-    const effective = u64(marketData, es + A_EFFECTIVE_PRICE);
-    const slotLast = u64(marketData, es + A_SLOT_LAST);
-    const oiL = u128(marketData, es + A_OI_LONG);
-    const oiS = u128(marketData, es + A_OI_SHORT);
-    const mark = u64(marketData, wrapperProfile + P_FUNDING_MARK);
-    const markEwma = u64(marketData, wrapperProfile + P_MARK_EWMA);
-    const pendingE6 = u64(marketData, wrapperProfile + P_FUNDING_MARK_PENDING);
-    const pendingSlot = u64(marketData, wrapperProfile + P_FUNDING_MARK_PENDING_SLOT);
+    const effective = u64(v, es + A_EFFECTIVE_PRICE);
+    const slotLast = u64(v, es + A_SLOT_LAST);
+    const oiL = u128(v, es + A_OI_LONG);
+    const oiS = u128(v, es + A_OI_SHORT);
+    const mark = u64(v, wrapperProfile + P_FUNDING_MARK);
+    const markEwma = u64(v, wrapperProfile + P_MARK_EWMA);
+    const pendingE6 = u64(v, wrapperProfile + P_FUNDING_MARK_PENDING);
+    const pendingSlot = u64(v, wrapperProfile + P_FUNDING_MARK_PENDING_SLOT);
     const activeMark = mark !== 0n ? mark : markEwma;
     const bound = (marketData[vaultLp + V_FLAGS]! & 1) === 1;
-    const slope = u64(marketData, vaultLp + V_SKEW_SLOPE);
-    const skewMax = u64(marketData, vaultLp + V_SKEW_MAX);
-    const lpNetQ = i128(marketData, vaultLp + V_LP_NET_Q);
+    const slope = u64(v, vaultLp + V_SKEW_SLOPE);
+    const skewMax = u64(v, vaultLp + V_SKEW_MAX);
+    const lpNetQ = i128(v, vaultLp + V_LP_NET_Q);
     const managed = PRICE_MANAGED_MODES.has(oracleMode);
     const premium = managed ? premiumFundingRateE9V22(activeMark, effective, maxAbs) : 0n;
     const skew = managed && maxAbs !== 0n && bound && slope !== 0n ? skewFundingRateE9V22(lpNetQ, oiL > oiS ? oiL : oiS, slope, skewMax) : 0n;
     const rate = managed && maxAbs !== 0n ? combineFundingRateE9V22(premium, skew, maxAbs) : 0n;
     assets.push({
       assetIndex: i,
-      kLong: i128(marketData, es + A_K_LONG),
-      kShort: i128(marketData, es + A_K_SHORT),
-      fLongNum: i128(marketData, es + A_F_LONG),
-      fShortNum: i128(marketData, es + A_F_SHORT),
-      kfEpochLong: u64(marketData, es + A_KF_EPOCH_LONG),
-      kfEpochShort: u64(marketData, es + A_KF_EPOCH_SHORT),
-      aLong: u128(marketData, es + A_A_LONG),
-      aShort: u128(marketData, es + A_A_SHORT),
-      fundPxLast: u64(marketData, es + A_FUND_PX_LAST),
+      kLong: i128(v, es + A_K_LONG),
+      kShort: i128(v, es + A_K_SHORT),
+      fLongNum: i128(v, es + A_F_LONG),
+      fShortNum: i128(v, es + A_F_SHORT),
+      kfEpochLong: u64(v, es + A_KF_EPOCH_LONG),
+      kfEpochShort: u64(v, es + A_KF_EPOCH_SHORT),
+      aLong: u128(v, es + A_A_LONG),
+      aShort: u128(v, es + A_A_SHORT),
+      fundPxLast: u64(v, es + A_FUND_PX_LAST),
       effectivePriceE6: effective,
       slotLast,
       oiEffLongQ: oiL,
@@ -281,8 +282,8 @@ export function decodeMarketFundingV22(marketData: Uint8Array): MarketFundingV22
   }
   return {
     maxAbsFundingE9PerSlot: maxAbs,
-    minFundingLifetimeSlots: u64(marketData, cfg + OFF_CFG_MIN_FUNDING_LIFETIME),
-    maxAccrualDtSlots: u64(marketData, cfg + OFF_CFG_MAX_ACCRUAL_DT),
+    minFundingLifetimeSlots: u64(v, cfg + OFF_CFG_MIN_FUNDING_LIFETIME),
+    maxAccrualDtSlots: u64(v, cfg + OFF_CFG_MAX_ACCRUAL_DT),
     assets,
   };
 }
