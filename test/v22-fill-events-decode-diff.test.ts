@@ -118,7 +118,7 @@ describe("v22 fill-events decode: old vs new", () => {
     }
     expect(events).toBeGreaterThan(1000);
     // the fuzzer must reach most skip reasons, or the comparison proves little
-    expect(reasons.size).toBeGreaterThanOrEqual(5);
+    expect(reasons.size).toBe(7);
   }, 300_000);
 
   it("11k log arrays end to end (decodeTxEventsV22): same events, skipped reasons, unknown reasons", () => {
