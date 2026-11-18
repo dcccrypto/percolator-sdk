@@ -25,7 +25,7 @@ export default defineConfig({
       "test/stake-290-slab-accounts.test.ts",
       "test/tx.test.ts",
       "src/solana/__tests__/stake.test.ts",
-      "src/solana/__tests__/stake-cpi.test.ts",
+      "src/solana/__tests__/stake-cpi.test.ts", "src/solana/__tests__/stake-pda-memo.test.ts",
       "src/solana/__tests__/v17-oi.test.ts",
       "test/integration-mocked.test.ts",
       "test/discovery-api-fallback.test.ts",

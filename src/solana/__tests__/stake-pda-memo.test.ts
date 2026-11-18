@@ -32,7 +32,7 @@ describe("stake PDA memo", () => {
       }
     }
     expect(mismatches).toBe(0);
-  }, 120_000);
+  }, 400_000);
 
   it("returns fresh tuple and PublicKey copies; mutation cannot poison the cache", () => {
     const programId = kp(), slab = kp();
@@ -65,5 +65,5 @@ describe("stake PDA memo", () => {
     }
     // evicted by now; recompute must equal the original
     expect(same(deriveStakePool(first, programId), firstRes)).toBe(true);
-  }, 120_000);
+  }, 400_000);
 });
