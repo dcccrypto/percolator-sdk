@@ -29,6 +29,8 @@ function filled(len: number, kind: number): Uint8Array {
 const L = LAYOUT_V22;
 const portfolio = filled(L.portfolio.accountLen, 2);
 const market = filled(L.marketGroupOff + L.marketGroupLen + 8 * L.assetSlotStride, 1);
+// max_market_slots must not exceed the 8 physical slots (parseBackingBucketsV17 throws TOO_SHORT).
+new DataView(market.buffer).setUint32(L.marketGroupOff + L.group.config + L.group.maxMarketSlotsInConfig, 8, true);
 const registry = filled(176, 5);
 const redemption = filled(4096, 6);
 
