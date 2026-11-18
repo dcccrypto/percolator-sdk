@@ -1,5 +1,5 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { buildPushAuthMarkDexIxV22, buildSetDepthSourceIxV22, buildClearDepthSourceIxV22 } from "/Users/khubair/agent-work/wt/J-20261118-SDK-PERF-DEPTHSRCPROGDATAPDA/src/abi/v22-depth-source.ts";
+const { buildPushAuthMarkDexIxV22, buildSetDepthSourceIxV22, buildClearDepthSourceIxV22 } = await import(process.env.SRC ?? "../src/abi/v22-depth-source.js");
 const k = () => Keypair.generate().publicKey;
 const programId = k(), auth = k();
 const markets = Array.from({ length: 50 }, k), pool = k(), bv = k(), qv = k(), bm = k(), qm = k();

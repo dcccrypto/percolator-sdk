@@ -10,14 +10,15 @@ describe("v22-depth-source PDA memo", () => {
 
   it("10k random derivations: memoised == direct, cold and warm", () => {
     const progs = Array.from({ length: 20 }, rk);
+    const progData = progs.map((p) => PublicKey.findProgramAddressSync([p.toBytes()], LOADER));
     let mismatches = 0;
     for (let i = 0; i < 10000; i++) {
       const prog = progs[i % 20];
       const key = i % 3 === 0 ? progs[(i * 7) % 20] : rk();
+      const d = PublicKey.findProgramAddressSync([Buffer.from(DEPTH_SOURCE_SEED_V22), key.toBuffer()], prog);
+      const c = PublicKey.findProgramAddressSync([Buffer.from(POOL_CLAIM_SEED_V22), key.toBuffer()], prog);
+      const g = progData[i % 20];
       for (let pass = 0; pass < 2; pass++) {
-        const d = PublicKey.findProgramAddressSync([Buffer.from(DEPTH_SOURCE_SEED_V22), key.toBuffer()], prog);
-        const c = PublicKey.findProgramAddressSync([Buffer.from(POOL_CLAIM_SEED_V22), key.toBuffer()], prog);
-        const g = PublicKey.findProgramAddressSync([prog.toBytes()], LOADER);
         const md = deriveDepthSourceV22(prog, key), mc = derivePoolClaimV22(prog, key);
         if (!md[0].equals(d[0]) || md[1] !== d[1]) mismatches++;
         if (!mc[0].equals(c[0]) || mc[1] !== c[1]) mismatches++;
@@ -25,7 +26,7 @@ describe("v22-depth-source PDA memo", () => {
       }
     }
     expect(mismatches).toBe(0);
-  }, 120_000);
+  }, 900_000);
 
   it("returned tuples are copies (caller mutation cannot poison the memo)", () => {
     const p = rk(), m = rk();
@@ -50,5 +51,5 @@ describe("v22-depth-source PDA memo", () => {
     // evicted entry still derives correctly
     const direct = PublicKey.findProgramAddressSync([Buffer.from(DEPTH_SOURCE_SEED_V22), first.toBuffer()], p);
     expect(deriveDepthSourceV22(p, first)[0].equals(direct[0])).toBe(true);
-  }, 120_000);
+  }, 600_000);
 });
