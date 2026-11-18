@@ -137,6 +137,11 @@ export function isLighthouseError(error: unknown): boolean {
   // Direct program ID reference
   if (msg.includes(LIGHTHOUSE_PROGRAM_ID_STR)) return true;
 
+  // A 0x1900 / 6400 code attributed to another program (e.g. Anchor
+  // ConstraintAddress in a stake/matcher/DEX program) is not Lighthouse.
+  const failed = [...msg.matchAll(/Program\s+([1-9A-HJ-NP-Za-km-z]{32,44})\s+failed/g)];
+  if (failed.length > 0) return false;
+
   // 0x1900 hex error code (case-insensitive)
   if (/custom\s+program\s+error:\s*0x1900\b/i.test(msg)) return true;
 
@@ -265,6 +270,16 @@ export function stripLighthouseFromTransaction(
   const clean = new Transaction();
   clean.recentBlockhash = transaction.recentBlockhash;
   clean.feePayer = transaction.feePayer;
+  // Preserve expiry / durable-nonce context so retries can still confirm.
+  clean.lastValidBlockHeight = transaction.lastValidBlockHeight;
+  clean.nonceInfo = transaction.nonceInfo;
+  clean.minNonceContextSlot = transaction.minNonceContextSlot;
+  // Old signatures sign the pre-strip message and are invalid now; keep the
+  // signer slots (unsigned) so callers know who must re-sign.
+  clean.signatures = transaction.signatures.map((s) => ({
+    publicKey: s.publicKey,
+    signature: null,
+  }));
 
   for (const ix of transaction.instructions) {
     if (!isLighthouseInstruction(ix)) {
