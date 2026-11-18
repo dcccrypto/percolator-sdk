@@ -106,7 +106,27 @@ export const NAV_FLOW_COMPUTE_UNITS_V22: Readonly<Record<NavFlowTagV22, NavFlowC
  * ```
  */
 export function navFlowAccountsV22(programId: PublicKey, market: PublicKey): { guard: PublicKey; ext: PublicKey } {
-  return { guard: deriveLevGuardV22(programId, market)[0], ext: deriveVaultLpExtP2b(programId, market)[0] };
+  return { guard: memoPda(GUARD_MEMO, programId, market, deriveLevGuardV22), ext: memoPda(EXT_MEMO, programId, market, deriveVaultLpExtP2b) };
+}
+
+// Bounded FIFO memos (programId + market -> PDA bytes), one per PDA so hasNavFlowTailV22 pays only for the guard.
+// Fresh PublicKeys are returned so callers cannot mutate a cached entry.
+const NAV_FLOW_MEMO_CAP = 1024;
+const GUARD_MEMO = new Map<string, Uint8Array>();
+const EXT_MEMO = new Map<string, Uint8Array>();
+function memoPda(
+  memo: Map<string, Uint8Array>,
+  programId: PublicKey,
+  market: PublicKey,
+  derive: (programId: PublicKey, market: PublicKey) => [PublicKey, number],
+): PublicKey {
+  const key = Buffer.from(programId.toBytes()).toString("latin1") + Buffer.from(market.toBytes()).toString("latin1");
+  const hit = memo.get(key);
+  if (hit) return new PublicKey(hit);
+  const pda = derive(programId, market)[0];
+  if (memo.size >= NAV_FLOW_MEMO_CAP) memo.delete(memo.keys().next().value as string);
+  memo.set(key, pda.toBytes());
+  return pda;
 }
 
 const wm = (pubkey: PublicKey): AccountMeta => ({ pubkey, isSigner: false, isWritable: true });
@@ -305,7 +325,7 @@ export function buildVaultLpAllocateIxV22(m: NavFlowMarketV22, cranker: PublicKe
  * ```
  */
 export function hasNavFlowTailV22(ix: TransactionInstruction, market: PublicKey): boolean {
-  const { guard } = navFlowAccountsV22(ix.programId, market);
+  const guard = memoPda(GUARD_MEMO, ix.programId, market, deriveLevGuardV22);
   const tag = ix.data[0];
   if (tag === 111) return ix.keys.some((k, i) => i >= 7 && k.pubkey.equals(guard));
   const t = (NAV_FLOW_TAILS_V22 as Record<number, { guard?: number }>)[tag];
