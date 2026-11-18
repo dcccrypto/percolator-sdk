@@ -2548,11 +2548,11 @@ export function readLastThrUpdateSlot(data: Uint8Array): bigint {
  * Parse slab header (first 72 bytes — layout-independent).
  */
 export function parseHeader(data: Uint8Array): SlabHeader {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   if (data.length < V0_HEADER_LEN) {
     throw new Error(`Slab data too short for header: ${data.length} < ${V0_HEADER_LEN}`);
   }
 
+  const v = dv(data); // one view per decode, created only after the length guards pass
   const magic = vU64(v, 0);
   if (magic !== MAGIC) {
     throw new Error(`Invalid slab magic: expected ${MAGIC.toString(16)}, got ${magic.toString(16)}`);
@@ -2640,7 +2640,6 @@ export function parseHeader(data: Uint8Array): SlabHeader {
  *   512 end
  */
 function parseConfigV12_17(data: Uint8Array, configOff: number): MarketConfig {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   const MIN_V12_17_BYTES = 512;
   if (data.length < configOff + MIN_V12_17_BYTES) {
     throw new Error(`Slab data too short for V12_17 config: ${data.length} < ${configOff + MIN_V12_17_BYTES}`);
@@ -2650,6 +2649,7 @@ function parseConfigV12_17(data: Uint8Array, configOff: number): MarketConfig {
   const collateralMint = new PublicKey(data.subarray(b + 0, b + 32));
   const vaultPubkey = new PublicKey(data.subarray(b + 32, b + 64));
   const indexFeedId = new PublicKey(data.subarray(b + 64, b + 96));
+  const v = dv(data); // one view per decode, created only after the length guards pass
   const maxStalenessSlots = vU64(v, b + 96);
   const confFilterBps = vU16(v, b + 104);
   const vaultAuthorityBump = readU8(data, b + 106);
@@ -2770,7 +2770,6 @@ function parseConfigV12_17(data: Uint8Array, configOff: number): MarketConfig {
  *   480 end
  */
 function parseConfigV12_19(data: Uint8Array, configOff: number): MarketConfig {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   const MIN_V12_19_BYTES = 480;
   if (data.length < configOff + MIN_V12_19_BYTES) {
     throw new Error(`Slab data too short for V12_19 config: ${data.length} < ${configOff + MIN_V12_19_BYTES}`);
@@ -2780,6 +2779,7 @@ function parseConfigV12_19(data: Uint8Array, configOff: number): MarketConfig {
   const collateralMint = new PublicKey(data.subarray(b + 0, b + 32));
   const vaultPubkey = new PublicKey(data.subarray(b + 32, b + 64));
   const indexFeedId = new PublicKey(data.subarray(b + 64, b + 96));
+  const v = dv(data); // one view per decode, created only after the length guards pass
   const maxStalenessSlots = vU64(v, b + 96);
   const confFilterBps = vU16(v, b + 104);
   const vaultAuthorityBump = readU8(data, b + 106);
@@ -2842,8 +2842,7 @@ function parseConfigV12_19(data: Uint8Array, configOff: number): MarketConfig {
 }
 
 export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): MarketConfig {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
-  if (data.length >= 8 && vU64(v, 0) !== MAGIC) {
+  if (data.length >= 8 && vU64(dv(data), 0) !== MAGIC) {
     throw new Error('parseConfig: invalid slab magic');
   }
   const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length, data);
@@ -2873,6 +2872,7 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
     throw new Error(`Slab data too short for config: ${data.length} < ${minLen}`);
   }
 
+  const v = dv(data); // one view per decode, created only after the length guards pass
   let off = configOff;
 
   const collateralMint = new PublicKey(data.subarray(off, off + 32));
@@ -3084,7 +3084,6 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
  * @param layoutHint - Pre-detected layout to use; if omitted, detected from data.length.
  */
 export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): RiskParams {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length, data);
   const engineOff = layout ? layout.engineOff : V0_ENGINE_OFF;
   const paramsOff = layout ? layout.engineParamsOff : V0_ENGINE_PARAMS_OFF;
@@ -3111,6 +3110,7 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
   const isV12_1Sbf = !isV12_15Params && layout !== null && layout !== undefined &&
     (layout.engineOff === V12_1_SBF_ENGINE_OFF) && paramsSize === 184;
 
+  const v = dv(data); // one view per decode, created only after the length guards pass
   // Basic params present in all layouts (offsets 0-55 are identical)
   const result: RiskParams = {
     warmupPeriodSlots: isV12_19Params
@@ -3228,8 +3228,7 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
  * Parse RiskEngine state (excluding accounts array). Layout-version aware.
  */
 export function parseEngine(data: Uint8Array): EngineState {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
-  if (data.length >= 8 && vU64(v, 0) !== MAGIC) {
+  if (data.length >= 8 && vU64(dv(data), 0) !== MAGIC) {
     throw new Error('parseEngine: invalid slab magic');
   }
   const layout = detectSlabLayout(data.length, data);
@@ -3239,6 +3238,7 @@ export function parseEngine(data: Uint8Array): EngineState {
   if (data.length < layout.accountsOff) {
     throw new Error(`parseEngine: data too short for accountsOff (${data.length} < ${layout.accountsOff})`);
   }
+  const v = dv(data); // one view per decode, created only after the length guards pass
 
   const base = layout.engineOff;
 
@@ -3529,7 +3529,6 @@ export function maxAccountIndex(dataLen: number): number {
  * Parse a single account by index.
  */
 export function parseAccount(data: Uint8Array, idx: number): Account {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   const layout = detectSlabLayout(data.length, data);
   if (!layout) throw new Error(`Unrecognized slab data length: ${data.length}`);
 
@@ -3537,6 +3536,7 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
   if (!Number.isInteger(idx) || idx < 0 || idx >= maxIdx) {
     throw new Error(`Account index out of range: ${idx} (max: ${maxIdx - 1})`);
   }
+  const v = dv(data); // one view per decode, created only after the length guards pass
 
   const base = layout.accountsOff + idx * layout.accountSize;
   if (data.length < base + layout.accountSize) {
@@ -3976,7 +3976,6 @@ export function parseAssetControlSequencesV17(
   data: Uint8Array,
   assetSlotOff: number,
 ): AssetControlSequencesV17 {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   const base = assetSlotOff + V17_ASSET_CONTROL_SEQUENCES_OFF;
   const MIN_LEN = base + V17_ASSET_CONTROL_SEQUENCES_LEN;
   if (data.length < MIN_LEN) {
@@ -3984,6 +3983,7 @@ export function parseAssetControlSequencesV17(
       `parseAssetControlSequencesV17: data too short — need ${MIN_LEN} bytes, got ${data.length}`,
     );
   }
+  const v = dv(data); // one view per decode, created only after the length guards pass
   return {
     oracleObservation: vU64(v, base + ACS_ORACLE_OBSERVATION_OFF),
     backingFeeLong: vU64(v, base + ACS_BACKING_FEE_LONG_OFF),
@@ -4329,7 +4329,6 @@ export interface WrapperConfigV17 {
  * ```
  */
 export function parseWrapperConfigV17(data: Uint8Array, configOff: number = V17_HEADER_LEN): WrapperConfigV17 {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   const MIN_LEN = configOff + V17_WRAPPER_CONFIG_LEN;
   if (data.length < MIN_LEN) {
     throw new Error(
@@ -4343,6 +4342,7 @@ export function parseWrapperConfigV17(data: Uint8Array, configOff: number = V17_
   const marketauth = new PublicKey(data.subarray(b + 0, b + 32));
   const collateralMint = new PublicKey(data.subarray(b + 32, b + 64));
   const secondaryCollateralMint = new PublicKey(data.subarray(b + 64, b + 96));
+  const v = dv(data); // one view per decode, created only after the length guards pass
   const maintenanceFeePerSlot = vU128(v, b + 96);
   const permissionlessMarketInitFee = vU128(v, b + 112);
   const tradeFeeBps = vU64(v, b + 128);
@@ -4575,7 +4575,6 @@ export interface AssetOracleProfileV17 {
  * @returns Parsed AssetOracleProfileV17 object.
  */
 export function parseAssetOracleProfileV17(data: Uint8Array, profileOff: number): AssetOracleProfileV17 {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   const MIN_LEN = profileOff + V17_ASSET_ORACLE_PROFILE_LEN;
   if (data.length < MIN_LEN) {
     throw new Error(
@@ -4591,6 +4590,7 @@ export function parseAssetOracleProfileV17(data: Uint8Array, profileOff: number)
     oracleLegFeeds.push(new PublicKey(data.subarray(b + 224 + i * 32, b + 224 + (i + 1) * 32)));
   }
 
+  const v = dv(data); // one view per decode, created only after the length guards pass
   const oracleLegPricesE6: bigint[] = [];
   for (let i = 0; i < ORACLE_LEG_CAP; i++) {
     oracleLegPricesE6.push(vU64(v, b + 320 + i * 8));
@@ -4780,11 +4780,11 @@ export interface V17MarketGroupOI {
  * ```
  */
 export function parseMarketGroupV17OI(data: Uint8Array): V17MarketGroupOI {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   // VERSION-keyed geometry (never inferred from the length): v2.1 and v2.2 have different group / slot sizes.
   const g = resolveMarketGeometry(data, { parser: "parseMarketGroupV17OI", strictLength: false });
   const L = g.layout;
 
+  const v = dv(data); // one view per decode, created only after the length guards pass
   const insuranceBalance = vU128(v, g.groupOff + L.group.insurance);
 
   let totalLongOiQ = 0n;
@@ -5105,7 +5105,6 @@ export interface PortfolioV17 {
  * ```
  */
 export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   // Minimum size check: header(16) + provenance(100) + owner/capital/pnl/reserved_pnl.
   const MIN_PORTFOLIO_BYTES = PF_RESERVED_PNL_OFF + 16;
   if (data.length < MIN_PORTFOLIO_BYTES) {
@@ -5123,6 +5122,7 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
 
   // Body fields
   const owner = new PublicKey(data.subarray(PF_OWNER_OFF, PF_OWNER_OFF + 32));
+  const v = dv(data); // one view per decode, created only after the length guards pass
   const capital = vU128(v, PF_CAPITAL_OFF);
   const pnl = vI128(v, PF_PNL_OFF);
   const reservedPnl = vU128(v, PF_RESERVED_PNL_OFF);
@@ -5325,7 +5325,6 @@ export interface LpVaultRegistryV17 {
  * ```
  */
 export function parseLpVaultRegistry(data: Uint8Array): LpVaultRegistryV17 {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   if (data.length < LP_VAULT_REGISTRY_TOTAL) {
     throw new Error(
       `parseLpVaultRegistry: data too short (${data.length} < ${LP_VAULT_REGISTRY_TOTAL})`
@@ -5333,6 +5332,7 @@ export function parseLpVaultRegistry(data: Uint8Array): LpVaultRegistryV17 {
   }
   assertV17StandaloneHeader(data, "parseLpVaultRegistry", V17_KIND_LP_VAULT_REGISTRY);
   const b = V17_ACCOUNT_HEADER_LEN; // skip 16-byte header
+  const v = dv(data); // one view per decode, created only after the length guards pass
   return {
     marketGroup: new PublicKey(data.subarray(b + 0, b + 32)),
     lpMint: new PublicKey(data.subarray(b + 32, b + 64)),
@@ -5387,7 +5387,6 @@ export interface LpRedemptionV17 {
  * ```
  */
 export function parseLpRedemption(data: Uint8Array): LpRedemptionV17 {
-  const v = dv(data); // one view per decode (hoisted out of every field read)
   if (data.length < LP_REDEMPTION_TOTAL) {
     throw new Error(
       `parseLpRedemption: data too short (${data.length} < ${LP_REDEMPTION_TOTAL})`
@@ -5395,6 +5394,7 @@ export function parseLpRedemption(data: Uint8Array): LpRedemptionV17 {
   }
   assertV17StandaloneHeader(data, "parseLpRedemption", V17_KIND_LP_REDEMPTION);
   const b = V17_ACCOUNT_HEADER_LEN; // skip 16-byte header
+  const v = dv(data); // one view per decode, created only after the length guards pass
   return {
     registry: new PublicKey(data.subarray(b + 0, b + 32)),
     redeemer: new PublicKey(data.subarray(b + 32, b + 64)),
