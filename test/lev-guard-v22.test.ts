@@ -223,7 +223,7 @@ describe("LevGuardV22 decoder", () => {
     expect(() => G.decodeLevGuardV22(synth().data.slice(0, 4455))).toThrow(UnknownLayoutError);
     expect(() => G.decodeLevGuardV22(synth().data.slice(0, 4448))).toThrow(UnknownLayoutError); // the pre-night 336-byte-record length
     expect(() => G.decodeLevGuardV22(mk((d) => { d[16 + 74] = 2; }))).toThrow(UnknownLayoutError);
-    expect(() => G.decodeLevGuardV22(mk((d) => { d[16 + 76] = 4; }))).toThrow(UnknownLayoutError);
+    expect(() => G.decodeLevGuardV22(mk((d) => { d[16 + 76] = 8; }))).toThrow(UnknownLayoutError);
     expect(() => G.decodeLevGuardV22(mk((d) => { d[16 + 79] = 1; }))).toThrow(UnknownLayoutError);
     expect(() => G.decodeLevGuardV22(mk((d) => { d[16 + 165] = 1; }))).toThrow(UnknownLayoutError);
     expect(() => G.decodeLevGuardV22(mk((d) => { new DataView(d.buffer).setUint16(16 + 100, 257, true); }))).toThrow(UnknownLayoutError);

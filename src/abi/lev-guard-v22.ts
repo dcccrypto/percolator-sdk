@@ -63,8 +63,12 @@ export const LEV_GUARD_ACCOUNT_LEN_V22 = 16 + LEV_GUARD_BODY_LEN_V22;
 /** The only record version (`LEV_GUARD_VERSION`). */
 export const LEV_GUARD_VERSION_V22 = 1;
 
-/** `flags` bits. */
-export const LEV_GUARD_FLAG_V22 = Object.freeze({ MINT_AUTH_LIVE: 1, FREEZE_AUTH_LIVE: 2 } as const);
+/**
+ * `flags` bits (`GUARD_FLAG_MINT_AUTH` / `GUARD_FLAG_FREEZE_AUTH` / `GUARD_FLAG_PERM_PROVEN`). `PERM_PROVEN` (0x04, D12 / GH#614)
+ * = op 3 has read the pinned base mint's authorities at least once; the program's `validate_guard` accepts it
+ * (`GUARD_FLAGS_KNOWN` = 0x07), so the decoder must too.
+ */
+export const LEV_GUARD_FLAG_V22 = Object.freeze({ MINT_AUTH_LIVE: 1, FREEZE_AUTH_LIVE: 2, PERM_PROVEN: 4 } as const);
 
 /** Slots per hour / day (`SLOTS_PER_HOUR`, `SLOTS_PER_DAY`). */
 export const LEV_SLOTS_PER_HOUR_V22 = 9_000n;
@@ -311,6 +315,8 @@ export interface LevGuardV22 {
   mintAuthLive: boolean;
   /** Bit 1 of `flags`: ... a live freeze authority. */
   freezeAuthLive: boolean;
+  /** Flag bit 2: op 3 has read the base mint's authorities at least once (D12). */
+  permProven: boolean;
   /** W1: a stop round is open. */
   roundActive: boolean;
   /** W1: the LP side when the round opened. */
@@ -414,6 +420,7 @@ export function decodeLevGuardV22(data: Uint8Array, table: LayoutTable = LAYOUT_
     flags,
     mintAuthLive: (flags & LEV_GUARD_FLAG_V22.MINT_AUTH_LIVE) !== 0,
     freezeAuthLive: (flags & LEV_GUARD_FLAG_V22.FREEZE_AUTH_LIVE) !== 0,
+    permProven: (flags & LEV_GUARD_FLAG_V22.PERM_PROVEN) !== 0,
     roundActive: data[b + F.roundActive] === 1,
     roundLpLong: data[b + F.roundLpLong] === 1,
     repJDumpBps: u16(F.repJDumpBps),
@@ -452,7 +459,7 @@ export function decodeLevGuardV22(data: Uint8Array, table: LayoutTable = LAYOUT_
   const rawBool = (o: number): boolean => data[b + o] <= 1;
   const bad =
     g.version !== LEV_GUARD_VERSION_V22 ||
-    (flags & ~(LEV_GUARD_FLAG_V22.MINT_AUTH_LIVE | LEV_GUARD_FLAG_V22.FREEZE_AUTH_LIVE)) !== 0 ||
+    (flags & ~(LEV_GUARD_FLAG_V22.MINT_AUTH_LIVE | LEV_GUARD_FLAG_V22.FREEZE_AUTH_LIVE | LEV_GUARD_FLAG_V22.PERM_PROVEN)) !== 0 ||
     !rawBool(F.roundActive) || !rawBool(F.roundLpLong) ||
     g.touchedN > LEV_GUARD_TOUCHED_CAP_V22 || g.roundKeepBps > 10_000 ||
     g.repJDumpBps > 10_000 || g.repMIndBps > 10_000 || g.repNMultBps > 10_000 ||
