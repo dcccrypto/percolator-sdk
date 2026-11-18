@@ -154,4 +154,4 @@ describe("Band Safety Law pre-check: the decided settings", () => {
 });
 
 /** Pinned: the app (`app/lib/v22/sdk/v22-band-safety-law.ts`) and the seed kit (`relaunch/v22/v22-band-safety-law.ts`) carry this exact file. */
-const V22_BSL_SHA256 = "6103c6a85eff49a5d632093e90a3b7c98a7f4efe6fc0a68981238fc923e3254d";
+const V22_BSL_SHA256 = "db89c035b024b73e797a687b86c497d991761fe5b1c80666ae3d6de364ee6507";

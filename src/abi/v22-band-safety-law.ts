@@ -406,6 +406,13 @@ const intField = (name: string, v: number, max: number): bigint => {
  * ```
  */
 export function checkBandSafetyLawV22(input: BandSafetyLawInputV22): BandSafetyLawResultV22 {
+  return checkImpl(input, {});
+}
+
+/** Results that do not depend on the rent ceiling, reused across the bisection (same input otherwise). */
+interface RentIndependent { baseOk?: boolean; floor?: bigint | null }
+
+function checkImpl(input: BandSafetyLawInputV22, memo: RentIndependent): BandSafetyLawResultV22 {
   const base: Cfg = {
     maxPortfolioAssets: intField("maxPortfolioAssets", input.maxPortfolioAssets, 0xffff),
     mm: nonNeg("maintenanceMarginBps", input.maintenanceMarginBps, U64_MAX),
@@ -429,21 +436,23 @@ export function checkBandSafetyLawV22(input: BandSafetyLawInputV22): BandSafetyL
   const r = input.rent;
   if (!r) {
     if (input.band && input.band.bandBps !== 0) throw new RangeError("a band block requires a rent block (grammar growth [lot] [rent [band]])");
-    return validates(base) ? okResult([]) : baseInvalid();
+    memo.baseOk ??= validates(base);
+    return memo.baseOk ? okResult([]) : baseInvalid();
   }
   const rent = intField("rentMaxE9PerSlot", r.rentMaxE9PerSlot, 0xffff_ffff);
   const kink = intField("rentKinkBps", r.rentKinkBps, 0xffff);
   if (rent > BSL_MAX_RENT_E9_PER_SLOT || kink > BPS || (rent !== 0n && (rent < BSL_RENT_MIN_E9_PER_SLOT || kink > BSL_RENT_MAX_KINK_BPS))) {
     return { ok: false, code: 106, rule: "rent-block", message: `holding fee ceiling ${rent} e9/slot / kink ${kink} bps is outside the program's range (0, or ${BSL_RENT_MIN_E9_PER_SLOT}..=${BSL_MAX_RENT_E9_PER_SLOT} with kink <= ${BSL_RENT_MAX_KINK_BPS})` };
   }
-  const baseOk = validates(base);
+  const baseOk = (memo.baseOk ??= validates(base));
   const withRent: Cfg = { ...base, rent };
-  if (baseOk && !validates(withRent)) {
+  let rentOk: boolean | undefined = baseOk ? validates(withRent) : undefined;
+  if (baseOk && !rentOk) {
     return { ok: false, code: 106, rule: "rent-envelope", message: `holding fee ceiling ${rent} e9/slot does not fit the market's margin (solvency envelope)` };
   }
   const b = input.band;
   if (!b || b.bandBps === 0) return baseOk ? okResult([]) : baseInvalid();
-  const rentOk = validates(withRent);
+  rentOk ??= validates(withRent);
   const withBand: Cfg = {
     ...withRent,
     band: intField("bandBps", b.bandBps, 0xffff),
@@ -463,7 +472,7 @@ export function checkBandSafetyLawV22(input: BandSafetyLawInputV22): BandSafetyL
   if (price === null) {
     notChecked.push("band-genesis-price");
   } else {
-    const floor = bandGenesisFloorE6V22(withBand.band);
+    const floor = (memo.floor ??= bandGenesisFloorE6V22(withBand.band));
     if (floor === null || price < floor) {
       return { ok: false, code: 105, rule: "band-genesis-price", message: `genesis price ${price} (e6 per lot) is below the band's floor ${floor ?? "(none)"}` };
     }
@@ -495,7 +504,8 @@ const baseInvalid = (): BandSafetyLawResultV22 => ({
  */
 export function maxAcceptedRentE9PerSlotV22(input: BandSafetyLawInputV22): bigint | null {
   const kink = input.rent?.rentKinkBps ?? 5_000;
-  const ok = (v: bigint): boolean => checkBandSafetyLawV22({ ...input, rent: { rentMaxE9PerSlot: Number(v), rentKinkBps: kink } }).ok;
+  const memo: RentIndependent = {};
+  const ok = (v: bigint): boolean => checkImpl({ ...input, rent: { rentMaxE9PerSlot: Number(v), rentKinkBps: kink } }, memo).ok;
   let lo = BSL_RENT_MIN_E9_PER_SLOT;
   if (!ok(lo)) return null;
   let hi = BSL_MAX_RENT_E9_PER_SLOT;
