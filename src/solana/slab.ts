@@ -13,8 +13,9 @@ let lastDv: DataView | null = null;
 function dv(data: Uint8Array): DataView {
   // One-entry cache: decoders read hundreds of fields from the same buffer, so reuse the view instead of allocating one per read.
   if (data === lastDvData && lastDv!.buffer === data.buffer && lastDv!.byteOffset === data.byteOffset && lastDv!.byteLength === data.byteLength) return lastDv!;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   lastDvData = data;
-  return (lastDv = new DataView(data.buffer, data.byteOffset, data.byteLength));
+  return (lastDv = view);
 }
 /** Read a single unsigned byte at `off`. */
 function readU8(data: Uint8Array, off: number): number {
@@ -64,6 +65,20 @@ function readU128LE(buf: Uint8Array, offset: number): bigint {
   const lo = readU64LE(buf, offset);
   const hi = readU64LE(buf, offset + 8);
   return (hi << 64n) | lo;
+}
+
+// DataView-taking readers: hot decoders resolve `dv(data)` once and read through these.
+const vU16 = (v: DataView, off: number): number => v.getUint16(off, true);
+const vU32 = (v: DataView, off: number): number => v.getUint32(off, true);
+const vU64 = (v: DataView, off: number): bigint => v.getBigUint64(off, true);
+const vI64 = (v: DataView, off: number): bigint => v.getBigInt64(off, true);
+function vU128(v: DataView, off: number): bigint {
+  const lo = v.getBigUint64(off, true);
+  return (v.getBigUint64(off + 8, true) << 64n) | lo;
+}
+function vI128(v: DataView, off: number): bigint {
+  const unsigned = vU128(v, off);
+  return unsigned >= 1n << 127n ? unsigned - (1n << 128n) : unsigned;
 }
 
 // =============================================================================
@@ -2537,12 +2552,13 @@ export function parseHeader(data: Uint8Array): SlabHeader {
     throw new Error(`Slab data too short for header: ${data.length} < ${V0_HEADER_LEN}`);
   }
 
-  const magic = readU64LE(data, 0);
+  const v = dv(data); // one view per decode, created only after the length guards pass
+  const magic = vU64(v, 0);
   if (magic !== MAGIC) {
     throw new Error(`Invalid slab magic: expected ${MAGIC.toString(16)}, got ${magic.toString(16)}`);
   }
 
-  const version = readU32LE(data, 8);
+  const version = vU32(v, 8);
   const bump = readU8(data, 12);
   const flags = readU8(data, 13);
   const admin = new PublicKey(data.subarray(16, 48));
@@ -2550,8 +2566,8 @@ export function parseHeader(data: Uint8Array): SlabHeader {
   // Reserved field location depends on layout
   const layout = detectSlabLayout(data.length, data);
   const roff = layout ? layout.reservedOff : V0_RESERVED_OFF;
-  const nonce = readU64LE(data, roff);
-  const lastThrUpdateSlot = readU64LE(data, roff + 8);
+  const nonce = vU64(v, roff);
+  const lastThrUpdateSlot = vU64(v, roff + 8);
 
   return {
     magic,
@@ -2633,20 +2649,21 @@ function parseConfigV12_17(data: Uint8Array, configOff: number): MarketConfig {
   const collateralMint = new PublicKey(data.subarray(b + 0, b + 32));
   const vaultPubkey = new PublicKey(data.subarray(b + 32, b + 64));
   const indexFeedId = new PublicKey(data.subarray(b + 64, b + 96));
-  const maxStalenessSlots = readU64LE(data, b + 96);
-  const confFilterBps = readU16LE(data, b + 104);
+  const v = dv(data); // one view per decode, created only after the length guards pass
+  const maxStalenessSlots = vU64(v, b + 96);
+  const confFilterBps = vU16(v, b + 104);
   const vaultAuthorityBump = readU8(data, b + 106);
   const invert = readU8(data, b + 107);
-  const unitScale = readU32LE(data, b + 108);
-  const fundingHorizonSlots = readU64LE(data, b + 112);
-  const fundingKBps = readU64LE(data, b + 120);
-  const fundingMaxPremiumBps = readI64LE(data, b + 128);
-  const fundingMaxBpsPerSlot = readI64LE(data, b + 136);
+  const unitScale = vU32(v, b + 108);
+  const fundingHorizonSlots = vU64(v, b + 112);
+  const fundingKBps = vU64(v, b + 120);
+  const fundingMaxPremiumBps = vI64(v, b + 128);
+  const fundingMaxBpsPerSlot = vI64(v, b + 136);
   const oracleAuthority = new PublicKey(data.subarray(b + 144, b + 176));
-  const authorityPriceE6 = readU64LE(data, b + 176);
-  const authorityTimestamp = readI64LE(data, b + 184);
-  const oraclePriceCapE2bps = readU64LE(data, b + 192);
-  const lastEffectivePriceE6 = readU64LE(data, b + 200);
+  const authorityPriceE6 = vU64(v, b + 176);
+  const authorityTimestamp = vI64(v, b + 184);
+  const oraclePriceCapE2bps = vU64(v, b + 192);
+  const lastEffectivePriceE6 = vU64(v, b + 200);
   // max_insurance_floor, min_oracle_price_cap, mark_ewma, dispute, etc. — not
   // currently surfaced by the MarketConfig type; read them when/if callers
   // need them. Only dex_pool is consumed downstream.
@@ -2681,8 +2698,8 @@ function parseConfigV12_17(data: Uint8Array, configOff: number): MarketConfig {
     authorityTimestamp,
     oraclePriceCapE2bps,
     lastEffectivePriceE6,
-    oiCapMultiplierBps: readU64LE(data, b + 448),
-    maxPnlCap: readU64LE(data, b + 432),
+    oiCapMultiplierBps: vU64(v, b + 448),
+    maxPnlCap: vU64(v, b + 432),
     adaptiveFundingEnabled: false,        // removed in v12.17
     adaptiveScaleBps: 0,
     adaptiveMaxFundingBps: 0n,
@@ -2762,20 +2779,21 @@ function parseConfigV12_19(data: Uint8Array, configOff: number): MarketConfig {
   const collateralMint = new PublicKey(data.subarray(b + 0, b + 32));
   const vaultPubkey = new PublicKey(data.subarray(b + 32, b + 64));
   const indexFeedId = new PublicKey(data.subarray(b + 64, b + 96));
-  const maxStalenessSlots = readU64LE(data, b + 96);
-  const confFilterBps = readU16LE(data, b + 104);
+  const v = dv(data); // one view per decode, created only after the length guards pass
+  const maxStalenessSlots = vU64(v, b + 96);
+  const confFilterBps = vU16(v, b + 104);
   const vaultAuthorityBump = readU8(data, b + 106);
   const invert = readU8(data, b + 107);
-  const unitScale = readU32LE(data, b + 108);
-  const fundingHorizonSlots = readU64LE(data, b + 112);
-  const fundingKBps = readU64LE(data, b + 120);
-  const fundingMaxPremiumBps = readI64LE(data, b + 128);
-  const fundingMaxBpsPerSlot = readI64LE(data, b + 136);
+  const unitScale = vU32(v, b + 108);
+  const fundingHorizonSlots = vU64(v, b + 112);
+  const fundingKBps = vU64(v, b + 120);
+  const fundingMaxPremiumBps = vI64(v, b + 128);
+  const fundingMaxBpsPerSlot = vI64(v, b + 136);
   const oracleAuthority = new PublicKey(data.subarray(b + 144, b + 176));
-  const authorityPriceE6 = readU64LE(data, b + 176);
-  const authorityTimestamp = readI64LE(data, b + 184);
-  const lastEffectivePriceE6 = readU64LE(data, b + 192);
-  const oraclePriceCapE2bps = readU64LE(data, b + 216);
+  const authorityPriceE6 = vU64(v, b + 176);
+  const authorityTimestamp = vI64(v, b + 184);
+  const lastEffectivePriceE6 = vU64(v, b + 192);
+  const oraclePriceCapE2bps = vU64(v, b + 216);
 
   const dexPoolBytes = data.subarray(b + 368, b + 400);
   const dexPool = dexPoolBytes.some(x => x !== 0) ? new PublicKey(dexPoolBytes) : null;
@@ -2807,8 +2825,8 @@ function parseConfigV12_19(data: Uint8Array, configOff: number): MarketConfig {
     authorityTimestamp,
     oraclePriceCapE2bps,
     lastEffectivePriceE6,
-    oiCapMultiplierBps: readU64LE(data, b + 416),
-    maxPnlCap: readU64LE(data, b + 400),
+    oiCapMultiplierBps: vU64(v, b + 416),
+    maxPnlCap: vU64(v, b + 400),
     adaptiveFundingEnabled: false,
     adaptiveScaleBps: 0,
     adaptiveMaxFundingBps: 0n,
@@ -2824,7 +2842,7 @@ function parseConfigV12_19(data: Uint8Array, configOff: number): MarketConfig {
 }
 
 export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): MarketConfig {
-  if (data.length >= 8 && readU64LE(data, 0) !== MAGIC) {
+  if (data.length >= 8 && vU64(dv(data), 0) !== MAGIC) {
     throw new Error('parseConfig: invalid slab magic');
   }
   const layout = layoutHint !== undefined ? layoutHint : detectSlabLayout(data.length, data);
@@ -2854,6 +2872,7 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
     throw new Error(`Slab data too short for config: ${data.length} < ${minLen}`);
   }
 
+  const v = dv(data); // one view per decode, created only after the length guards pass
   let off = configOff;
 
   const collateralMint = new PublicKey(data.subarray(off, off + 32));
@@ -2865,10 +2884,10 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
   const indexFeedId = new PublicKey(data.subarray(off, off + 32));
   off += 32;
 
-  const maxStalenessSlots = readU64LE(data, off);
+  const maxStalenessSlots = vU64(v, off);
   off += 8;
 
-  const confFilterBps = readU16LE(data, off);
+  const confFilterBps = vU16(v, off);
   off += 2;
 
   const vaultAuthorityBump = readU8(data, off);
@@ -2877,23 +2896,23 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
   const invert = readU8(data, off);
   off += 1;
 
-  const unitScale = readU32LE(data, off);
+  const unitScale = vU32(v, off);
   off += 4;
 
   // Funding rate parameters
-  const fundingHorizonSlots = readU64LE(data, off);
+  const fundingHorizonSlots = vU64(v, off);
   off += 8;
 
-  const fundingKBps = readU64LE(data, off);
+  const fundingKBps = vU64(v, off);
   off += 8;
 
-  const fundingInvScaleNotionalE6 = readU128LE(data, off);
+  const fundingInvScaleNotionalE6 = vU128(v, off);
   off += 16;
 
-  const fundingMaxPremiumBps = readI64LE(data, off);
+  const fundingMaxPremiumBps = vI64(v, off);
   off += 8;
 
-  const fundingMaxBpsPerSlot = readI64LE(data, off);
+  const fundingMaxBpsPerSlot = vI64(v, off);
   off += 8;
 
   // NOTE: Extended funding fields (fundingPremiumWeightBps, fundingSettlementIntervalSlots,
@@ -2902,52 +2921,52 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
   // all subsequent fields by 32 bytes, causing oracle_authority to read garbage.
 
   // Threshold parameters
-  const threshFloor = readU128LE(data, off);
+  const threshFloor = vU128(v, off);
   off += 16;
 
-  const threshRiskBps = readU64LE(data, off);
+  const threshRiskBps = vU64(v, off);
   off += 8;
 
-  const threshUpdateIntervalSlots = readU64LE(data, off);
+  const threshUpdateIntervalSlots = vU64(v, off);
   off += 8;
 
-  const threshStepBps = readU64LE(data, off);
+  const threshStepBps = vU64(v, off);
   off += 8;
 
-  const threshAlphaBps = readU64LE(data, off);
+  const threshAlphaBps = vU64(v, off);
   off += 8;
 
-  const threshMin = readU128LE(data, off);
+  const threshMin = vU128(v, off);
   off += 16;
 
-  const threshMax = readU128LE(data, off);
+  const threshMax = vU128(v, off);
   off += 16;
 
-  const threshMinStep = readU128LE(data, off);
+  const threshMinStep = vU128(v, off);
   off += 16;
 
   // Oracle authority fields
   const oracleAuthority = new PublicKey(data.subarray(off, off + 32));
   off += 32;
 
-  const authorityPriceE6 = readU64LE(data, off);
+  const authorityPriceE6 = vU64(v, off);
   off += 8;
 
-  const authorityTimestamp = readI64LE(data, off);
+  const authorityTimestamp = vI64(v, off);
   off += 8;
 
   // Oracle price circuit breaker
-  const oraclePriceCapE2bps = readU64LE(data, off);
+  const oraclePriceCapE2bps = vU64(v, off);
   off += 8;
 
-  const lastEffectivePriceE6 = readU64LE(data, off);
+  const lastEffectivePriceE6 = vU64(v, off);
   off += 8;
 
   // OI cap
-  const oiCapMultiplierBps = readU64LE(data, off);
+  const oiCapMultiplierBps = vU64(v, off);
   off += 8;
 
-  const maxPnlCap = readU64LE(data, off);
+  const maxPnlCap = vU64(v, off);
   off += 8;
 
   // Check if we have enough data for V1-only fields
@@ -2970,30 +2989,30 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
     //   adaptive_funding_enabled(u8), _pad(u8), adaptive_scale_bps(u16),
     //   _pad2(u32), adaptive_max_funding_bps(u64),
     //   insurance_isolation_bps(u16), _insurance_isolation_padding([u8;14])
-    marketCreatedSlot = readU64LE(data, off);
+    marketCreatedSlot = vU64(v, off);
     off += 8;
 
-    oiRampSlots = readU64LE(data, off);
+    oiRampSlots = vU64(v, off);
     off += 8;
 
     adaptiveFundingEnabled = readU8(data, off) !== 0;
     off += 1;
     off += 1; // _adaptive_pad
-    adaptiveScaleBps = readU16LE(data, off);
+    adaptiveScaleBps = vU16(v, off);
     off += 2;
     off += 4; // _adaptive_pad2
-    adaptiveMaxFundingBps = readU64LE(data, off);
+    adaptiveMaxFundingBps = vU64(v, off);
     off += 8;
 
     if (remaining >= 42) {
-      insuranceIsolationBps = readU16LE(data, off);
+      insuranceIsolationBps = vU16(v, off);
       // PERC-622: Read oracle phase fields from _insurance_isolation_padding
       // padding starts at off + 2 (after u16 insuranceIsolationBps)
       // [0..2] = mark_oracle_weight (PERC-118), [2] = oracle_phase, [3..11] = cumulative_volume, [11..14] = phase2_delta
       if (remaining >= 56) { // 42 + 14 bytes padding
         const padOff = off + 2;
         oraclePhase = Math.min(readU8(data, padOff + 2), 2);
-        cumulativeVolumeE6 = readU64LE(data, padOff + 3);
+        cumulativeVolumeE6 = vU64(v, padOff + 3);
         // phase2_delta_slots is u24 LE (3 bytes)
         phase2DeltaSlots = data[padOff + 11] | (data[padOff + 12] << 8) | (data[padOff + 13] << 16);
       }
@@ -3091,38 +3110,39 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
   const isV12_1Sbf = !isV12_15Params && layout !== null && layout !== undefined &&
     (layout.engineOff === V12_1_SBF_ENGINE_OFF) && paramsSize === 184;
 
+  const v = dv(data); // one view per decode, created only after the length guards pass
   // Basic params present in all layouts (offsets 0-55 are identical)
   const result: RiskParams = {
     warmupPeriodSlots: isV12_19Params
-      ? readU64LE(data, base + V12_19_PARAMS_H_MIN_OFF) // backwards compat: return hMin
+      ? vU64(v, base + V12_19_PARAMS_H_MIN_OFF) // backwards compat: return hMin
       : isV12_15Params
-      ? readU64LE(data, base + V12_15_PARAMS_H_MIN_OFF)   // backwards compat: return hMin
-      : readU64LE(data, base + PARAMS_WARMUP_PERIOD_OFF),
+      ? vU64(v, base + V12_15_PARAMS_H_MIN_OFF)   // backwards compat: return hMin
+      : vU64(v, base + PARAMS_WARMUP_PERIOD_OFF),
     maintenanceMarginBps: isV12_19Params
-      ? readU64LE(data, base + V12_19_PARAMS_MAINTENANCE_MARGIN_OFF)
+      ? vU64(v, base + V12_19_PARAMS_MAINTENANCE_MARGIN_OFF)
       : isV12_15Params
-      ? readU64LE(data, base + 0)   // v12.15: mm_bps is first field (offset 0)
-      : readU64LE(data, base + PARAMS_MAINTENANCE_MARGIN_OFF),
+      ? vU64(v, base + 0)   // v12.15: mm_bps is first field (offset 0)
+      : vU64(v, base + PARAMS_MAINTENANCE_MARGIN_OFF),
     initialMarginBps: isV12_19Params
-      ? readU64LE(data, base + V12_19_PARAMS_INITIAL_MARGIN_OFF)
+      ? vU64(v, base + V12_19_PARAMS_INITIAL_MARGIN_OFF)
       : isV12_15Params
-      ? readU64LE(data, base + 8)
-      : readU64LE(data, base + PARAMS_INITIAL_MARGIN_OFF),
+      ? vU64(v, base + 8)
+      : vU64(v, base + PARAMS_INITIAL_MARGIN_OFF),
     tradingFeeBps: isV12_19Params
-      ? readU64LE(data, base + V12_19_PARAMS_TRADING_FEE_OFF)
+      ? vU64(v, base + V12_19_PARAMS_TRADING_FEE_OFF)
       : isV12_15Params
-      ? readU64LE(data, base + 16)
-      : readU64LE(data, base + PARAMS_TRADING_FEE_OFF),
+      ? vU64(v, base + 16)
+      : vU64(v, base + PARAMS_TRADING_FEE_OFF),
     maxAccounts: isV12_19Params
-      ? readU64LE(data, base + V12_19_PARAMS_MAX_ACCOUNTS_OFF)
+      ? vU64(v, base + V12_19_PARAMS_MAX_ACCOUNTS_OFF)
       : isV12_15Params
-      ? readU64LE(data, base + V12_15_PARAMS_MAX_ACCOUNTS_OFF)  // offset 24 in v12.15
-      : readU64LE(data, base + PARAMS_MAX_ACCOUNTS_OFF),
+      ? vU64(v, base + V12_15_PARAMS_MAX_ACCOUNTS_OFF)  // offset 24 in v12.15
+      : vU64(v, base + PARAMS_MAX_ACCOUNTS_OFF),
     newAccountFee: isV12_19Params
       ? 1n // v12.19 wrapper hardcodes a one-base-unit anti-spam fee at InitUser/InitLP.
       : isV12_15Params
-      ? readU128LE(data, base + 32)  // offset 32 in v12.15
-      : readU128LE(data, base + PARAMS_NEW_ACCOUNT_FEE_OFF),
+      ? vU128(v, base + 32)  // offset 32 in v12.15
+      : vU128(v, base + PARAMS_NEW_ACCOUNT_FEE_OFF),
     // Extended params: defaults; overwritten below if layout supports them
     riskReductionThreshold: 0n,
     maintenanceFeePerSlot: 0n,
@@ -3142,60 +3162,60 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
   if (isV12_19Params) {
     // V12_19 engine RiskParams no longer stores wrapper policy fields such as
     // new_account_fee, min_initial_deposit, insurance_floor, or maintenance fee.
-    result.hMin = readU64LE(data, base + V12_19_PARAMS_H_MIN_OFF);
-    result.hMax = readU64LE(data, base + V12_19_PARAMS_H_MAX_OFF);
+    result.hMin = vU64(v, base + V12_19_PARAMS_H_MIN_OFF);
+    result.hMax = vU64(v, base + V12_19_PARAMS_H_MAX_OFF);
     result.riskReductionThreshold = 0n;
     result.maintenanceFeePerSlot = 0n;
-    result.maxCrankStalenessSlots = readU64LE(data, base + V12_19_PARAMS_MAX_ACCRUAL_DT_OFF);
-    result.liquidationFeeBps = readU64LE(data, base + V12_19_PARAMS_LIQ_FEE_BPS_OFF);
-    result.liquidationFeeCap = readU128LE(data, base + V12_19_PARAMS_LIQ_FEE_CAP_OFF);
-    result.liquidationBufferBps = readU64LE(data, base + V12_19_PARAMS_RESOLVE_PRICE_DEVIATION_OFF);
-    result.minLiquidationAbs = readU128LE(data, base + V12_19_PARAMS_MIN_LIQ_OFF);
+    result.maxCrankStalenessSlots = vU64(v, base + V12_19_PARAMS_MAX_ACCRUAL_DT_OFF);
+    result.liquidationFeeBps = vU64(v, base + V12_19_PARAMS_LIQ_FEE_BPS_OFF);
+    result.liquidationFeeCap = vU128(v, base + V12_19_PARAMS_LIQ_FEE_CAP_OFF);
+    result.liquidationBufferBps = vU64(v, base + V12_19_PARAMS_RESOLVE_PRICE_DEVIATION_OFF);
+    result.minLiquidationAbs = vU128(v, base + V12_19_PARAMS_MIN_LIQ_OFF);
     result.minInitialDeposit = 0n;
-    result.minNonzeroMmReq = readU128LE(data, base + V12_19_PARAMS_MIN_NZ_MM_OFF);
-    result.minNonzeroImReq = readU128LE(data, base + V12_19_PARAMS_MIN_NZ_IM_OFF);
+    result.minNonzeroMmReq = vU128(v, base + V12_19_PARAMS_MIN_NZ_MM_OFF);
+    result.minNonzeroImReq = vU128(v, base + V12_19_PARAMS_MIN_NZ_IM_OFF);
     result.insuranceFloor = 0n;
   } else if (isV12_15Params) {
     // V12_15 RiskParams: read hMin/hMax, insurance_floor occupies offset 144.
-    result.hMin = readU64LE(data, base + V12_15_PARAMS_H_MIN_OFF);
-    result.hMax = readU64LE(data, base + V12_15_PARAMS_H_MAX_OFF);
-    result.insuranceFloor = readU128LE(data, base + V12_15_PARAMS_INSURANCE_FLOOR_OFF);
+    result.hMin = vU64(v, base + V12_15_PARAMS_H_MIN_OFF);
+    result.hMax = vU64(v, base + V12_15_PARAMS_H_MAX_OFF);
+    result.insuranceFloor = vU128(v, base + V12_15_PARAMS_INSURANCE_FLOOR_OFF);
     // v12.15 RiskParams: no riskReductionThreshold, no maintenanceFeePerSlot.
     // All offsets shift -8 from legacy (warmupPeriodSlots removed from start).
     result.riskReductionThreshold = 0n; // removed in v12.15
     result.maintenanceFeePerSlot  = 0n; // removed in v12.15
     // v12.15 RiskParams offsets (same on native and SBF — no i128 fields in RiskParams)
-    result.maxCrankStalenessSlots = readU64LE(data, base + 48);
-    result.liquidationFeeBps      = readU64LE(data, base + 56);
-    result.liquidationFeeCap      = readU128LE(data, base + 64);
+    result.maxCrankStalenessSlots = vU64(v, base + 48);
+    result.liquidationFeeBps      = vU64(v, base + 56);
+    result.liquidationFeeCap      = vU128(v, base + 64);
     result.liquidationBufferBps   = 0n; // removed (wire slot reused as resolve_price_deviation_bps)
-    result.minLiquidationAbs      = readU128LE(data, base + 80);
-    result.minInitialDeposit      = readU128LE(data, base + 96);
-    result.minNonzeroMmReq        = readU128LE(data, base + 112);
-    result.minNonzeroImReq        = readU128LE(data, base + 128);
+    result.minLiquidationAbs      = vU128(v, base + 80);
+    result.minInitialDeposit      = vU128(v, base + 96);
+    result.minNonzeroMmReq        = vU128(v, base + 112);
+    result.minNonzeroImReq        = vU128(v, base + 128);
   } else if (isV12_1Sbf) {
     // V12_1 SBF deployed struct — no riskReductionThreshold/liquidationBufferBps
-    result.maintenanceFeePerSlot = readU128LE(data, base + V12_1_PARAMS_MAINT_FEE_OFF);
-    result.maxCrankStalenessSlots = readU64LE(data, base + V12_1_PARAMS_MAX_CRANK_OFF);
-    result.liquidationFeeBps = readU64LE(data, base + V12_1_PARAMS_LIQ_FEE_BPS_OFF);
-    result.liquidationFeeCap = readU128LE(data, base + V12_1_PARAMS_LIQ_FEE_CAP_OFF);
-    result.minLiquidationAbs = readU128LE(data, base + V12_1_PARAMS_MIN_LIQ_OFF);
-    result.minInitialDeposit = readU128LE(data, base + V12_1_PARAMS_MIN_INITIAL_DEP_OFF);
-    result.minNonzeroMmReq = readU128LE(data, base + V12_1_PARAMS_MIN_NZ_MM_OFF);
-    result.minNonzeroImReq = readU128LE(data, base + V12_1_PARAMS_MIN_NZ_IM_OFF);
-    result.insuranceFloor = readU128LE(data, base + V12_1_PARAMS_INS_FLOOR_OFF);
+    result.maintenanceFeePerSlot = vU128(v, base + V12_1_PARAMS_MAINT_FEE_OFF);
+    result.maxCrankStalenessSlots = vU64(v, base + V12_1_PARAMS_MAX_CRANK_OFF);
+    result.liquidationFeeBps = vU64(v, base + V12_1_PARAMS_LIQ_FEE_BPS_OFF);
+    result.liquidationFeeCap = vU128(v, base + V12_1_PARAMS_LIQ_FEE_CAP_OFF);
+    result.minLiquidationAbs = vU128(v, base + V12_1_PARAMS_MIN_LIQ_OFF);
+    result.minInitialDeposit = vU128(v, base + V12_1_PARAMS_MIN_INITIAL_DEP_OFF);
+    result.minNonzeroMmReq = vU128(v, base + V12_1_PARAMS_MIN_NZ_MM_OFF);
+    result.minNonzeroImReq = vU128(v, base + V12_1_PARAMS_MIN_NZ_IM_OFF);
+    result.insuranceFloor = vU128(v, base + V12_1_PARAMS_INS_FLOOR_OFF);
     // hMin/hMax: backfill from warmupPeriodSlots for pre-v12.15 callers
     result.hMin = result.warmupPeriodSlots;
     result.hMax = result.warmupPeriodSlots;
   } else if (paramsSize >= 144) {
     // Legacy V0/V1/V1D layouts with riskReductionThreshold + liquidationBufferBps
-    result.riskReductionThreshold = readU128LE(data, base + PARAMS_RISK_THRESHOLD_OFF);
-    result.maintenanceFeePerSlot = readU128LE(data, base + PARAMS_MAINTENANCE_FEE_OFF);
-    result.maxCrankStalenessSlots = readU64LE(data, base + PARAMS_MAX_CRANK_STALENESS_OFF);
-    result.liquidationFeeBps = readU64LE(data, base + PARAMS_LIQUIDATION_FEE_BPS_OFF);
-    result.liquidationFeeCap = readU128LE(data, base + PARAMS_LIQUIDATION_FEE_CAP_OFF);
-    result.liquidationBufferBps = readU64LE(data, base + PARAMS_LIQUIDATION_BUFFER_OFF);
-    result.minLiquidationAbs = readU128LE(data, base + PARAMS_MIN_LIQUIDATION_OFF);
+    result.riskReductionThreshold = vU128(v, base + PARAMS_RISK_THRESHOLD_OFF);
+    result.maintenanceFeePerSlot = vU128(v, base + PARAMS_MAINTENANCE_FEE_OFF);
+    result.maxCrankStalenessSlots = vU64(v, base + PARAMS_MAX_CRANK_STALENESS_OFF);
+    result.liquidationFeeBps = vU64(v, base + PARAMS_LIQUIDATION_FEE_BPS_OFF);
+    result.liquidationFeeCap = vU128(v, base + PARAMS_LIQUIDATION_FEE_CAP_OFF);
+    result.liquidationBufferBps = vU64(v, base + PARAMS_LIQUIDATION_BUFFER_OFF);
+    result.minLiquidationAbs = vU128(v, base + PARAMS_MIN_LIQUIDATION_OFF);
     // hMin/hMax: backfill from warmupPeriodSlots for pre-v12.15 callers
     result.hMin = result.warmupPeriodSlots;
     result.hMax = result.warmupPeriodSlots;
@@ -3208,7 +3228,7 @@ export function parseParams(data: Uint8Array, layoutHint?: SlabLayout | null): R
  * Parse RiskEngine state (excluding accounts array). Layout-version aware.
  */
 export function parseEngine(data: Uint8Array): EngineState {
-  if (data.length >= 8 && readU64LE(data, 0) !== MAGIC) {
+  if (data.length >= 8 && vU64(dv(data), 0) !== MAGIC) {
     throw new Error('parseEngine: invalid slab magic');
   }
   const layout = detectSlabLayout(data.length, data);
@@ -3218,6 +3238,7 @@ export function parseEngine(data: Uint8Array): EngineState {
   if (data.length < layout.accountsOff) {
     throw new Error(`parseEngine: data too short for accountsOff (${data.length} < ${layout.accountsOff})`);
   }
+  const v = dv(data); // one view per decode, created only after the length guards pass
 
   const base = layout.engineOff;
 
@@ -3270,36 +3291,36 @@ export function parseEngine(data: Uint8Array): EngineState {
     const oiEffShortOff = isV12_19 ? V12_19_SBF_ENGINE_OI_EFF_SHORT_OFF
                               : isSbf ? V12_17_SBF_ENGINE_OI_EFF_SHORT_OFF : V12_17_ENGINE_OI_EFF_SHORT_OFF;
 
-    const longOi = readU128LE(data, base + oiEffLongOff);
-    const shortOi = readU128LE(data, base + oiEffShortOff);
+    const longOi = vU128(v, base + oiEffLongOff);
+    const shortOi = vU128(v, base + oiEffShortOff);
 
     // numUsedAccounts: at bitmap + bitmapBytes (postBitmap=4: num_used_accounts is first u16)
     const bitmapEnd = layout.engineBitmapOff + layout.bitmapWords * 8;
 
     return {
-      vault: readU128LE(data, base),
+      vault: vU128(v, base),
       insuranceFund: {
-        balance: readU128LE(data, base + 16),
+        balance: vU128(v, base + 16),
         feeRevenue: 0n,
         isolatedBalance: 0n,
         isolationBps: 0,
       },
-      currentSlot: readU64LE(data, base + currentSlotOff),
+      currentSlot: vU64(v, base + currentSlotOff),
       fundingIndexQpbE6: 0n,          // replaced by per-side funding
       lastFundingSlot: 0n,
       fundingRateBpsPerSlotLast: 0n,   // no stored funding rate in v12.17
       fundingRateE9: 0n,               // no stored funding rate in v12.17
       marketMode: readU8(data, base + marketModeOff) === 1 ? 1 : 0,
-      lastCrankSlot: readU64LE(data, base + lastCrankSlotOff),
+      lastCrankSlot: vU64(v, base + lastCrankSlotOff),
       maxCrankStalenessSlots: 0n,
       totalOpenInterest: longOi + shortOi,
       longOi,
       shortOi,
-      cTot: readU128LE(data, base + cTotOff),
-      pnlPosTot: readU128LE(data, base + pnlPosTotOff),
-      pnlMaturedPosTot: readU128LE(data, base + pnlMaturedOff),
+      cTot: vU128(v, base + cTotOff),
+      pnlPosTot: vU128(v, base + pnlPosTotOff),
+      pnlMaturedPosTot: vU128(v, base + pnlMaturedOff),
       liqCursor: 0,
-      gcCursor: readU16LE(data, base + gcCursorOff),
+      gcCursor: vU16(v, base + gcCursorOff),
       lastSweepStartSlot: 0n,
       lastSweepCompleteSlot: 0n,
       crankCursor: 0,
@@ -3314,118 +3335,118 @@ export function parseEngine(data: Uint8Array): EngineState {
       emergencyStartSlot: 0n,
       lastBreakerSlot: 0n,
       markPriceE6: 0n,
-      oraclePriceE6: readU64LE(data, base + oraclePriceOff),
-      numUsedAccounts: readU16LE(data, base + bitmapEnd),
+      oraclePriceE6: vU64(v, base + oraclePriceOff),
+      numUsedAccounts: vU16(v, base + bitmapEnd),
       nextAccountId: 0n,               // removed in v12.17 (replaced by mat_counter in header)
 
       // V12_17 fields
-      fLongNum: readI128LE(data, base + fLongNumOff),
-      fShortNum: readI128LE(data, base + fShortNumOff),
-      negPnlAccountCount: readU64LE(data, base + negPnlOff),
-      fundPxLast: readU64LE(data, base + fundPxLastOff),
-      resolvedKLongTerminalDelta: readI128LE(data, base + resolvedKLongOff),
-      resolvedKShortTerminalDelta: readI128LE(data, base + resolvedKShortOff),
-      resolvedLivePrice: readU64LE(data, base + resolvedLivePriceOff),
+      fLongNum: vI128(v, base + fLongNumOff),
+      fShortNum: vI128(v, base + fShortNumOff),
+      negPnlAccountCount: vU64(v, base + negPnlOff),
+      fundPxLast: vU64(v, base + fundPxLastOff),
+      resolvedKLongTerminalDelta: vI128(v, base + resolvedKLongOff),
+      resolvedKShortTerminalDelta: vI128(v, base + resolvedKShortOff),
+      resolvedLivePrice: vU64(v, base + resolvedLivePriceOff),
     };
   }
 
   // For v12.15: funding_rate_e9 is i128 at layout.engineFundingRateBpsOff (224 SBF, 240 native).
   // For pre-v12.15: i64 at engineFundingRateBpsOff.
   const fundingRateBpsPerSlotLast = isV12_15
-    ? readI128LE(data, base + layout.engineFundingRateBpsOff)
-    : readI64LE(data, base + layout.engineFundingRateBpsOff);
+    ? vI128(v, base + layout.engineFundingRateBpsOff)
+    : vI64(v, base + layout.engineFundingRateBpsOff);
 
   return {
-    vault: readU128LE(data, base),
+    vault: vU128(v, base),
     insuranceFund: {
-      balance: readU128LE(data, base + layout.engineInsuranceOff),
+      balance: vU128(v, base + layout.engineInsuranceOff),
       // feeRevenue: only exists in percolator-core (80-byte InsuranceFund), not deployed (16-byte)
       feeRevenue: layout.hasInsuranceIsolation
-        ? readU128LE(data, base + layout.engineInsuranceOff + 16)
+        ? vU128(v, base + layout.engineInsuranceOff + 16)
         : 0n,
       isolatedBalance: layout.hasInsuranceIsolation
-        ? readU128LE(data, base + layout.engineInsuranceIsolatedOff)
+        ? vU128(v, base + layout.engineInsuranceIsolatedOff)
         : 0n,
       isolationBps: layout.hasInsuranceIsolation
-        ? readU16LE(data, base + layout.engineInsuranceIsolationBpsOff)
+        ? vU16(v, base + layout.engineInsuranceIsolationBpsOff)
         : 0,
     },
-    currentSlot: readU64LE(data, base + layout.engineCurrentSlotOff),
+    currentSlot: vU64(v, base + layout.engineCurrentSlotOff),
     fundingIndexQpbE6: layout.engineFundingIndexOff >= 0
       ? ((layout.engineLastFundingSlotOff >= 0 && layout.engineLastFundingSlotOff - layout.engineFundingIndexOff === 8)
-          ? BigInt(readI64LE(data, base + layout.engineFundingIndexOff))
-          : readI128LE(data, base + layout.engineFundingIndexOff))
+          ? BigInt(vI64(v, base + layout.engineFundingIndexOff))
+          : vI128(v, base + layout.engineFundingIndexOff))
       : 0n,
     lastFundingSlot: layout.engineLastFundingSlotOff >= 0
-      ? readU64LE(data, base + layout.engineLastFundingSlotOff) : 0n,
+      ? vU64(v, base + layout.engineLastFundingSlotOff) : 0n,
     fundingRateBpsPerSlotLast,
     fundingRateE9: isV12_15
-      ? readI128LE(data, base + layout.engineFundingRateBpsOff)
+      ? vI128(v, base + layout.engineFundingRateBpsOff)
       : 0n,
     marketMode: isV12_15
       ? (readU8(data, base + layout.engineFundingRateBpsOff + 16) === 1 ? 1 : 0)
       : null,
     lastCrankSlot: layout.engineLastCrankSlotOff >= 0
-      ? readU64LE(data, base + layout.engineLastCrankSlotOff) : 0n,
+      ? vU64(v, base + layout.engineLastCrankSlotOff) : 0n,
     maxCrankStalenessSlots: layout.engineMaxCrankStalenessOff >= 0
-      ? readU64LE(data, base + layout.engineMaxCrankStalenessOff) : 0n,
+      ? vU64(v, base + layout.engineMaxCrankStalenessOff) : 0n,
     totalOpenInterest: layout.engineTotalOiOff >= 0
-      ? readU128LE(data, base + layout.engineTotalOiOff) : 0n,
+      ? vU128(v, base + layout.engineTotalOiOff) : 0n,
     longOi: layout.engineLongOiOff >= 0
-      ? readU128LE(data, base + layout.engineLongOiOff) : 0n,
+      ? vU128(v, base + layout.engineLongOiOff) : 0n,
     shortOi: layout.engineShortOiOff >= 0
-      ? readU128LE(data, base + layout.engineShortOiOff) : 0n,
-    cTot: readU128LE(data, base + layout.engineCTotOff),
-    pnlPosTot: readU128LE(data, base + layout.enginePnlPosTotOff),
+      ? vU128(v, base + layout.engineShortOiOff) : 0n,
+    cTot: vU128(v, base + layout.engineCTotOff),
+    pnlPosTot: vU128(v, base + layout.enginePnlPosTotOff),
     pnlMaturedPosTot: isV12_15
-      ? readU128LE(data, base + V12_15_ENGINE_PNL_MATURED_POS_TOT_OFF)
+      ? vU128(v, base + V12_15_ENGINE_PNL_MATURED_POS_TOT_OFF)
       : 0n,
     liqCursor: layout.engineLiqCursorOff >= 0
-      ? readU16LE(data, base + layout.engineLiqCursorOff) : 0,
+      ? vU16(v, base + layout.engineLiqCursorOff) : 0,
     gcCursor: layout.engineGcCursorOff >= 0
-      ? readU16LE(data, base + layout.engineGcCursorOff) : 0,
+      ? vU16(v, base + layout.engineGcCursorOff) : 0,
     lastSweepStartSlot: layout.engineLastSweepStartOff >= 0
-      ? readU64LE(data, base + layout.engineLastSweepStartOff) : 0n,
+      ? vU64(v, base + layout.engineLastSweepStartOff) : 0n,
     lastSweepCompleteSlot: layout.engineLastSweepCompleteOff >= 0
-      ? readU64LE(data, base + layout.engineLastSweepCompleteOff) : 0n,
+      ? vU64(v, base + layout.engineLastSweepCompleteOff) : 0n,
     crankCursor: layout.engineCrankCursorOff >= 0
-      ? readU16LE(data, base + layout.engineCrankCursorOff) : 0,
+      ? vU16(v, base + layout.engineCrankCursorOff) : 0,
     sweepStartIdx: layout.engineSweepStartIdxOff >= 0
-      ? readU16LE(data, base + layout.engineSweepStartIdxOff) : 0,
+      ? vU16(v, base + layout.engineSweepStartIdxOff) : 0,
     lifetimeLiquidations: layout.engineLifetimeLiquidationsOff >= 0
-      ? readU64LE(data, base + layout.engineLifetimeLiquidationsOff) : 0n,
+      ? vU64(v, base + layout.engineLifetimeLiquidationsOff) : 0n,
     lifetimeForceCloses: layout.engineLifetimeForceClosesOff >= 0
-      ? readU64LE(data, base + layout.engineLifetimeForceClosesOff) : 0n,
+      ? vU64(v, base + layout.engineLifetimeForceClosesOff) : 0n,
     netLpPos: layout.engineNetLpPosOff >= 0
-      ? readI128LE(data, base + layout.engineNetLpPosOff) : 0n,
+      ? vI128(v, base + layout.engineNetLpPosOff) : 0n,
     lpSumAbs: layout.engineLpSumAbsOff >= 0
-      ? readU128LE(data, base + layout.engineLpSumAbsOff) : 0n,
-    lpMaxAbs: layout.engineLpMaxAbsOff >= 0 ? readU128LE(data, base + layout.engineLpMaxAbsOff) : 0n,
-    lpMaxAbsSweep: layout.engineLpMaxAbsSweepOff >= 0 ? readU128LE(data, base + layout.engineLpMaxAbsSweepOff) : 0n,
+      ? vU128(v, base + layout.engineLpSumAbsOff) : 0n,
+    lpMaxAbs: layout.engineLpMaxAbsOff >= 0 ? vU128(v, base + layout.engineLpMaxAbsOff) : 0n,
+    lpMaxAbsSweep: layout.engineLpMaxAbsSweepOff >= 0 ? vU128(v, base + layout.engineLpMaxAbsSweepOff) : 0n,
     emergencyOiMode: layout.engineEmergencyOiModeOff >= 0
       ? data[base + layout.engineEmergencyOiModeOff] !== 0
       : false,
     emergencyStartSlot: layout.engineEmergencyStartSlotOff >= 0
-      ? readU64LE(data, base + layout.engineEmergencyStartSlotOff) : 0n,
+      ? vU64(v, base + layout.engineEmergencyStartSlotOff) : 0n,
     lastBreakerSlot: layout.engineLastBreakerSlotOff >= 0
-      ? readU64LE(data, base + layout.engineLastBreakerSlotOff) : 0n,
+      ? vU64(v, base + layout.engineLastBreakerSlotOff) : 0n,
     markPriceE6: layout.engineMarkPriceOff >= 0
-      ? readU64LE(data, base + layout.engineMarkPriceOff) : 0n,
+      ? vU64(v, base + layout.engineMarkPriceOff) : 0n,
     // V12_15: last_oracle_price at engine+608 (SBF) / engine+... (native).
     // Located at bitmapOff - 40 on SBF (648-40=608, verified on-chain).
     oraclePriceE6: isV12_15
-      ? readU64LE(data, base + layout.engineBitmapOff - 40)
+      ? vU64(v, base + layout.engineBitmapOff - 40)
       : 0n,
     numUsedAccounts: (() => {
       if (layout.postBitmap < 18) return 0;
       const bw = layout.bitmapWords;
-      return readU16LE(data, base + layout.engineBitmapOff + bw * 8);
+      return vU16(v, base + layout.engineBitmapOff + bw * 8);
     })(),
     nextAccountId: (() => {
       if (layout.postBitmap < 18) return 0n;
       const bw = layout.bitmapWords;
       const numUsedOff = layout.engineBitmapOff + bw * 8;
-      return readU64LE(data, base + Math.ceil((numUsedOff + 2) / 8) * 8);
+      return vU64(v, base + Math.ceil((numUsedOff + 2) / 8) * 8);
     })(),
 
     // V12_17 fields (not present in pre-v12.17)
@@ -3515,6 +3536,7 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
   if (!Number.isInteger(idx) || idx < 0 || idx >= maxIdx) {
     throw new Error(`Account index out of range: ${idx} (max: ${maxIdx - 1})`);
   }
+  const v = dv(data); // one view per decode, created only after the length guards pass
 
   const base = layout.accountsOff + idx * layout.accountSize;
   if (data.length < base + layout.accountSize) {
@@ -3562,18 +3584,18 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
     return {
       kind,
       accountId: 0n,           // removed in v12.17
-      capital: readU128LE(data, base + V12_17_ACCT_CAPITAL_OFF),
-      pnl: readI128LE(data, base + V12_17_ACCT_PNL_OFF - d1),
-      reservedPnl: readU128LE(data, base + V12_17_ACCT_RESERVED_PNL_OFF - d1),
+      capital: vU128(v, base + V12_17_ACCT_CAPITAL_OFF),
+      pnl: vI128(v, base + V12_17_ACCT_PNL_OFF - d1),
+      reservedPnl: vU128(v, base + V12_17_ACCT_RESERVED_PNL_OFF - d1),
       warmupStartedAtSlot: 0n, // removed
       warmupSlopePerStep: 0n,  // removed
-      positionSize: readI128LE(data, base + V12_17_ACCT_POSITION_BASIS_Q_OFF - d1),
+      positionSize: vI128(v, base + V12_17_ACCT_POSITION_BASIS_Q_OFF - d1),
       entryPrice: 0n,          // removed — compute off-chain from position_basis_q / effective_pos_q
       fundingIndex: 0n,        // replaced by per-side f_long_num/f_short_num + per-account f_snap
       matcherProgram: new PublicKey(data.subarray(base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1, base + V12_17_ACCT_MATCHER_PROGRAM_OFF - d1 + 32)),
       matcherContext: new PublicKey(data.subarray(base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1, base + V12_17_ACCT_MATCHER_CONTEXT_OFF - d1 + 32)),
       owner: new PublicKey(data.subarray(base + V12_17_ACCT_OWNER_OFF - d1, base + V12_17_ACCT_OWNER_OFF - d1 + 32)),
-      feeCredits: readI128LE(data, base + V12_17_ACCT_FEE_CREDITS_OFF - d1),
+      feeCredits: vI128(v, base + V12_17_ACCT_FEE_CREDITS_OFF - d1),
       lastFeeSlot: 0n,         // removed
       feesEarnedTotal: 0n,     // removed in v12.17
       exactReserveCohorts: null, // replaced by two-bucket warmup
@@ -3584,20 +3606,20 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
       overflowNewestPresent: null,
 
       // V12_17 fields
-      fSnap: readI128LE(data, base + V12_17_ACCT_F_SNAP_OFF - d1),
-      adlABasis: readU128LE(data, base + V12_17_ACCT_ADL_A_BASIS_OFF - d1),
-      adlKSnap: readI128LE(data, base + V12_17_ACCT_ADL_K_SNAP_OFF - d1),
-      adlEpochSnap: readU64LE(data, base + V12_17_ACCT_ADL_EPOCH_SNAP_OFF - d1),
+      fSnap: vI128(v, base + V12_17_ACCT_F_SNAP_OFF - d1),
+      adlABasis: vU128(v, base + V12_17_ACCT_ADL_A_BASIS_OFF - d1),
+      adlKSnap: vI128(v, base + V12_17_ACCT_ADL_K_SNAP_OFF - d1),
+      adlEpochSnap: vU64(v, base + V12_17_ACCT_ADL_EPOCH_SNAP_OFF - d1),
       schedPresent: readU8(data, base + V12_17_ACCT_SCHED_PRESENT_OFF - d1) !== 0,
-      schedRemainingQ: readU128LE(data, base + V12_17_ACCT_SCHED_REMAINING_Q_OFF - d1),
-      schedAnchorQ: readU128LE(data, base + V12_17_ACCT_SCHED_ANCHOR_Q_OFF - d1),
-      schedStartSlot: readU64LE(data, base + V12_17_ACCT_SCHED_START_SLOT_OFF - d1),
-      schedHorizon: readU64LE(data, base + V12_17_ACCT_SCHED_HORIZON_OFF - d1),
-      schedReleaseQ: readU128LE(data, base + V12_17_ACCT_SCHED_RELEASE_Q_OFF - d1),
+      schedRemainingQ: vU128(v, base + V12_17_ACCT_SCHED_REMAINING_Q_OFF - d1),
+      schedAnchorQ: vU128(v, base + V12_17_ACCT_SCHED_ANCHOR_Q_OFF - d1),
+      schedStartSlot: vU64(v, base + V12_17_ACCT_SCHED_START_SLOT_OFF - d1),
+      schedHorizon: vU64(v, base + V12_17_ACCT_SCHED_HORIZON_OFF - d1),
+      schedReleaseQ: vU128(v, base + V12_17_ACCT_SCHED_RELEASE_Q_OFF - d1),
       pendingPresent: readU8(data, base + V12_17_ACCT_PENDING_PRESENT_OFF - d1) !== 0,
-      pendingRemainingQ: readU128LE(data, base + V12_17_ACCT_PENDING_REMAINING_Q_OFF - d2),
-      pendingHorizon: readU64LE(data, base + V12_17_ACCT_PENDING_HORIZON_OFF - d2),
-      pendingCreatedSlot: readU64LE(data, base + V12_17_ACCT_PENDING_CREATED_SLOT_OFF - d2),
+      pendingRemainingQ: vU128(v, base + V12_17_ACCT_PENDING_REMAINING_Q_OFF - d2),
+      pendingHorizon: vU64(v, base + V12_17_ACCT_PENDING_HORIZON_OFF - d2),
+      pendingCreatedSlot: vU64(v, base + V12_17_ACCT_PENDING_CREATED_SLOT_OFF - d2),
     };
   }
 
@@ -3619,21 +3641,21 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
 
     return {
       kind,
-      accountId: readU64LE(data, base + V12_15_ACCT_ACCOUNT_ID_OFF),
-      capital: readU128LE(data, base + V12_15_ACCT_CAPITAL_OFF),
-      pnl: readI128LE(data, base + V12_15_ACCT_PNL_OFF),
-      reservedPnl: readU128LE(data, base + V12_15_ACCT_RESERVED_PNL_OFF),
+      accountId: vU64(v, base + V12_15_ACCT_ACCOUNT_ID_OFF),
+      capital: vU128(v, base + V12_15_ACCT_CAPITAL_OFF),
+      pnl: vI128(v, base + V12_15_ACCT_PNL_OFF),
+      reservedPnl: vU128(v, base + V12_15_ACCT_RESERVED_PNL_OFF),
       warmupStartedAtSlot: 0n,  // removed in v12.15
       warmupSlopePerStep: 0n,   // removed in v12.15
-      positionSize: readI128LE(data, base + V12_15_ACCT_POSITION_BASIS_Q_OFF),
-      entryPrice: readU64LE(data, base + V12_15_ACCT_ENTRY_PRICE_OFF),
+      positionSize: vI128(v, base + V12_15_ACCT_POSITION_BASIS_Q_OFF),
+      entryPrice: vU64(v, base + V12_15_ACCT_ENTRY_PRICE_OFF),
       fundingIndex: 0n,          // not present in v12.15 account struct
       matcherProgram: new PublicKey(data.subarray(base + V12_15_ACCT_MATCHER_PROGRAM_OFF, base + V12_15_ACCT_MATCHER_PROGRAM_OFF + 32)),
       matcherContext: new PublicKey(data.subarray(base + V12_15_ACCT_MATCHER_CONTEXT_OFF, base + V12_15_ACCT_MATCHER_CONTEXT_OFF + 32)),
       owner: new PublicKey(data.subarray(base + V12_15_ACCT_OWNER_OFF, base + V12_15_ACCT_OWNER_OFF + 32)),
-      feeCredits: readI128LE(data, base + V12_15_ACCT_FEE_CREDITS_OFF),
+      feeCredits: vI128(v, base + V12_15_ACCT_FEE_CREDITS_OFF),
       lastFeeSlot: 0n,           // removed in v12.15
-      feesEarnedTotal: readU128LE(data, base + V12_15_ACCT_FEES_EARNED_TOTAL_OFF),
+      feesEarnedTotal: vU128(v, base + V12_15_ACCT_FEES_EARNED_TOTAL_OFF),
       exactReserveCohorts,
       exactCohortCount: cohortCount,
       overflowOlder: data.slice(base + V12_15_ACCT_OVERFLOW_OLDER_OFF, base + V12_15_ACCT_OVERFLOW_OLDER_OFF + 64),
@@ -3665,21 +3687,21 @@ export function parseAccount(data: Uint8Array, idx: number): Account {
 
   return {
     kind,
-    accountId: readU64LE(data, base + ACCT_ACCOUNT_ID_OFF),
-    capital: readU128LE(data, base + ACCT_CAPITAL_OFF),
-    pnl: readI128LE(data, base + ACCT_PNL_OFF),
-    reservedPnl: isAdl ? readU128LE(data, base + ACCT_RESERVED_PNL_OFF) : readU64LE(data, base + ACCT_RESERVED_PNL_OFF),
-    warmupStartedAtSlot: readU64LE(data, base + warmupStartedOff),
-    warmupSlopePerStep: readU128LE(data, base + warmupSlopeOff),
-    positionSize: readI128LE(data, base + positionSizeOff),
-    entryPrice: entryPriceOff >= 0 ? readU64LE(data, base + entryPriceOff) : 0n,
+    accountId: vU64(v, base + ACCT_ACCOUNT_ID_OFF),
+    capital: vU128(v, base + ACCT_CAPITAL_OFF),
+    pnl: vI128(v, base + ACCT_PNL_OFF),
+    reservedPnl: isAdl ? vU128(v, base + ACCT_RESERVED_PNL_OFF) : vU64(v, base + ACCT_RESERVED_PNL_OFF),
+    warmupStartedAtSlot: vU64(v, base + warmupStartedOff),
+    warmupSlopePerStep: vU128(v, base + warmupSlopeOff),
+    positionSize: vI128(v, base + positionSizeOff),
+    entryPrice: entryPriceOff >= 0 ? vU64(v, base + entryPriceOff) : 0n,
     // V12_1/V12_1_EP: funding_index not present in SBF layout
-    fundingIndex: (isV12_1 || isV12_1EP) ? (fundingIndexOff >= 0 ? BigInt(readI64LE(data, base + fundingIndexOff)) : 0n) : readI128LE(data, base + fundingIndexOff),
+    fundingIndex: (isV12_1 || isV12_1EP) ? (fundingIndexOff >= 0 ? BigInt(vI64(v, base + fundingIndexOff)) : 0n) : vI128(v, base + fundingIndexOff),
     matcherProgram: new PublicKey(data.subarray(base + matcherProgOff, base + matcherProgOff + 32)),
     matcherContext: new PublicKey(data.subarray(base + matcherCtxOff, base + matcherCtxOff + 32)),
     owner: new PublicKey(data.subarray(base + layout.acctOwnerOff, base + layout.acctOwnerOff + 32)),
-    feeCredits: readI128LE(data, base + feeCreditsOff),
-    lastFeeSlot: readU64LE(data, base + lastFeeSlotOff),
+    feeCredits: vI128(v, base + feeCreditsOff),
+    lastFeeSlot: vU64(v, base + lastFeeSlotOff),
     feesEarnedTotal: 0n,              // not present in pre-v12.15 layouts
     exactReserveCohorts: null,        // not present in pre-v12.15 layouts
     exactCohortCount: null,
@@ -3961,17 +3983,18 @@ export function parseAssetControlSequencesV17(
       `parseAssetControlSequencesV17: data too short — need ${MIN_LEN} bytes, got ${data.length}`,
     );
   }
+  const v = dv(data); // one view per decode, created only after the length guards pass
   return {
-    oracleObservation: readU64LE(data, base + ACS_ORACLE_OBSERVATION_OFF),
-    backingFeeLong: readU64LE(data, base + ACS_BACKING_FEE_LONG_OFF),
-    backingFeeShort: readU64LE(data, base + ACS_BACKING_FEE_SHORT_OFF),
-    tradeFee: readU64LE(data, base + ACS_TRADE_FEE_OFF),
-    liquidationFee: readU64LE(data, base + ACS_LIQUIDATION_FEE_OFF),
-    maintenanceFee: readU64LE(data, base + ACS_MAINTENANCE_FEE_OFF),
-    feeRedirect: readU64LE(data, base + ACS_FEE_REDIRECT_OFF),
-    marketInitFee: readU64LE(data, base + ACS_MARKET_INIT_FEE_OFF),
-    permissionlessResolve: readU64LE(data, base + ACS_PERMISSIONLESS_RESOLVE_OFF),
-    authorityEpoch: readU64LE(data, base + ACS_AUTHORITY_EPOCH_OFF),
+    oracleObservation: vU64(v, base + ACS_ORACLE_OBSERVATION_OFF),
+    backingFeeLong: vU64(v, base + ACS_BACKING_FEE_LONG_OFF),
+    backingFeeShort: vU64(v, base + ACS_BACKING_FEE_SHORT_OFF),
+    tradeFee: vU64(v, base + ACS_TRADE_FEE_OFF),
+    liquidationFee: vU64(v, base + ACS_LIQUIDATION_FEE_OFF),
+    maintenanceFee: vU64(v, base + ACS_MAINTENANCE_FEE_OFF),
+    feeRedirect: vU64(v, base + ACS_FEE_REDIRECT_OFF),
+    marketInitFee: vU64(v, base + ACS_MARKET_INIT_FEE_OFF),
+    permissionlessResolve: vU64(v, base + ACS_PERMISSIONLESS_RESOLVE_OFF),
+    authorityEpoch: vU64(v, base + ACS_AUTHORITY_EPOCH_OFF),
   };
 }
 
@@ -4319,37 +4342,38 @@ export function parseWrapperConfigV17(data: Uint8Array, configOff: number = V17_
   const marketauth = new PublicKey(data.subarray(b + 0, b + 32));
   const collateralMint = new PublicKey(data.subarray(b + 32, b + 64));
   const secondaryCollateralMint = new PublicKey(data.subarray(b + 64, b + 96));
-  const maintenanceFeePerSlot = readU128LE(data, b + 96);
-  const permissionlessMarketInitFee = readU128LE(data, b + 112);
-  const tradeFeeBps = readU64LE(data, b + 128);
-  const permissionlessResolveStaleSlots = readU64LE(data, b + 136);
-  const forceCloseDelaySlots = readU64LE(data, b + 144);
-  const lastGoodOracleSlot = readU64LE(data, b + 152);
-  const insuranceWithdrawDepositRemaining = readU128LE(data, b + 160);
-  const insuranceWithdrawMaxBps = readU16LE(data, b + 176);
-  const liquidationCrankerFeeShareBps = readU16LE(data, b + 178);
-  const maintenanceCrankerFeeShareBps = readU16LE(data, b + 180);
-  const backingTradeFeeBpsLong = readU16LE(data, b + 182);
-  const unitScale = readU32LE(data, b + 184);
-  const confFilterBps = readU16LE(data, b + 188);
-  const backingTradeFeeBpsShort = readU16LE(data, b + 190);
+  const v = dv(data); // one view per decode, created only after the length guards pass
+  const maintenanceFeePerSlot = vU128(v, b + 96);
+  const permissionlessMarketInitFee = vU128(v, b + 112);
+  const tradeFeeBps = vU64(v, b + 128);
+  const permissionlessResolveStaleSlots = vU64(v, b + 136);
+  const forceCloseDelaySlots = vU64(v, b + 144);
+  const lastGoodOracleSlot = vU64(v, b + 152);
+  const insuranceWithdrawDepositRemaining = vU128(v, b + 160);
+  const insuranceWithdrawMaxBps = vU16(v, b + 176);
+  const liquidationCrankerFeeShareBps = vU16(v, b + 178);
+  const maintenanceCrankerFeeShareBps = vU16(v, b + 180);
+  const backingTradeFeeBpsLong = vU16(v, b + 182);
+  const unitScale = vU32(v, b + 184);
+  const confFilterBps = vU16(v, b + 188);
+  const backingTradeFeeBpsShort = vU16(v, b + 190);
   const insuranceWithdrawDepositsOnly = readU8(data, b + 192);
   const oracleMode = readU8(data, b + 193);
   const oracleLegCount = readU8(data, b + 194);
   const oracleLegFlags = readU8(data, b + 195);
   const invert = readU8(data, b + 196);
   // _padding0 at b+197
-  const freeMarketSlotCount = readU16LE(data, b + 198);
-  const insuranceWithdrawCooldownSlots = readU64LE(data, b + 200);
-  const lastInsuranceWithdrawSlot = readU64LE(data, b + 208);
-  const maxStalenessSecs = readU64LE(data, b + 216);
-  const hybridSoftStaleSlots = readU64LE(data, b + 224);
-  const markEwmaE6 = readU64LE(data, b + 232);
-  const markEwmaLastSlot = readU64LE(data, b + 240);
-  const markEwmaHalflifeSlots = readU64LE(data, b + 248);
-  const markMinFee = readU64LE(data, b + 256);
-  const oracleTargetPriceE6 = readU64LE(data, b + 264);
-  const oracleTargetPublishTime = readI64LE(data, b + 272); // i64 in WrapperConfigV16 (matches parseAssetOracleProfileV17)
+  const freeMarketSlotCount = vU16(v, b + 198);
+  const insuranceWithdrawCooldownSlots = vU64(v, b + 200);
+  const lastInsuranceWithdrawSlot = vU64(v, b + 208);
+  const maxStalenessSecs = vU64(v, b + 216);
+  const hybridSoftStaleSlots = vU64(v, b + 224);
+  const markEwmaE6 = vU64(v, b + 232);
+  const markEwmaLastSlot = vU64(v, b + 240);
+  const markEwmaHalflifeSlots = vU64(v, b + 248);
+  const markMinFee = vU64(v, b + 256);
+  const oracleTargetPriceE6 = vU64(v, b + 264);
+  const oracleTargetPublishTime = vI64(v, b + 272); // i64 in WrapperConfigV16 (matches parseAssetOracleProfileV17)
 
   // oracle_leg_feeds: [[u8;32];3] at b+280, 96 bytes total
   const ORACLE_LEG_CAP = 3;
@@ -4361,41 +4385,41 @@ export function parseWrapperConfigV17(data: Uint8Array, configOff: number = V17_
   // oracle_leg_prices_e6: [u64;3] at b+376
   const oracleLegPricesE6: bigint[] = [];
   for (let i = 0; i < ORACLE_LEG_CAP; i++) {
-    oracleLegPricesE6.push(readU64LE(data, b + 376 + i * 8));
+    oracleLegPricesE6.push(vU64(v, b + 376 + i * 8));
   }
 
   // oracle_leg_publish_times: [i64;3] at b+400
   const oracleLegPublishTimes: bigint[] = [];
   for (let i = 0; i < ORACLE_LEG_CAP; i++) {
-    oracleLegPublishTimes.push(readI64LE(data, b + 400 + i * 8));
+    oracleLegPublishTimes.push(vI64(v, b + 400 + i * 8));
   }
 
   // Tail policy fields at b+424
-  const backingTradeFeePolicyCount = readU16LE(data, b + 424);
-  const backingTradeFeeInsuranceShareBpsLong = readU16LE(data, b + 426);
-  const backingTradeFeeInsuranceShareBpsShort = readU16LE(data, b + 428);
-  const feeRedirectToMarket0Bps = readU16LE(data, b + 430);
+  const backingTradeFeePolicyCount = vU16(v, b + 424);
+  const backingTradeFeeInsuranceShareBpsLong = vU16(v, b + 426);
+  const backingTradeFeeInsuranceShareBpsShort = vU16(v, b + 428);
+  const feeRedirectToMarket0Bps = vU16(v, b + 430);
 
   // Protocol-fee program change (additive tail at b+432, WRAPPER_CONFIG_LEN 432 -> 496).
   const protocolFeeAuthority = new PublicKey(data.subarray(b + 432, b + 464));
-  const protocolFeeAccruedAtoms = readU128LE(data, b + 464);
-  const protocolFeeWithdrawnAtoms = readU128LE(data, b + 480);
+  const protocolFeeAccruedAtoms = vU128(v, b + 464);
+  const protocolFeeWithdrawnAtoms = vU128(v, b + 480);
 
   // Fee-collection split (additive tail at b+496, WRAPPER_CONFIG_LEN 496 -> 576).
   // ORDER IS LOAD-BEARING: the four u128 counters precede the three u16 shares
   // because bytemuck::Pod forbids implicit padding — see V17_WRAPPER_CONFIG_LEN.
-  const lpFeeAccruedAtoms = readU128LE(data, b + 496);
-  const lpFeeWithdrawnAtoms = readU128LE(data, b + 512);
-  const insuranceReserveAccruedAtoms = readU128LE(data, b + 528);
-  const insuranceReserveWithdrawnAtoms = readU128LE(data, b + 544);
-  const creatorShareBps = readU16LE(data, b + 560);
-  const lpShareBps = readU16LE(data, b + 562);
-  const insuranceShareBps = readU16LE(data, b + 564);
+  const lpFeeAccruedAtoms = vU128(v, b + 496);
+  const lpFeeWithdrawnAtoms = vU128(v, b + 512);
+  const insuranceReserveAccruedAtoms = vU128(v, b + 528);
+  const insuranceReserveWithdrawnAtoms = vU128(v, b + 544);
+  const creatorShareBps = vU16(v, b + 560);
+  const lpShareBps = vU16(v, b + 562);
+  const insuranceShareBps = vU16(v, b + 564);
   // _padding_split [u8;2] at b+566 .. b+568 — explicit, not read.
 
   // Creator fee claim (2026-07-23): carved out of the old 10-byte pad IN PLACE.
   // WRAPPER_CONFIG_LEN is STILL 576 — nothing above this line moved.
-  const creatorFeeClaimableAtoms = readU64LE(data, b + V17_CREATOR_FEE_CLAIMABLE_OFF);
+  const creatorFeeClaimableAtoms = vU64(v, b + V17_CREATOR_FEE_CLAIMABLE_OFF);
 
   return {
     marketauth,
@@ -4566,14 +4590,15 @@ export function parseAssetOracleProfileV17(data: Uint8Array, profileOff: number)
     oracleLegFeeds.push(new PublicKey(data.subarray(b + 224 + i * 32, b + 224 + (i + 1) * 32)));
   }
 
+  const v = dv(data); // one view per decode, created only after the length guards pass
   const oracleLegPricesE6: bigint[] = [];
   for (let i = 0; i < ORACLE_LEG_CAP; i++) {
-    oracleLegPricesE6.push(readU64LE(data, b + 320 + i * 8));
+    oracleLegPricesE6.push(vU64(v, b + 320 + i * 8));
   }
 
   const oracleLegPublishTimes: bigint[] = [];
   for (let i = 0; i < ORACLE_LEG_CAP; i++) {
-    oracleLegPublishTimes.push(readI64LE(data, b + 344 + i * 8));
+    oracleLegPublishTimes.push(vI64(v, b + 344 + i * 8));
   }
 
   return {
@@ -4581,43 +4606,43 @@ export function parseAssetOracleProfileV17(data: Uint8Array, profileOff: number)
     oracleLegCount: readU8(data, b + 1),
     oracleLegFlags: readU8(data, b + 2),
     invert: readU8(data, b + 3),
-    unitScale: readU32LE(data, b + 4),
-    confFilterBps: readU16LE(data, b + 8),
-    backingTradeFeeBpsLong: readU16LE(data, b + 10),
-    backingTradeFeeBpsShort: readU16LE(data, b + 12),
-    backingTradeFeeInsuranceShareBpsLong: readU16LE(data, b + 14),
-    backingTradeFeeInsuranceShareBpsShort: readU16LE(data, b + 16),
+    unitScale: vU32(v, b + 4),
+    confFilterBps: vU16(v, b + 8),
+    backingTradeFeeBpsLong: vU16(v, b + 10),
+    backingTradeFeeBpsShort: vU16(v, b + 12),
+    backingTradeFeeInsuranceShareBpsLong: vU16(v, b + 14),
+    backingTradeFeeInsuranceShareBpsShort: vU16(v, b + 16),
     lotExp: readU8(data, b + 19),
     insuranceAuthority: new PublicKey(data.subarray(b + 24, b + 56)),
     insuranceOperator: new PublicKey(data.subarray(b + 56, b + 88)),
     backingBucketAuthority: new PublicKey(data.subarray(b + 88, b + 120)),
     oracleAuthority: new PublicKey(data.subarray(b + 120, b + 152)),
-    maxStalenessSecs: readU64LE(data, b + 152),
-    hybridSoftStaleSlots: readU64LE(data, b + 160),
-    markEwmaE6: readU64LE(data, b + 168),
-    markEwmaLastSlot: readU64LE(data, b + 176),
-    markEwmaHalflifeSlots: readU64LE(data, b + 184),
-    markMinFee: readU64LE(data, b + 192),
-    oracleTargetPriceE6: readU64LE(data, b + 200),
-    oracleTargetPublishTime: readI64LE(data, b + 208),
-    lastGoodOracleSlot: readU64LE(data, b + 216),
+    maxStalenessSecs: vU64(v, b + 152),
+    hybridSoftStaleSlots: vU64(v, b + 160),
+    markEwmaE6: vU64(v, b + 168),
+    markEwmaLastSlot: vU64(v, b + 176),
+    markEwmaHalflifeSlots: vU64(v, b + 184),
+    markMinFee: vU64(v, b + 192),
+    oracleTargetPriceE6: vU64(v, b + 200),
+    oracleTargetPublishTime: vI64(v, b + 208),
+    lastGoodOracleSlot: vU64(v, b + 216),
     oracleLegFeeds,
     oracleLegPricesE6,
     oracleLegPublishTimes,
     assetAdmin: new PublicKey(data.subarray(b + 368, b + 400)),
-    creatorFeeClaimableAtoms: readU64LE(data, b + 400),
-    maintenanceFeeCheckpointSlot: readU64LE(data, b + 408),
-    maintenanceFeePreviousRate: readU128LE(data, b + 416),
-    fundingMarkE6: readU64LE(data, b + 432),
-    fundingMarkPendingE6: readU64LE(data, b + 440),
-    fundingMarkPendingSlot: readU64LE(data, b + 448),
-    priceMoveRemainderBpsNum: readU16LE(data, b + 456),
+    creatorFeeClaimableAtoms: vU64(v, b + 400),
+    maintenanceFeeCheckpointSlot: vU64(v, b + 408),
+    maintenanceFeePreviousRate: vU128(v, b + 416),
+    fundingMarkE6: vU64(v, b + 432),
+    fundingMarkPendingE6: vU64(v, b + 440),
+    fundingMarkPendingSlot: vU64(v, b + 448),
+    priceMoveRemainderBpsNum: vU16(v, b + 456),
     // bytes [458, 464) are `_padding1: [u8; 6]`, always zero, not decoded.
-    terminalSlabScanProgress: readU128LE(data, b + 464),
-    nextPortfolioId: readU64LE(data, b + 480),
+    terminalSlabScanProgress: vU128(v, b + 464),
+    nextPortfolioId: vU64(v, b + 480),
     // bytes [488, 496) are `_padding2: [u8; 8]`, always zero, not decoded.
-    insuranceTopUp: readU64LE(data, b + 496),
-    backingTopUp: readU64LE(data, b + 504),
+    insuranceTopUp: vU64(v, b + 496),
+    backingTopUp: vU64(v, b + 504),
   };
 }
 
@@ -4759,7 +4784,8 @@ export function parseMarketGroupV17OI(data: Uint8Array): V17MarketGroupOI {
   const g = resolveMarketGeometry(data, { parser: "parseMarketGroupV17OI", strictLength: false });
   const L = g.layout;
 
-  const insuranceBalance = readU128LE(data, g.groupOff + L.group.insurance);
+  const v = dv(data); // one view per decode, created only after the length guards pass
+  const insuranceBalance = vU128(v, g.groupOff + L.group.insurance);
 
   let totalLongOiQ = 0n;
   let totalShortOiQ = 0n;
@@ -4773,8 +4799,8 @@ export function parseMarketGroupV17OI(data: Uint8Array): V17MarketGroupOI {
     // Guard against a truncated buffer (should not happen on well-formed accounts).
     if (shortOff + 16 > data.length) break;
 
-    const oiEffLongQ = readU128LE(data, longOff);
-    const oiEffShortQ = readU128LE(data, shortOff);
+    const oiEffLongQ = vU128(v, longOff);
+    const oiEffShortQ = vU128(v, shortOff);
 
     totalLongOiQ += oiEffLongQ;
     totalShortOiQ += oiEffShortQ;
@@ -5096,32 +5122,33 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
 
   // Body fields
   const owner = new PublicKey(data.subarray(PF_OWNER_OFF, PF_OWNER_OFF + 32));
-  const capital = readU128LE(data, PF_CAPITAL_OFF);
-  const pnl = readI128LE(data, PF_PNL_OFF);
-  const reservedPnl = readU128LE(data, PF_RESERVED_PNL_OFF);
+  const v = dv(data); // one view per decode, created only after the length guards pass
+  const capital = vU128(v, PF_CAPITAL_OFF);
+  const pnl = vI128(v, PF_PNL_OFF);
+  const reservedPnl = vU128(v, PF_RESERVED_PNL_OFF);
 
   const residualCrystallizedLossAtomsTotal = data.length >= PF_RESIDUAL_LOSS_OFF + 16
-    ? readU128LE(data, PF_RESIDUAL_LOSS_OFF) : 0n;
+    ? vU128(v, PF_RESIDUAL_LOSS_OFF) : 0n;
   const residualSpentPrincipalAtomsTotal = data.length >= PF_RESIDUAL_PRINCIPAL_OFF + 16
-    ? readU128LE(data, PF_RESIDUAL_PRINCIPAL_OFF) : 0n;
+    ? vU128(v, PF_RESIDUAL_PRINCIPAL_OFF) : 0n;
   const residualReceivedAtomsTotal = data.length >= PF_RESIDUAL_RECEIVED_OFF + 16
-    ? readU128LE(data, PF_RESIDUAL_RECEIVED_OFF) : 0n;
+    ? vU128(v, PF_RESIDUAL_RECEIVED_OFF) : 0n;
   const fundingLongPaidAtomsTotal = data.length >= PF_FUNDING_LONG_PAID_OFF + 16
-    ? readU128LE(data, PF_FUNDING_LONG_PAID_OFF) : 0n;
+    ? vU128(v, PF_FUNDING_LONG_PAID_OFF) : 0n;
   const fundingLongReceivedAtomsTotal = data.length >= PF_FUNDING_LONG_RECEIVED_OFF + 16
-    ? readU128LE(data, PF_FUNDING_LONG_RECEIVED_OFF) : 0n;
+    ? vU128(v, PF_FUNDING_LONG_RECEIVED_OFF) : 0n;
   const fundingShortPaidAtomsTotal = data.length >= PF_FUNDING_SHORT_PAID_OFF + 16
-    ? readU128LE(data, PF_FUNDING_SHORT_PAID_OFF) : 0n;
+    ? vU128(v, PF_FUNDING_SHORT_PAID_OFF) : 0n;
   const fundingShortReceivedAtomsTotal = data.length >= PF_FUNDING_SHORT_RECEIVED_OFF + 16
-    ? readU128LE(data, PF_FUNDING_SHORT_RECEIVED_OFF) : 0n;
+    ? vU128(v, PF_FUNDING_SHORT_RECEIVED_OFF) : 0n;
   const feeCredits = data.length >= PF_FEE_CREDITS_OFF + 16
-    ? readI128LE(data, PF_FEE_CREDITS_OFF) : 0n;
+    ? vI128(v, PF_FEE_CREDITS_OFF) : 0n;
   const cancelDepositEscrow = data.length >= PF_CANCEL_ESCROW_OFF + 16
-    ? readU128LE(data, PF_CANCEL_ESCROW_OFF) : 0n;
+    ? vU128(v, PF_CANCEL_ESCROW_OFF) : 0n;
   const lastFeeSlot = data.length >= PF_LAST_FEE_SLOT_OFF + 8
-    ? readU64LE(data, PF_LAST_FEE_SLOT_OFF) : 0n;
+    ? vU64(v, PF_LAST_FEE_SLOT_OFF) : 0n;
   const activeBitmap = data.length >= PF_ACTIVE_BITMAP_OFF + 8
-    ? readU64LE(data, PF_ACTIVE_BITMAP_OFF) : 0n;
+    ? vU64(v, PF_ACTIVE_BITMAP_OFF) : 0n;
 
   // Legs
   const legs: PortfolioLegV17[] = [];
@@ -5131,27 +5158,27 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
     const o = G.leg;
     const leg: PortfolioLegV17 = {
       active: data[b + o.active] !== 0,
-      assetIndex: readU32LE(data, b + o.assetIndex),
-      marketId: readU64LE(data, b + o.marketId),
+      assetIndex: vU32(v, b + o.assetIndex),
+      marketId: vU64(v, b + o.marketId),
       side: data[b + o.side],
-      basisPosQ: readI128LE(data, b + o.basisPosQ),
-      aBasis: readU128LE(data, b + o.aBasis),
-      kSnap: readI128LE(data, b + o.kSnap),
-      fSnap: readI128LE(data, b + o.fSnap),
-      kfEpochSnap: readU64LE(data, b + o.kfEpochSnap),
-      epochSnap: readU64LE(data, b + o.epochSnap),
-      lossWeight: readU128LE(data, b + o.lossWeight),
-      bSnap: readU128LE(data, b + o.bSnap),
-      bRem: readU128LE(data, b + o.bRem),
-      bEpochSnap: readU64LE(data, b + o.bEpochSnap),
+      basisPosQ: vI128(v, b + o.basisPosQ),
+      aBasis: vU128(v, b + o.aBasis),
+      kSnap: vI128(v, b + o.kSnap),
+      fSnap: vI128(v, b + o.fSnap),
+      kfEpochSnap: vU64(v, b + o.kfEpochSnap),
+      epochSnap: vU64(v, b + o.epochSnap),
+      lossWeight: vU128(v, b + o.lossWeight),
+      bSnap: vU128(v, b + o.bSnap),
+      bRem: vU128(v, b + o.bRem),
+      bEpochSnap: vU64(v, b + o.bEpochSnap),
       bStale: data[b + o.bStale] !== 0,
       stale: data[b + o.stale] !== 0,
     };
     if (o.bandEpochSnap !== null && o.bandLiqPending !== null && o.rentSnap !== null && o.rentCarry !== null) {
-      leg.bandEpochSnap = readU64LE(data, b + o.bandEpochSnap);
+      leg.bandEpochSnap = vU64(v, b + o.bandEpochSnap);
       leg.bandLiqPending = data[b + o.bandLiqPending] !== 0;
-      leg.rentSnap = readU128LE(data, b + o.rentSnap);
-      leg.rentCarry = readU64LE(data, b + o.rentCarry);
+      leg.rentSnap = vU128(v, b + o.rentSnap);
+      leg.rentCarry = vU64(v, b + o.rentCarry);
     }
     legs.push(leg);
   }
@@ -5162,20 +5189,20 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
     const b = G.sourceDomainsOff + i * G.sourceDomainStride;
     if (data.length < b + G.sourceDomainStride) break;
     sourceDomains.push({
-      domain: readU32LE(data, b + 0),
-      sourceClaimMarketId: readU64LE(data, b + 4),
-      sourceClaimBoundNum: readU128LE(data, b + 12),
-      sourceClaimLienedNum: readU128LE(data, b + 28),
-      sourceClaimCounterpartyLienedNum: readU128LE(data, b + 44),
-      sourceClaimInsuranceLienedNum: readU128LE(data, b + 60),
-      sourceLienEffectiveReserved: readU128LE(data, b + 76),
-      sourceLienCounterpartyBackingNum: readU128LE(data, b + 92),
-      sourceLienInsuranceBackingNum: readU128LE(data, b + 108),
-      sourceLienFeeLastSlot: readU64LE(data, b + 124),
-      sourceClaimImpairedNum: readU128LE(data, b + 132),
-      sourceLienImpairedEffectiveReserved: readU128LE(data, b + 148),
-      sourceLienCapitalAtRiskFeeRevenue: readU128LE(data, b + 164),
-      sourceLienImpairedCapitalAtRiskFeeRevenue: readU128LE(data, b + 180),
+      domain: vU32(v, b + 0),
+      sourceClaimMarketId: vU64(v, b + 4),
+      sourceClaimBoundNum: vU128(v, b + 12),
+      sourceClaimLienedNum: vU128(v, b + 28),
+      sourceClaimCounterpartyLienedNum: vU128(v, b + 44),
+      sourceClaimInsuranceLienedNum: vU128(v, b + 60),
+      sourceLienEffectiveReserved: vU128(v, b + 76),
+      sourceLienCounterpartyBackingNum: vU128(v, b + 92),
+      sourceLienInsuranceBackingNum: vU128(v, b + 108),
+      sourceLienFeeLastSlot: vU64(v, b + 124),
+      sourceClaimImpairedNum: vU128(v, b + 132),
+      sourceLienImpairedEffectiveReserved: vU128(v, b + 148),
+      sourceLienCapitalAtRiskFeeRevenue: vU128(v, b + 164),
+      sourceLienImpairedCapitalAtRiskFeeRevenue: vU128(v, b + 180),
     });
   }
 
@@ -5205,7 +5232,7 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
   let matcherPositionEpoch = 0n;
   let matcherTradeFeeCapBps = 0;
   if (data.length >= PF_MATCHER_CONTROL_OFF + 8) {
-    const control = readU64LE(data, PF_MATCHER_CONTROL_OFF);
+    const control = vU64(v, PF_MATCHER_CONTROL_OFF);
     const decoded = decodePortfolioMatcherControl(control);
     matcherEnabled = decoded.enabled;
     matcherPositionEpoch = decoded.positionEpoch;
@@ -5214,11 +5241,11 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
 
   // v18 NEW identity trailer (TB-1a), immediately after PortfolioMatcherConfigV16.
   const portfolioId = data.length >= PF_PORTFOLIO_ID_OFF + 8
-    ? readU64LE(data, PF_PORTFOLIO_ID_OFF) : 0n;
+    ? vU64(v, PF_PORTFOLIO_ID_OFF) : 0n;
   const matcherSequence = data.length >= PF_MATCHER_SEQUENCE_OFF + 8
-    ? readU64LE(data, PF_MATCHER_SEQUENCE_OFF) : 0n;
+    ? vU64(v, PF_MATCHER_SEQUENCE_OFF) : 0n;
   const matcherExpirySlot = data.length >= PF_MATCHER_EXPIRY_OFF + 8
-    ? readU64LE(data, PF_MATCHER_EXPIRY_OFF) : 0n;
+    ? vU64(v, PF_MATCHER_EXPIRY_OFF) : 0n;
 
   return {
     marketGroupId,
@@ -5305,17 +5332,18 @@ export function parseLpVaultRegistry(data: Uint8Array): LpVaultRegistryV17 {
   }
   assertV17StandaloneHeader(data, "parseLpVaultRegistry", V17_KIND_LP_VAULT_REGISTRY);
   const b = V17_ACCOUNT_HEADER_LEN; // skip 16-byte header
+  const v = dv(data); // one view per decode, created only after the length guards pass
   return {
     marketGroup: new PublicKey(data.subarray(b + 0, b + 32)),
     lpMint: new PublicKey(data.subarray(b + 32, b + 64)),
-    totalLpSharesOutstanding: readU128LE(data, b + 64),
-    insuranceFeeSnapshotAtoms: readU128LE(data, b + 80),
-    feeDistributionTotalAtoms: readU128LE(data, b + 96),
-    epoch: readU64LE(data, b + 112),
-    redemptionCooldownSlots: readU64LE(data, b + 120),
-    feeShareBps: readU16LE(data, b + 128),
-    oiReservationThresholdBps: readU16LE(data, b + 130),
-    domain: readU16LE(data, b + 132),
+    totalLpSharesOutstanding: vU128(v, b + 64),
+    insuranceFeeSnapshotAtoms: vU128(v, b + 80),
+    feeDistributionTotalAtoms: vU128(v, b + 96),
+    epoch: vU64(v, b + 112),
+    redemptionCooldownSlots: vU64(v, b + 120),
+    feeShareBps: vU16(v, b + 128),
+    oiReservationThresholdBps: vU16(v, b + 130),
+    domain: vU16(v, b + 132),
     paused: data[b + 134] !== 0,
     version: data[b + 135],
     bump: data[b + 136],
@@ -5366,11 +5394,12 @@ export function parseLpRedemption(data: Uint8Array): LpRedemptionV17 {
   }
   assertV17StandaloneHeader(data, "parseLpRedemption", V17_KIND_LP_REDEMPTION);
   const b = V17_ACCOUNT_HEADER_LEN; // skip 16-byte header
+  const v = dv(data); // one view per decode, created only after the length guards pass
   return {
     registry: new PublicKey(data.subarray(b + 0, b + 32)),
     redeemer: new PublicKey(data.subarray(b + 32, b + 64)),
-    shares: readU128LE(data, b + 64),
-    requestSlot: readU64LE(data, b + 80),
+    shares: vU128(v, b + 64),
+    requestSlot: vU64(v, b + 80),
     version: data[b + 88],
     bump: data[b + 89],
   };
