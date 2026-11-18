@@ -13,20 +13,24 @@ const noise = (n: number, off = 0) =>
 const mk = (n: number, tail: string[]) => [...noise(n - tail.length), ...tail];
 const cases: Record<string, string[]> = {
   "20 lines, error at end": mk(20, [`Program ${W} failed: custom program error: 0x13`]),
-  "60 lines, error at end": mk(60, [`Program ${W} failed: custom program error: 0x1b`]),
+  "60 lines, error at end": mk(60, [`Program ${W} failed: custom program error: 0x13`]),
+  "20 lines, code 0x1b": mk(20, [`Program ${W} failed: custom program error: 0x1b`]),
   "40 lines, no error": noise(40),
   "CPI token failed at end": mk(30, [`Program ${TOKEN} failed: custom program error: 0x1`, `Program ${W} failed: custom program error: 0x1`]),
 };
 const N = Number(process.env.ITERS ?? 20000);
-function run(name: string, fn: (l: string[]) => unknown, logs: string[]) {
-  for (let i = 0; i < 2000; i++) fn(logs);
-  const best: number[] = [];
-  for (let r = 0; r < 5; r++) {
-    const t = process.hrtime.bigint();
-    for (let i = 0; i < N; i++) fn(logs);
-    best.push(Number(process.hrtime.bigint() - t) / N);
-  }
-  return Math.min(...best);
+function time(fn: (l: string[]) => unknown, logs: string[]) {
+  const t = process.hrtime.bigint();
+  for (let i = 0; i < N; i++) fn(logs);
+  return Number(process.hrtime.bigint() - t) / N;
+}
+// Interleaved rounds, min: robust against GC / background load on a shared machine.
+function run(fa: (l: string[]) => unknown, fb: (l: string[]) => unknown, logs: string[]) {
+  for (let i = 0; i < 3000; i++) { fa(logs); fb(logs); }
+  const a: number[] = [], b: number[] = [];
+  for (let r = 0; r < 21; r++) { a.push(time(fa, logs)); b.push(time(fb, logs)); }
+  const med = (x: number[]) => Math.min(...x); // min of rounds: most robust on a loaded machine
+  return [med(a), med(b)];
 }
 function countRegExp(fn: (l: string[]) => unknown, logs: string[]) {
   const Orig = globalThis.RegExp;
@@ -37,6 +41,7 @@ function countRegExp(fn: (l: string[]) => unknown, logs: string[]) {
 }
 console.log("case | legacy ns/call | current ns/call | speedup | RegExp constructions/call (legacy -> current)");
 for (const [name, logs] of Object.entries(cases)) {
-  const a = run("legacy", legacy, logs), b = run("current", current, logs);
-  console.log(`${name} | ${a.toFixed(0)} | ${b.toFixed(0)} | ${(a / b).toFixed(2)}x | ${countRegExp(legacy, logs)} -> ${countRegExp(current, logs)}`);
+  const counts = `${countRegExp(legacy, logs)} -> ${countRegExp(current, logs)}`; // before timing: keep the RegExp proxy out of the timed path
+  const [a, b] = run(legacy, current, logs);
+  console.log(`${name} | ${a.toFixed(0)} | ${b.toFixed(0)} | ${(a / b).toFixed(2)}x | ${counts}`);
 }
