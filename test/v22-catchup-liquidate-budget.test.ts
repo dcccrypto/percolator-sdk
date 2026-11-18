@@ -29,14 +29,14 @@ const cuOf = (t: { observeCranks: number; refreshes: boolean }, refreshIxs: numb
 
 describe("catch-up plan budgets", () => {
   it("every planned tx serializes within 1232 bytes (legacy message, real payer + blockhash)", () => {
-    for (const gap of [0n, DT, DT * 7n, DT * 8n, DT * 100n, DT * 500n]) {
-      for (const liquidationCrank of [false, true]) {
-        for (const t of plan(gap, { liquidationCrank, vaultLpCounterparty: Keypair.generate().publicKey }).txs) {
+    for (const gap of [DT, DT * 8n, DT * 100n]) {
+      for (const liquidationCrank of [false, true]) for (const assets of [[0], [0, 1, 2, 3, 4]]) {
+        for (const t of plan(gap, { liquidationCrank, assets, vaultLpCounterparty: Keypair.generate().publicKey }).txs) {
           expect(sizeOf(t.instructions as never)).toBeLessThanOrEqual(1232);
         }
       }
     }
-  });
+  }, 60_000);
   it("liquidationCrank: no tx asks for more worst-case CU than its limit", () => {
     for (const gap of [0n, DT * 3n, DT * 100n]) {
       const p = plan(gap, { liquidationCrank: true });

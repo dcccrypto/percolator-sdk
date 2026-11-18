@@ -37,6 +37,21 @@ export const MAX_OBSERVES_PER_TX_V22 = 40;
 /** Observation cranks that still leave room for the refresh + follow-on in the same transaction. */
 export const MAX_OBSERVES_WITH_REFRESH_V22 = Math.floor((CATCHUP_TX_COMPUTE_UNITS_V22 - REFRESH_AND_LIQUIDATE_CU_V22 - 20_000) / OBSERVE_CRANK_CU_V22);
 
+/** Solana's packet limit for a serialized transaction. */
+const PACKET_DATA_SIZE = 1232;
+const shortvecLen = (n: number): number => (n < 128 ? 1 : n < 16384 ? 2 : 3);
+/** Serialized size of a legacy transaction (one signature, `payer` first) holding `ixs`. */
+function legacyTxBytes(payer: PublicKey, ixs: readonly TransactionInstruction[]): number {
+  const keys = new Set<string>([payer.toBase58()]);
+  for (const ix of ixs) {
+    for (const k of ix.keys) keys.add(k.pubkey.toBase58());
+    keys.add(ix.programId.toBase58());
+  }
+  let n = 1 + 64 + 3 + shortvecLen(keys.size) + 32 * keys.size + 32 + shortvecLen(ixs.length);
+  for (const ix of ixs) n += 1 + shortvecLen(ix.keys.length) + ix.keys.length + shortvecLen(ix.data.length) + ix.data.length;
+  return n;
+}
+
 /** Inputs of {@link buildCatchUpAndRefreshIxsV22}. */
 export interface CatchUpAndRefreshInputV22 {
   /** Wrapper program id. */
@@ -119,8 +134,14 @@ export function buildCatchUpAndRefreshIxsV22(input: CatchUpAndRefreshInputV22): 
   const finalObserves = Math.min(total, MAX_OBSERVES_WITH_REFRESH_V22);
   let remaining = total - finalObserves;
   const txs: CatchUpTxV22[] = [];
+  // Each observe crank carries every asset (3 bytes each), so 40 of them with several assets overflow 1232 bytes: cap by size.
+  const prelude = computeBudgetPrelude(CATCHUP_TX_COMPUTE_UNITS_V22);
+  const one = legacyTxBytes(input.cranker, [...prelude, observeIx()]);
+  const perObserve = legacyTxBytes(input.cranker, [...prelude, observeIx(), observeIx()]) - one;
+  const fitBytes = Math.max(1, 1 + Math.floor((PACKET_DATA_SIZE - one) / perObserve));
+  const perTx = Math.min(MAX_OBSERVES_PER_TX_V22, fitBytes);
   while (remaining > 0) {
-    const n = Math.min(remaining, MAX_OBSERVES_PER_TX_V22);
+    const n = Math.min(remaining, perTx);
     txs.push({
       kind: "catchup",
       instructions: [...computeBudgetPrelude(CATCHUP_TX_COMPUTE_UNITS_V22), ...Array.from({ length: n }, observeIx)],
