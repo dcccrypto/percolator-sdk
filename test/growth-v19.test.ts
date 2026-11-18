@@ -10,7 +10,7 @@ import {
   encodeMatcherCallExtV2, encodeMatcherCallExtV3, encodeMatcherCallExtV3FromV2, encodeInitMarket,
   assetRiskLimitsAccountOffsetP1, PERCOLATOR_ERRORS, decodeError, growthMatcherCapsV3, GROWTH_PIN_MATCHER_EXT_MODE,
   growthFlagsOk, depthTwWindowOk, GROWTH_PIN_MAX_REQUESTED_FEE_BPS, GROWTH_PIN_LP_FLOOR_ATOMS, GROWTH_PIN_MATCHER_KIND, GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS,
-  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS, rGapFloorBps, usersSideOiQ, utilisationFeeBps, utilFeeMaxEffectiveBps, openingPartQ, previewGrowthOpenFee, GROWTH_UTIL_FEE_DEFAULT_BPS, assertGrowthBatchLegs, GROWTH_BATCH_MAX_LEGS, markExtV3TakerReducing,
+  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS, rGapFloorBps, usersSideOiQ, utilisationFeeBps, utilFeeMaxEffectiveBps, openingPartQ, previewGrowthOpenFee, GROWTH_UTIL_FEE_DEFAULT_BPS, assertGrowthBatchLegs, GROWTH_BATCH_MAX_LEGS, markExtV3TakerReducing, growthCeilingView, STRESS_NONE,
 } from "../src/index.js";
 import type { AssetGrowthV19, InitMarketV17Args } from "../src/index.js";
 import { stampMarket } from "./helpers/stamp.js";
@@ -353,5 +353,66 @@ describe("errors 92-95", () => {
     expect(PERCOLATOR_ERRORS[94]?.name).toBe("GrowthInvalidConfig");
     expect(decodeError(92)?.hint.startsWith("Max leverage on this side is lower right now: this market's liquidity is in use. Reducing or closing is always allowed.")).toBe(true);
     expect(decodeError(93)?.hint.startsWith("New positions on this side are paused: the market's capacity is full.")).toBe(true);
+  });
+});
+
+describe("growth-v19 branch coverage: quote and preview edges", () => {
+  const growth = decodeAssetGrowthRecordV19(growthRecord({ launch: 1_000, tier: 1_000, kink: 5_000, lambda: 10_000 })) as AssetGrowthV19;
+  const base = { engineImrBps: 1_000n, growth, lpCapital: 1_000_000_000n, lpPnl: 0n, lpFeeCredits: 0n, priceE6: 1_000_000n, bankruptcyHlockActive: false, assetBound: true,
+    lpEffectivePositionQ: -600_000_000n, oiEffLongQ: 600_000_000n, oiEffShortQ: 600_000_000n };
+  it("growth OFF with an engine IMR of 0 or above 100% is an invalid config", () => {
+    expect(quoteMaxLeverage({ ...base, growth: null, engineImrBps: 0n }, "long")).toMatchObject({ closed: true, closedReason: "invalid-config" });
+    expect(quoteMaxLeverage({ ...base, growth: null, engineImrBps: 10_001n }, "long")).toMatchObject({ closed: true, closedReason: "invalid-config" });
+  });
+  it("a ceiling whose IMR leaves the u16 box is an invalid config (null ceilingImrBps)", () => {
+    expect(ceilingImrBps(1_000n, 0)).toBeNull();
+    const g0 = { ...growth, lLaunchX100: 0, lTierX100: 0 };
+    expect(quoteMaxLeverage({ ...base, growth: g0 }, "long")).toMatchObject({ closed: true, closedReason: "invalid-config" });
+  });
+  it("previewGrowthOpenFee charges no utilisation fee when N_cap overflows (price 0 -> null)", () => {
+    const p = previewGrowthOpenFee({ ...base, priceE6: 0n }, 0n, 100_000_000n, 30n);
+    expect(p.utilFeeBps).toBe(0);
+    expect(p.openingQ).toBe(100_000_000n);
+  });
+});
+
+describe("growthCeilingView ratchet ETA edges", () => {
+  it("a record with ceil 0 reads as the launch cap; no further unlock is pending", () => {
+    const g0 = decodeAssetGrowthRecordV19(growthRecord({ launch: 500, tier: 2_000, ceil: 0, slot: 1n })) as AssetGrowthV19;
+    const v = growthCeilingView(g0, 1_000, 10_000_000n, 1_000_000_000_000n, STRESS_NONE);
+    expect(v.nextUnlock.kind).toBe("none");
+    expect(v.ceilingX100).toBe(500);
+    const g1 = decodeAssetGrowthRecordV19(growthRecord({ launch: 500, tier: 2_000, ceil: 500, slot: 1n })) as AssetGrowthV19;
+    const v1 = growthCeilingView(g1, 1_000, 10_000_000n, 1_000_000_000_000n, STRESS_NONE);
+    expect(v1.nextUnlock.kind).toBe("none");
+    expect(v1.ceilingX100).toBe(500);
+  });
+});
+
+describe("growthCeilingView depth rate-limit ETA", () => {
+  const rec = decodeAssetGrowthRecordV19(growthRecord({ launch: 500, tier: 2_000, ceil: 500, slot: 1n })) as AssetGrowthV19;
+  const now = 100_000n;
+  const mk = (over: Partial<AssetGrowthV19>): AssetGrowthV19 => ({
+    ...rec, depthSource: 2, depthE6: 2_000_000_000_000n, depthPrevE6: 2_000_000_000_000n, depthPrevReal: true, depthSlot: now, depthDexPinned: false,
+    depthLastGoodE6: 1_000_000n, depthLastGoodSlot: now - 10n, depthRiseSlot64: 1, rGapBps: 3445, volHasData: true, volVarX100: 2_500, tierThresholdUsd: [25_000, 100_000, 500_000], tierLeverageX100: [600, 1_000, 1_500], ...over,
+  });
+  it("reports when the rate limit lets the usable depth reach the next tier (ever and first-reading paths)", () => {
+    const etas: Array<bigint | undefined> = [];
+    for (const ever of [true, false]) {
+      for (const stamp of [1, 0xffff_ffff]) {
+        const v = growthCeilingView(mk({ depthEver: ever, depthRiseSlot64: stamp }), 1_000, now, 1_000_000_000_000n, STRESS_NONE, { engineImrBps: 500n, liquidationFeeBps: 50n, bandMaxEpochSlots: 600n });
+        const n = v.nextTierUnlock as { depthEtaSlots?: bigint };
+        etas.push(n.depthEtaSlots);
+      }
+    }
+    // order: ever/stamp1, ever/stamp-saturated (never), first-reading/stamp1, first-reading/stamp-saturated
+    expect(etas).toEqual([45_127n, undefined, 45_127n, 45_127n]);
+  });
+});
+
+describe("decodeAssetGrowthV19 short account", () => {
+  it("throws when the stamped market ends before the asset's growth record", () => {
+    const mkt = new Uint8Array(2022 + 2325 + 120 + 8); stampMarket(mkt);
+    expect(() => decodeAssetGrowthV19(mkt, 7)).toThrow(/too short for asset 7/);
   });
 });
