@@ -189,3 +189,15 @@ describe("message formatting, merge and writer edges", () => {
     expect(stressCapCurveX100(STRESS_HLOCK, p, t)).toBe(500);
   });
 });
+
+describe("writer stress default and non-USD 6-decimal collateral", () => {
+  it("graduationFallOnly with neither stress nor forceDown behaves as no stress", () => {
+    const i = { prevCeilX100: 2_000, prevSlot: 7n, graduation: true, lLaunchX100: 500, lTierX100: 2_000, lTableTierX100: 1_000, nowSlot: 99n };
+    expect(graduationFallOnly({ ...i, forceDown: false })).toEqual(graduationFallOnly({ ...i, stress: STRESS_NONE }));
+    expect(graduationFallOnly(i)).toEqual(graduationFallOnly({ ...i, stress: STRESS_NONE }));
+  });
+  it("a 6-decimal collateral that is not usd-like is labelled with its symbol", () => {
+    const r = validateTierConfig({ thresholdsUsd: [1, 1, 1], leverageX100: [0, 0, 0], lLaunchX100: 500, lTierX100: 2_000, collateral: { decimals: 6, symbol: "FOO" } });
+    expect(r.issues.some((x) => x.code === "below-floor" && /FOO/.test(x.message))).toBe(true);
+  });
+});
