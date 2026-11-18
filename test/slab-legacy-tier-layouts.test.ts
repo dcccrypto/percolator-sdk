@@ -116,3 +116,29 @@ describe("legacy size-keyed layouts: detect + every reader", () => {
     expect(() => parseAccount(new Uint8Array(16), 0)).toThrow();
   });
 });
+
+describe("host / SBF-small variants resolved by data length", () => {
+  const n = 256;
+  const v1217Native =
+    592 + Math.ceil((752 + (n / 64) * 8 + 4 + n * 2) / 16) * 16 + n * 368 + 160 + n * 8;
+  const CASES: [string, number][] = [
+    ["V12_1 host (648/1016/320)", size(648, 1016, 320, n)],
+    ["V12_15 SBF small", 237512],
+    ["V12_17 native", v1217Native],
+  ];
+  for (const [name, len] of CASES) {
+    it(`${name}: detect + readers + first account`, () => {
+      const L = detectSlabLayout(len);
+      expect(L).not.toBeNull();
+      expect(L!.maxAccounts).toBe(n);
+      const buf = stamp(len);
+      expect(() => parseConfig(buf, L)).not.toThrow();
+      expect(() => parseParams(buf, L)).not.toThrow();
+      expect(() => parseEngine(buf)).not.toThrow();
+      buf[L!.engineOff + L!.engineBitmapOff] = 0x01;
+      const all = parseAllAccounts(buf);
+      expect(all.map((a) => a.idx)).toEqual([0]);
+      expect(parseAccount(buf, 0)).toEqual(all[0].account);
+    });
+  }
+});
