@@ -97,3 +97,16 @@ describe("buildCatchUpAndRefreshIxsV22 (real market bytes)", () => {
     expect(() => buildCatchUpAndRefreshIxsV22({ programId: W, market: MKT, marketData: new Uint8Array(100), cranker: OWNER, portfolio: P, readSlot: 1n })).toThrow();
   });
 });
+
+describe("buildCatchUpAndRefreshIxsV22 (guard: max_accrual_dt_slots = 0)", () => {
+  it("throws when the market's max_accrual_dt_slots is zero", async () => {
+    const { resolveMarketGeometry } = await import("../src/abi/layout.js");
+    const g = resolveMarketGeometry(marketData, { parser: "test", strictLength: false });
+    const patched = new Uint8Array(marketData);
+    // OFF_CFG_MAX_ACCRUAL_DT = 118 inside the market config (src/abi/v22-funding.ts)
+    new DataView(patched.buffer).setBigUint64(g.groupOff + g.layout.group.config + 118, 0n, true);
+    expect(decodeMarketFundingV22(patched).maxAccrualDtSlots).toBe(0n);
+    expect(() => buildCatchUpAndRefreshIxsV22({ programId: W, market: MKT, marketData: patched, cranker: OWNER, portfolio: P, readSlot: SL + 10n }))
+      .toThrow(/max_accrual_dt_slots is 0/);
+  });
+});
