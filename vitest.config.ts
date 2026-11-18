@@ -9,6 +9,7 @@ export default defineConfig({
       "test/token-program.test.ts",
       "test/encode.test.ts",
       "test/errors.test.ts",
+      "test/parse-error-logs-differential.test.ts",
       "test/wrapper-errors.test.ts",
       "test/lp-redeem-floored.test.ts",
       "test/instructions.test.ts",
