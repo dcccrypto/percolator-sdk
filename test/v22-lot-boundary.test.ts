@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { LAYOUT_V22 } from "../src/abi/layout.js";
 import { stampMarket } from "./helpers/stamp.js";
+import { resolveMarketGeometry } from "../src/abi/layout.js";
 import * as Lot from "../src/abi/v22-lot.js";
 
 /**
  * Boundary table for src/abi/v22-lot.ts. Expected values are derived from the Rust in percolator-prog
- * feat/v22-rc23-2026-10-22 (d27f3d73), NOT from the TS under test:
+ * feat/v22-rc23-2026-10-22 (d27f3d73), NOT from the TS under test. Rust is unsigned u128 floor division; negative rows
+ * follow the TS contract (truncate toward zero) and are not Rust-sourced:
  *  - src/v16_program.rs:839        `pub const LOT_EXP_MAX: u8 = 15;`  (lot_exp > 15 refused at :12896)
  *  - src/v16_program.rs:12606      Pyth `msg.price <= 0` refused
  *  - src/v16_program.rs:12617-12624 `scale = expo + 12; scale >= 0 ? price * 10^scale : price / 10^(-scale)` (floor)
@@ -99,6 +101,11 @@ describe("lotExpOfMarketV22 asset index bounds", () => {
   const d = stampMarket(new Uint8Array(1398 + 2661), 19);
   it("rejects negative, fractional, NaN and past-the-end assets", () => {
     for (const bad of [-1, 0.5, NaN, 1_000_000]) expect(() => Lot.lotExpOfMarketV22(d, bad)).toThrow(RangeError);
+  });
+  it("index === slotCount is rejected (>= boundary), slotCount - 1 reads", () => {
+    const n = resolveMarketGeometry(d, { parser: "t", strictLength: false }).slotCount;
+    expect(() => Lot.lotExpOfMarketV22(d, n)).toThrow(RangeError);
+    expect(Lot.lotExpOfMarketV22(d, n - 1)).toBe(0);
   });
   it("slot 0 reads", () => {
     expect(Lot.lotExpOfMarketV22(d, 0)).toBe(0);
