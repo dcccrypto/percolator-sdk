@@ -90,3 +90,63 @@ describe("encoder / decoder validation branches", () => {
     expect(() => encodeMatcherCallExtV3FromV2(v2, { inventoryCapQ: 0n, liquidityNotionalE6: U128_MAX + 1n })).toThrow(/liquidityNotionalE6/);
   });
 });
+
+import {
+  stressCapX100, STRESS_NONE, STRESS_DRAW, STRESS_HLOCK, depthTwMinAtoms, validateTierConfig, nCapG8Q, ratchetCeilingX100,
+  bandRGapBps, tierRampU64, growthMatcherCapsG8, lambdaVolBps, growthLVolX100, GROWTH_MAX_TIER, depthCapQKappa,
+} from "../src/abi/growth-v19.js";
+
+const U64_MAX = (1n << 64n) - 1n;
+
+describe("stress, tier, ramp and ceiling edges", () => {
+  const table = [500, 500, 1_000, 2_000] as const;
+  it("stressCapX100: none = no cap, h-lock = launch, tier above the max clamps", () => {
+    expect(stressCapX100(STRESS_NONE, 2, table)).toBe(0xffff);
+    expect(stressCapX100(STRESS_HLOCK, 2, table)).toBe(500);
+    expect(stressCapX100(STRESS_DRAW, GROWTH_MAX_TIER + 5, table)).toBe(stressCapX100(STRESS_DRAW, GROWTH_MAX_TIER, table));
+    expect(stressCapX100(STRESS_DRAW, 3, table)).toBe(1_000);
+  });
+  it("depthTwMinAtoms saturates at u64::MAX", () => {
+    expect(depthTwMinAtoms({ curTokens: 0xffff_ffff, prevTokens: 0xffff_ffff, bucketP1: 2 }, U64_MAX)).toBe(U64_MAX);
+    expect(depthTwMinAtoms({ curTokens: 1, prevTokens: 2, bucketP1: 0 }, 1n)).toBeNull();
+  });
+  it("validateTierConfig flags non-integer / out-of-range thresholds and leverages", () => {
+    const r = validateTierConfig({ thresholdsUsd: [1.5, -1, 2 ** 33], leverageX100: [0.5, -2, 70_000], lLaunchX100: 500, lTierX100: 2_000 });
+    expect(r.ok).toBe(false);
+    expect(r.issues.filter((x) => x.field === "thresholds" && x.code === "not-an-integer")).toHaveLength(3);
+    expect(r.issues.filter((x) => x.field === "leverage" && x.code === "not-an-integer").length).toBeGreaterThanOrEqual(3);
+    const r2 = validateTierConfig({ thresholdsUsd: [0, 0, 0], leverageX100: [0, 0, 0], lLaunchX100: 1.5, lTierX100: 2_000 });
+    expect(r2.issues.some((x) => x.code === "not-an-integer")).toBe(true);
+  });
+  it("nCapG8Q: null when the lambda product overflows; depth cap is 0 when its N_cap overflows", () => {
+    expect(nCapG8Q({ clamp: true, cM: U128_MAX, lambdaBps: 20_000, tier: 2, capDepth: 1n, priceE6: 1_000_000n })).toBeNull();
+    expect(depthCapQKappa(5_000, U128_MAX, 1n)).toBe(0n);
+  });
+  it("ratchetCeilingX100 near u64::MAX: the epoch end saturates, the step waits", () => {
+    const r = ratchetCeilingX100(500, U64_MAX - 1n, 1_000, 500, STRESS_NONE, U64_MAX - 1n);
+    expect(r).toEqual({ ceilX100: 500, ceilSlot: U64_MAX - 1n });
+  });
+  it("bandRGapBps: null for a band whose r_gap leaves u16 and for a non-positive band", () => {
+    expect(bandRGapBps(0n)).toBeNull();
+    expect(bandRGapBps(2_001n)).toBeNull();
+    expect(bandRGapBps(1_000n)).toBe(3445n);
+    expect(bandRGapBps(1_999n)).toBe(7995n); // the u16 guard on r_gap is unreachable inside BAND_MAX_BPS
+  });
+  it("tierRampU64: ramp end clamps to u64::MAX when the extension overflows", () => {
+    const th: [bigint, bigint, bigint] = [U64_MAX - 10n, U64_MAX - 5n, U64_MAX - 2n];
+    expect(tierRampU64(U64_MAX - 10n, th, [500n, 600n, 700n, 800n])).toBeGreaterThanOrEqual(500n);
+  });
+  it("lambdaVolBps: zero sigma means no cap", () => {
+    expect(lambdaVolBps(0n)).toBe(Number.MAX_SAFE_INTEGER);
+    expect(lambdaVolBps(475n)).toBe(100_000);
+  });
+  it("growthLVolX100: horizon saturates and no data yields null", () => {
+    expect(growthLVolX100({ volHasData: false, volVarX100: 0 }, { engineImrBps: 500n, liquidationFeeBps: 50n, bandMaxEpochSlots: 600n })).toBeNull();
+    expect(growthLVolX100({ volHasData: true, volVarX100: 2_500 }, { engineImrBps: 500n, liquidationFeeBps: 50n, bandMaxEpochSlots: U64_MAX })).not.toBeNull();
+  });
+  it("growthMatcherCapsG8: zero caps", () => {
+    // cap 0 when the depth cap's own N_cap overflows (the u128 clamp on depth*4 needs cap > 0, so it is unreachable)
+    expect(growthMatcherCapsG8({ clamp: true, hlockActive: false, cM: 1_000_000_000n, lambdaBps: 10_000, tier: 0, capDepth: U128_MAX, priceE6: 1_000_000n, dials: { kappaBps: 10_000, lambdaDepthBps: 10_000 } })).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
+    expect(growthMatcherCapsG8({ clamp: true, hlockActive: true, cM: 1n, lambdaBps: 1, tier: 0, capDepth: 5n, priceE6: 1n })).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
+  });
+});
