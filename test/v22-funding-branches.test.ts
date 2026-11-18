@@ -17,7 +17,7 @@ import { resolveMarketGeometry } from "../src/abi/layout.js";
 const FX = JSON.parse(readFileSync(new URL("./fixtures/v22-q7-devnet-2026-10-12.json", import.meta.url), "utf8")) as { accounts: { market: string } };
 const base = new Uint8Array(Buffer.from(FX.accounts.market, "base64"));
 
-// Reference models: line-for-line ports of the Rust.
+// Reference models: ports of the Rust (the u128-overflow arm of the skew is unreachable for engine-valid OI and not modelled).
 const refPremium = (mark: bigint, idx: bigint, max: bigint): bigint => {
   if (max === 0n || mark === 0n || idx === 0n || mark === idx) return 0n;
   const d = mark > idx ? mark - idx : idx - mark;
@@ -146,7 +146,7 @@ describe("decodeMarketFundingV22 branches", () => {
     const skNeg = setup(100n, 0n, 100n, 500n, 400n, 1000n);
     expect(skNeg.skewRateE9PerSlot).toBe(-25_000_000n);
     expect(skNeg.payer).toBe("shorts");
-    // oiS > oiL picks the larger side; skew capped by skewMax; combined clamped to maxAbs
+    // skew capped by skewMax; combined clamped to maxAbs
     const capped = setup(110n, 0n, 100n, -10_000n, 1000n, 1000n);
     expect(capped.skewRateE9PerSlot).toBe(30_000_000n);
     expect(capped.rateE9PerSlot).toBe(100_000_000n);
@@ -197,9 +197,9 @@ describe("decodeMarketFundingV22 branches", () => {
     expect(a.fShortNum).toBe(123_456_789_012_345_678_901n);
   });
   it("short and wrong-version buffers throw", () => {
-    expect(() => decodeMarketFundingV22(base.slice(0, 100))).toThrow();
+    expect(() => decodeMarketFundingV22(base.slice(0, 100))).toThrow(/too short/);
     const v18 = base.slice();
     new DataView(v18.buffer).setUint16(8, 18, true);
-    expect(() => decodeMarketFundingV22(v18)).toThrow();
+    expect(() => decodeMarketFundingV22(v18)).toThrow(/VERSION 18|v2.2/);
   });
 });
