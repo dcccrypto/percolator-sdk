@@ -103,6 +103,7 @@ export default defineConfig({
       "test/instructions-compat-branches.test.ts",
       "test/ata.test.ts",
       "test/encode-edges.test.ts",
+      "test/encode-differential.test.ts",
       "test/rpc-pool-branches.test.ts",
     ],
   },
