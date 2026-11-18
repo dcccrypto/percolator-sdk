@@ -52,7 +52,8 @@ describe("bigtest F2: the vault-LP counterparty on tag 5", () => {
   it("buildCatchUpAndRefreshIxsV22: the LP goes on the refresh/liquidation cranks only, never on the observes", () => {
     const lp = new PublicKey(FX.lp);
     const p = buildCatchUpAndRefreshIxsV22({ programId: W, market: MKT, marketData, cranker: OWNER, portfolio: P, observePortfolio: lp, readSlot: SL + 10n, liquidationCrank: true, vaultLpCounterparty: lp });
-    const c = p.txs[0]!.instructions.filter((i) => i.programId.equals(W));
+    // liquidation crank is its own final tx (two refreshes never fit 1.4M CU)
+    const c = p.txs.flatMap((t) => t.instructions.filter((i) => i.programId.equals(W)));
     expect(c).toHaveLength(3); // observe, refresh, liquidation crank
     expect(c[0]!.keys).toHaveLength(3);
     for (const k of [c[1]!, c[2]!]) {

@@ -86,7 +86,7 @@ export interface CatchUpTxV22 {
   instructions: TransactionInstruction[];
   computeUnitLimit: number;
   observeCranks: number;
-  /** True only on the final transaction. */
+  /** True on every transaction that carries a refresh crank (the last one, and the one before it when `liquidationCrank` is set). */
   refreshes: boolean;
 }
 
