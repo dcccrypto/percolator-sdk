@@ -57,8 +57,12 @@ describe("getStakeProgramId undeployed network", () => {
     vi.resetModules();
     // STAKE_PROGRAM_IDS is frozen; neutralise freeze only while the module loads.
     const spy = vi.spyOn(Object, "freeze").mockImplementation(((o: unknown) => o) as typeof Object.freeze);
-    const fresh = await import("../src/solana/stake.js");
-    spy.mockRestore();
+    let fresh: typeof import("../src/solana/stake.js");
+    try {
+      fresh = await import("../src/solana/stake.js");
+    } finally {
+      spy.mockRestore();
+    }
     (fresh.STAKE_PROGRAM_IDS as { mainnet: string }).mainnet = "";
     expect(() => fresh.getStakeProgramId("mainnet")).toThrow(/not deployed on mainnet/);
   });
@@ -70,7 +74,8 @@ describe("encodeStakeAdminUpdateMaintenanceFeePerSlot u128 guards", () => {
   it("encodes tag 26 + 16-byte LE u128", () => {
     const d = encodeStakeAdminUpdateMaintenanceFeePerSlot((1n << 128n) - 1n);
     expect(d.length).toBe(17);
-    expect(d[0]).toBe(STAKE_IX.AdminUpdateMaintenanceFeePerSlot);
+    expect(d[0]).toBe(26); // percolator-stake instruction.rs tag 26
+    expect(STAKE_IX.AdminUpdateMaintenanceFeePerSlot).toBe(26);
     expect([...d.slice(1)].every((b) => b === 0xff)).toBe(true);
     const e = encodeStakeAdminUpdateMaintenanceFeePerSlot(1n << 64n);
     expect([...e.slice(1)]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]);
