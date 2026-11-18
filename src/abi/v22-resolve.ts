@@ -102,7 +102,8 @@ export interface StaleResolveStatusV22 {
 
 /**
  * Predict tag 39 on a market from its account data (same checks and order as `handle_resolve_stale_permissionless`,
- * percolator-prog `v16_program.rs:26833-26857`).
+ * percolator-prog feat/v22-rc23-2026-10-22 d27f3d73: `handle_resolve_stale_permissionless` at `v16_program.rs:29266`,
+ * `oracle_v16::permissionless_stale_matured` at `:12514`).
  *
  * The program IGNORES the instruction's `now_slot`: it reads the Clock sysvar (`authenticated_slot_or_fallback`,
  * `v16_program.rs:12903`, the wire value is only a fallback when Clock is unavailable) and compares THAT slot with the
