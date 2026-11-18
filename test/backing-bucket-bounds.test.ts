@@ -48,8 +48,7 @@ describe("parseBackingBucketsV17 — bounds guards", () => {
   });
 
   it("stops at a truncated trailing bucket instead of reading past the buffer", () => {
-    // 2 addressable slots declared, but the tail holds only one full slot stride
-    // minus the last slot's short bucket: loop must `break`, not throw.
+    // One slot, cut 10 bytes into its short bucket: the loop must `break`, not throw.
     const full = market(1);
     const g = resolveMarketGeometry(full, { parser: "t", strictLength: false });
     const cut = g.engineOff(0) + g.layout.engineSlot.backingShort; // short bucket absent
