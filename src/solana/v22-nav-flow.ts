@@ -112,9 +112,11 @@ export function navFlowAccountsV22(programId: PublicKey, market: PublicKey): { g
 const wm = (pubkey: PublicKey): AccountMeta => ({ pubkey, isSigner: false, isWritable: true });
 const pad = (): AccountMeta => ({ pubkey: SystemProgram.programId, isSigner: false, isWritable: false });
 
-function expectKey(keys: readonly AccountMeta[], i: number, want: PublicKey, tag: number, what: string): void {
+/** Check slot `i` holds `want`, then force it writable: the program writes the guard (NAV sample) and the ext. */
+function expectKey(keys: AccountMeta[], i: number, want: PublicKey, tag: number, what: string): void {
   const k = keys[i];
   if (!k || !k.pubkey.equals(want)) throw new Error(`withNavFlowTailV22: tag ${tag} needs the ${what} at [${i}], found ${k ? k.pubkey.toBase58() : "nothing"}`);
+  keys[i] = wm(want);
 }
 
 /**
