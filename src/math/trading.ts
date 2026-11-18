@@ -50,10 +50,14 @@ export function computeLiqPrice(
     if (maintenanceMarginBps >= 10000n) {
       return entryPrice > capitalPerUnitE6 ? 18446744073709551615n : 0n;
     }
-    const liq = ((entryPrice - capitalPerUnitE6) * 10000n) / (10000n - maintenanceMarginBps);
-    return liq > 0n ? liq : 0n;
+    // Single division on the exact numerator: pre-truncating capital/q to an
+    // integer e6 price loses up to 1/(1-maint) price units at high maintenance.
+    const num = entryPrice * absPos - capital * 1_000_000n;
+    if (num <= 0n) return 0n;
+    return (num * 10000n) / (absPos * (10000n - maintenanceMarginBps));
   }
-  const shortLiq = ((entryPrice + capitalPerUnitE6) * 10000n) / (10000n + maintenanceMarginBps);
+  const shortLiq =
+    ((entryPrice * absPos + capital * 1_000_000n) * 10000n) / (absPos * (10000n + maintenanceMarginBps));
   return shortLiq > 0n ? shortLiq : 0n;
 }
 
