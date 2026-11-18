@@ -377,14 +377,15 @@ describe("growth-v19 branch coverage: quote and preview edges", () => {
 });
 
 describe("growthCeilingView ratchet ETA edges", () => {
-  it("a record with ceil 0 reads as the launch cap; a ratchet already due reports 0 slots", () => {
+  it("a record with ceil 0 reads as the launch cap; no further unlock is pending", () => {
     const g0 = decodeAssetGrowthRecordV19(growthRecord({ launch: 500, tier: 2_000, ceil: 0, slot: 1n })) as AssetGrowthV19;
     const v = growthCeilingView(g0, 1_000, 10_000_000n, 1_000_000_000_000n, STRESS_NONE);
-    if (v.nextUnlock.kind === "ratchet") expect(v.nextUnlock.etaSlots).toBe(0n);
-    expect(v.ceilingX100).toBeGreaterThanOrEqual(500);
+    expect(v.nextUnlock.kind).toBe("none");
+    expect(v.ceilingX100).toBe(500);
     const g1 = decodeAssetGrowthRecordV19(growthRecord({ launch: 500, tier: 2_000, ceil: 500, slot: 1n })) as AssetGrowthV19;
     const v1 = growthCeilingView(g1, 1_000, 10_000_000n, 1_000_000_000_000n, STRESS_NONE);
-    expect(["ratchet", "none", "depth", "backing", "both"]).toContain(v1.nextUnlock.kind);
+    expect(v1.nextUnlock.kind).toBe("none");
+    expect(v1.ceilingX100).toBe(500);
   });
 });
 
@@ -412,6 +413,6 @@ describe("growthCeilingView depth rate-limit ETA", () => {
 describe("decodeAssetGrowthV19 short account", () => {
   it("throws when the stamped market ends before the asset's growth record", () => {
     const mkt = new Uint8Array(2022 + 2325 + 120 + 8); stampMarket(mkt);
-    expect(() => decodeAssetGrowthV19(mkt, 7)).toThrow(/too short for asset 7|asset/);
+    expect(() => decodeAssetGrowthV19(mkt, 7)).toThrow(/too short for asset 7/);
   });
 });
