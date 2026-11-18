@@ -25,7 +25,7 @@
  * @module creator-fee-payee-v22
  */
 import { PublicKey } from "@solana/web3.js";
-import { concatBytes, encPubkey, encU16, encU64, encU8 } from "./encode.js";
+import { concatBytes, encU16, encU64, encU8 } from "./encode.js";
 import type { AccountSpec } from "./accounts.js";
 import { ACCOUNT_KIND, LAYOUT_V22, UnknownLayoutError, resolveLayout } from "./layout.js";
 import type { LayoutTable } from "./layout.js";
@@ -202,7 +202,7 @@ export function deriveCreatorFeePayeeV22(programId: PublicKey, market: PublicKey
   new DataView(idx.buffer).setUint16(0, assetIndex, true);
   const mb = market.toBytes();
   const pb = programId.toBytes();
-  const key = new Uint8Array(66 + 2);
+  const key = new Uint8Array(66);
   key.set(pb, 0);
   key.set(mb, 32);
   key.set(idx, 64);

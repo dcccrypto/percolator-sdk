@@ -40,7 +40,7 @@ const hex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
 
 describe("memoised creator-fee-payee == old implementation", () => {
   it("10k random inputs: PDAs, ATAs, instructions, decoded records identical (0 mismatches)", () => {
-    // Small pools force repeated keys (cache hits) while 10k draws also exercise misses + eviction-free path.
+    // Small pools force repeated keys (cache hits) while 10k draws also exercise misses.
     const programs = Array.from({ length: 3 }, () => Keypair.generate().publicKey);
     const pool = Array.from({ length: 60 }, () => new PublicKey(rbytes(32)));
     let mismatches = 0;
@@ -90,6 +90,7 @@ describe("memoised creator-fee-payee == old implementation", () => {
     expect(a).toBeLessThanOrEqual(cap);
     expect(b).toBeLessThanOrEqual(cap);
     expect(a).toBe(cap);
+    expect(P.creatorFeePayeeCacheSizesV22()[0]).toBe(cap);
     // evicted entry re-derives to the same value
     const again = P.deriveCreatorFeePayeeV22(prog, markets[0], 0);
     expect(again[0].equals(first[0])).toBe(true);
