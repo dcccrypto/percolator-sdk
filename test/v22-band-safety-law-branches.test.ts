@@ -59,7 +59,7 @@ describe("band safety law: base config shape refusals (no rent block)", () => {
     expect(checkBandSafetyLawV22({ ...plain, initialPriceE6: 1_000_000_000_000n }).ok).toBe(true);
   });
 
-  it("the u128 ceiling: a loss or fee that overflows u128 makes the base invalid", () => {
+  it("a notional floor above the domain with the maximum price move and fee is still ok (floor region covers N)", () => {
     expect(
       checkBandSafetyLawV22({ ...plain, maintenanceMarginBps: 1000n, minLiquidationAbs: 0n, liquidationFeeCap: 10n ** 36n, minNonzeroMmReq: 10n ** 37n, minNonzeroImReq: 10n ** 37n + 1n, liquidationFeeBps: 10_000n, maxPriceMoveBpsPerSlot: 10_000n, maxAccrualDtSlots: 1n, minFundingLifetimeSlots: 1n, maxAbsFundingE9PerSlot: 0n }).ok,
     ).toBe(true);
@@ -67,7 +67,7 @@ describe("band safety law: base config shape refusals (no rent block)", () => {
 });
 
 describe("band safety law: funding headroom and the exact envelope", () => {
-  it("funding x slots beyond i128 headroom is refused (dt, then lifetime)", () => {
+  it("funding x slots beyond i128 headroom is refused (lifetime alone, and dt = lifetime)", () => {
     // ADL_ONE 1e15 x MAX_ORACLE_PRICE 1e12 x funding 10000 x slots must stay <= i128::MAX (1.7014e38): slots <= 17_014_118.
     const big = { ...plain, maxAbsFundingE9PerSlot: 10_000n, maxAccrualDtSlots: 1n };
     expect(checkBandSafetyLawV22({ ...big, minFundingLifetimeSlots: 17_014_118n }).ok).toBe(true);
@@ -109,10 +109,10 @@ describe("band safety law: genesis floor, leg floor and G(d) helpers", () => {
     expect(bandGenesisFloorE6V22(1n)).toBeGreaterThan(bandGenesisFloorE6V22(2000n)!);
     expect(bandWorstAdverseBpsV22(130n)).toBe(397n);
     expect(bandWorstAdverseBpsV22(-1n)).toBeNull();
-    expect(bandWorstAdverseBpsV22(2000n)).toBe(((12_000n * 12_000n + 7_999n) / 8_000n) - 10_000n);
+    expect(bandWorstAdverseBpsV22(2000n)).toBe(8_000n);
   });
 
-  it("leg floor is 10 whole tokens, saturating at u64::MAX and clamping decimals at 30", () => {
+  it("leg floor is 10 whole tokens, saturating at u64::MAX", () => {
     expect(bandMinLegFloorAtomsV22(0)).toBe(10n);
     expect(bandMinLegFloorAtomsV22(18)).toBe(10n ** 19n > (1n << 64n) - 1n ? (1n << 64n) - 1n : 10n ** 19n);
     expect(bandMinLegFloorAtomsV22(255)).toBe((1n << 64n) - 1n);
@@ -167,15 +167,15 @@ describe("band safety law: refusal reasons and exact messages", () => {
 });
 
 describe("band safety law: maxAcceptedRentE9PerSlotV22", () => {
-  it("returns the 10,000 ceiling when it fits and defaults the kink to 5000", () => {
+  it("returns the 10,000 ceiling when it fits", () => {
     const { rent: _r, ...noRent } = pilot;
     expect(maxAcceptedRentE9PerSlotV22(noRent)).toBe(10_000n);
   });
 
-  it("returns null when even the minimum rent 10 is refused", () => {
-    // base is valid, but 10 e9/slot of rent on top of a 1-bps-margin config is not
-    const tight = { ...plain, maintenanceMarginBps: 1000n, maxPriceMoveBpsPerSlot: 99n, maxAccrualDtSlots: 10n, minFundingLifetimeSlots: 10n, maxAbsFundingE9PerSlot: 10_000n };
-    expect(checkBandSafetyLawV22({ ...tight, rent: { rentMaxE9PerSlot: 10, rentKinkBps: 5000 } })).toMatchObject({ ok: false });
+  it("returns null when even the minimum rent 10 is refused (valid base, rent-envelope 106)", () => {
+    const tight = { ...plain, maintenanceMarginBps: 101n, liquidationFeeBps: 0n, minNonzeroMmReq: 1n, minNonzeroImReq: 2n, maxPriceMoveBpsPerSlot: 1n, maxAccrualDtSlots: 100n, minFundingLifetimeSlots: 100n, maxAbsFundingE9PerSlot: 0n };
+    expect(checkBandSafetyLawV22(tight)).toEqual({ ok: true, notChecked: [] });
+    expect(checkBandSafetyLawV22({ ...tight, rent: { rentMaxE9PerSlot: 10, rentKinkBps: 5000 } })).toMatchObject({ ok: false, code: 106, rule: "rent-envelope" });
     expect(maxAcceptedRentE9PerSlotV22(tight)).toBeNull();
   });
 
@@ -198,14 +198,14 @@ describe("band safety law: exact-envelope tail branches (configs found by fuzzin
   });
   const OK = { ok: true, notChecked: [] };
   const rows: [string, BandSafetyLawInputV22, unknown][] = [
-    ["tail below the floor region (linear < mm, exact tail <= start)", mk(693n, 5599n, 4858n, 34528n, 154n, 726598580n, 726598590n, 1n, 1n, 0n, 21490n), OK],
+    ["liq-cap tail returns early (loss and fee well above mm, exact tail <= start)", mk(693n, 5599n, 4858n, 34528n, 154n, 726598580n, 726598590n, 1n, 1n, 0n, 21490n), OK],
     ["floor region swallows the tail, fee-floor tail wins", mk(1191n, 5270n, 170n, 235225202320n, 303n, 100000000000n, 100000000007n, 38n, 1n, 0n, 77600n), OK],
     ["linear tail wins over the fee-floor tail", mk(1342n, 2299n, 261n, 796906835652n, 0n, 738n, 742n, 1n, 1n, 0n, 46578n), OK],
     ["a real exact range after the floor region", mk(937n, 6506n, 0n, 866353n, 0n, 1n, 9n, 1n, 1n, 0n, 40212n), OK],
     ["a wide exact range that bisects without hitting the interval limit", mk(1228n, 7763n, 0n, 932787589085n, 0n, 1n, 10n, 18n, 62n, 0n, 63012n), OK],
     ["a violation inside an exact chunk is found", mk(5139n, 8970n, 0n, 873475n, 0n, 1n, 6n, 6854n, 1n, 3387n, 70244n), BASE_INVALID],
     ["liq-cap tail (loss below mm, no linear room), with funding", mk(137n, 199n, 47n, 10_000_000n, 0n, 209n, 212n, 1n, 84n, 4821n, 75133n), OK],
-    ["huge liq cap: the exact range is clamped to the domain and the law fails", mk(1197n, 1817n, 1194n, 10n ** 27n, 215n, 881748817n, 881748826n, 1n, 1n, 11n, 38388n), BASE_INVALID],
+    ["huge liq cap: exact range clamped to the domain; the step budget runs out so the base is invalid", mk(1197n, 1817n, 1194n, 10n ** 27n, 215n, 881748817n, 881748826n, 1n, 1n, 11n, 38388n), BASE_INVALID],
   ];
   for (const [name, input, want] of rows) {
     it(name, () => {
