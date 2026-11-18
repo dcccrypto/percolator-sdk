@@ -66,6 +66,7 @@ export default defineConfig({
       "test/stake-dead-lp.test.ts", "test/stake-closeout-v22.test.ts",
       "test/nft-program-env.test.ts", "test/nft-abi-coverage.test.ts",
       "test/v22-qa-fixes.test.ts",
+      "test/v22-trade-fee-branches.test.ts",
       "test/v22-qa-overnight.test.ts",
       "test/v22-multi-asset-trade.test.ts", "test/v22-catchup-liquidate.test.ts", "test/v22-liq-adl-latch.test.ts",
       "test/dist-fresh.test.ts",
