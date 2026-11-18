@@ -18,10 +18,13 @@
  * taker is charged base + the actual request, not the ceiling.
  */
 import { resolveMarketGeometry } from "./layout.js";
-import { decodeAssetRiskLimitsP1, MATCHER_EXT_MODE_V1_P1 } from "./risk-limits-p1.js";
+import { assetRiskLimitsAccountOffsetP1, ASSET_RISK_LIMITS_FIELD_OFF_P1, ASSET_RISK_LIMITS_LEN_P1, MATCHER_EXT_MODE_V1_P1 } from "./risk-limits-p1.js";
 import { MATCHER_REQUESTED_FEE_BPS_MAX } from "./matcher-v2.js";
 import { CTX_VAMM_OFFSET, VAMM_MAGIC } from "./instructions.js";
-import { parseWrapperConfigV17 } from "../solana/slab.js";
+import { V17_HEADER_LEN, V17_WRAPPER_CONFIG_LEN } from "../solana/slab.js";
+
+/** Offset of `trade_fee_bps` (u64) inside the wrapper config block (see `parseWrapperConfigV17`). */
+const WRAPPER_CONFIG_TRADE_FEE_BPS_OFF = 128;
 
 /** Offset of `max_trading_fee_bps` (u64) inside the engine `V16ConfigAccount` (engine 3ce4cbd1, packed Pod). */
 export const ENGINE_CONFIG_MAX_TRADING_FEE_BPS_OFF = 70;
@@ -164,8 +167,21 @@ export function readTradeFeeInputsV22(marketData: Uint8Array, assetIndex: number
   if (marketData.length < cfgOff + 8) throw new Error("readTradeFeeInputsV22: market account too short for the engine config");
   const dv = new DataView(marketData.buffer, marketData.byteOffset, marketData.byteLength);
   const maxTradingFeeBps = dv.getBigUint64(cfgOff, true);
-  const tradeFeeBaseBps = parseWrapperConfigV17(marketData).tradeFeeBps;
-  const risk = decodeAssetRiskLimitsP1(marketData, assetIndex);
+  // Same bytes + same errors as parseWrapperConfigV17(marketData).tradeFeeBps, without building the whole
+  // config (nine PublicKeys, u128s) for one u64.
+  const wrapperMin = V17_HEADER_LEN + V17_WRAPPER_CONFIG_LEN;
+  if (marketData.length < wrapperMin) {
+    throw new Error(`parseWrapperConfigV17: data too short — need ${wrapperMin} bytes, got ${marketData.length}`);
+  }
+  const tradeFeeBaseBps = dv.getBigUint64(V17_HEADER_LEN + WRAPPER_CONFIG_TRADE_FEE_BPS_OFF, true);
+  // Same as decodeAssetRiskLimitsP1(marketData, assetIndex), reusing the geometry resolved above.
+  const riskOff = assetRiskLimitsAccountOffsetP1(assetIndex, g.layout);
+  if (marketData.length < riskOff + ASSET_RISK_LIMITS_LEN_P1) throw new Error(`market account too short for asset ${assetIndex}`);
+  const F = ASSET_RISK_LIMITS_FIELD_OFF_P1;
+  const risk = {
+    matcherExtMode: marketData[riskOff + F.matcherExtMode]!,
+    maxRequestedFeeBps: dv.getUint16(riskOff + F.maxRequestedFeeBps, true),
+  };
   const out: TradeFeeInputsV22 = {
     tradeFeeBaseBps,
     maxTradingFeeBps,
