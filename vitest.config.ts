@@ -15,6 +15,7 @@ export default defineConfig({
       "test/pda.test.ts",
       "test/errors-pda-pins.test.ts",
       "test/backing-bucket.test.ts",
+      "test/backing-bucket-bounds.test.ts",
       "test/price-router.test.ts",
       "test/discovery.test.ts",      "test/slab-parser.test.ts",
       "test/adl.test.ts",
