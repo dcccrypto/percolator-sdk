@@ -232,7 +232,8 @@ export function bandMinLegFloorAtomsV22(collateralDecimals: number): bigint {
 }
 
 function shapeOk(c: Cfg): boolean {
-  if (c.maxPortfolioAssets === 0n) return false;
+  // Engine validate_public_user_fund_shape: 0 < max_portfolio_assets <= V16_MAX_PORTFOLIO_ASSETS_N (16).
+  if (c.maxPortfolioAssets === 0n || c.maxPortfolioAssets > 16n) return false;
   if (c.minMm === 0n || c.minMm >= c.minIm) return false;
   if (
     c.mm > c.im ||
