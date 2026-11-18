@@ -236,3 +236,69 @@ describe("near-miss runtime lines never push or pop a frame (reviewer's vectors)
     expect(r).toMatchObject({ status: "known" });
   });
 });
+
+describe("real runtime log grammar (captured devnet log: percolator-indexer tests/fixtures/lp-vault) + spoof matrix", () => {
+  const ATA = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+  const TOK = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+  // Verbatim excerpt of a real tx: nested CPI, `consumed N of M compute units`, `Program return:`, `Program log:`.
+  const REAL = [
+    inv("ComputeBudget111111111111111111111111111111", 1),
+    "Program ComputeBudget111111111111111111111111111111 success",
+    inv(ATA, 1),
+    "Program log: Create",
+    inv(TOK, 2),
+    `Program ${TOK} consumed 179 of 189715 compute units`,
+    `Program return: ${TOK} pQAAAAAAAAA=`,
+    `Program ${TOK} success`,
+    inv(SYSTEM, 2),
+    `Program ${SYSTEM} success`,
+    "Program log: Initialize the associated token account",
+    `Program ${ATA} consumed 17948 of 199550 compute units`,
+    `Program ${ATA} success`,
+  ];
+  it("consumed / return / log lines fall through without touching the stack: a real log walks clean", () => {
+    expect(E.wrapperEventTokensV22(REAL, WRAPPER)).toEqual({ ok: true, tokens: [] });
+  });
+  it("the wrapper's data survives real `consumed` and `return` lines around and inside its frame", () => {
+    const logs = [inv(W, 1), inv(TOK, 2), `Program ${TOK} consumed 76 of 147249 compute units`, `Program return: ${TOK} pQAAAAAAAAA=`, `Program ${TOK} success`, data(DOC.trade), `Program ${W} consumed 44841 of 181578 compute units`, `Program return: ${W} AQ==`, `Program ${W} success`];
+    expect(E.wrapperEventTokensV22(logs, WRAPPER)).toEqual({ ok: true, tokens: [DOC.trade] });
+  });
+  it("`Program return:` and `failed to complete` are not runtime frame lines (not base58 keys / not `failed: `)", () => {
+    // a program cannot forge `Program return: <wrapper> <data>` into a data line: it is not `Program data: `
+    const logs = [inv(MATCHER.toBase58(), 1), `Program return: ${W} ${DOC.trade}`, `Program ${MATCHER.toBase58()} success`];
+    expect(E.wrapperEventTokensV22(logs, WRAPPER)).toEqual({ ok: true, tokens: [] });
+    // the loader's own `failed to complete` precedes the real `failed:` line; it must not pop by itself
+    const l2 = [inv(W, 1), data(DOC.trade), `Program ${W} failed to complete: Access violation`, `Program ${W} failed: Program failed to complete`];
+    expect(E.wrapperEventTokensV22(l2, WRAPPER)).toEqual({ ok: true, tokens: [DOC.trade] });
+  });
+  it("a failed: tail at depth > 1 pops only the inner frame; the wrapper frame stays open and its later data is attributed", () => {
+    const logs = [inv(W, 1), inv(MATCHER.toBase58(), 2), `Program ${MATCHER.toBase58()} failed: custom program error: 0x1`, data(DOC.trade), `Program ${W} success`];
+    expect(E.wrapperEventTokensV22(logs, WRAPPER)).toEqual({ ok: true, tokens: [DOC.trade] });
+    // a failed: tail naming the wrong program is inconsistent
+    expect(E.wrapperEventTokensV22([inv(W, 1), inv(MATCHER.toBase58(), 2), `Program ${W} failed: x`], WRAPPER)).toEqual({ ok: false, unknown: "bad-return" });
+  });
+  it("SPOOF MATRIX: every spoof a CPI program can print through msg!/sol_log_data stays in its own frame", () => {
+    const M = MATCHER.toBase58();
+    // sol_log_/msg! always prefix `Program log: `; sol_log_data always prefixes `Program data: ` and emits base64 only.
+    const spoofs = [
+      `Program log: Program ${W} invoke [2]`,
+      `Program log: Program ${W} success`,
+      `Program log: Program ${M} success`,
+      `Program log: x\nProgram ${W} invoke [2]\nProgram data: ${DOC.trade}`,
+      `Program log: x\nProgram ${M} success\nProgram ${W} invoke [2]`,
+      `Program log: Log truncated`,
+      `Program return: ${W} ${DOC.trade}`,
+    ];
+    for (const s of spoofs) {
+      const logs = [inv(W, 1), inv(M, 2), s, data(DOC.earnExit), `Program ${M} success`, `Program ${W} success`];
+      const r = E.wrapperEventTokensV22(logs, WRAPPER);
+      expect(r, JSON.stringify(s)).toEqual({ ok: true, tokens: [] });
+    }
+  });
+  it("only the leading-text spoof that the runtime itself can never emit would work: a bare runtime-shaped element (documented limit)", () => {
+    // If an RPC delivered an element WITHOUT the `Program log: ` prefix, it would be a frame line. The runtime never does this; we pin that
+    // the walk keys on the element start so a prefix is the only defence, and lock the behaviour.
+    const bare = [inv(W, 1), inv(MATCHER.toBase58(), 2), `Program ${MATCHER.toBase58()} success`, data(DOC.trade), `Program ${W} success`];
+    expect(E.wrapperEventTokensV22(bare, WRAPPER)).toEqual({ ok: true, tokens: [DOC.trade] });
+  });
+});
