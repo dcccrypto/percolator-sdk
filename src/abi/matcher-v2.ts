@@ -442,12 +442,23 @@ export interface MatcherConfigureIxArgs {
   matcherCtx: PublicKey;
 }
 
+const BUMP_CACHE_MAX = 256;
+const bumpCache = new Map<string, number>();
+
 function deriveProof(a: MatcherConfigureIxArgs): MatcherOwnerProof {
-  const [, bump] = PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("matcher"), a.market.toBytes(), a.lpPortfolio.toBytes(), a.lpOwner.toBytes(),
-      a.matcherProgramId.toBytes(), a.matcherCtx.toBytes()],
-    a.wrapperProgramId,
-  );
+  // Bump is a pure function of the 6 keys; cache the primitive number (no aliasing possible).
+  const key = [a.wrapperProgramId, a.market, a.lpPortfolio, a.lpOwner, a.matcherProgramId, a.matcherCtx]
+    .map((p) => p.toBase58()).join("|");
+  let bump = bumpCache.get(key);
+  if (bump === undefined) {
+    [, bump] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode("matcher"), a.market.toBytes(), a.lpPortfolio.toBytes(), a.lpOwner.toBytes(),
+        a.matcherProgramId.toBytes(), a.matcherCtx.toBytes()],
+      a.wrapperProgramId,
+    );
+    if (bumpCache.size >= BUMP_CACHE_MAX) bumpCache.delete(bumpCache.keys().next().value as string);
+    bumpCache.set(key, bump);
+  }
   return { wrapperProgramId: a.wrapperProgramId, market: a.market, lpPortfolio: a.lpPortfolio, bump };
 }
 
