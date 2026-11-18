@@ -428,7 +428,7 @@ describe("junk price strings must not become a source (parseFloat lead)", () => 
     vi.restoreAllMocks();
   });
 
-  it.each(["12abc", "1.5.3", "1e", "0x10", " ", "1,5", "Infinity"])(
+  it.each(["12abc", "1.5.3", "1e", "0x10", " ", "1,5", "Infinity", "1e999"])(
     "dex priceUsd %j is dropped",
     async (junk) => {
       stubFetch(dexBody(pair({ priceUsd: junk })), "http500");
