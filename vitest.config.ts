@@ -56,6 +56,7 @@ export default defineConfig({
       "test/tx-v1.test.ts",
       "test/txv1-coverage.test.ts",
       "test/v22-parity.test.ts",
+      "test/v22-state-g9-header.test.ts",
       "test/layout-guard.test.ts",
       "test/v22-builders.test.ts",
       "test/solana-v22-branches.test.ts",
