@@ -5,6 +5,7 @@ export default defineConfig({
     coverage: { exclude: ["scripts/**", "test/**", "dist/**", "**/*.config.*"] },
     include: [
       "test/v22-fill-events-frame-diff.test.ts",
+      "test/v22-fill-events-decode-diff.test.ts",
       "test/issue-370-regression.test.ts",
       "test/v17-kind-gate.test.ts",
       "test/token-program.test.ts",

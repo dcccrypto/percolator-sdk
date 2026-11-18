@@ -146,15 +146,16 @@ export type UnknownReasonV22 = "no-logs" | "truncated" | "bad-invoke-depth" | "b
 function u16(b: Uint8Array, o: number): number {
   return b[o] | (b[o + 1] << 8);
 }
-function u64(b: Uint8Array, o: number): bigint {
-  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(o, true);
+// One DataView per decoded event (created in decodeWrapperEventV22), not one per field.
+function u64(dv: DataView, o: number): bigint {
+  return dv.getBigUint64(o, true);
 }
-function i128(b: Uint8Array, o: number): bigint {
-  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+function i128(dv: DataView, o: number): bigint {
   return (dv.getBigInt64(o + 8, true) << 64n) | dv.getBigUint64(o, true);
 }
+// PublicKey's constructor copies the bytes into a BN, so a view (subarray) is safe: no alias survives.
 function key(b: Uint8Array, o: number): PublicKey {
-  return new PublicKey(b.slice(o, o + 32));
+  return new PublicKey(b.subarray(o, o + 32));
 }
 
 /**
@@ -167,6 +168,7 @@ export function decodeWrapperEventV22(b: Uint8Array): { event: WrapperEventV22 }
   if (b[0] < 1 || b[0] > 3) return { skip: "unknown-kind" };
   if (b[1] !== EVENT_VERSION_V22) return { skip: "unknown-version" };
   if (b.length < EVENT_HEADER_LEN_V22) return { skip: "bad-length" };
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
   const ixTag = b[2];
   const market = key(b, 3);
   if (b[0] === EVENT_KIND_FILL_V22) {
@@ -178,9 +180,9 @@ export function decodeWrapperEventV22(b: Uint8Array): { event: WrapperEventV22 }
     for (let i = 0; i < n; i++) {
       const o = FILL_FIXED_LEN_V22 + FILL_REC_LEN_V22 * i;
       records.push({
-        assetIndex: u16(b, o), assetGen: u64(b, o + 2), flags: b[o + 10],
-        requestedQ: i128(b, o + 11), executedQ: i128(b, o + 27),
-        priceE6: u64(b, o + 43), quotedPriceE6: u64(b, o + 51), feeAtoms: u64(b, o + 59), backingFeeAtoms: u64(b, o + 67),
+        assetIndex: u16(b, o), assetGen: u64(dv, o + 2), flags: b[o + 10],
+        requestedQ: i128(dv, o + 11), executedQ: i128(dv, o + 27),
+        priceE6: u64(dv, o + 43), quotedPriceE6: u64(dv, o + 51), feeAtoms: u64(dv, o + 59), backingFeeAtoms: u64(dv, o + 67),
       });
     }
     return { event: { kind: "fill", ixTag, market, taker: key(b, 35), lp: key(b, 67), records } };
@@ -191,14 +193,14 @@ export function decodeWrapperEventV22(b: Uint8Array): { event: WrapperEventV22 }
     if (reason < 1 || reason > 5 && reason !== REDUCE_REASON_V22.LP_STOP) return { skip: "unknown-reduce-reason" };
     return {
       event: {
-        kind: "reduce", ixTag, market, portfolio: key(b, 35), counterparty: key(b, 67), assetIndex: u16(b, 99), assetGen: u64(b, 101),
-        reason: reason as ReduceReasonV22, signedReducedQ: i128(b, 110), priceE6: u64(b, 126),
+        kind: "reduce", ixTag, market, portfolio: key(b, 35), counterparty: key(b, 67), assetIndex: u16(b, 99), assetGen: u64(dv, 101),
+        reason: reason as ReduceReasonV22, signedReducedQ: i128(dv, 110), priceE6: u64(dv, 126),
       },
     };
   }
   if (b.length !== MOVE_LEN_V22) return { skip: "bad-length" };
   const sub = b[35];
-  const assetIndex = u16(b, 36), a = u64(b, 38), bb = u64(b, 46), c = u64(b, 54);
+  const assetIndex = u16(b, 36), a = u64(dv, 38), bb = u64(dv, 46), c = u64(dv, 54);
   const base = { kind: "move" as const, ixTag, market, assetIndex, a, b: bb, c };
   switch (sub) {
     case MOVE_SUB_V22.EARN_EXIT: return { event: { ...base, sub: 1, principalAtoms: a, earningsAtoms: bb, sharesBurned: c } };
