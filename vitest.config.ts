@@ -34,6 +34,7 @@ export default defineConfig({
       "test/discovery-fallback-integration.test.ts",
       "test/lighthouse.test.ts",
       "test/rpc-pool.test.ts",
+      "test/rpc-pool-select-differential.test.ts",
       "test/script-config.test.ts",
       "test/drift-check.test.ts",
       "test/dex-oracle-fail-closed.test.ts",
