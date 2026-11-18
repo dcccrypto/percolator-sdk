@@ -199,5 +199,8 @@ describe("writer stress default and non-USD 6-decimal collateral", () => {
   it("a 6-decimal collateral that is not usd-like is labelled with its symbol", () => {
     const r = validateTierConfig({ thresholdsUsd: [1, 1, 1], leverageX100: [0, 0, 0], lLaunchX100: 500, lTierX100: 2_000, collateral: { decimals: 6, symbol: "FOO" } });
     expect(r.issues.some((x) => x.code === "below-floor" && /FOO/.test(x.message))).toBe(true);
+    // decimals omitted defaults to 6, so usd-like collateral prints with $
+    const d = validateTierConfig({ thresholdsUsd: [1, 1, 1], leverageX100: [0, 0, 0], lLaunchX100: 500, lTierX100: 2_000, collateral: { symbol: "USDC", usdLike: true } });
+    expect(d.issues.some((x) => x.code === "below-floor" && /\$/.test(x.message))).toBe(true);
   });
 });
