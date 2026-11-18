@@ -301,7 +301,7 @@ describe("getTransaction lag right after confirmation", () => {
     const r = await run(
       mockConn({ getTransaction, getSignatureStatus: status("confirmed") }),
     );
-    expect(getTransaction.mock.calls.length).toBeLessThanOrEqual(4);
+    expect(getTransaction).toHaveBeenCalledTimes(4);
     expect(r.slot).toBe(77); // status.value.slot, never the head slot (999)
     expect(r.err).toBeNull();
   });
@@ -313,5 +313,30 @@ describe("getTransaction lag right after confirmation", () => {
     );
     expect(r.logs).toEqual(["x"]);
     expect(r.slot).toBe(123);
+  });
+
+  it("persistent null + status lookup throwing: slot 0, no throw", async () => {
+    const r = await run(
+      mockConn({
+        getTransaction: vi.fn().mockResolvedValue(null),
+        getSignatureStatus: vi.fn().mockRejectedValue(new Error("429")),
+      }),
+    );
+    expect(r.slot).toBe(0);
+    expect(r.err).toBeNull();
+    expect(r.signature).toBe("sig");
+  });
+
+  it("persistent null + on-chain error: falls back to raw JSON err", async () => {
+    const raw = { InstructionError: [0, "Custom"] };
+    const r = await run(
+      mockConn({
+        confirmTransaction: vi.fn().mockResolvedValue({ value: { err: raw } }),
+        getTransaction: vi.fn().mockResolvedValue(null),
+        getSignatureStatus: status("confirmed", raw),
+      }),
+    );
+    expect(r.err).toBe(JSON.stringify(raw));
+    expect(r.slot).toBe(77);
   });
 });
