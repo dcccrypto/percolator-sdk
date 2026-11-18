@@ -104,6 +104,7 @@ export default defineConfig({
       "test/ata.test.ts",
       "test/encode-edges.test.ts",
       "test/rpc-pool-branches.test.ts",
+      "test/v22-state-differential.test.ts",
     ],
   },
 });

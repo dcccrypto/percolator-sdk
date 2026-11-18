@@ -21,8 +21,17 @@ function dv(data: Uint8Array): DataView {
 function u128(v: DataView, off: number): bigint {
   return (v.getBigUint64(off + 8, true) << 64n) | v.getBigUint64(off, true);
 }
-function isZero(b: Uint8Array): boolean {
-  for (const x of b) if (x !== 0) return false;
+/** True when `data[from, to)` is all zero (indexed loop, no subarray allocation). */
+function zeroRange(data: Uint8Array, from: number, to: number): boolean {
+  for (let i = from; i < to; i++) if (data[i] !== 0) return false;
+  return true;
+}
+/** `PublicKey` over `data[off, off + 32)` from one private 32-byte copy. */
+function pk(data: Uint8Array, off: number): PublicKey {
+  return new PublicKey(data.slice(off, off + 32));
+}
+function same32(data: Uint8Array, a: number, b: number): boolean {
+  for (let i = 0; i < 32; i++) if (data[a + i] !== data[b + i]) return false;
   return true;
 }
 
@@ -116,7 +125,7 @@ export function decodeBondTrancheV20(data: Uint8Array, table: LayoutTable = LAYO
   const v = dv(data);
   const F = BOND_TRANCHE_FIELD_OFF_V22;
   const t: BondTrancheV20 = {
-    marketGroup: new PublicKey(data.subarray(b, b + 32)),
+    marketGroup: pk(data, b),
     cBAtoms: u128(v, b + F.cBAtoms),
     bSharesTotal: u128(v, b + F.bSharesTotal),
     principalInLpAtoms: u128(v, b + F.principalInLpAtoms),
@@ -140,10 +149,10 @@ export function decodeBondTrancheV20(data: Uint8Array, table: LayoutTable = LAYO
     t.couponBpsPerYear <= 2_000 && t.couponUtilBonusBps === 0 && t.bondCooldownSlots >= 9_000 && t.bondCooldownSlots <= 1_512_000 && t.bondCapBpsOfC >= 1 && t.bondCapBpsOfC <= 5_000;
   if (
     t.version !== BOND_TRANCHE_VERSION_V22 ||
-    isZero(data.subarray(b, b + 32)) ||
+    zeroRange(data, b, b + 32) ||
     !dialsOk ||
     t.lastUtilBps > 10_000 ||
-    !isZero(data.subarray(b + F.padding, b + F.padding + 2)) ||
+    !zeroRange(data, b + F.padding, b + F.padding + 2) ||
     (t.cBAtoms === 0n) !== (t.bSharesTotal === 0n) ||
     t.couponAccrualRem >= BOND_COUPON_DENOM_V22 ||
     t.couponUnfundedAtoms > t.cBAtoms
@@ -192,14 +201,14 @@ export function decodeBondPositionV20(data: Uint8Array, table: LayoutTable = LAY
   const v = dv(data);
   const F = BOND_POSITION_FIELD_OFF_V22;
   const p: BondPositionV20 = {
-    owner: new PublicKey(data.subarray(b, b + 32)),
+    owner: pk(data, b),
     shares: u128(v, b + F.shares),
     pendingWithdrawShares: u128(v, b + F.pendingWithdrawShares),
     requestSlot: v.getBigUint64(b + F.requestSlot, true),
     version: data[b + F.version],
     bump: data[b + F.bump],
   };
-  if (p.version !== 1 || isZero(data.subarray(b, b + 32)) || p.pendingWithdrawShares > p.shares || !isZero(data.subarray(b + F.padding, b + F.padding + 6)) || !isZero(data.subarray(b + F.reserved, b + F.reserved + 16))) {
+  if (p.version !== 1 || zeroRange(data, b, b + 32) || p.pendingWithdrawShares > p.shares || !zeroRange(data, b + F.padding, b + F.padding + 6) || !zeroRange(data, b + F.reserved, b + F.reserved + 16)) {
     throw bad(parser, "bond position fails the program's validate_bond_position", ACCOUNT_KIND.BondPosition);
   }
   return p;
@@ -259,7 +268,7 @@ export function decodeInsuranceUnitsV20(data: Uint8Array, table: LayoutTable = L
   const v = dv(data);
   const F = INSURANCE_UNITS_FIELD_OFF_V22;
   const x: InsuranceUnitsV20 = {
-    marketGroup: new PublicKey(data.subarray(b, b + 32)),
+    marketGroup: pk(data, b),
     unitsTotal: u128(v, b + F.unitsTotal),
     unitsStake: u128(v, b + F.unitsStake),
     unitsCreator: u128(v, b + F.unitsCreator),
@@ -274,7 +283,7 @@ export function decodeInsuranceUnitsV20(data: Uint8Array, table: LayoutTable = L
     g9Epoch: v.getBigUint64(b + F.g9Epoch, true),
     g9EpochDrawnAtoms: u128(v, b + F.g9EpochDrawnAtoms),
   };
-  if (x.version !== 1 || isZero(data.subarray(b, b + 32)) || x.unitsStake + x.unitsCreator !== x.unitsTotal || !isZero(data.subarray(b + F.padding, b + F.padding + 6))) {
+  if (x.version !== 1 || zeroRange(data, b, b + 32) || x.unitsStake + x.unitsCreator !== x.unitsTotal || !zeroRange(data, b + F.padding, b + F.padding + 6)) {
     throw bad(parser, "insurance units fail the program's validate_insurance_units", ACCOUNT_KIND.InsuranceUnits);
   }
   return x;
@@ -321,24 +330,24 @@ export function decodeG9FeedAllowlistV22(data: Uint8Array, table: LayoutTable = 
   const bump = data[b + 2];
   const pendingCount = data[b + 3];
   const cap = table.accounts.g9FeedAllowlistCap;
-  if (version !== 1 || count > cap || pendingCount > cap || !isZero(data.subarray(b + 4, b + 8))) {
+  if (version !== 1 || count > cap || pendingCount > cap || !zeroRange(data, b + 4, b + 8)) {
     throw bad(parser, "allowlist header invalid", ACCOUNT_KIND.G9FeedAllowlist);
   }
-  const pendingSlot = new DataView(data.buffer, data.byteOffset + b + 8, 8).getBigUint64(0, true);
+  const pendingSlot = dv(data).getBigUint64(b + 8, true);
   const base = b + 16;
   const arr = (idx: number, n: number, listed: boolean, name: string): PublicKey[] => {
     const out: PublicKey[] = [];
-    const seen = new Set<string>();
+    const first = base + 32 * idx * cap;
     for (let i = 0; i < cap; i++) {
-      const k = data.subarray(base + 32 * (idx * cap + i), base + 32 * (idx * cap + i + 1));
+      const off = first + 32 * i;
       if (i < n) {
         if (listed) {
-          const h = Buffer.from(k).toString("hex");
-          if (isZero(k) || seen.has(h)) throw bad(parser, `listed ${name} ${i} is zero or duplicated`, ACCOUNT_KIND.G9FeedAllowlist);
-          seen.add(h);
+          let dup = zeroRange(data, off, off + 32);
+          for (let j = 0; !dup && j < i; j++) dup = same32(data, off, first + 32 * j);
+          if (dup) throw bad(parser, `listed ${name} ${i} is zero or duplicated`, ACCOUNT_KIND.G9FeedAllowlist);
         }
-        out.push(new PublicKey(k));
-      } else if (!isZero(k)) {
+        out.push(pk(data, off));
+      } else if (!zeroRange(data, off, off + 32)) {
         throw bad(parser, `unlisted ${name} slot ${i} is not zero`, ACCOUNT_KIND.G9FeedAllowlist);
       }
     }
@@ -400,13 +409,13 @@ export function decodeLpRedemptionV22(data: Uint8Array, table: LayoutTable = LAY
   let keeperOk = false;
   if (extended) {
     const k = data[extOff + 8];
-    if (k > 1 || !isZero(data.subarray(extOff + 9, extOff + 16))) throw bad(parser, "redemption extension invalid (keeper_ok > 1 or reserved bytes set)", ACCOUNT_KIND.LpRedemption);
+    if (k > 1 || !zeroRange(data, extOff + 9, extOff + 16)) throw bad(parser, "redemption extension invalid (keeper_ok > 1 or reserved bytes set)", ACCOUNT_KIND.LpRedemption);
     minPayoutAtoms = v.getBigUint64(extOff, true);
     keeperOk = k === 1;
   }
   return {
-    registry: new PublicKey(data.subarray(b, b + 32)),
-    redeemer: new PublicKey(data.subarray(b + 32, b + 64)),
+    registry: pk(data, b),
+    redeemer: pk(data, b + 32),
     shares: u128(v, b + 64),
     requestSlot: v.getBigUint64(b + 80, true),
     version: data[b + 88],
