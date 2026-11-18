@@ -120,7 +120,7 @@ function memoPda(
   market: PublicKey,
   derive: (programId: PublicKey, market: PublicKey) => [PublicKey, number],
 ): PublicKey {
-  const key = programId.toBase58() + ":" + market.toBase58();
+  const key = Buffer.from(programId.toBytes()).toString("latin1") + Buffer.from(market.toBytes()).toString("latin1");
   const hit = memo.get(key);
   if (hit) return new PublicKey(hit);
   const pda = derive(programId, market)[0];

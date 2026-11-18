@@ -35,10 +35,11 @@ describe("nav-flow PDA memo (differential vs uncached derivation)", () => {
     const market = pk();
     const a = navFlowAccountsV22(P, market);
     a.guard.toBytes().fill(0);
-    (a.guard as unknown as { _bn: unknown })._bn = null;
+    a.ext.toBuffer().fill(0);
     const b = navFlowAccountsV22(P, market);
     expect(b.guard.equals(deriveLevGuardV22(P, market)[0])).toBe(true);
-    expect(b.guard).not.toBe(a.guard);
+    expect(b.ext.equals(deriveVaultLpExtP2b(P, market)[0])).toBe(true);
+    expect(b.guard === a.guard).toBe(false);
   });
 
   it("keys on programId + market; stays correct past the 1024-entry bound", { timeout: 600_000 }, () => {
