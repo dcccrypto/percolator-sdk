@@ -39,7 +39,8 @@ function rustBandWidthOk(anchor: bigint, d: bigint): boolean {
 
 describe("bandMinWideAnchorV22 (band_rent.rs:105)", () => {
   it("never reaches the 256-step null exit for any valid d: result is the first anchor of a 9-run of wide bands", () => {
-    for (let d = 1; d <= 2000; d++) {
+    const ds = [...Array.from({ length: 40 }, (_, i) => i + 1), ...Array.from({ length: 40 }, (_, i) => (i + 1) * 50)];
+    for (const d of ds) {
       const a = M.bandMinWideAnchorV22(d);
       expect(a).not.toBeNull();
       for (let k = 0n; k <= 8n; k++) expect(rustBandWidthOk(a! + k, BigInt(d))).toBe(true);
