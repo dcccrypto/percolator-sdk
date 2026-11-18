@@ -236,10 +236,10 @@ function parsePumpSwapPool(poolAddress: PublicKey, data: Uint8Array): DexPoolInf
   return {
     dexType: "pumpswap",
     poolAddress,
-    baseMint: new PublicKey(data.slice(43, 75)),
-    quoteMint: new PublicKey(data.slice(75, 107)),
-    baseVault: new PublicKey(data.slice(139, 171)),
-    quoteVault: new PublicKey(data.slice(171, 203)),
+    baseMint: new PublicKey(data.subarray(43, 75)),
+    quoteMint: new PublicKey(data.subarray(75, 107)),
+    baseVault: new PublicKey(data.subarray(139, 171)),
+    quoteVault: new PublicKey(data.subarray(171, 203)),
   };
 }
 
@@ -312,12 +312,11 @@ function computePumpSwapPriceE6(
   // before the single division, so low-priced tokens don't truncate to 0n.
   //   price = (quote_raw / 10^quoteDec) / (base_raw / 10^baseDec)
   //   price_e6 = quote_raw * 10^baseDec * 1e6 / (10^quoteDec * base_raw)
-  const baseScale = 10n ** BigInt(decimals.base);
-  const quoteScale = 10n ** BigInt(decimals.quote);
+  const baseScale = pow10(decimals.base);
+  const quoteScale = pow10(decimals.quote);
   const quotePerBaseE6 = (quoteAmount * baseScale * 1_000_000n) / (quoteScale * baseAmount);
 
-  const quoteMint = new PublicKey(poolData.slice(75, 107));
-  if (quoteMint.equals(WSOL_MINT)) {
+  if (isWsolAt(poolData, 75)) {
     // #PS-3: pump.fun pools quote in WSOL, not USD. Convert token/SOL → token/USD.
     if (solPriceE6 === undefined) {
       throw new Error(
@@ -349,8 +348,8 @@ function parseRaydiumClmmPool(poolAddress: PublicKey, data: Uint8Array): DexPool
   return {
     dexType: "raydium-clmm",
     poolAddress,
-    baseMint: new PublicKey(data.slice(73, 105)),
-    quoteMint: new PublicKey(data.slice(105, 137)),
+    baseMint: new PublicKey(data.subarray(73, 105)),
+    quoteMint: new PublicKey(data.subarray(105, 137)),
   };
 }
 
@@ -413,9 +412,9 @@ function computeRaydiumClmmPriceE6(data: Uint8Array): bigint {
   const adjustedDiff = decimalDiff - 6;
 
   if (adjustedDiff >= 0) {
-    return (sq1e6 * 10n ** BigInt(adjustedDiff)) >> 128n;
+    return (sq1e6 * pow10(adjustedDiff)) >> 128n;
   } else {
-    return sq1e6 / ((1n << 128n) * 10n ** BigInt(-adjustedDiff));
+    return sq1e6 / ((1n << 128n) * pow10(-adjustedDiff));
   }
 }
 
@@ -459,8 +458,8 @@ function parseMeteoraPool(poolAddress: PublicKey, data: Uint8Array): DexPoolInfo
   return {
     dexType: "meteora-dlmm",
     poolAddress,
-    baseMint: new PublicKey(data.slice(88, 120)),
-    quoteMint: new PublicKey(data.slice(120, 152)),
+    baseMint: new PublicKey(data.subarray(88, 120)),
+    quoteMint: new PublicKey(data.subarray(120, 152)),
   };
 }
 
@@ -516,17 +515,18 @@ function computeMeteoraDlmmPriceE6(
   const base = SCALE + (BigInt(binStep) * SCALE) / 10_000n;
 
   const isNeg = activeId < 0;
-  let exp = isNeg ? BigInt(-activeId) : BigInt(activeId);
+  // |activeId| <= 500_000 (checked above) so a plain number is exact; avoids BigInt shifts.
+  let exp = isNeg ? -activeId : activeId;
 
   let result = SCALE;
   let b = base;
 
-  while (exp > 0n) {
-    if (exp & 1n) {
+  while (exp > 0) {
+    if (exp & 1) {
       result = (result * b) / SCALE;
     }
-    exp >>= 1n;
-    if (exp > 0n) {
+    exp >>= 1;
+    if (exp > 0) {
       b = (b * b) / SCALE;
     }
   }
@@ -552,15 +552,15 @@ function computeMeteoraDlmmPriceE6(
     // price_e6 = (1e24 / result) * 10^diff   [1e24 = 1e18 (inverse) * 1e6 (e6 scale)]
     const num = 1_000_000_000_000_000_000_000_000n; // 1e24
     if (diff >= 0) {
-      return (num * 10n ** BigInt(diff)) / result;
+      return (num * pow10(diff)) / result;
     }
-    return num / (result * 10n ** BigInt(-diff));
+    return num / (result * pow10(-diff));
   } else {
     // price_e6 = (result / 1e12) * 10^diff
     if (diff >= 0) {
-      return (result * 10n ** BigInt(diff)) / 1_000_000_000_000n;
+      return (result * pow10(diff)) / 1_000_000_000_000n;
     }
-    return result / (1_000_000_000_000n * 10n ** BigInt(-diff));
+    return result / (1_000_000_000_000n * pow10(-diff));
   }
 }
 
@@ -570,14 +570,30 @@ function computeMeteoraDlmmPriceE6(
 
 /** Read a little-endian u64 from a DataView. */
 function readU64LE(dv: DataView, offset: number): bigint {
-  const lo = BigInt(dv.getUint32(offset, true));
-  const hi = BigInt(dv.getUint32(offset + 4, true));
-  return lo | (hi << 32n);
+  return dv.getBigUint64(offset, true);
 }
 
 /** Read a little-endian u128 from a DataView. */
 function readU128LE(dv: DataView, offset: number): bigint {
-  const lo = readU64LE(dv, offset);
-  const hi = readU64LE(dv, offset + 8);
-  return lo | (hi << 64n);
+  return dv.getBigUint64(offset, true) | (dv.getBigUint64(offset + 8, true) << 64n);
+}
+
+/** Powers of ten 10^0..10^24 (MAX_TOKEN_DECIMALS); avoids a BigInt pow per call. */
+const POW10: readonly bigint[] = (() => {
+  const t: bigint[] = [];
+  for (let i = 0; i <= 24; i++) t.push(10n ** BigInt(i));
+  return t;
+})();
+
+/** 10^n for a non-negative integer n; table lookup for 0..24, exact fallback otherwise. */
+function pow10(n: number): bigint {
+  return POW10[n] ?? 10n ** BigInt(n);
+}
+
+let wsolBytes: Uint8Array | undefined;
+/** True when data[off..off+32] equals the WSOL mint — no PublicKey allocation. */
+function isWsolAt(data: Uint8Array, off: number): boolean {
+  const w = (wsolBytes ??= WSOL_MINT.toBytes());
+  for (let i = 0; i < 32; i++) if (data[off + i] !== w[i]) return false;
+  return true;
 }
