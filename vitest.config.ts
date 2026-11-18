@@ -71,6 +71,7 @@ export default defineConfig({
       "test/v22-multi-asset-trade.test.ts", "test/v22-catchup-liquidate.test.ts", "test/v22-liq-adl-latch.test.ts",
       "test/dist-fresh.test.ts",
       "test/stake-352-token-program.test.ts",
+      "test/stake-coverage-gaps.test.ts",
       "test/stake-staker-signer.test.ts",
       "test/stake-account-lists-processor.test.ts", "test/stake-withdraw-quote.test.ts",
       "test/workflow-pinning-349.test.ts",
