@@ -442,12 +442,21 @@ export interface MatcherConfigureIxArgs {
   matcherCtx: PublicKey;
 }
 
+const MATCHER_SEED = new TextEncoder().encode("matcher");
+const BUMP_MEMO_MAX = 512;
+/** Bounded memo of derived bumps keyed by the 5 seed keys + wrapper program id (PDA derivation is pure). */
+const bumpMemo = new Map<string, number>();
+
 function deriveProof(a: MatcherConfigureIxArgs): MatcherOwnerProof {
-  const [, bump] = PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("matcher"), a.market.toBytes(), a.lpPortfolio.toBytes(), a.lpOwner.toBytes(),
-      a.matcherProgramId.toBytes(), a.matcherCtx.toBytes()],
-    a.wrapperProgramId,
-  );
+  const seeds = [a.market.toBytes(), a.lpPortfolio.toBytes(), a.lpOwner.toBytes(), a.matcherProgramId.toBytes(), a.matcherCtx.toBytes()];
+  const wrapperBytes = a.wrapperProgramId.toBytes();
+  const key = Buffer.concat([...seeds, wrapperBytes]).toString("latin1");
+  let bump = bumpMemo.get(key);
+  if (bump === undefined) {
+    bump = PublicKey.findProgramAddressSync([MATCHER_SEED, ...seeds], a.wrapperProgramId)[1];
+    if (bumpMemo.size >= BUMP_MEMO_MAX) bumpMemo.delete(bumpMemo.keys().next().value as string);
+    bumpMemo.set(key, bump);
+  }
   return { wrapperProgramId: a.wrapperProgramId, market: a.market, lpPortfolio: a.lpPortfolio, bump };
 }
 
