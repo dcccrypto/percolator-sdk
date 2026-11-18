@@ -22,6 +22,7 @@ import { ceilingImrBps, GROWTH_POS_SCALE, isqrtCeil, nCapQ, sigmaHBps, usersSide
 
 const BPS = 10_000n;
 const U16_MAX = 0xffff;
+const U128_MAX = (1n << 128n) - 1n;
 
 /** `growth_v19::GROWTH_FLAG_LEV_GUARD`: growth `flags` bit 2, set by tag 124 op 0 INIT. */
 export const GROWTH_FLAG_LEV_GUARD_V22 = 0x04;
@@ -180,11 +181,12 @@ export function levMDumpBpsV22(band: LevAgeBandV22, mIndBps: number): number {
   return max16(max16(rug, 100), levMTailBpsV22(band));
 }
 
-/** `short_users_cap_notional`: `long_users · min(1, MMR/m) + β·C_m/m` (collateral atoms, floors). */
+/** `short_users_cap_notional`: `long_users · min(1, MMR/m) + β·C_m/m` (collateral atoms, floors; saturates at u128::MAX like `mul_div_floor_sat` / `saturating_add`, lev_guard_v22.rs:324-332). */
 export function levShortUsersCapNotionalV22(longUsersNotional: bigint, cM: bigint, mmrBps: bigint, band: LevAgeBandV22, mIndBps: number): bigint {
   const m = BigInt(levMDumpBpsV22(band, mIndBps));
   const offBps = minB(BPS, (mmrBps * BPS) / m);
-  return (longUsersNotional * offBps) / BPS + (cM * BigInt(levBetaBpsV22(band))) / m;
+  const r = (longUsersNotional * offBps) / BPS + (cM * BigInt(levBetaBpsV22(band))) / m;
+  return r > U128_MAX ? U128_MAX : r;
 }
 
 // ── burst memory ────────────────────────────────────────────────────────────────────────────
