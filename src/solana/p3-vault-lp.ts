@@ -46,6 +46,7 @@ import {
   IX_TAG_P3,
 } from "../abi/p3.js";
 import { VAULT_LP_EXT_SEED_P2B } from "../abi/p2b-earn.js";
+import { makePdaMemo, pdaMemoKey } from "../abi/pda-memo.js";
 import type { SetVaultLpRiskArgsP3, VaultLpSetMatcherArgsP3 } from "../abi/p3.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveMatcherDelegate, deriveNftRegistry, deriveVaultAuthority } from "./pda.js";
 import { V17_HEADER_LEN } from "./slab.js";
@@ -411,8 +412,17 @@ export function isLpVaultRegistryBoundP3(registryData: Uint8Array): boolean {
  * ```
  */
 export function deriveVaultLpStateP3(programId: PublicKey, market: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([new TextEncoder().encode("vault_lp"), market.toBytes()], programId);
+  return vaultLpMemo.get(pdaMemoKey(programId.toBytes(), market.toBytes()), () =>
+    PublicKey.findProgramAddressSync([new TextEncoder().encode("vault_lp"), market.toBytes()], programId));
 }
+
+const PDA_MEMO_MAX_P3 = 1024;
+const vaultLpMemo = makePdaMemo(PDA_MEMO_MAX_P3);
+const programDataMemo = makePdaMemo(PDA_MEMO_MAX_P3);
+/** @internal test hook: current memo sizes. */
+export const __pdaMemoSizesP3 = (): { vaultLp: number; programData: number } => ({ vaultLp: vaultLpMemo.size(), programData: programDataMemo.size() });
+/** @internal test hook: memo capacity. */
+export const __PDA_MEMO_MAX_P3 = PDA_MEMO_MAX_P3;
 
 /** BPF upgradeable loader id. */
 export const BPF_LOADER_UPGRADEABLE_ID_P3 = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -428,7 +438,8 @@ export const BPF_LOADER_UPGRADEABLE_ID_P3 = new PublicKey("BPFLoaderUpgradeab1e1
  * ```
  */
 export function deriveProgramDataAddressP3(programId: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3);
+  return programDataMemo.get(pdaMemoKey(programId.toBytes()), () =>
+    PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE_ID_P3));
 }
 
 /** Own + sibling backing-ledger PDAs for a registry domain (`sibling = domain ^ 1`). */

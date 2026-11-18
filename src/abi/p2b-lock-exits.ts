@@ -13,6 +13,7 @@ import type { AccountSpec } from "./accounts.js";
 import { buildAccountMetas } from "./accounts.js";
 import { assetRiskLimitsAccountOffsetP1, ASSET_RISK_LIMITS_LEN_P1 } from "./risk-limits-p1.js";
 import { resolveMarketGeometry } from "./layout.js";
+import { makePdaMemo, pdaMemoKey } from "./pda-memo.js";
 
 /** P2b tag table. 103 is VaultLpAllocate (Earn allocation), not P2b. */
 export const IX_TAG_P2B = Object.freeze({ AdlWindDown: 104, SetAdlWindDownMaxSlots: 105 } as const);
@@ -92,12 +93,16 @@ export const ACCOUNTS_SET_ADL_WIND_DOWN_MAX_SLOTS: readonly AccountSpec[] = [
 ] as const;
 
 const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+const programDataMemo = makePdaMemo(1024);
+/** @internal test hook: memo size. */
+export const __programDataMemoSizeP2b = (): number => programDataMemo.size();
 
 /** Build tag 105 (upgrade-authority gated; can only LOWER the bound). */
 export function buildSetAdlWindDownMaxSlotsIx(
   programId: PublicKey, market: PublicKey, upgradeAuthority: PublicKey, args: { assetIndex: number; maxEpisodeSlots: number },
 ): TransactionInstruction {
-  const [programData] = PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE);
+  const [programData] = programDataMemo.get(pdaMemoKey(programId.toBytes()), () =>
+    PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE));
   return new TransactionInstruction({
     programId,
     keys: buildAccountMetas(ACCOUNTS_SET_ADL_WIND_DOWN_MAX_SLOTS, { upgradeAuthority, programData, market }),
