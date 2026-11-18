@@ -355,3 +355,23 @@ describe("errors 92-95", () => {
     expect(decodeError(93)?.hint.startsWith("New positions on this side are paused: the market's capacity is full.")).toBe(true);
   });
 });
+
+describe("growth-v19 branch coverage: quote and preview edges", () => {
+  const growth = decodeAssetGrowthRecordV19(growthRecord({ launch: 1_000, tier: 1_000, kink: 5_000, lambda: 10_000 })) as AssetGrowthV19;
+  const base = { engineImrBps: 1_000n, growth, lpCapital: 1_000_000_000n, lpPnl: 0n, lpFeeCredits: 0n, priceE6: 1_000_000n, bankruptcyHlockActive: false, assetBound: true,
+    lpEffectivePositionQ: -600_000_000n, oiEffLongQ: 600_000_000n, oiEffShortQ: 600_000_000n };
+  it("growth OFF with an engine IMR of 0 or above 100% is an invalid config", () => {
+    expect(quoteMaxLeverage({ ...base, growth: null, engineImrBps: 0n }, "long")).toMatchObject({ closed: true, closedReason: "invalid-config" });
+    expect(quoteMaxLeverage({ ...base, growth: null, engineImrBps: 10_001n }, "long")).toMatchObject({ closed: true, closedReason: "invalid-config" });
+  });
+  it("a ceiling whose IMR leaves the u16 box is an invalid config (null ceilingImrBps)", () => {
+    expect(ceilingImrBps(1_000n, 0)).toBeNull();
+    const g0 = { ...growth, lLaunchX100: 0, lTierX100: 0 };
+    expect(quoteMaxLeverage({ ...base, growth: g0 }, "long")).toMatchObject({ closed: true, closedReason: "invalid-config" });
+  });
+  it("previewGrowthOpenFee charges no utilisation fee when N_cap overflows (price 0 -> null)", () => {
+    const p = previewGrowthOpenFee({ ...base, priceE6: 0n }, 0n, 100_000_000n, 30n);
+    expect(p.utilFeeBps).toBe(0);
+    expect(p.openingQ).toBe(100_000_000n);
+  });
+});
