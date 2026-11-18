@@ -296,3 +296,15 @@ describe("creatorCollateralAtaV5", () => {
     expect(a.equals(getAssociatedTokenAddressSync(collateralMint, admin, true, TOKEN_PROGRAM_ID))).toBe(true);
   });
 });
+
+import {
+  encodeStakeSyncInsuranceDeploymentV5,
+  encodeStakeCommitDeployTargetV5,
+} from "../src/abi/v22-stake.js";
+
+describe("v22-stake zero-arg encoders", () => {
+  it("encodes tags 31 and 33", () => {
+    expect(Array.from(encodeStakeSyncInsuranceDeploymentV5())).toEqual([31]);
+    expect(Array.from(encodeStakeCommitDeployTargetV5())).toEqual([33]);
+  });
+});
