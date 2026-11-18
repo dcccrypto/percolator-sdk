@@ -12,7 +12,7 @@ export default defineConfig({
       "test/wrapper-errors.test.ts",
       "test/lp-redeem-floored.test.ts",
       "test/instructions.test.ts",
-      "test/pda.test.ts",
+      "test/pda.test.ts", "test/pda-memo-differential.test.ts",
       "test/errors-pda-pins.test.ts",
       "test/backing-bucket.test.ts",
       "test/price-router.test.ts",
