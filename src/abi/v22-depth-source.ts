@@ -62,7 +62,7 @@ export const DEPTH_AMM_PROGRAMS_V22 = Object.freeze({
  * ```
  */
 export function deriveDepthSourceV22(programId: PublicKey, market: PublicKey): [PublicKey, number] {
-  return memoDerive(memoDepthSource, hex(programId, market), () => PublicKey.findProgramAddressSync([Buffer.from(DEPTH_SOURCE_SEED_V22), market.toBuffer()], programId));
+  return memoDerive(memoDepthSource, keyOf(programId, market), () => PublicKey.findProgramAddressSync([Buffer.from(DEPTH_SOURCE_SEED_V22), market.toBuffer()], programId));
 }
 
 /** Decision 16 (prog#606): `["pool_claim", pool]`, kind 18, one growth market per spot pool. */
@@ -76,7 +76,7 @@ export const POOL_CLAIM_SEED_V22 = "pool_claim";
  * @returns `[pda, bump]`.
  */
 export function derivePoolClaimV22(programId: PublicKey, pool: PublicKey): [PublicKey, number] {
-  return memoDerive(memoPoolClaim, hex(programId, pool), () => PublicKey.findProgramAddressSync([Buffer.from(POOL_CLAIM_SEED_V22), pool.toBuffer()], programId));
+  return memoDerive(memoPoolClaim, keyOf(programId, pool), () => PublicKey.findProgramAddressSync([Buffer.from(POOL_CLAIM_SEED_V22), pool.toBuffer()], programId));
 }
 
 /**
@@ -147,7 +147,7 @@ const keyOf = (a: PublicKey, b?: PublicKey): string => Buffer.from(a.toBytes()).
 
 /** @internal Memoised programData PDA of `programId` (BPF upgradeable loader). */
 export function programDataAddressV22(programId: PublicKey): PublicKey {
-  return memoDerive(memoProgramData, hex(programId), () => PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE))[0];
+  return memoDerive(memoProgramData, keyOf(programId), () => PublicKey.findProgramAddressSync([programId.toBytes()], BPF_LOADER_UPGRADEABLE))[0];
 }
 
 /** @internal Test hooks: memo sizes and reset. */
