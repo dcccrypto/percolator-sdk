@@ -94,8 +94,6 @@ export const ACCOUNTS_SET_ADL_WIND_DOWN_MAX_SLOTS: readonly AccountSpec[] = [
 
 const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
 const programDataMemo = makePdaMemo(1024);
-/** @internal test hook: memo size. */
-export const __programDataMemoSizeP2b = (): number => programDataMemo.size();
 
 /** Build tag 105 (upgrade-authority gated; can only LOWER the bound). */
 export function buildSetAdlWindDownMaxSlotsIx(

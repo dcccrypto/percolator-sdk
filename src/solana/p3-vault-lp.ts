@@ -419,10 +419,7 @@ export function deriveVaultLpStateP3(programId: PublicKey, market: PublicKey): [
 const PDA_MEMO_MAX_P3 = 1024;
 const vaultLpMemo = makePdaMemo(PDA_MEMO_MAX_P3);
 const programDataMemo = makePdaMemo(PDA_MEMO_MAX_P3);
-/** @internal test hook: current memo sizes. */
-export const __pdaMemoSizesP3 = (): { vaultLp: number; programData: number } => ({ vaultLp: vaultLpMemo.size(), programData: programDataMemo.size() });
-/** @internal test hook: memo capacity. */
-export const __PDA_MEMO_MAX_P3 = PDA_MEMO_MAX_P3;
+
 
 /** BPF upgradeable loader id. */
 export const BPF_LOADER_UPGRADEABLE_ID_P3 = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");

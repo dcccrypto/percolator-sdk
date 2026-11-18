@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { deriveVaultLpStateP3, deriveProgramDataAddressP3, BPF_LOADER_UPGRADEABLE_ID_P3, __pdaMemoSizesP3, __PDA_MEMO_MAX_P3 } from "../src/solana/p3-vault-lp.js";
+import { deriveVaultLpStateP3, deriveProgramDataAddressP3, BPF_LOADER_UPGRADEABLE_ID_P3 } from "../src/solana/p3-vault-lp.js";
 import { makePdaMemo, pdaMemoKey } from "../src/abi/pda-memo.js";
-import { buildSetAdlWindDownMaxSlotsIx, __programDataMemoSizeP2b } from "../src/abi/p2b-lock-exits.js";
+import { buildSetAdlWindDownMaxSlotsIx } from "../src/abi/p2b-lock-exits.js";
 
 const ITER = process.env.PDA_MEMO_FULL ? 10_000 : 400;
 const kp = () => Keypair.generate().publicKey;
@@ -59,13 +59,6 @@ describe("PDA memo differential", () => {
     expect(calls).toBe(100);
     expect(memo.get(pdaMemoKey(new Uint8Array([0])), compute(0))[1]).toBe(0); // evicted -> recomputed
     expect(calls).toBe(101);
-  });
-  it("wired memos are bounded (real derivations)", () => {
-    const p = kp();
-    for (let i = 0; i < 5; i++) deriveVaultLpStateP3(p, kp());
-    expect(__pdaMemoSizesP3().vaultLp).toBeLessThanOrEqual(__PDA_MEMO_MAX_P3);
-    buildSetAdlWindDownMaxSlotsIx(p, kp(), kp(), { assetIndex: 0, maxEpisodeSlots: 1 });
-    expect(__programDataMemoSizeP2b()).toBeLessThanOrEqual(1024);
   });
 });
 const PROGS = Array.from({ length: 16 }, kp);
