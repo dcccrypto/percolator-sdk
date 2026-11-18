@@ -40,7 +40,10 @@ describe("funding/band decode: differential vs the per-field-DataView originals"
     for (let n = 0; n < 10_000; n++) {
       const d = randomMarket(r);
       const idx = Math.floor(r() * (SLOTS + 1));
-      const sub = n % 5 === 0 ? d.subarray(3) : d; // non-zero byteOffset view
+      // non-zero byteOffset view of the full market, with non-zero padding on both sides
+      const big = new Uint8Array(d.length + 11).fill(0xab);
+      big.set(d, 3);
+      const sub = n % 5 === 0 ? big.subarray(3, 3 + d.length) : d;
       for (const b of [d, sub]) {
         const cases: [string, () => unknown, () => unknown][] = [
           ["funding", () => NewF.decodeMarketFundingV22(b), () => OldF.decodeMarketFundingV22(b)],
