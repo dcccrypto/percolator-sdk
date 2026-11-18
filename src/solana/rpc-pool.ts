@@ -504,6 +504,7 @@ export class RpcPool {
   private readonly verbose: boolean;
   /** Time-based recovery window in ms (0 = disabled). */
   private readonly recoveryAfterMs: number;
+  private unhealthyCursor = 0;
 
   /** Round-robin index tracker. */
   private rrIndex: number = 0;
@@ -784,7 +785,11 @@ export class RpcPool {
     if (this.recoveryAfterMs > 0) {
       const now = Date.now();
       for (const ep of this.endpoints) {
-        if (!ep.healthy && ep.unhealthySince !== undefined && (now - ep.unhealthySince) >= this.recoveryAfterMs) {
+        if (!ep.healthy && ep.unhealthySince !== undefined && now < ep.unhealthySince) {
+          // Wall clock stepped backwards: the stamp is in the future, so the age is
+          // meaningless. Re-stamp so the recovery window runs on the current clock.
+          ep.unhealthySince = now;
+        } else if (!ep.healthy && ep.unhealthySince !== undefined && (now - ep.unhealthySince) >= this.recoveryAfterMs) {
           ep.healthy = true;
           ep.failures = 0;
           ep.unhealthySince = undefined;
@@ -804,7 +809,9 @@ export class RpcPool {
       const remaining = this.endpoints
         .map((_, i) => i)
         .filter(i => !(exclude?.has(i)));
-      return remaining.length > 0 ? remaining[0] : -1;
+      if (remaining.length === 0) return -1;
+      // Rotate so an outage spreads load instead of hammering endpoint 0.
+      return remaining[this.unhealthyCursor++ % remaining.length];
     }
 
     if (this.strategy === "failover") {
