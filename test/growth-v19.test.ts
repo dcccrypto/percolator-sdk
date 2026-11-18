@@ -408,3 +408,10 @@ describe("growthCeilingView depth rate-limit ETA", () => {
     expect(etas).toEqual([45_127n, undefined, 45_127n, 45_127n]);
   });
 });
+
+describe("decodeAssetGrowthV19 short account", () => {
+  it("throws when the stamped market ends before the asset's growth record", () => {
+    const mkt = new Uint8Array(2022 + 2325 + 120 + 8); stampMarket(mkt);
+    expect(() => decodeAssetGrowthV19(mkt, 7)).toThrow(/too short for asset 7|asset/);
+  });
+});
