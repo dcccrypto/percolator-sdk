@@ -95,6 +95,8 @@ export default defineConfig({
       "test/trading-parity.test.ts", "test/trading-liq-property.test.ts",
       "test/warmup-math.test.ts",
       "test/warmup-property.test.ts",
+      "test/stale-resolve-order-table-v22.test.ts",
+      "test/stale-resolve-bpf-diff-v22.test.ts",
       "test/validation-behaviour.test.ts",
       "test/tx-branches.test.ts",
       "test/v22-lot-exp-profile.test.ts",
