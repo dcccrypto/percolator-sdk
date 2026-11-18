@@ -219,7 +219,13 @@ describe("stripLighthouseFromTransaction", () => {
       nonce: "11111111111111111111111111111111",
       nonceInstruction: makePercolatorIx(),
     };
-    tx.add(makePercolatorIx());
+    tx.add(
+      new TransactionInstruction({
+        programId: PERCOLATOR_PROGRAM_ID,
+        keys: [{ pubkey: signer.publicKey, isSigner: true, isWritable: false }],
+        data: Buffer.alloc(1),
+      }),
+    );
     tx.add(makeLighthouseIx());
     tx.signatures = [{ publicKey: signer.publicKey, signature: Buffer.alloc(64, 1) }];
 
@@ -239,6 +245,14 @@ describe("isLighthouseError: foreign-program 0x1900", () => {
     expect(
       isLighthouseError(
         "Program Stake11111111111111111111111111111111111 failed: custom program error: 0x1900",
+      ),
+    ).toBe(false);
+  });
+  it("is false when Lighthouse only appears as a successful invoke", () => {
+    expect(
+      isLighthouseError(
+        `Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke [1]\nProgram ${LIGHTHOUSE_PROGRAM_ID_STR} success\n` +
+          "Program Stake11111111111111111111111111111111111 failed: custom program error: 0x1900",
       ),
     ).toBe(false);
   });

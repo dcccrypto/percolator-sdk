@@ -134,13 +134,16 @@ export function isLighthouseError(error: unknown): boolean {
   const msg = extractErrorMessage(error);
   if (!msg) return false;
 
-  // Direct program ID reference
-  if (msg.includes(LIGHTHOUSE_PROGRAM_ID_STR)) return true;
-
   // A 0x1900 / 6400 code attributed to another program (e.g. Anchor
   // ConstraintAddress in a stake/matcher/DEX program) is not Lighthouse.
+  // If the message names failing programs, only Lighthouse failing counts.
   const failed = [...msg.matchAll(/Program\s+([1-9A-HJ-NP-Za-km-z]{32,44})\s+failed/g)];
-  if (failed.length > 0) return false;
+  if (failed.length > 0) {
+    return failed.some((m) => m[1] === LIGHTHOUSE_PROGRAM_ID_STR);
+  }
+
+  // Direct program ID reference
+  if (msg.includes(LIGHTHOUSE_PROGRAM_ID_STR)) return true;
 
   // 0x1900 hex error code (case-insensitive)
   if (/custom\s+program\s+error:\s*0x1900\b/i.test(msg)) return true;
@@ -276,16 +279,21 @@ export function stripLighthouseFromTransaction(
   clean.minNonceContextSlot = transaction.minNonceContextSlot;
   // Old signatures sign the pre-strip message and are invalid now; keep the
   // signer slots (unsigned) so callers know who must re-sign.
-  clean.signatures = transaction.signatures.map((s) => ({
-    publicKey: s.publicKey,
-    signature: null,
-  }));
-
   for (const ix of transaction.instructions) {
     if (!isLighthouseInstruction(ix)) {
       clean.add(ix);
     }
   }
+  // Only keep slots still required by the remaining message (web3.js throws
+  // "unknown signer" otherwise).
+  const needed = (pk: PublicKey) =>
+    !!clean.feePayer?.equals(pk) ||
+    clean.instructions.some((ix) =>
+      ix.keys.some((k) => k.isSigner && k.pubkey.equals(pk)),
+    );
+  clean.signatures = transaction.signatures
+    .filter((s) => needed(s.publicKey))
+    .map((s) => ({ publicKey: s.publicKey, signature: null }));
 
   return clean;
 }
