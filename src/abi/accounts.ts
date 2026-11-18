@@ -734,34 +734,32 @@ export function buildAccountMetas(
   spec: readonly AccountSpec[],
   keys: PublicKey[] | Record<string, PublicKey>
 ): AccountMeta[] {
-  let keysArray: PublicKey[];
-
+  const n = spec.length;
+  const out: AccountMeta[] = new Array(n);
   if (Array.isArray(keys)) {
-    keysArray = keys;
-  } else {
-    // Named map: resolve by spec name
-    keysArray = spec.map((s) => {
-      const key = (keys as Record<string, PublicKey>)[s.name];
-      if (!key) {
-        throw new Error(
-          `buildAccountMetas: missing key for account "${s.name}". ` +
-          `Provided keys: [${Object.keys(keys).join(", ")}]`
-        );
-      }
-      return key;
-    });
+    if (keys.length !== n) {
+      throw new Error(`Account count mismatch: expected ${n}, got ${keys.length}`);
+    }
+    for (let i = 0; i < n; i++) {
+      const s = spec[i];
+      out[i] = { pubkey: keys[i], isSigner: s.signer, isWritable: s.writable };
+    }
+    return out;
   }
-
-  if (keysArray.length !== spec.length) {
-    throw new Error(
-      `Account count mismatch: expected ${spec.length}, got ${keysArray.length}`
-    );
+  // Named map: resolve by spec name in a single pass (errors on the first missing name, in spec order).
+  const map = keys as Record<string, PublicKey>;
+  for (let i = 0; i < n; i++) {
+    const s = spec[i];
+    const key = map[s.name];
+    if (!key) {
+      throw new Error(
+        `buildAccountMetas: missing key for account "${s.name}". ` +
+        `Provided keys: [${Object.keys(keys).join(", ")}]`
+      );
+    }
+    out[i] = { pubkey: key, isSigner: s.signer, isWritable: s.writable };
   }
-  return spec.map((s, i) => ({
-    pubkey: keysArray[i],
-    isSigner: s.signer,
-    isWritable: s.writable,
-  }));
+  return out;
 }
 
 /**
