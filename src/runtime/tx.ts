@@ -126,6 +126,30 @@ const MAX_COMPUTE_UNIT_LIMIT = 1_400_000;
  * MUST request this much heap or it aborts on-chain (#176). Default for `heapFrameBytes`.
  */
 export const V17_WRAPPER_HEAP_FRAME_BYTES = 128 * 1024;
+
+/** getTransaction commonly returns null for a few hundred ms after confirmation. */
+const GET_TX_ATTEMPTS = 4;
+const GET_TX_RETRY_DELAY_MS = 200;
+
+async function getTransactionWithRetry(
+  connection: Connection,
+  signature: string,
+  commitment: "confirmed" | "finalized",
+) {
+  let txInfo = null;
+  for (let i = 0; i < GET_TX_ATTEMPTS; i++) {
+    txInfo = await connection.getTransaction(signature, {
+      commitment,
+      maxSupportedTransactionVersion: 1,
+    });
+    if (txInfo) break;
+    if (i < GET_TX_ATTEMPTS - 1) {
+      await new Promise((r) => setTimeout(r, GET_TX_RETRY_DELAY_MS));
+    }
+  }
+  return txInfo;
+}
+
 /** Compute Budget heap-frame bounds: [32 KB, 256 KB], must be a multiple of 1024. */
 const MIN_HEAP_FRAME_BYTES = 32 * 1024;
 const MAX_HEAP_FRAME_BYTES = 256 * 1024;
@@ -278,14 +302,23 @@ export async function simulateOrSend(
       effectiveCommitment
     );
 
-    const txInfo = await connection.getTransaction(signature, {
-      commitment: txFinality,
-      maxSupportedTransactionVersion: 1,
-    });
+    const txInfo = await getTransactionWithRetry(connection, signature, txFinality);
 
     const logs = txInfo?.meta?.logMessages ?? [];
     let err: string | null = null;
     let hint: string | undefined;
+
+    // Still null after the retries: take the landing slot from the signature
+    // status (`value.slot`, NOT `context.slot` which is the RPC head slot).
+    let slot = txInfo?.slot;
+    if (slot === undefined) {
+      try {
+        const st = await connection.getSignatureStatus(signature);
+        slot = st?.value?.slot;
+      } catch {
+        // best effort; fall through to 0
+      }
+    }
 
     if (confirmation.value.err) {
       const parsed = parseErrorFromLogs(logs);
@@ -299,7 +332,7 @@ export async function simulateOrSend(
 
     return {
       signature,
-      slot: txInfo?.slot ?? 0,
+      slot: slot ?? 0,
       err,
       hint,
       logs,
@@ -325,10 +358,7 @@ export async function simulateOrSend(
       // "processed" it can still be dropped or rolled back, and reporting that
       // as a settled success would be the same premature-settlement bug #311 fixed.
       if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
-        const txInfo = await connection.getTransaction(signature, {
-          commitment: txFinality,
-          maxSupportedTransactionVersion: 1,
-        });
+        const txInfo = await getTransactionWithRetry(connection, signature, txFinality);
         const logs = txInfo?.meta?.logMessages ?? [];
         let err: string | null = null;
         let hint: string | undefined;
