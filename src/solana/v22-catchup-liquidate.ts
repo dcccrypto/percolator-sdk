@@ -54,7 +54,7 @@ export interface CatchUpAndRefreshInputV22 {
   observePortfolio?: PublicKey;
   /** Asset indices to observe (every asset the target holds a leg on). Default `[0]`. The OLDEST of them sets the gap. */
   assets?: readonly number[];
-  /** Add a second no-observation crank after the refresh (needed only when the F1 follow-on does not cover the account: more than 3 legs). Default false. */
+  /** Add a second no-observation crank in its OWN final tx after the refresh tx (two ~1.16M refreshes never fit 1.4M; needed only when the F1 follow-on does not cover the account: more than 3 legs). Default false. */
   liquidationCrank?: boolean;
   /**
    * bigtest F2: the market's bound vault-LP portfolio ({@link boundVaultLpPortfolioV22}), appended to the refresh /
@@ -100,7 +100,7 @@ export interface CatchUpAndRefreshPlanV22 {
 export function buildCatchUpAndRefreshIxsV22(input: CatchUpAndRefreshInputV22): CatchUpAndRefreshPlanV22 {
   const f = decodeMarketFundingV22(input.marketData);
   if (f.maxAccrualDtSlots <= 0n) throw new Error("buildCatchUpAndRefreshIxsV22: market max_accrual_dt_slots is 0");
-  const assets = input.assets && input.assets.length > 0 ? [...input.assets] : [0];
+  const assets = input.assets && input.assets.length > 0 ? [...new Set(input.assets)] : [0];
   let oldest: bigint | null = null;
   for (const a of assets) {
     const st = f.assets[a];
@@ -130,13 +130,24 @@ export function buildCatchUpAndRefreshIxsV22(input: CatchUpAndRefreshInputV22): 
     });
     remaining -= n;
   }
-  const cranks = [...Array.from({ length: finalObserves }, observeIx), refreshIx(), ...(input.liquidationCrank ? [refreshIx()] : [])];
+  // Each refresh may run a full F1 liquidation (~1.16M CU), so two of them never fit one 1.4M tx: the extra
+  // liquidation crank goes in its own transaction, sent after the one that carries the observes + first refresh.
+  const liquidate = input.liquidationCrank === true;
   txs.push({
-    kind: "final",
-    instructions: [...computeBudgetPrelude(CATCHUP_TX_COMPUTE_UNITS_V22), ...cranks],
+    kind: liquidate ? "catchup" : "final",
+    instructions: [...computeBudgetPrelude(CATCHUP_TX_COMPUTE_UNITS_V22), ...Array.from({ length: finalObserves }, observeIx), refreshIx()],
     computeUnitLimit: CATCHUP_TX_COMPUTE_UNITS_V22,
     observeCranks: finalObserves,
     refreshes: true,
   });
+  if (liquidate) {
+    txs.push({
+      kind: "final",
+      instructions: [...computeBudgetPrelude(CATCHUP_TX_COMPUTE_UNITS_V22), refreshIx()],
+      computeUnitLimit: CATCHUP_TX_COMPUTE_UNITS_V22,
+      observeCranks: 0,
+      refreshes: true,
+    });
+  }
   return { txs, gapSlots: gap, maxAccrualDtSlots: dt, totalObserveCranks: total };
 }

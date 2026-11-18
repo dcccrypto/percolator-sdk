@@ -88,9 +88,13 @@ describe("buildCatchUpAndRefreshIxsV22 (real market bytes)", () => {
   });
   it("liquidationCrank adds a second no-observation crank on the target (>3-leg accounts)", () => {
     expect(cranks(plan(10n).txs[0]!.instructions as never)).toHaveLength(2);
-    const c = cranks(plan(10n, { liquidationCrank: true }).txs[0]!.instructions as never);
-    expect(c).toHaveLength(3);
-    expect(portfolioOf(c[2]!).equals(P)).toBe(true);
+    // two full refreshes never fit one 1.4M tx: the extra no-observation crank is its own final tx
+    const txs = plan(10n, { liquidationCrank: true }).txs;
+    expect(txs).toHaveLength(2);
+    expect(cranks(txs[0]!.instructions as never)).toHaveLength(2);
+    const c = cranks(txs[1]!.instructions as never);
+    expect(c).toHaveLength(1);
+    expect(portfolioOf(c[0]!).equals(P)).toBe(true);
   });
   it("rejects an asset index outside the market and a non-v2.2 market", () => {
     expect(() => plan(1n, { assets: [9] })).toThrow(/outside the market/);
