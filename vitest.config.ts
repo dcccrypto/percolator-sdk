@@ -97,6 +97,7 @@ export default defineConfig({
       "test/validation-behaviour.test.ts",
       "test/tx-branches.test.ts",
       "test/v22-lot-exp-profile.test.ts",
+      "test/v22-lot-boundary.test.ts",
       "test/v22-math-edges.test.ts",
       "test/slab-branch-coverage.test.ts",
       "test/discovery-branches.test.ts",
