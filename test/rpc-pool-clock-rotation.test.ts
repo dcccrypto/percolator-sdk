@@ -8,9 +8,7 @@ afterEach(() => {
 const URL_A = "https://a.example.com";
 const URL_B = "https://b.example.com";
 
-// Drive every endpoint unhealthy without the pool's exhaustion reset kicking in:
-// fail each endpoint directly via a callback that throws, using single-endpoint
-// pools is not possible for two endpoints, so poke the state the same way call() does.
+// Mark every endpoint unhealthy directly (calling through the pool would trigger its exhaustion reset).
 function markAllUnhealthy(pool: RpcPool) {
   const eps = (pool as unknown as { endpoints: Array<{ healthy: boolean; failures: number; unhealthySince?: number }> }).endpoints;
   for (const ep of eps) {
@@ -30,7 +28,7 @@ describe("RpcPool recovery vs backwards clock step", () => {
     eps[0].unhealthySince = Date.now();
     // NTP step back by one hour
     vi.setSystemTime(new Date("2026-01-01T11:00:00Z"));
-    // Re-stamped on first selection (treated as expired), restored after recoveryAfterMs on the new clock.
+    // Re-stamped on first selection, then restored after recoveryAfterMs on the new clock.
     pool.getConnection();
     vi.setSystemTime(new Date("2026-01-01T11:00:02Z"));
     pool.getConnection();
