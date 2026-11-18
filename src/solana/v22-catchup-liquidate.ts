@@ -37,6 +37,21 @@ export const MAX_OBSERVES_PER_TX_V22 = 40;
 /** Observation cranks that still leave room for the refresh + follow-on in the same transaction. */
 export const MAX_OBSERVES_WITH_REFRESH_V22 = Math.floor((CATCHUP_TX_COMPUTE_UNITS_V22 - REFRESH_AND_LIQUIDATE_CU_V22 - 20_000) / OBSERVE_CRANK_CU_V22);
 
+/** Solana's packet limit for a serialized transaction. */
+const PACKET_DATA_SIZE = 1232;
+const shortvecLen = (n: number): number => (n < 128 ? 1 : n < 16384 ? 2 : 3);
+/** Serialized size of a legacy transaction (one signature, `payer` first) holding `ixs`. */
+function legacyTxBytes(payer: PublicKey, ixs: readonly TransactionInstruction[]): number {
+  const keys = new Set<string>([payer.toBase58()]);
+  for (const ix of ixs) {
+    for (const k of ix.keys) keys.add(k.pubkey.toBase58());
+    keys.add(ix.programId.toBase58());
+  }
+  let n = 1 + 64 + 3 + shortvecLen(keys.size) + 32 * keys.size + 32 + shortvecLen(ixs.length);
+  for (const ix of ixs) n += 1 + shortvecLen(ix.keys.length) + ix.keys.length + shortvecLen(ix.data.length) + ix.data.length;
+  return n;
+}
+
 /** Inputs of {@link buildCatchUpAndRefreshIxsV22}. */
 export interface CatchUpAndRefreshInputV22 {
   /** Wrapper program id. */
@@ -54,7 +69,7 @@ export interface CatchUpAndRefreshInputV22 {
   observePortfolio?: PublicKey;
   /** Asset indices to observe (every asset the target holds a leg on). Default `[0]`. The OLDEST of them sets the gap. */
   assets?: readonly number[];
-  /** Add a second no-observation crank after the refresh (needed only when the F1 follow-on does not cover the account: more than 3 legs). Default false. */
+  /** Add a second no-observation crank in its OWN final tx after the refresh tx (two ~1.16M refreshes never fit 1.4M; needed only when the F1 follow-on does not cover the account: more than 3 legs). Default false. */
   liquidationCrank?: boolean;
   /**
    * bigtest F2: the market's bound vault-LP portfolio ({@link boundVaultLpPortfolioV22}), appended to the refresh /
@@ -71,7 +86,7 @@ export interface CatchUpTxV22 {
   instructions: TransactionInstruction[];
   computeUnitLimit: number;
   observeCranks: number;
-  /** True only on the final transaction. */
+  /** True on every transaction that carries a refresh crank (the last one, and the one before it when `liquidationCrank` is set). */
   refreshes: boolean;
 }
 
@@ -100,7 +115,7 @@ export interface CatchUpAndRefreshPlanV22 {
 export function buildCatchUpAndRefreshIxsV22(input: CatchUpAndRefreshInputV22): CatchUpAndRefreshPlanV22 {
   const f = decodeMarketFundingV22(input.marketData);
   if (f.maxAccrualDtSlots <= 0n) throw new Error("buildCatchUpAndRefreshIxsV22: market max_accrual_dt_slots is 0");
-  const assets = input.assets && input.assets.length > 0 ? [...input.assets] : [0];
+  const assets = input.assets && input.assets.length > 0 ? [...new Set(input.assets)] : [0];
   let oldest: bigint | null = null;
   for (const a of assets) {
     const st = f.assets[a];
@@ -119,8 +134,14 @@ export function buildCatchUpAndRefreshIxsV22(input: CatchUpAndRefreshInputV22): 
   const finalObserves = Math.min(total, MAX_OBSERVES_WITH_REFRESH_V22);
   let remaining = total - finalObserves;
   const txs: CatchUpTxV22[] = [];
+  // Each observe crank carries every asset (3 bytes each), so 40 of them with several assets overflow 1232 bytes: cap by size.
+  const prelude = computeBudgetPrelude(CATCHUP_TX_COMPUTE_UNITS_V22);
+  const one = legacyTxBytes(input.cranker, [...prelude, observeIx()]);
+  const perObserve = legacyTxBytes(input.cranker, [...prelude, observeIx(), observeIx()]) - one;
+  const fitBytes = Math.max(1, 1 + Math.floor((PACKET_DATA_SIZE - one) / perObserve));
+  const perTx = Math.min(MAX_OBSERVES_PER_TX_V22, fitBytes);
   while (remaining > 0) {
-    const n = Math.min(remaining, MAX_OBSERVES_PER_TX_V22);
+    const n = Math.min(remaining, perTx);
     txs.push({
       kind: "catchup",
       instructions: [...computeBudgetPrelude(CATCHUP_TX_COMPUTE_UNITS_V22), ...Array.from({ length: n }, observeIx)],
@@ -130,13 +151,24 @@ export function buildCatchUpAndRefreshIxsV22(input: CatchUpAndRefreshInputV22): 
     });
     remaining -= n;
   }
-  const cranks = [...Array.from({ length: finalObserves }, observeIx), refreshIx(), ...(input.liquidationCrank ? [refreshIx()] : [])];
+  // Each refresh may run a full F1 liquidation (~1.16M CU), so two of them never fit one 1.4M tx: the extra
+  // liquidation crank goes in its own transaction, sent after the one that carries the observes + first refresh.
+  const liquidate = input.liquidationCrank === true;
   txs.push({
-    kind: "final",
-    instructions: [...computeBudgetPrelude(CATCHUP_TX_COMPUTE_UNITS_V22), ...cranks],
+    kind: liquidate ? "catchup" : "final",
+    instructions: [...computeBudgetPrelude(CATCHUP_TX_COMPUTE_UNITS_V22), ...Array.from({ length: finalObserves }, observeIx), refreshIx()],
     computeUnitLimit: CATCHUP_TX_COMPUTE_UNITS_V22,
     observeCranks: finalObserves,
     refreshes: true,
   });
+  if (liquidate) {
+    txs.push({
+      kind: "final",
+      instructions: [...computeBudgetPrelude(CATCHUP_TX_COMPUTE_UNITS_V22), refreshIx()],
+      computeUnitLimit: CATCHUP_TX_COMPUTE_UNITS_V22,
+      observeCranks: 0,
+      refreshes: true,
+    });
+  }
   return { txs, gapSlots: gap, maxAccrualDtSlots: dt, totalObserveCranks: total };
 }
