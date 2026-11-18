@@ -1,0 +1,581 @@
+// FROZEN copy of src/abi/nft.ts @ 9666228 (pre-memoisation) for differential tests. Do not edit.
+/**
+ * Standalone percolator-nft program SDK module.
+ *
+ * This covers the NFT program at `PERCOLATOR_NFT_PROGRAM_ID` which is
+ * separate from the main Percolator program. It handles:
+ *   - MintPositionNft (tag 0)
+ *   - BurnPositionNft (tag 1)
+ *   - SettleFunding   (tag 2)
+ *   - GetPositionValue (tag 3)
+ *   - ExecuteTransferHook (tag 4, SPL interface — not called directly)
+ *   - EmergencyBurn   (tag 5)
+ *   - RepairExtraMetas (tag 6)
+ *   - ReconcileBurnedNft (tag 7)
+ *
+ * PDA seeds (matches percolator-nft/src/state_v16.rs):
+ *   PositionNft state : ["position_nft", portfolio_account, market_id_u64_LE]
+ *   Mint authority    : ["mint_authority"]
+ *
+ * NOTE: the PositionNft seed is keyed on `market_id`, NOT `asset_index` — see
+ * #108 and `deriveNftPda` below. This header claimed `asset_index_u16_LE` until
+ * 2026-08-31; the code was always correct.
+ */
+
+import { PublicKey } from "@solana/web3.js";
+import { PROGRAM_IDS_V17, PROGRAM_IDS_DEVNET_V1, NFT_PROGRAM_IDS } from "../../src/config/program-ids.js";
+import { safeEnv } from "../../src/config/program-ids.js";
+
+// ---------------------------------------------------------------------------
+// Program ID
+// ---------------------------------------------------------------------------
+
+/** Allowlist of known NFT program addresses. */
+const KNOWN_NFT_PROGRAM_IDS = new Set<string>([
+  NFT_PROGRAM_IDS.mainnet, // mainnet FqhKJT9g…
+  PROGRAM_IDS_V17.nft, // devnet v2.2 (27LWmR72…, = PROGRAM_IDS_DEVNET_V22.nft) — the default below
+  PROGRAM_IDS_DEVNET_V1.nft, // devnet v1 / close-only (still live)
+]);
+
+/**
+ * Resolve the `NFT_PROGRAM_ID` env override (K-5, 2026-10-10).
+ *
+ * Same contract as `PROGRAM_ID` / `MATCHER_PROGRAM_ID` / `STAKE_PROGRAM_ID` (#308): a value in the allowlist is used; an
+ * UNLISTED value is used only when the operator explicitly opts in with `PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1`
+ * (a freshly deployed program), with a warning. The v2.2 fresh devnet NFT `27LWmR72…` is in the allowlist (Q-5), so
+ * setting it needs no opt-in. Without the opt-in an
+ * unlisted value still fails closed (ambient env poisoning must not redirect NFT instructions). This used to throw
+ * at import for EVERY unlisted value, opt-in or not, so a fresh-ID consumer could not set NFT_PROGRAM_ID at all.
+ *
+ * @param env  Environment reader (defaults to `process.env` via `safeEnv`); exported for tests.
+ * @returns The override, or `undefined` when unset/empty.
+ * @throws Error when the value is unlisted and the opt-in flag is not `"1"`, or when it is not a base58 pubkey.
+ */
+export function resolveNftProgramOverride(env: (key: string) => string | undefined = safeEnv): string | undefined {
+  const raw = env("NFT_PROGRAM_ID");
+  const v = raw?.trim();
+  if (!v) return undefined;
+  if (KNOWN_NFT_PROGRAM_IDS.has(v)) return v;
+  if (env("PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE") !== "1") {
+    throw new Error(
+      `[percolator-sdk] NFT_PROGRAM_ID env var "${v}" is not a known NFT program address. ` +
+      `Allowed values: ${[...KNOWN_NFT_PROGRAM_IDS].join(", ")}. ` +
+      `Pass the programId argument explicitly to bypass env resolution, or set PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE=1 ` +
+      `to intentionally allow an unlisted program (e.g. a fresh pre-deploy address).`,
+    );
+  }
+  new PublicKey(v); // a malformed value is still an error, opt-in or not
+  console.warn(`[percolator-sdk] NFT_PROGRAM_ID env override active: ${v}`);
+  return v;
+}
+
+const NFT_PROGRAM_OVERRIDE = resolveNftProgramOverride();
+
+/**
+ * The standalone percolator-nft program (TransferHook + mint authority).
+ *
+ * Derived from `PROGRAM_IDS_V17.nft` rather than carrying its own literal, so this constant
+ * and `program-ids.ts` cannot drift apart. They previously did: this defaulted to the MAINNET
+ * address while every other id in the SDK is devnet, so any consumer importing it built
+ * transactions against a program that does not exist on devnet and failed late with
+ * "Account not found on-chain". The frontend hit exactly that and had to define its own
+ * constant to work around it.
+ */
+export const NFT_PROGRAM_ID = new PublicKey(NFT_PROGRAM_OVERRIDE ?? PROGRAM_IDS_V17.nft);
+
+export function getNftProgramId(): PublicKey {
+  return NFT_PROGRAM_ID;
+}
+
+// ---------------------------------------------------------------------------
+// Instruction tags (standalone NFT program — NOT the main Percolator tags)
+// ---------------------------------------------------------------------------
+
+export const NFT_IX_TAG = {
+  MintPositionNft: 0,
+  BurnPositionNft: 1,
+  SettleFunding: 2,
+  GetPositionValue: 3,
+  ExecuteTransferHook: 4,
+  EmergencyBurn: 5,
+  RepairExtraMetas: 6,
+  ReconcileBurnedNft: 7,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Instruction encoders
+// ---------------------------------------------------------------------------
+
+/** Encode MintPositionNft (tag 0). Data: tag(1) + asset_index(u16). */
+export function encodeNftMint(assetIndex: number): Uint8Array {
+  const assetIndexBuf = u16Buf(assetIndex, "assetIndex");
+  const buf = new Uint8Array(3);
+  buf[0] = NFT_IX_TAG.MintPositionNft;
+  buf.set(assetIndexBuf, 1);
+  return buf;
+}
+
+/** Encode BurnPositionNft (tag 1). Data: tag(1). */
+export function encodeNftBurn(): Uint8Array {
+  return new Uint8Array([NFT_IX_TAG.BurnPositionNft]);
+}
+
+/** Encode SettleFunding (tag 2). Data: tag(1). */
+export function encodeNftSettleFunding(): Uint8Array {
+  return new Uint8Array([NFT_IX_TAG.SettleFunding]);
+}
+
+/** Encode EmergencyBurn (tag 5). Data: tag(1). */
+export function encodeNftEmergencyBurn(): Uint8Array {
+  return new Uint8Array([NFT_IX_TAG.EmergencyBurn]);
+}
+
+/**
+ * Encode ReconcileBurnedNft (tag 7, #138). Data: tag(1). Permissionless: releases
+ * a position stranded by an out-of-band Token-2022 Burn (supply==0, escrow not
+ * released) back to the recorded last holder, then closes the PositionNft PDA.
+ */
+export function encodeNftReconcile(): Uint8Array {
+  return new Uint8Array([NFT_IX_TAG.ReconcileBurnedNft]);
+}
+
+// ---------------------------------------------------------------------------
+// Account meta templates
+// ---------------------------------------------------------------------------
+
+type AccountMeta = "s" | "w" | "sw" | "r";
+
+/**
+ * BUG FOUND + FIXED (2026-07-16, uncommitted, branch feat/protocol-fee-v17):
+ * the shorthand `AccountMeta` codes above ("s"|"w"|"sw"|"r") are a DIFFERENT,
+ * incompatible type from `AccountSpec` (`{name, signer, writable}`) used by
+ * `buildAccountMetas()` in `./accounts.js`. Passing `ACCOUNTS_NFT_MINT` /
+ * `ACCOUNTS_NFT_BURN` / etc. into `buildAccountMetas()` silently produces
+ * `isSigner: undefined` and `isWritable: undefined` for every account
+ * (`spec.signer` / `spec.writable` read off a plain string) — Solana coerces
+ * both to falsy, so EVERY account in the built instruction ends up
+ * non-signer/read-only. The NFT program's own writable/signer checks then
+ * reject the transaction (confirmed live against the deployed NFT program:
+ * MintPositionNft fails with `InvalidAccountData` at ~2.4k CU, before any
+ * CPI — matching its `if !nft_pda.is_writable { return
+ * Err(InvalidAccountData) }`-style guards in percolator-nft/src/processor.rs).
+ *
+ * Use `buildNftAccountMetas()` below with these shorthand arrays instead of
+ * `buildAccountMetas()` from `./accounts.js`. No consumer in this repo (or
+ * percolator-launch, grepped) was actually calling `buildAccountMetas()` with
+ * these arrays and working — the only prior working reference
+ * (playground/flowtest/07-nft-mint.ts) builds the account list by hand,
+ * bypassing the mismatch entirely.
+ */
+export function buildNftAccountMetas(
+  spec: readonly AccountMeta[],
+  keys: readonly PublicKey[],
+): { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] {
+  if (keys.length !== spec.length) {
+    throw new Error(
+      `buildNftAccountMetas: account count mismatch: expected ${spec.length}, got ${keys.length}`,
+    );
+  }
+  return spec.map((code, i) => ({
+    pubkey: keys[i],
+    isSigner: code === "s" || code === "sw",
+    isWritable: code === "w" || code === "sw",
+  }));
+}
+
+/**
+ * Account metas for MintPositionNft (tag 0). 12 accounts.
+ *
+ *   0. [signer, writable]  payer / position owner
+ *   1. [writable]          PositionNft PDA (created)
+ *   2. [writable, signer]  NFT mint (Token-2022, fresh keypair)
+ *   3. [writable]          Owner's NFT ATA (created)
+ *   4. [writable]          Portfolio account (#105: B-3 escrow CPI mutates owner)
+ *   5. []                  Mint authority PDA
+ *   6. []                  Token-2022 program
+ *   7. []                  Associated token account program
+ *   8. []                  System program
+ *   9. [writable]          ExtraAccountMetaList PDA
+ *  10. []                  Per-market NftRegistry PDA (#109 — was missing from this template)
+ *  11. []                  Percolator wrapper program (#105 — escrow CPI target)
+ *
+ * #105 escrow-at-mint: mint now CPIs the wrapper's B-3 TransferPortfolioOwnership
+ * to escrow the position to the NFT program's mint-authority PDA, so #4 must be
+ * writable and #10/#11 are required.
+ */
+export const ACCOUNTS_NFT_MINT: AccountMeta[] = [
+  "sw", "w", "sw", "w", "w", "r", "r", "r", "r", "w", "r", "r",
+];
+
+/**
+ * Account metas for BurnPositionNft (tag 1). 10 accounts.
+ *
+ *   0. [signer, writable]  NFT holder (rent recipient — receives the ATA, mint,
+ *                          PositionNft PDA and ExtraAccountMetaList rent)
+ *   1. [writable]  PositionNft PDA (closed)
+ *   2. [writable]  NFT mint (supply → 0)
+ *   3. [writable]  Holder's NFT ATA (closed)
+ *   4. [writable]  Portfolio account (#105: UnwrapEscrowedPortfolio CPI mutates owner)
+ *   5. []          Mint authority PDA
+ *   6. []          Token-2022 program
+ *   7. [writable]  ExtraAccountMetaList PDA (closed on burn — rent refunded to holder; #102)
+ *   8. []          Per-market NftRegistry PDA (#105 — unwrap CPI)
+ *   9. []          Percolator wrapper program (#105 — unwrap CPI target)
+ *
+ * #105 escrow-at-mint: burn now CPIs the wrapper's UnwrapEscrowedPortfolio to
+ * release the escrow back to the holder, so #4 must be writable and #8/#9 are required.
+ */
+export const ACCOUNTS_NFT_BURN: AccountMeta[] = [
+  "sw", "w", "w", "w", "w", "r", "r", "w", "r", "r",
+];
+
+/**
+ * Account metas for EmergencyBurn (tag 5). 10 accounts.
+ *
+ *   0. [signer, writable]  NFT holder (rent recipient)
+ *   1. [writable]  PositionNft PDA (closed)
+ *   2. [writable]  NFT mint
+ *   3. [writable]  Holder's NFT ATA
+ *   4. [writable]  Portfolio account (#105: UnwrapEscrowedPortfolio CPI mutates owner)
+ *   5. []          Mint authority PDA
+ *   6. []          Token-2022 program
+ *   7. [writable]  ExtraAccountMetaList PDA (closed on burn — rent refunded to holder; #102)
+ *   8. []          Per-market NftRegistry PDA (#105 — unwrap CPI)
+ *   9. []          Percolator wrapper program (#105 — unwrap CPI target)
+ */
+export const ACCOUNTS_NFT_EMERGENCY_BURN: AccountMeta[] = [
+  "sw", "w", "w", "w", "w", "r", "r", "w", "r", "r",
+];
+
+/**
+ * Account metas for ReconcileBurnedNft (tag 7, #138). 9 accounts. Permissionless.
+ *
+ *   0. [writable]  PositionNft PDA (closed)
+ *   1. [writable]  NFT mint (Token-2022 — supply must be 0; closed, #182)
+ *   2. [writable]  Portfolio account (escrow released to the last holder)
+ *   3. []          Mint authority PDA (unwrap + mint-close CPI signer)
+ *   4. []          Per-market NftRegistry PDA
+ *   5. []          Percolator wrapper program (unwrap CPI target)
+ *   6. [writable]  Recorded last-holder wallet (escrow + all rent recipient)
+ *   7. [writable]  ExtraAccountMetaList PDA (closed, #182)
+ *   8. []          Token-2022 program (mint-close CPI target, #182)
+ *
+ * dcccrypto/percolator-nft#182: Reconcile previously abandoned the NFT mint and
+ * the ExtraAccountMetaList PDA — 7,676,880 lamports per NFT, unrecoverable,
+ * because it closes the PositionNft PDA and every path that could later reclaim
+ * those two requires it to still be live. Accounts 7 and 8 are REQUIRED rather
+ * than optional: Reconcile is permissionless, irreversible and runs at most
+ * once, so an opt-in could be defeated permanently by whoever called first.
+ *
+ * Forward-compatible with the currently deployed programs: their handler pulls
+ * seven accounts off an iterator and never checks `accounts.len()`, so the two
+ * extra metas are simply unread, and it never checks `nft_mint.is_writable`.
+ * A nine-account call therefore behaves identically on both, which is why this
+ * can ship ahead of the program change rather than behind it.
+ */
+export const ACCOUNTS_NFT_RECONCILE: AccountMeta[] = [
+  "w", "w", "w", "r", "r", "r", "w", "w", "r",
+];
+
+// ---------------------------------------------------------------------------
+// PDA derivation
+// ---------------------------------------------------------------------------
+
+const TEXT = new TextEncoder();
+
+function u16Buf(value: number, label: string): Uint8Array {
+  if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
+    throw new Error(`${label} must be a u16`);
+  }
+  const buf = new Uint8Array(2);
+  new DataView(buf.buffer).setUint16(0, value, true);
+  return buf;
+}
+
+function u64Buf(value: bigint | number, label: string): Uint8Array {
+  const v = typeof value === "bigint" ? value : BigInt(value);
+  if (v < 0n || v > 0xffff_ffff_ffff_ffffn) {
+    throw new Error(`${label} must be a u64`);
+  }
+  const buf = new Uint8Array(8);
+  new DataView(buf.buffer).setBigUint64(0, v, true);
+  return buf;
+}
+
+/**
+ * Derive the PositionNft state PDA.
+ * Seeds: ["position_nft", portfolio_account, market_id_u64_LE]
+ *
+ * #108: the seed is keyed on the position-instance `marketId` (the engine's
+ * monotonic, never-reused `legs[].market_id`), NOT `asset_index` — which the
+ * engine reuses across close/re-open of the same asset and which therefore
+ * aliased the PDA (a stale NFT could squat the slot and brick re-wrapping the
+ * new position). Pass `marketId` = the active leg's `market_id` at mint, or the
+ * NFT's stored `marketIdAtMint` for any later op.
+ */
+export function deriveNftPda(
+  portfolioAccount: PublicKey,
+  marketId: bigint | number,
+  programId: PublicKey = NFT_PROGRAM_ID,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [TEXT.encode("position_nft"), portfolioAccount.toBytes(), u64Buf(marketId, "marketId")],
+    programId,
+  );
+}
+
+// The per-market NftRegistry PDA — required as an account for MintPositionNft
+// (#109) and for Burn/EmergencyBurn (#105 unwrap CPI) — is derived by
+// `deriveNftRegistry(wrapperProgramId, marketGroup)` in `../solana/pda`
+// (seeds ["nft_registry", marketGroup] under the WRAPPER program id).
+
+/**
+ * @deprecated v16 Position NFT mints are fresh signer keypairs, not PDAs.
+ */
+export function deriveNftMint(
+  _portfolioAccount: PublicKey,
+  _assetIndex: number,
+  _programId: PublicKey = NFT_PROGRAM_ID,
+): [PublicKey, number] {
+  throw new Error("deriveNftMint: v16 NFT mint is a fresh signer keypair, not a PDA");
+}
+
+/**
+ * Derive the program-wide mint authority PDA.
+ * Seeds: ["mint_authority"]
+ */
+export function deriveMintAuthority(
+  programId: PublicKey = NFT_PROGRAM_ID,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [TEXT.encode("mint_authority")],
+    programId,
+  );
+}
+
+/**
+ * Derive the Token-2022 ExtraAccountMetaList PDA for a Position NFT mint.
+ * Seeds: ["extra-account-metas", nft_mint]. This is account #9 of MintPositionNft
+ * and (since #102) account #7 of BurnPositionNft / EmergencyBurn — the burn paths
+ * close it and refund its rent to the holder.
+ */
+export function deriveExtraAccountMetas(
+  nftMint: PublicKey,
+  programId: PublicKey = NFT_PROGRAM_ID,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [TEXT.encode("extra-account-metas"), nftMint.toBytes()],
+    programId,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Account parser
+// ---------------------------------------------------------------------------
+
+/**
+ * On-chain PositionNftV16 state (239 bytes at layout version 3, matches percolator-nft/src/state_v16.rs).
+ *
+ *   [0..8]     magic             u64 ("PERCNFT\0")
+ *   [8]        version           u8   (3; the pre-S1-2 layout was 2)
+ *   [9]        bump              u8
+ *   [10..42]   portfolio_account [u8; 32]
+ *   [42..74]   nft_mint          [u8; 32]
+ *   [74..78]   asset_index       u32 LE
+ *   [78]       side_at_mint      u8
+ *   [79..95]   basis_pos_q_at_mint i128
+ *   [95..111]  f_snap_at_mint    i128
+ *   [111..119] market_id_at_mint u64
+ *   [119..127] epoch_snap_at_mint u64
+ *   [127..159] position_owner_at_mint [u8; 32]
+ *   [159..167] minted_at         i64
+ *   [167..199] last_holder       [u8; 32]
+ *   [199..231] portfolio_market_group [u8; 32]   (S1-2, v3)
+ *   [231..239] portfolio_id_at_mint   u64 LE     (S1-2, v3)
+ *
+ * NOTE: [167..199] is `last_holder`, not reserved space. #138 claimed those
+ * bytes for the field the transfer hook rewrites on every transfer, and
+ * `ReconcileBurnedNft` reads it to decide who receives the released escrow and
+ * the rent — it is account 6 of that instruction and cannot be derived, only
+ * read from here.
+ *
+ * S1-2: v3 appends the portfolio INCARNATION `(portfolio_market_group, portfolio_id_at_mint)`.
+ * An NFT whose pair differs from the live portfolio's `(marketGroupId, portfolioId)` was minted
+ * against an earlier incarnation of the same keypair and is rejected on-chain with
+ * Custom(28) StalePortfolioIncarnation; see {@link isNftCurrentForPortfolio}.
+ */
+export const POSITION_NFT_STATE_LEN = 239;
+/** Length of the pre-S1-2 (layout version 2) PositionNft account. Parsed as legacy, always stale. */
+export const POSITION_NFT_LEGACY_V2_LEN = 199;
+const POSITION_NFT_MAGIC = 0x5045_5243_4e46_5400n;
+const POSITION_NFT_VERSION = 3;
+const POSITION_NFT_LEGACY_VERSION = 2;
+
+export interface PositionNftState {
+  version: number;
+  bump: number;
+  portfolioAccount: PublicKey;
+  nftMint: PublicKey;
+  assetIndex: number;
+  sideAtMint: number;
+  basisPosQAtMint: bigint;
+  fSnapAtMint: bigint;
+  marketIdAtMint: bigint;
+  epochSnapAtMint: bigint;
+  positionOwnerAtMint: PublicKey;
+  /** Backward-compatible alias for positionOwnerAtMint. */
+  positionOwner: PublicKey;
+  mintedAt: bigint;
+  /**
+   * The wallet the transfer hook last recorded as holding this NFT (#138).
+   *
+   * This is the sole authorisation for `ReconcileBurnedNft`: the program
+   * releases the escrowed portfolio and all rent to whichever account matches
+   * it, and refuses any other. Supply it as account 6 of
+   * `ACCOUNTS_NFT_RECONCILE` — there is no way to derive it.
+   */
+  lastHolder: PublicKey;
+  /**
+   * S1-2: `market_group_id` of the portfolio at mint. `null` for a legacy v2 (199 B) account,
+   * which carries no incarnation binding.
+   */
+  portfolioMarketGroup: PublicKey | null;
+  /**
+   * S1-2: the portfolio's permanent `portfolio_id` at mint. `null` for a legacy v2 account.
+   */
+  portfolioIdAtMint: bigint | null;
+  /**
+   * True for a pre-S1-2 layout-v2 (199 B) account. It has no incarnation binding, so it can never be
+   * shown to match a live portfolio: treat it as stale ({@link isNftCurrentForPortfolio} returns false).
+   */
+  isLegacyV2: boolean;
+}
+
+/**
+ * Read a little-endian signed i128 from a DataView at `offset`.
+ *
+ * Both 64-bit halves are read as UNSIGNED to avoid the sign-extension that
+ * `getBigInt64` applies to the low half. If bit 127 of the combined 128-bit
+ * value is set the result is negative and two's-complement sign extension is
+ * applied explicitly.
+ *
+ * Bug fixed (S-3): the prior code used `getBigInt64` for the low half, which
+ * returns a *signed* BigInt. When bit 63 of the low half is set the value is
+ * negative (e.g. -1 rather than 0xffffffffffffffff), so OR-ing it with the
+ * shifted high half collapses the sign bit into all high bits and corrupts the
+ * result.
+ *
+ * @param view   DataView wrapping the raw account bytes
+ * @param offset Byte offset of the i128 field (little-endian)
+ * @returns      Signed BigInt in the range [-2^127, 2^127)
+ */
+function readI128FromView(view: DataView, offset: number): bigint {
+  const lo = view.getBigUint64(offset, true);
+  const hi = view.getBigUint64(offset + 8, true);
+  const unsigned = (hi << 64n) | lo;
+  const SIGN_BIT = 1n << 127n;
+  if (unsigned >= SIGN_BIT) {
+    return unsigned - (1n << 128n);
+  }
+  return unsigned;
+}
+
+/**
+ * Parse a PositionNft account from raw bytes.
+ *
+ * Accepts layout version 3 (239 B) and, as a LEGACY read, version 2 (199 B). A v2 account predates the
+ * S1-2 incarnation binding: it is returned with `isLegacyV2 = true` and `portfolioMarketGroup` /
+ * `portfolioIdAtMint` set to `null`. Legacy is parsed rather than rejected so a holder's old NFT stays
+ * visible (to offer EmergencyBurn rent reclaim) instead of silently vanishing, but it is never
+ * "current": {@link isNftCurrentForPortfolio} returns false for it, because nothing proves it belongs to
+ * the live portfolio incarnation.
+ *
+ * CONSUMERS MUST CHECK: this parser now SUCCEEDS on a legacy v2 account (it used to be the only accepted layout),
+ * so a caller that does not test `isLegacyV2` / {@link isNftCurrentForPortfolio} would treat a dead NFT as usable.
+ * After the S1-2 program upgrade a legacy NFT is unrecoverable: the NFT program rejects accounts shorter than
+ * 239 B in Burn, EmergencyBurn and Reconcile (InvalidAccountData, not error 28), and the wrapper refuses it.
+ *
+ * @param data Raw account data.
+ * @returns The decoded state.
+ * @throws if data is shorter than 199 bytes, the magic is wrong, the version is not 2 or 3, or a v3 account is shorter than 239 bytes.
+ * @example
+ * const nft = parsePositionNftAccount(info.data);
+ * if (!isNftCurrentForPortfolio(nft, portfolio)) {
+ *   // stale: hide it as a position, offer EmergencyBurn, refuse send
+ * }
+ */
+export function parsePositionNftAccount(data: Uint8Array): PositionNftState {
+  if (data.length < POSITION_NFT_LEGACY_V2_LEN) {
+    throw new Error(
+      `PositionNft account too small: ${data.length} < ${POSITION_NFT_LEGACY_V2_LEN}`,
+    );
+  }
+
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const magic = view.getBigUint64(0, true);
+  if (magic !== POSITION_NFT_MAGIC) {
+    throw new Error("PositionNft account has invalid magic");
+  }
+  const version = data[8];
+  if (version !== POSITION_NFT_VERSION && version !== POSITION_NFT_LEGACY_VERSION) {
+    throw new Error(`PositionNft account has invalid version: ${version}`);
+  }
+  const isLegacyV2 = version === POSITION_NFT_LEGACY_VERSION;
+  if (!isLegacyV2 && data.length < POSITION_NFT_STATE_LEN) {
+    throw new Error(
+      `PositionNft v3 account too small: ${data.length} < ${POSITION_NFT_STATE_LEN}`,
+    );
+  }
+
+  const positionOwnerAtMint = new PublicKey(data.subarray(127, 159));
+
+  return {
+    version,
+    bump: data[9],
+    portfolioAccount: new PublicKey(data.subarray(10, 42)),
+    nftMint: new PublicKey(data.subarray(42, 74)),
+    assetIndex: view.getUint32(74, true),
+    sideAtMint: data[78],
+    basisPosQAtMint: readI128FromView(view, 79),
+    fSnapAtMint: readI128FromView(view, 95),
+    marketIdAtMint: view.getBigUint64(111, true),
+    epochSnapAtMint: view.getBigUint64(119, true),
+    positionOwnerAtMint,
+    positionOwner: positionOwnerAtMint,
+    mintedAt: view.getBigInt64(159, true),
+    lastHolder: new PublicKey(data.subarray(167, 199)),
+    portfolioMarketGroup: isLegacyV2 ? null : new PublicKey(data.subarray(199, 231)),
+    portfolioIdAtMint: isLegacyV2 ? null : view.getBigUint64(231, true),
+    isLegacyV2,
+  };
+}
+
+/**
+ * S1-2: does this NFT belong to the live incarnation of its portfolio?
+ *
+ * Mirrors the program's `verify_portfolio_incarnation`: true only when the live portfolio id is
+ * non-zero and both `portfolioIdAtMint` and `portfolioMarketGroup` equal the live portfolio's
+ * `portfolioId` / `marketGroupId`. A legacy v2 account (no binding) is never current. A stale NFT
+ * confers no authority (the program answers Custom(28)); the client should not show it as a
+ * position, should refuse to send it, and should offer EmergencyBurn to reclaim its rent.
+ *
+ * This does not compare `nft.portfolioAccount` to the portfolio's address; callers look the NFT up
+ * by that key already.
+ *
+ * @param nft       A parsed PositionNft ({@link parsePositionNftAccount}).
+ * @param portfolio The live decoded portfolio (`marketGroupId` and `portfolioId` are used).
+ * @returns true if the NFT is bound to this exact portfolio incarnation.
+ * @example
+ * const current = isNftCurrentForPortfolio(parsePositionNftAccount(nftData), parsePortfolioV17(pfData));
+ */
+export function isNftCurrentForPortfolio(
+  nft: Pick<PositionNftState, "portfolioMarketGroup" | "portfolioIdAtMint">,
+  portfolio: { marketGroupId: PublicKey; portfolioId: bigint },
+): boolean {
+  if (nft.portfolioMarketGroup === null || nft.portfolioIdAtMint === null) return false;
+  return (
+    portfolio.portfolioId !== 0n &&
+    nft.portfolioIdAtMint === portfolio.portfolioId &&
+    nft.portfolioMarketGroup.equals(portfolio.marketGroupId)
+  );
+}
