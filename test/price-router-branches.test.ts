@@ -421,3 +421,35 @@ describe("non-finite prices are rejected", () => {
     }
   });
 });
+
+describe("junk price strings must not become a source (parseFloat lead)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it.each(["12abc", "1.5.3", "1e", "0x10", " ", "1,5", "Infinity"])(
+    "dex priceUsd %j is dropped",
+    async (junk) => {
+      stubFetch(dexBody(pair({ priceUsd: junk })), "http500");
+      expect((await resolvePrice(MINT)).bestSource).toBeNull();
+    },
+  );
+
+  it.each(["12abc", "1.5.3", "7 apples"])("jupiter v3 usdPrice %j is dropped", async (junk) => {
+    stubFetch("http500", jupV3(junk, 5000));
+    expect((await resolvePrice(MINT)).bestSource).toBeNull();
+  });
+
+  it.each(["12abc", "1.5.3"])("jupiter v2 price %j is dropped", async (junk) => {
+    stubFetch("http500", { data: { [MINT]: { price: junk, mintSymbol: "T" } } });
+    expect((await resolvePrice(MINT)).bestSource).toBeNull();
+  });
+
+  it("valid decimals and exponent forms still parse", async () => {
+    stubFetch(dexBody(pair({ priceUsd: "0.000123" })), "http500");
+    expect((await resolvePrice(MINT)).bestSource?.price).toBe(0.000123);
+    stubFetch("http500", { data: { [MINT]: { price: "1.5e-3", mintSymbol: "T" } } });
+    expect((await resolvePrice(MINT)).bestSource?.price).toBe(0.0015);
+  });
+});
