@@ -83,18 +83,6 @@ function readU8(data: Uint8Array, off: number): number {
   return data[off];
 }
 
-function readBigInt64LE(data: Uint8Array, off: number): bigint {
-  return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigInt64(off, true);
-}
-
-function readBigUint64LE(data: Uint8Array, off: number): bigint {
-  return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(off, true);
-}
-
-function readU32LE(data: Uint8Array, off: number): number {
-  return new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(off, true);
-}
-
 /**
  * Default tolerance for a publish timestamp that appears to be in the future.
  *
@@ -132,6 +120,8 @@ export function parseChainlinkPrice(data: Uint8Array, options?: ParseChainlinkOp
     );
   }
 
+  // One DataView per decode (was one per field read).
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const decimals = readU8(data, CHAINLINK_DECIMALS_OFFSET);
   if (decimals > MAX_DECIMALS) {
     throw new Error(
@@ -150,8 +140,8 @@ export function parseChainlinkPrice(data: Uint8Array, options?: ParseChainlinkOp
   // MAX_ORACLE_PRICE — so a large mantissa with high `decimals` is perfectly valid
   // on-chain. `price` is a bigint and holds the full i128 range.
   const answer =
-    (readBigInt64LE(data, CHAINLINK_ANSWER_OFFSET + 8) << 64n) |
-    readBigUint64LE(data, CHAINLINK_ANSWER_OFFSET);
+    (dv.getBigInt64(CHAINLINK_ANSWER_OFFSET + 8, true) << 64n) |
+    dv.getBigUint64(CHAINLINK_ANSWER_OFFSET, true);
   if (answer <= 0n) {
     throw new Error(
       `Oracle price is non-positive: ${answer}`
@@ -160,7 +150,7 @@ export function parseChainlinkPrice(data: Uint8Array, options?: ParseChainlinkOp
   const price = answer;
 
   // Transmission timestamp: u32 LE at offset 208 (see the layout note above).
-  const updatedAt = readU32LE(data, CHAINLINK_TIMESTAMP_OFFSET);
+  const updatedAt = dv.getUint32(CHAINLINK_TIMESTAMP_OFFSET, true);
 
   if (options?.maxStalenessSeconds !== undefined) {
     // NaN makes both comparisons below false, which would skip the check the
