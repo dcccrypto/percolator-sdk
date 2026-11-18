@@ -489,8 +489,10 @@ function dv(data: Uint8Array): DataView {
  */
 export function readWrapperHeader(data: Uint8Array, parser = "readWrapperHeader"): { magic: bigint; version: number; kind: number } {
   if (data.length < 16) throw new UnknownLayoutError("TOO_SHORT", parser, `data too short (${data.length} < 16)`);
-  const v = dv(data);
-  return { magic: v.getBigUint64(0, true), version: v.getUint16(8, true), kind: data[10] };
+  // Byte reads, not `new DataView(...)`: avoids a DataView allocation per call.
+  const lo = (data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24)) >>> 0;
+  const hi = (data[4] | (data[5] << 8) | (data[6] << 16) | (data[7] << 24)) >>> 0;
+  return { magic: (BigInt(hi) << 32n) | BigInt(lo), version: data[8] | (data[9] << 8), kind: data[10] };
 }
 
 /** Options for {@link resolveLayout}. */
@@ -569,6 +571,13 @@ export interface MarketGeometryOptions {
   registry?: ReadonlyMap<number, LayoutTable>;
 }
 
+let defaultMinMarketEnd: number | undefined;
+function minMarketEnd(registry: ReadonlyMap<number, LayoutTable>): number {
+  let minEnd = Infinity;
+  for (const t of registry.values()) minEnd = Math.min(minEnd, t.marketGroupOff + t.marketGroupLen);
+  return minEnd;
+}
+
 /**
  * Resolve the geometry of a MARKET account (kind 1) by VERSION.
  *
@@ -586,8 +595,13 @@ export interface MarketGeometryOptions {
 export function resolveMarketGeometry(data: Uint8Array, opts: MarketGeometryOptions): MarketGeometry {
   const registry = opts.registry ?? LAYOUTS_BY_VERSION;
   // Shortest group end across the known layouts: anything below it cannot be a market of any of them.
-  let minEnd = Infinity;
-  for (const t of registry.values()) minEnd = Math.min(minEnd, t.marketGroupOff + t.marketGroupLen);
+  let minEnd: number;
+  if (registry === LAYOUTS_BY_VERSION) {
+    // The default registry is a module constant; compute once.
+    minEnd = defaultMinMarketEnd ??= minMarketEnd(registry);
+  } else {
+    minEnd = minMarketEnd(registry);
+  }
   if (data.length < minEnd) {
     throw new UnknownLayoutError("TOO_SHORT", opts.parser, `buffer too short: need >= ${minEnd} bytes, got ${data.length}`);
   }
