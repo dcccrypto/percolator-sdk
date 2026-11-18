@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import * as Band from "../src/abi/v22-band.js";
-import { LAYOUT_V22, UnknownLayoutError } from "../src/abi/layout.js";
+import { LAYOUT_V21, LAYOUT_V22, UnknownLayoutError } from "../src/abi/layout.js";
 import { stampMarket } from "./helpers/stamp.js";
 
 const U128 = (1n << 128n) - 1n;
@@ -23,12 +23,13 @@ describe("rentRateE9V22 overflow guards", () => {
     expect(Band.rentRateE9V22(900n, 1000n, 5000, 1n << 125n)).toBeNull();
     expect(Band.rentRateE9FailClosedV22(900n, 1000n, 5000, 1n << 125n)).toBe(1n << 125n);
   });
-  it("returns null when users * BPS or kink * nCap overflows u128; boundary U128 itself passes", () => {
+  it("returns null when users * BPS or kink * nCap overflows u128; just-below-boundary users passes, U128 itself overflows", () => {
     expect(Band.rentRateE9V22(U128, 1000n, 5000, 100n)).toBeNull();
     expect(Band.rentRateE9V22(1n, U128, 5000, 100n)).toBeNull();
     expect(Band.rentRateE9V22(1n, 0n, 5000, 100n)).toBeNull(); // n_cap == 0
     expect(Band.rentRateE9V22(1n, 1000n, 10_001, 100n)).toBeNull(); // kink > 100%
     expect(Band.rentRateE9V22(1n, 1000n, 10_000, 100n)).toBe(0n); // kink == 100% is valid
+    expect(Band.rentRateE9V22(U128 / 10_000n, U128 / 9_999n, 9_999, 100n)).not.toBeNull();
   });
 });
 
@@ -92,20 +93,25 @@ describe("decoders: short buffers, bad versions, bad slots", () => {
       expect(() => Band.decodeAssetRentStateV22(d, i), `rent ${i}`).toThrow(RangeError);
     }
     expect(() => Band.decodeAssetBandStateV22(d, 3)).toThrow(/asset 3 is not present/);
-    expect(() => Band.readBandRentViewV22(d, 0)).not.toThrow(); // slot 0 is fine (view null: no band, no rent)
+    expect(Band.readBandRentViewV22(d, 0)).toBeNull(); // slot 0 is fine (no band, no rent)
   });
   it("tryReadBandRentViewV22 swallows decoder errors and a bad slot", () => {
     expect(Band.tryReadBandRentViewV22(new Uint8Array(100))).toBeNull();
     expect(Band.tryReadBandRentViewV22(null)).toBeNull();
     expect(Band.tryReadBandRentViewV22(undefined)).toBeNull();
-    expect(Band.tryReadBandRentViewV22(v22(), 4)).toBeNull();
+    const banded = v22();
+    banded[LAYOUT_V22.marketGroupOff + LAYOUT_V22.group.config + LAYOUT_V22.bandRent!.config.bandBps] = 130;
+    expect(() => Band.readBandRentViewV22(banded, 4)).toThrow(RangeError);
+    expect(Band.tryReadBandRentViewV22(banded, 4)).toBeNull();
+    expect(Band.tryReadBandRentViewV22(banded, 0)).not.toBeNull();
   });
 });
 
 describe("layoutHasBandRentV22", () => {
-  it("defaults to the v2.2 row (true), is false for undefined-explicit-and-no-row and for a v2.1 row", () => {
+  it("defaults to the v2.2 row (true); false for rows without band words", () => {
     expect(Band.layoutHasBandRentV22()).toBe(true);
     expect(Band.layoutHasBandRentV22(LAYOUT_V22)).toBe(true);
     expect(Band.layoutHasBandRentV22({ ...LAYOUT_V22, bandRent: null })).toBe(false);
+    expect(Band.layoutHasBandRentV22(LAYOUT_V21)).toBe(false);
   });
 });
