@@ -123,7 +123,7 @@ function expectKey(keys: AccountMeta[], i: number, want: PublicKey, tag: number,
  * Bring a flow-tag instruction to its #640 / #641 account list. Accepts the pre-#640 forms the existing builders
  * produce (see {@link NAV_FLOW_TAILS_V22} `base`, plus the optional ext / bond slots) and returns the full list:
  * fills the ext (derived, writable) where it was optional, pads an absent bond-tranche slot, appends the guard
- * (writable). Idempotent: an instruction that already carries the full tail is returned unchanged. Tag 102 in its
+ * (writable). Idempotent: an instruction that already carries the full tail keeps its accounts, with the guard and ext forced writable. Tag 102 in its
  * Resolved form (11 / 12 accounts) and tag 111 mode 2 (PROPOSE) are returned unchanged (the program does not read
  * the tail there).
  *
