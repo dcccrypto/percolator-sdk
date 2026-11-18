@@ -97,6 +97,7 @@ export default defineConfig({
       "test/tx-branches.test.ts",
       "test/v22-lot-exp-profile.test.ts",
       "test/v22-math-edges.test.ts",
+      "test/v22-math-branches.test.ts",
       "test/slab-branch-coverage.test.ts",
       "test/discovery-branches.test.ts",
       "test/discovery-dedup-dataview.test.ts",
