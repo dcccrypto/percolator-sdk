@@ -566,7 +566,8 @@ export interface PackOptions {
  * adding the next would exceed the byte limit, the account limit (64), the instruction limit (64),
  * the compute-unit ceiling, or `maxGroups`; then a new transaction starts.
  *
- * Sizes are exact (the real compile is used on every step), so a returned plan never exceeds
+ * Sizes are exact (the real compile decides every cut; the cut point is found by galloping + binary search
+ * instead of recompiling on every append), so a returned plan never exceeds
  * `maxBytes`. A single group that alone exceeds a limit throws, since it could never be sent.
  *
  * @param groups - Atomic units, in priority order.
@@ -589,19 +590,44 @@ export function packInstructionGroups<T = unknown>(
     computeUnitLimit: Math.min(TX_MAX_COMPUTE_UNITS, Math.max(1, Math.ceil(cu * headroom))),
   });
 
-  /** Returns bytes, or null when a structural limit (accounts/ix/signers) is violated. */
-  const fits = (gs: readonly PackGroup<T>[], cu: number): { bytes: number; accounts: number; ixs: TransactionInstruction[] } | null => {
-    const ixs = gs.flatMap((g) => g.instructions);
-    const keys = new Set<string>([opts.payer.toBase58()]);
-    for (const ix of ixs) {
-      keys.add(ix.programId.toBase58());
-      for (const m of ix.keys) keys.add(m.pubkey.toBase58());
+  const accountCap = TX_V1_MAX_ADDRESSES;
+  const n = groups.length;
+  /** Injective, base58-free key for dedup (raw 32 bytes as latin1). */
+  const kstr = (p: PublicKey): string => String.fromCharCode(...p.toBytes());
+  const payerKey = kstr(opts.payer);
+  const keyCache: (string[] | undefined)[] = new Array(n);
+  const keysOf = (i: number): string[] => {
+    let ks = keyCache[i];
+    if (!ks) {
+      ks = [];
+      for (const ix of groups[i]!.instructions) {
+        ks.push(kstr(ix.programId));
+        for (const m of ix.keys) ks.push(kstr(m.pubkey));
+      }
+      keyCache[i] = ks;
     }
-    const accountCap = TX_V1_MAX_ADDRESSES;
+    return ks;
+  };
+  // The fit predicate is monotone in the prefix length (bytes, accounts, ixs, CU and group count only grow),
+  // provided CU estimates are non-negative; otherwise fall back to the linear scan.
+  const monotone = groups.every((g) => Number.isFinite(g.computeUnits) && g.computeUnits >= 0);
+
+  /** Exact check of groups[s..s+k): same rules and the same real compile as before. */
+  const fitsRange = (s: number, k: number): { bytes: number; accounts: number; ixs: TransactionInstruction[]; cu: number } | null => {
+    const keys = new Set<string>([payerKey]);
+    let ixCount = 0;
+    let cu = 0;
+    for (let i = s; i < s + k; i++) {
+      for (const key of keysOf(i)) keys.add(key);
+      ixCount += groups[i]!.instructions.length;
+      cu = cu + groups[i]!.computeUnits;
+    }
     if (keys.size > accountCap) return null;
-    if (opts.format === "v1" && ixs.length > TX_V1_MAX_INSTRUCTIONS) return null;
+    if (opts.format === "v1" && ixCount > TX_V1_MAX_INSTRUCTIONS) return null;
     if (cu > maxCu) return null;
-    if (opts.maxGroups !== undefined && gs.length > opts.maxGroups) return null;
+    if (opts.maxGroups !== undefined && k > opts.maxGroups) return null;
+    const ixs: TransactionInstruction[] = [];
+    for (let i = s; i < s + k; i++) for (const ix of groups[i]!.instructions) ixs.push(ix);
     let bytes: number;
     try {
       bytes = measureTxBytes(opts.format, opts.payer, ixs, budgetFor(cu));
@@ -609,32 +635,63 @@ export function packInstructionGroups<T = unknown>(
       return null;
     }
     if (bytes > maxBytes) return null;
-    return { bytes, accounts: keys.size, ixs };
+    return { bytes, accounts: keys.size, ixs, cu };
   };
 
   const plan: PackedTx<T>[] = [];
-  let cur: PackGroup<T>[] = [];
-  let curCu = 0;
-  for (const g of groups) {
-    const tryCu = curCu + g.computeUnits;
-    if (cur.length > 0 && fits([...cur, g], tryCu)) {
-      cur.push(g);
-      curCu = tryCu;
-      continue;
-    }
-    if (cur.length > 0) {
-      const f = fits(cur, curCu)!;
-      plan.push({ groups: cur, instructions: f.ixs, computeUnits: curCu, bytes: f.bytes, accounts: f.accounts });
-    }
-    cur = [g];
-    curCu = g.computeUnits;
-    if (!fits(cur, curCu)) {
+  let s = 0;
+  let guess = 1;
+  while (s < n) {
+    const rem = n - s;
+    const memo = new Map<number, ReturnType<typeof fitsRange>>();
+    const probe = (k: number) => {
+      if (!memo.has(k)) memo.set(k, fitsRange(s, k));
+      return memo.get(k)!;
+    };
+    if (!probe(1)) {
       throw new Error("packInstructionGroups: a single group does not fit within the limits of the selected format");
     }
-  }
-  if (cur.length > 0) {
-    const f = fits(cur, curCu)!;
-    plan.push({ groups: cur, instructions: f.ixs, computeUnits: curCu, bytes: f.bytes, accounts: f.accounts });
+    let lo = 1; // largest k known to fit
+    if (!monotone) {
+      while (lo < rem && probe(lo + 1)) lo++;
+    } else {
+      const g = Math.min(Math.max(guess, 1), rem);
+      let hi: number; // smallest k known not to fit (rem + 1 = none)
+      if (probe(g)) {
+        lo = g;
+        let step = 1;
+        hi = rem + 1;
+        while (lo + step <= rem) {
+          if (probe(lo + step)) {
+            lo += step;
+            step *= 2;
+          } else {
+            hi = lo + step;
+            break;
+          }
+        }
+      } else {
+        hi = g;
+        let step = 1;
+        while (hi - step > lo) {
+          if (probe(hi - step)) {
+            lo = hi - step;
+            break;
+          }
+          hi -= step;
+          step *= 2;
+        }
+      }
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (probe(mid)) lo = mid;
+        else hi = mid;
+      }
+    }
+    const f = probe(lo)!;
+    plan.push({ groups: groups.slice(s, s + lo), instructions: f.ixs, computeUnits: f.cu, bytes: f.bytes, accounts: f.accounts });
+    s += lo;
+    guess = lo;
   }
   return plan;
 }
