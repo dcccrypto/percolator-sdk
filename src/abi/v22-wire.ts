@@ -948,6 +948,19 @@ export const LP_REDEMPTION_LEGACY_ACCOUNT_LEN = 112;
 /** `LpRedemptionV16` account length with the v2.2 wire (header 16 + body 96 + `LpRedemptionExtV22` 16). */
 export const LP_REDEMPTION_V22_ACCOUNT_LEN = 128;
 
+const PDA_MEMO_CAP = 1024;
+const pdaMemo = new Map<string, [Uint8Array, number]>();
+const k = (pk: PublicKey): string => Buffer.from(pk.toBytes()).toString("latin1");
+/** Bounded memo for PDA derivations; returns a fresh tuple holding a fresh PublicKey so callers cannot mutate the cache. */
+function memoPda(key: string, derive: () => [PublicKey, number]): [PublicKey, number] {
+  const hit = pdaMemo.get(key);
+  if (hit) return [new PublicKey(hit[0]), hit[1]];
+  const [pda, bump] = derive();
+  if (pdaMemo.size >= PDA_MEMO_CAP) pdaMemo.delete(pdaMemo.keys().next().value as string);
+  pdaMemo.set(key, [pda.toBytes(), bump]);
+  return [pda, bump];
+}
+
 /**
  * Derive the capacity-bond tranche PDA: `["bond_tranche", market]`.
  *
@@ -960,7 +973,8 @@ export const LP_REDEMPTION_V22_ACCOUNT_LEN = 128;
  * ```
  */
 export function deriveBondTrancheV22(programId: PublicKey, market: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from(SEEDS_V22.bondTranche), market.toBuffer()], programId);
+  return memoPda(`t:${k(programId)}:${k(market)}`, () =>
+    PublicKey.findProgramAddressSync([Buffer.from(SEEDS_V22.bondTranche), market.toBuffer()], programId));
 }
 
 /**
@@ -976,7 +990,8 @@ export function deriveBondTrancheV22(programId: PublicKey, market: PublicKey): [
  * ```
  */
 export function deriveBondPositionV22(programId: PublicKey, market: PublicKey, owner: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from(SEEDS_V22.bondPosition), market.toBuffer(), owner.toBuffer()], programId);
+  return memoPda(`p:${k(programId)}:${k(market)}:${k(owner)}`, () =>
+    PublicKey.findProgramAddressSync([Buffer.from(SEEDS_V22.bondPosition), market.toBuffer(), owner.toBuffer()], programId));
 }
 
 /**
@@ -991,7 +1006,8 @@ export function deriveBondPositionV22(programId: PublicKey, market: PublicKey, o
  * ```
  */
 export function deriveInsuranceUnitsV22(programId: PublicKey, market: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from(SEEDS_V22.insuranceUnits), market.toBuffer()], programId);
+  return memoPda(`i:${k(programId)}:${k(market)}`, () =>
+    PublicKey.findProgramAddressSync([Buffer.from(SEEDS_V22.insuranceUnits), market.toBuffer()], programId));
 }
 
 /**
@@ -1005,7 +1021,7 @@ export function deriveInsuranceUnitsV22(programId: PublicKey, market: PublicKey)
  * ```
  */
 export function deriveG9FeedAllowlistV22(programId: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from(SEEDS_V22.g9Feeds)], programId);
+  return memoPda(`g:${k(programId)}`, () => PublicKey.findProgramAddressSync([Buffer.from(SEEDS_V22.g9Feeds)], programId));
 }
 
 /**
