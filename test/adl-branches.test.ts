@@ -75,7 +75,7 @@ describe("rankAdlPositions merged ordering", () => {
     ]);
   });
 
-  it("handles a shorter-side-first reversed pair (a < b arm of the comparator)", () => {
+  it("orders mixed-side lists by pnlPct for both input orders", () => {
     // longs: 500 ; shorts: 1000, 1500 -> merged [1500, 1000, 500]
     setup([user(1, 10n, 5n, 100n), user(2, -10n, 10n, 100n), user(3, -10n, 15n, 100n)]);
     expect(idxs(rankAdlPositions(new Uint8Array(8)))).toEqual([3, 2, 1]);
@@ -88,14 +88,17 @@ describe("parseAdlEvent defensive catch arms", () => {
   const TAG = "0xad1e0001";
   const line = (...f: string[]) => `Program log: ${f.join(", ")}`;
   const realBigInt = BigInt;
-  const throwOn = (bad: string) =>
-    vi.stubGlobal("BigInt", (v: string | number | bigint | boolean) => {
+  const throwOn = (bad: string) => {
+    const stub = vi.fn((v: string | number | bigint | boolean) => {
       if (v === bad) throw new SyntaxError("stubbed");
       return realBigInt(v);
     });
+    vi.stubGlobal("BigInt", stub);
+    return stub;
+  };
 
   it("skips a line whose tag fails to convert and continues to the next valid event", () => {
-    throwOn("0xbad");
+    const stub = throwOn("0xbad");
     const logs = [line("0xbad", "0x1", "0x2", "0x3", "0x4"), line(TAG, "0x5", "0x3e8", "0x7", "0x1")];
     expect(parseAdlEvent(logs)).toEqual({
       tag: 0xad1e0001n,
@@ -103,6 +106,7 @@ describe("parseAdlEvent defensive catch arms", () => {
       price: 1000n,
       closedAbs: (1n << 64n) | 7n,
     });
+    expect(stub).toHaveBeenCalledWith("0xbad");
   });
 
   it("skips an ADL event whose payload field fails to convert and returns null", () => {
