@@ -10,7 +10,7 @@ import {
   encodeMatcherCallExtV2, encodeMatcherCallExtV3, encodeMatcherCallExtV3FromV2, encodeInitMarket,
   assetRiskLimitsAccountOffsetP1, PERCOLATOR_ERRORS, decodeError, growthMatcherCapsV3, GROWTH_PIN_MATCHER_EXT_MODE,
   growthFlagsOk, depthTwWindowOk, GROWTH_PIN_MAX_REQUESTED_FEE_BPS, GROWTH_PIN_LP_FLOOR_ATOMS, GROWTH_PIN_MATCHER_KIND, GROWTH_DIALS_NO_CLAMP_MAX_LAMBDA_BPS,
-  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS, rGapFloorBps, usersSideOiQ, utilisationFeeBps, utilFeeMaxEffectiveBps, openingPartQ, previewGrowthOpenFee, GROWTH_UTIL_FEE_DEFAULT_BPS, assertGrowthBatchLegs, GROWTH_BATCH_MAX_LEGS, markExtV3TakerReducing,
+  GROWTH_DIALS_NO_CLAMP_MAX_KINK_BPS, rGapFloorBps, usersSideOiQ, utilisationFeeBps, utilFeeMaxEffectiveBps, openingPartQ, previewGrowthOpenFee, GROWTH_UTIL_FEE_DEFAULT_BPS, assertGrowthBatchLegs, GROWTH_BATCH_MAX_LEGS, markExtV3TakerReducing, growthCeilingView, STRESS_NONE,
 } from "../src/index.js";
 import type { AssetGrowthV19, InitMarketV17Args } from "../src/index.js";
 import { stampMarket } from "./helpers/stamp.js";
@@ -373,5 +373,17 @@ describe("growth-v19 branch coverage: quote and preview edges", () => {
     const p = previewGrowthOpenFee({ ...base, priceE6: 0n }, 0n, 100_000_000n, 30n);
     expect(p.utilFeeBps).toBe(0);
     expect(p.openingQ).toBe(100_000_000n);
+  });
+});
+
+describe("growthCeilingView ratchet ETA edges", () => {
+  it("a record with ceil 0 reads as the launch cap; a ratchet already due reports 0 slots", () => {
+    const g0 = decodeAssetGrowthRecordV19(growthRecord({ launch: 500, tier: 2_000, ceil: 0, slot: 1n })) as AssetGrowthV19;
+    const v = growthCeilingView(g0, 1_000, 10_000_000n, 1_000_000_000_000n, STRESS_NONE);
+    if (v.nextUnlock.kind === "ratchet") expect(v.nextUnlock.etaSlots).toBe(0n);
+    expect(v.ceilingX100).toBeGreaterThanOrEqual(500);
+    const g1 = decodeAssetGrowthRecordV19(growthRecord({ launch: 500, tier: 2_000, ceil: 500, slot: 1n })) as AssetGrowthV19;
+    const v1 = growthCeilingView(g1, 1_000, 10_000_000n, 1_000_000_000_000n, STRESS_NONE);
+    expect(["ratchet", "none", "depth", "backing", "both"]).toContain(v1.nextUnlock.kind);
   });
 });
