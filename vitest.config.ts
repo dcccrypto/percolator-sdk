@@ -20,6 +20,7 @@ export default defineConfig({
       "test/adl.test.ts",
       "test/adl-ranking.test.ts",
       "test/accounts.test.ts",
+      "test/account-metas-differential.test.ts",
       "test/program-ids.test.ts",
       "test/stake.test.ts",
       "test/stake-290-slab-accounts.test.ts",
