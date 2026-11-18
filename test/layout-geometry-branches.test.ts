@@ -52,7 +52,7 @@ describe("readWrapperHeader", () => {
     expect(readWrapperHeader(h)).toEqual({ magic: 0x5045_5243_5631_3600n, version: 19, kind: 1 });
   });
   it("default parser name is used in the message", () => {
-    try { readWrapperHeader(new Uint8Array(3)); } catch (e) { expect((e as Error).message).toContain("readWrapperHeader"); }
+    expect(() => readWrapperHeader(new Uint8Array(3))).toThrow(/readWrapperHeader/);
   });
 });
 
