@@ -2,6 +2,36 @@ import { PublicKey } from "@solana/web3.js";
 
 const textEncoder = new TextEncoder();
 
+// findProgramAddressSync costs milliseconds; the result is a pure function of
+// (programId, seeds). Bounded LRU keyed by programId + length-prefixed seeds
+// (length prefix makes the key unambiguous for variable-length seeds).
+const PDA_CACHE_MAX = 4096;
+const pdaCache = new Map<string, [PublicKey, number]>();
+
+function findPdaMemo(
+  seeds: Uint8Array[],
+  programId: PublicKey,
+): [PublicKey, number] {
+  let key = String.fromCharCode(...programId.toBytes());
+  for (const seed of seeds) {
+    key += String.fromCharCode(seed.length, ...seed);
+  }
+  const hit = pdaCache.get(key);
+  if (hit) {
+    // refresh recency
+    pdaCache.delete(key);
+    pdaCache.set(key, hit);
+    // Fresh tuple per call so callers cannot corrupt the cache entry.
+    return [hit[0], hit[1]];
+  }
+  const res = PublicKey.findProgramAddressSync(seeds, programId);
+  if (pdaCache.size >= PDA_CACHE_MAX) {
+    pdaCache.delete(pdaCache.keys().next().value as string);
+  }
+  pdaCache.set(key, [res[0], res[1]]);
+  return res;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -35,7 +65,7 @@ export function deriveVaultAuthority(
   programId: PublicKey,
   slab: PublicKey
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [textEncoder.encode("vault"), slab.toBytes()],
     programId
   );
@@ -137,7 +167,7 @@ export function deriveCanonicalVaultForAuthority(
   vaultAuthority: PublicKey,
   mint: PublicKey
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [
       vaultAuthority.toBytes(),
       PERCOLATOR_VAULT_TOKEN_PROGRAM_ID.toBytes(),
@@ -219,7 +249,7 @@ export function deriveInsuranceLpMint(
   programId: PublicKey,
   slab: PublicKey
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [textEncoder.encode("lp_vault_mint"), slab.toBytes()],
     programId
   );
@@ -248,7 +278,7 @@ export function deriveLpPda(
   }
   const idxBuf = new Uint8Array(2);
   new DataView(idxBuf.buffer).setUint16(0, lpIdx, true);
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [textEncoder.encode("lp"), slab.toBytes(), idxBuf],
     programId
   );
@@ -314,7 +344,7 @@ export function deriveCreatorLockPda(
   programId: PublicKey,
   slab: PublicKey
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [textEncoder.encode(CREATOR_LOCK_SEED), slab.toBytes()],
     programId
   );
@@ -347,7 +377,7 @@ export function deriveLpVaultRegistry(
   programId: PublicKey,
   marketGroup: PublicKey
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [textEncoder.encode("lp_vault"), marketGroup.toBytes()],
     programId
   );
@@ -378,7 +408,7 @@ export function deriveLpRedemption(
   registry: PublicKey,
   redeemer: PublicKey
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [
       textEncoder.encode("lp_redemption"),
       registry.toBytes(),
@@ -414,7 +444,7 @@ export function deriveLpBackingLedger(
   marketGroup: PublicKey,
   domainIdx: number
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [
       textEncoder.encode("lp_backing_ledger"),
       marketGroup.toBytes(),
@@ -447,7 +477,7 @@ export function deriveLpEscrow(
   programId: PublicKey,
   marketGroup: PublicKey
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [textEncoder.encode("lp_escrow"), marketGroup.toBytes()],
     programId
   );
@@ -480,7 +510,7 @@ export function deriveNftRegistry(
   programId: PublicKey,
   marketGroup: PublicKey
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [textEncoder.encode("nft_registry"), marketGroup.toBytes()],
     programId
   );
@@ -529,7 +559,7 @@ export function deriveMatcherDelegate(
   matcherProg: PublicKey,
   matcherCtx: PublicKey
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [
       textEncoder.encode("matcher"),
       market.toBytes(),
@@ -571,7 +601,7 @@ export function derivePythPushOraclePDA(feedIdHex: string): [PublicKey, number] 
     feedId[i] = parseInt(normalized.substring(i * 2, i * 2 + 2), 16);
   }
   const shardBuf = new Uint8Array(2); // shard_id = 0 (u16 LE)
-  return PublicKey.findProgramAddressSync(
+  return findPdaMemo(
     [shardBuf, feedId],
     PYTH_PUSH_ORACLE_PROGRAM_ID,
   );
