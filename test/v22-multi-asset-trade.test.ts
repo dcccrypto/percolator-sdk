@@ -152,6 +152,9 @@ describe("refineMultiAssetTradePlanV22: which program raised the code (J-2026111
   it("negative control: the wrapper's own Custom 19 (logs given) still grows the plan", () => {
     expect(refineMultiAssetTradePlanV22(plan, tradeErr, wrapperLogs).action).toBe("retry");
   });
+  it("negative control: a `Program log: failed: x` line before the wrapper's failure is not an origin", () => {
+    expect(refineMultiAssetTradePlanV22(plan, tradeErr, [`Program ${W.toBase58()} invoke [1]`, "Program log: failed: x", ...wrapperLogs.slice(1)]).action).toBe("retry");
+  });
   it("negative control: without logs the behaviour is unchanged", () => {
     expect(refineMultiAssetTradePlanV22(plan, tradeErr).action).toBe("retry");
   });

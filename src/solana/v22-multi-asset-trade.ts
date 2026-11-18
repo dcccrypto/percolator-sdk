@@ -211,7 +211,7 @@ export function refineMultiAssetTradePlanV22(plan: MultiAssetTradePlanV22, err: 
   if (!ie) return { action: "fail", plan, code, reason: "not an instruction error" };
   // The wrapper `?`-propagates a matcher CPI's error, so a matcher's Custom 19/22 reaches us as the trade's own code.
   // The first "Program X failed" log names the program that raised it; only the wrapper's codes drive the rules below.
-  const origin = logs?.map((l) => /^Program (\S+) failed: /.exec(l)?.[1]).find((p) => p !== undefined);
+  const origin = logs?.map((l) => /^Program ([1-9A-HJ-NP-Za-km-z]{32,44}) failed:/.exec(l)?.[1]).find((p) => p !== undefined);
   if (code !== null && origin !== undefined && origin !== plan.programId.toBase58()) {
     return { action: "fail", plan, code, reason: `refused with ${code} by program ${origin} (not the wrapper)` };
   }
