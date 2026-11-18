@@ -68,10 +68,9 @@ describe("pricing helper arms", () => {
     expect(vaultLpEquityLagBoundsP3({ legs: [], certifiedEquity: 0n, capital: 10n, pnl: -30n, feeCredits: 0n })).toEqual({ worse: 0n, better: 0n });
   });
   it("liveExitSeniorValueP3 with worse < 0 and nav <= c (no excess above C)", () => {
-    // d = 100, nav - c clamps to 0 => pricing claim over zero excess; result capped by max(0, nav - d)
+    // d = 100_000, nav - c clamps to 0 => pricing claim over zero excess; result capped by max(0, nav - d)
     const r = liveExitSeniorValueP3(1_000_000n, 900_000n, 0n, -100_000n);
-    expect(r).toBeLessThanOrEqual(800_000n);
-    expect(r).toBeGreaterThan(0n);
+    expect(r).toBe(800_000n);
     // nav <= d floors the NAV side at 0
     expect(liveExitSeniorValueP3(1_000_000n, 50_000n, 0n, -100_000n)).toBe(0n);
   });
