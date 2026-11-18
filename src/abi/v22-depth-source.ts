@@ -143,7 +143,7 @@ function memoDerive(memo: Map<string, [PublicKey, number]>, key: string, derive:
   memo.set(key, v);
   return [v[0], v[1]];
 }
-const hex = (a: PublicKey, b?: PublicKey): string => Buffer.from(a.toBytes()).toString("latin1") + (b ? Buffer.from(b.toBytes()).toString("latin1") : "");
+const keyOf = (a: PublicKey, b?: PublicKey): string => Buffer.from(a.toBytes()).toString("latin1") + (b ? Buffer.from(b.toBytes()).toString("latin1") : "");
 
 /** @internal Memoised programData PDA of `programId` (BPF upgradeable loader). */
 export function programDataAddressV22(programId: PublicKey): PublicKey {
