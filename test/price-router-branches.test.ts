@@ -453,3 +453,26 @@ describe("junk price strings must not become a source (parseFloat lead)", () => 
     expect((await resolvePrice(MINT)).bestSource?.price).toBe(0.0015);
   });
 });
+
+describe("strict price parse: accepted and non-string inputs", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("accepts numeric exponent, padded string, numeric v3", async () => {
+    stubFetch(dexBody(pair({ priceUsd: 1e-7 })), "http500");
+    expect((await resolvePrice(MINT)).bestSource?.price).toBe(1e-7);
+    stubFetch(dexBody(pair({ priceUsd: " 0.5 " })), "http500");
+    expect((await resolvePrice(MINT)).bestSource?.price).toBe(0.5);
+    stubFetch("http500", jupV3(2.5, 5000));
+    expect((await resolvePrice(MINT)).bestSource?.price).toBe(2.5);
+  });
+
+  it("drops boolean/object jupiter prices", async () => {
+    stubFetch("http500", jupV3(true, 5000));
+    expect((await resolvePrice(MINT)).bestSource).toBeNull();
+    stubFetch("http500", { data: { [MINT]: { price: {}, mintSymbol: "T" } } });
+    expect((await resolvePrice(MINT)).bestSource).toBeNull();
+  });
+});
