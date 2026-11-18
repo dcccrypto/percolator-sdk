@@ -88,7 +88,7 @@ export default defineConfig({
       "test/oracle-chainlink-bytes.test.ts",
       "test/backing-bucket-decode-parity.test.ts",
       "test/price-router-branches.test.ts",
-      "test/dex-oracle-layout-bytes.test.ts",
+      "test/dex-oracle-layout-bytes.test.ts", "test/dex-oracle-differential.test.ts",
       "test/oracle-staleness-nan.test.ts",
       "test/trading-math-behaviour.test.ts",
       "test/trading-parity.test.ts", "test/trading-liq-property.test.ts",
