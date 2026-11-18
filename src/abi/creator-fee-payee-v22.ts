@@ -75,6 +75,27 @@ function eq32(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+/** Max entries per derivation cache; the oldest entry is evicted first (insertion order). */
+export const CREATOR_FEE_PAYEE_CACHE_CAP_V22 = 1024;
+type Derived = [PublicKey, number];
+const PAYEE_PDA_CACHE = new Map<string, Derived>();
+const PAYEE_ATA_CACHE = new Map<string, Derived>();
+const keyStr = (k: Uint8Array): string => String.fromCharCode.apply(null, k as unknown as number[]);
+function cacheGet(m: Map<string, Derived>, key: Uint8Array): Derived | undefined {
+  return m.get(keyStr(key));
+}
+function cachePut(m: Map<string, Derived>, key: Uint8Array, v: Derived): void {
+  if (m.size >= CREATOR_FEE_PAYEE_CACHE_CAP_V22) {
+    const oldest = m.keys().next().value;
+    if (oldest !== undefined) m.delete(oldest);
+  }
+  m.set(keyStr(key), v);
+}
+/** Test hook: current entry counts of the (PDA, ATA) caches. */
+export function creatorFeePayeeCacheSizesV22(): [number, number] {
+  return [PAYEE_PDA_CACHE.size, PAYEE_ATA_CACHE.size];
+}
+
 function checkAssetIndex(assetIndex: number, fn: string): void {
   if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex > 0xffff) {
     throw new Error(`${fn}: assetIndex ${assetIndex} is not a u16`);
@@ -117,7 +138,7 @@ export function encodeSetCreatorFeePayeeV22(args: SetCreatorFeePayeeArgsV22): Ui
     encU8(TAG_SET_CREATOR_FEE_PAYEE_V22),
     encU16(args.assetIndex),
     encU64(args.marketId),
-    encPubkey(new PublicKey(payee)),
+    payee,
     encU64(args.authorityEpoch),
   );
 }
@@ -179,7 +200,17 @@ export function deriveCreatorFeePayeeV22(programId: PublicKey, market: PublicKey
   checkAssetIndex(assetIndex, "deriveCreatorFeePayeeV22");
   const idx = new Uint8Array(2);
   new DataView(idx.buffer).setUint16(0, assetIndex, true);
-  return PublicKey.findProgramAddressSync([Buffer.from(CREATOR_FEE_PAYEE_SEED_V22), market.toBuffer(), Buffer.from(idx)], programId);
+  const mb = market.toBytes();
+  const pb = programId.toBytes();
+  const key = new Uint8Array(66 + 2);
+  key.set(pb, 0);
+  key.set(mb, 32);
+  key.set(idx, 64);
+  const hit = cacheGet(PAYEE_PDA_CACHE, key);
+  if (hit) return [hit[0], hit[1]];
+  const r = PublicKey.findProgramAddressSync([Buffer.from(CREATOR_FEE_PAYEE_SEED_V22), mb, Buffer.from(idx)], programId);
+  cachePut(PAYEE_PDA_CACHE, key, r);
+  return [r[0], r[1]];
 }
 
 /** Associated Token Account program id (the one `canonical_vault_address` derives under). */
@@ -201,10 +232,16 @@ const SPL_TOKEN_PROGRAM_ID_V22 = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf
  * ```
  */
 export function creatorFeePayeeDestinationV22(payee: PublicKey, vaultMint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [payee.toBuffer(), SPL_TOKEN_PROGRAM_ID_V22.toBuffer(), vaultMint.toBuffer()],
-    ASSOCIATED_TOKEN_PROGRAM_ID_V22,
-  )[0];
+  const pb = payee.toBytes();
+  const mb = vaultMint.toBytes();
+  const key = new Uint8Array(64);
+  key.set(pb, 0);
+  key.set(mb, 32);
+  const hit = cacheGet(PAYEE_ATA_CACHE, key);
+  if (hit) return hit[0];
+  const r = PublicKey.findProgramAddressSync([pb, SPL_TOKEN_PROGRAM_ID_V22.toBytes(), mb], ASSOCIATED_TOKEN_PROGRAM_ID_V22);
+  cachePut(PAYEE_ATA_CACHE, key, [r[0], r[1]]);
+  return r[0];
 }
 
 // ============================================================================
@@ -261,8 +298,8 @@ export function decodeCreatorFeePayeeV22(data: Uint8Array, table: LayoutTable = 
   if (eq32(payee, ZERO32)) bad("zero payee");
   if (reserved.some((x) => x !== 0)) bad("reserved bytes not zero");
   return {
-    market: new PublicKey(market.slice()),
-    payee: new PublicKey(payee.slice()),
+    market: new PublicKey(market),
+    payee: new PublicKey(payee),
     assetIndex: data[b + F.assetIndex] | (data[b + F.assetIndex + 1] << 8),
     version,
     bump: data[b + F.bump],
