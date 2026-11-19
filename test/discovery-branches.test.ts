@@ -352,14 +352,10 @@ describe("discoverMarkets: account filtering (wrong size / version / magic)", ()
 });
 
 describe("discoverMarkets: fallback tiers", () => {
-  // SWALLOWED RPC ERROR (reported, NOT fixed in this PR — same class as indexer #286):
-  // src/solana/discovery.ts:787-793 (`catch (memcmpErr)` only console.warn's) after
-  // 765-770 (outer `catch (err)`). When every getProgramAccounts call rejects (RPC down /
-  // rejects gPA), discoverMarkets resolves to [] — indistinguishable from "no markets".
-  // The correct contract is to surface the failure. `it.fails` keeps the suite green while
-  // the bug stands; when it is fixed this test starts "passing" and vitest flags it so the
-  // `.fails` can be removed.
-  it("BUG: RPC down for every query should reject, not resolve to []", async () => {
+  // When every attempted tier throws (RPC down), discoverMarkets rejects instead of
+  // resolving to [] (which is indistinguishable from "no markets"). A tier that succeeds
+  // with 0 rows still yields [].
+  it("RPC down for every query rejects, not resolves to []", async () => {
     const c = conn();
     c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
     await expect(discoverMarkets(c, programId)).rejects.toThrow(/RPC down/);
@@ -411,7 +407,7 @@ describe("discoverMarkets: fallback tiers", () => {
       if (isFullMemcmp(opts)) throw "memcmp-down"; // eslint-disable-line no-throw-literal
       return [];
     });
-    await discoverMarkets(c, programId);
+    await expect(discoverMarkets(c, programId)).rejects.toThrow(/memcmp-down/);
     expect(warn).toHaveBeenCalledWith(
       "[discoverMarkets] dataSize filters failed, falling back to memcmp:",
       "memcmp-down",

@@ -310,7 +310,7 @@ describe("discoverMarkets with tier-3 static fallback", () => {
     expect(result).toEqual([]);
   });
 
-  it("returns empty when all 3 tiers fail", async () => {
+  it("rejects when all 3 tiers fail", async () => {
     registerStaticMarkets("mainnet", [
       { slabAddress: fakePubkey(1).toBase58() },
     ]);
@@ -324,13 +324,13 @@ describe("discoverMarkets with tier-3 static fallback", () => {
     // API fails
     mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
-    const result = await discoverMarkets(mockConnection, programId, {
-      apiBaseUrl: "https://api.example.com",
-      network: "mainnet",
-      maxTierQueries: 1,
-    });
-
-    expect(result).toEqual([]);
+    await expect(
+      discoverMarkets(mockConnection, programId, {
+        apiBaseUrl: "https://api.example.com",
+        network: "mainnet",
+        maxTierQueries: 1,
+      }),
+    ).rejects.toThrow(/429 Too Many Requests.*Network error.*RPC unavailable/s);
   });
 
   it("skips tier 3 when static bundle is empty for the network", async () => {
