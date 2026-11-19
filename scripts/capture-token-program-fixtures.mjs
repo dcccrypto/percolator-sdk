@@ -1,6 +1,6 @@
 // Read-only devnet capture for test/token-program-real-mints.test.ts (run once).
 // Usage: node scripts/capture-token-program-fixtures.mjs > test/fixtures/token-program-real-mints.json
-// RPC: PERCOLATOR_RPC_URL or public devnet. Only getAccountInfo / getTokenLargestAccounts.
+// RPC: PERCOLATOR_RPC_URL or public devnet. Only getAccountInfo / getSignaturesForAddress / getTransaction.
 import { PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 
@@ -35,13 +35,13 @@ for (const [name, mintStr] of Object.entries(MINTS)) {
   const info = res.value;
   const progId = new PublicKey(info.owner);
   let owner = null, ata = null;
-  // Candidate owners: mint authority (COption at byte 0..36), then top holders' owners.
+  // Candidate owner 1: mint authority (COption at byte 0..36).
   const raw = Buffer.from(info.data[0], "base64");
   const cands = [];
   if (raw.readUInt32LE(0) === 1) cands.push(new PublicKey(raw.subarray(4, 36)));
   for (const o of cands) {
-    for (const off of [true]) {
-      const a = getAssociatedTokenAddressSync(mint, o, off, progId);
+    {
+      const a = getAssociatedTokenAddressSync(mint, o, true, progId);
       const ta = await acct(a.toBase58());
       if (ta.value && ta.value.owner === info.owner) { owner = o; ata = a.toBase58(); break; }
     }
@@ -53,7 +53,7 @@ for (const [name, mintStr] of Object.entries(MINTS)) {
     outer: for (const sg of sigs) {
       if (sg.err) continue;
       const tx = await rpc("getTransaction", [sg.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]);
-      const keys = tx?.transaction.message.accountKeys.map((k) => k.pubkey) ?? [];
+      const keys = tx?.transaction?.message.accountKeys.map((k) => k.pubkey) ?? [];
       for (const tb of tx?.meta?.postTokenBalances ?? []) {
         if (tb.mint !== mintStr || !tb.owner) continue;
         const o = new PublicKey(tb.owner);

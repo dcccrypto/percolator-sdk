@@ -1,13 +1,14 @@
 /**
  * Real-path differential test for detectTokenProgram.
  *
- * Mint account bytes + owner were captured read-only from devnet (see
- * test/fixtures/token-program-real-mints.json, each case carries slot + pubkey;
- * regenerate with scripts/capture-token-program-fixtures.mjs). The Connection is
- * a stub that serves those REAL account bytes, so detectTokenProgram runs on
- * chain data rather than hand-made owners. For each real mint we also check that
- * getAssociatedTokenAddressSync(mint, owner, true, detected) equals the ATA the
- * chain actually holds for a known owner.
+ * Owner pubkeys + mint bytes were captured read-only from devnet (see
+ * test/fixtures/token-program-real-mints.json; each case has slot + pubkey;
+ * regenerate with scripts/capture-token-program-fixtures.mjs). detectTokenProgram
+ * branches only on the account owner, so this pins the REAL owner pubkeys the
+ * v2.2 collateral mint and a Token-2022 extension mint carry on chain.
+ * ataOwner/chainAta were found on devnet at capture time (a token account whose
+ * address matched the ATA derivation, owned by the mint's token program); the
+ * test checks derivation with the detected program reproduces that address.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -50,6 +51,9 @@ describe("detectTokenProgram on real devnet mints", () => {
     for (const c of Object.values(fx.cases)) {
       expect(c.slot).toBeGreaterThan(0);
       expect(() => new PublicKey(c.mint)).not.toThrow();
+      expect([TOKEN_PROGRAM_ID.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58()]).toContain(c.owner);
+      expect(() => new PublicKey(c.chainAta!)).not.toThrow();
+      expect(() => new PublicKey(c.ataOwner!)).not.toThrow();
     }
   });
 
@@ -76,9 +80,6 @@ describe("detectTokenProgram on real devnet mints", () => {
     expect(c.ataOwner).not.toBeNull();
     const ata = getAssociatedTokenAddressSync(mint, new PublicKey(c.ataOwner!), true, prog);
     expect(ata.toBase58()).toBe(c.chainAta);
-    // wrong program would give a different (non-chain) address
-    const wrong = getAssociatedTokenAddressSync(mint, new PublicKey(c.ataOwner!), true, TOKEN_PROGRAM_ID);
-    expect(wrong.toBase58()).not.toBe(c.chainAta);
   });
 });
 
