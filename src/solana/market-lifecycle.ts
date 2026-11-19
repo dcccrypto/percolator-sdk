@@ -206,6 +206,12 @@ export interface CloseSlabAttemptArgs {
    * whenever residue may exist.
    */
   residueMint?: PublicKey;
+  /**
+   * Wrapped-SOL (native) primary mint only: native residue cannot be burned, so the handler escheats it to the asset-0
+   * insurance authority's ATA, read at `residueMint` index + 1 (:26352, writable, must equal that canonical ATA).
+   * Requires `residueMint`.
+   */
+  residueEscheatDest?: PublicKey;
   /** prog #651: the payee grace is over (`readCreatorFeeClaimStateV22(data, i, nowSlot).payeeGraceOver`). Default false. */
   payeeGraceOver?: boolean;
 }
@@ -311,7 +317,11 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
       { pubkey: a.secondaryCollateral.destAta, isSigner: false, isWritable: true },
     );
   }
+  if (a.residueEscheatDest && !a.residueMint) {
+    throw new Error("planCloseSlabAttempt: residueEscheatDest requires residueMint");
+  }
   if (a.residueMint) closeKeys.push({ pubkey: a.residueMint, isSigner: false, isWritable: true });
+  if (a.residueEscheatDest) closeKeys.push({ pubkey: a.residueEscheatDest, isSigner: false, isWritable: true });
   ixs.push(new TransactionInstruction({
     programId: a.programId,
     keys: closeKeys,

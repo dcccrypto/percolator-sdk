@@ -75,5 +75,12 @@ describe("market-lifecycle vs wrapper handler parsing", () => {
     const solo = planCloseSlabAttempt({ ...a, residueMint: mint });
     expect(solo[solo.length - 1]!.keys[6]!.pubkey.equals(mint)).toBe(true);
     expect(solo[solo.length - 1]!.keys).toHaveLength(7);
+    // native residue: escheat ATA at mint index + 1 (:26352)
+    const dest = pk();
+    const nat = planCloseSlabAttempt({ ...a, residueMint: mint, residueEscheatDest: dest });
+    const nk = nat[nat.length - 1]!.keys;
+    expect(nk).toHaveLength(8);
+    expect(nk[7]).toEqual({ pubkey: dest, isSigner: false, isWritable: true });
+    expect(() => planCloseSlabAttempt({ ...a, residueEscheatDest: dest })).toThrow(/requires residueMint/);
   });
 });
