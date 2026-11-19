@@ -435,8 +435,8 @@ export interface PotEngineRecordsP2b {
  */
 export function readPotEngineRecordsP2b(marketData: Uint8Array, domain: number): PotEngineRecordsP2b {
   const g = resolveMarketGeometry(marketData, { parser: "readPotEngineRecordsP2b", strictLength: false });
-  if (!Number.isInteger(domain) || domain < 0) throw new Error(`bad domain ${domain}`);
-  const asset = domain >> 1;
+  if (!Number.isSafeInteger(domain) || domain < 0) throw new Error(`bad domain ${domain}`);
+  const asset = Math.floor(domain / 2); // not `>> 1`: that wraps at 2^31 and would silently read another asset's pot
   const short = (domain & 1) === 1;
   const engineBase = g.engineOff(asset);
   const scOff = engineBase + (short ? g.layout.engineSlot.sourceCreditShort : g.layout.engineSlot.sourceCreditLong);
