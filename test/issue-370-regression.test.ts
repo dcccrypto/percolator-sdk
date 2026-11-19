@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+// Static import: loading slab.ts (+ web3.js) took ~2-3 s inside the test body via
+// `await import()`, i.e. against the 5 s default timeout (5.6 s once under load).
+// At the top level that cost lands in collection, not in the test.
+import { detectSlabLayout, maxAccountIndex } from "../src/solana/slab";
 
 describe("#370 — maxAccountIndex must never exceed the layout's own maxAccounts", () => {
   // The region after `accountsOff` is NOT solely the accounts array: on the
@@ -16,8 +20,7 @@ describe("#370 — maxAccountIndex must never exceed the layout's own maxAccount
     [1495024, 4096],
   ] as const;
 
-  it("is bounded by layout.maxAccounts on every v12.19 tier", async () => {
-    const { detectSlabLayout, maxAccountIndex } = await import("../src/solana/slab");
+  it("is bounded by layout.maxAccounts on every v12.19 tier", () => {
     let checked = 0;
     for (const [dataLen, expectedMax] of V12_19) {
       const layout = detectSlabLayout(dataLen);
