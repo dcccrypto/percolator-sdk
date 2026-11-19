@@ -4,7 +4,7 @@
  * scripts/p3-parity/sdk_p3_parity.rs: `Instruction::decode` of our encoder hex, rustc
  * `offset_of!`, `PercolatorError::X as u32`, `read_asset_vault_lp`, `init_vault_lp_state`.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";
 import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { buildCreateLpPortfolioIxV22, portfolioAccountLenV22 } from "../src/solana/v22.js";
@@ -237,35 +237,59 @@ describe("P3 account lists and builders (verified against the handler bodies)", 
   });
   const market = pk(), lp = pk();
   const m = { programId: W, market, registryDomain: 1, lpPortfolio: lp };
-  it("tag 94 (07a1d0eb + controller 666df893): [0..10] marketauth only; [8] canonical matcher, [9] ctx (w), [10] delegate derived with the REGISTRY; [11] ext PDA by default", () => {
+  // Shared fixture + PDA derivations (bump searches) built once, outside the timed case.
+  let t94: {
+    auth: PublicKey; ctx: PublicKey; a: TransactionInstruction; bare: TransactionInstruction;
+    extPda: PublicKey; reg: PublicKey; delegate: PublicKey;
+    exp: { registry: PublicKey; state: PublicKey; ownLedger: PublicKey; siblingLedger: PublicKey; programData: PublicKey };
+    matcher: PublicKey; v19Ix: TransactionInstruction; looseIx: TransactionInstruction;
+  };
+  beforeAll(() => {
     const auth = pk(), ctx = pk();
-    const a = buildInitVaultLpIxP3(m, auth, 2_000, ctx);
+    const matcher = new PublicKey(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3);
+    const [reg] = deriveLpVaultRegistry(W, market);
+    t94 = {
+      auth, ctx,
+      a: buildInitVaultLpIxP3(m, auth, 2_000, ctx),
+      bare: buildInitVaultLpIxP3(m, auth, 2_000, ctx, undefined, { withVaultLpExt: false }),
+      extPda: PublicKey.findProgramAddressSync([Buffer.from("vault_lp_ext"), market.toBytes()], W)[0],
+      reg,
+      delegate: deriveMatcherDelegate(W, market, lp, reg, matcher, ctx)[0],
+      exp: {
+        registry: reg,
+        state: deriveVaultLpStateP3(W, market)[0],
+        ownLedger: deriveLpBackingLedger(W, market, 1)[0],
+        siblingLedger: deriveLpBackingLedger(W, market, 0)[0],
+        programData: deriveProgramDataAddressP3(W)[0],
+      },
+      matcher,
+      v19Ix: buildInitVaultLpIxP3(m, auth, 2_000, ctx, undefined, { data: Uint8Array.from([0x5e, 0xd0, 0x07, 0x26, 0x02]) }),
+      looseIx: (buildInitVaultLpIxP3 as unknown as (...args: unknown[]) => TransactionInstruction)(m, auth, 2_000, ctx, matcher, {}, pk()),
+    };
+  });
+  it("tag 94 (07a1d0eb + controller 666df893): [0..10] marketauth only; [8] canonical matcher, [9] ctx (w), [10] delegate derived with the REGISTRY; [11] ext PDA by default", () => {
+    const { auth, ctx, a, bare, extPda, delegate, exp, matcher, v19Ix, looseIx } = t94;
     // controller round: the optional [11] = ["vault_lp_ext", market] (w) is included by default (the bind creates the ext, cushion ON)
     expect(a.keys).toHaveLength(12);
-    expect(a.keys[11]).toEqual({ pubkey: PublicKey.findProgramAddressSync([Buffer.from("vault_lp_ext"), market.toBytes()], W)[0], isSigner: false, isWritable: true });
-    const bare = buildInitVaultLpIxP3(m, auth, 2_000, ctx, undefined, { withVaultLpExt: false });
+    expect(a.keys[11]).toEqual({ pubkey: extPda, isSigner: false, isWritable: true });
     expect(bare.keys).toHaveLength(11);
     expect(bare.keys.map((k) => k.pubkey.toBase58())).toEqual(a.keys.slice(0, 11).map((k) => k.pubkey.toBase58()));
     expect(Buffer.from(a.data).toString("hex")).toBe("5ed007"); // data unchanged: tag 94 + junior floor 2000
     // a growth bind passes its own tag-94 data; any other tag is refused client-side
-    const v19 = Uint8Array.from([0x5e, 0xd0, 0x07, 0x26, 0x02]);
-    expect(Buffer.from(buildInitVaultLpIxP3(m, auth, 2_000, ctx, undefined, { data: v19 }).data).toString("hex")).toBe("5ed0072602");
+    expect(Buffer.from(v19Ix.data).toString("hex")).toBe("5ed0072602");
     expect(() => buildInitVaultLpIxP3(m, auth, 2_000, ctx, undefined, { data: Uint8Array.from([0x5d]) })).toThrow(/tag 94/);
     expect(a.keys[0]).toEqual({ pubkey: auth, isSigner: true, isWritable: true });
-    expect(a.keys[2].pubkey.equals(deriveLpVaultRegistry(W, market)[0])).toBe(true);
-    expect(a.keys[3].pubkey.equals(deriveVaultLpStateP3(W, market)[0])).toBe(true);
-    expect(a.keys[6].pubkey.equals(deriveLpBackingLedger(W, market, 1)[0])).toBe(true); // own = registry domain
-    expect(a.keys[7].pubkey.equals(deriveLpBackingLedger(W, market, 0)[0])).toBe(true); // sibling = domain ^ 1
-    const matcher = new PublicKey(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3);
+    expect(a.keys[2].pubkey.equals(exp.registry)).toBe(true);
+    expect(a.keys[3].pubkey.equals(exp.state)).toBe(true);
+    expect(a.keys[6].pubkey.equals(exp.ownLedger)).toBe(true); // own = registry domain
+    expect(a.keys[7].pubkey.equals(exp.siblingLedger)).toBe(true); // sibling = domain ^ 1
     expect(a.keys[8]).toEqual({ pubkey: matcher, isSigner: false, isWritable: false });
     expect(a.keys[9]).toEqual({ pubkey: ctx, isSigner: false, isWritable: true });
-    const [reg] = deriveLpVaultRegistry(W, market);
-    expect(a.keys[10]).toEqual({ pubkey: deriveMatcherDelegate(W, market, lp, reg, matcher, ctx)[0], isSigner: false, isWritable: false });
+    expect(a.keys[10]).toEqual({ pubkey: delegate, isSigner: false, isWritable: false });
     // path B stays gone: a stray extra argument adds nothing beyond the default ext, the tail constant is not exported
-    const loose = buildInitVaultLpIxP3 as unknown as (...args: unknown[]) => TransactionInstruction;
-    expect(loose(m, auth, 2_000, ctx, matcher, {}, pk()).keys).toHaveLength(12);
+    expect(looseIx.keys).toHaveLength(12);
     expect((root as Record<string, unknown>).ACCOUNTS_INIT_VAULT_LP_PATH_B_TAIL_P3).toBeUndefined();
-    expect(a.keys.some((k) => k.pubkey.equals(deriveProgramDataAddressP3(W)[0]))).toBe(false);
+    expect(a.keys.some((k) => k.pubkey.equals(exp.programData))).toBe(false);
   });
   it("tag 94 (prog #684): the LP portfolio [4] is a writable SIGNER in every data variant, and only [0] and [4] sign", () => {
     const auth = pk(), ctx = pk();
