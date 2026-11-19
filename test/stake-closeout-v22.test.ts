@@ -67,8 +67,9 @@ describe("closeoutCreatorShare / closeoutSplit (Rust test_closeout_creator_share
   });
   it("conservation and exclusivity on a seeded random sample", () => {
     let st = 0x9e3779b97f4a7c15n;
-    const next = () => { st = (st * 6364136223846793005n + 1442695040888963407n) & U64; return st; }; // LCG, deterministic
-    const pick = () => { const m = next() % 4n; const x = next(); return m === 0n ? x % 10_000n : m === 1n ? x : m === 2n ? U64 - (x % 10n) : x % 1_000_000_000n; };
+    const next = () => { st = (st * 6364136223846793005n + 1442695040888963407n) & U64; return st >> 32n; }; // LCG, deterministic; high 32 bits (low bits of a 2^64 LCG are periodic)
+    const next64 = () => (next() << 32n) | next();
+    const pick = () => { const m = next() % 4n; const x = next64(); return m === 0n ? x % 10_000n : m === 1n ? x : m === 2n ? U64 - (x % 10n) : x % 1_000_000_000n; };
     const bad: string[] = [];
     for (let i = 0; i < 2000; i++) {
       const rel = next() % 3n === 0n ? undefined : pick();
