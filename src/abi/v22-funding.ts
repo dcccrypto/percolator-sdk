@@ -65,6 +65,7 @@ const A_OI_SHORT = 305;
 
 const P_ORACLE_MODE = 0;
 const P_MARK_EWMA = 168;
+const P_MARK_EWMA_LAST_SLOT = 176;
 const P_FUNDING_MARK = 432;
 const P_FUNDING_MARK_PENDING = 440;
 const P_FUNDING_MARK_PENDING_SLOT = 448;
@@ -241,12 +242,14 @@ export function decodeMarketFundingV22(marketData: Uint8Array): MarketFundingV22
     const markEwma = u64(marketData, wrapperProfile + P_MARK_EWMA);
     const pendingE6 = u64(marketData, wrapperProfile + P_FUNDING_MARK_PENDING);
     const pendingSlot = u64(marketData, wrapperProfile + P_FUNDING_MARK_PENDING_SLOT);
+    // Wrapper `permissionless_funding_rate_e9_view`: checkpoint 0 and EWMA slot ahead of the engine => whole rate 0.
+    const legacyAhead = mark === 0n && u64(marketData, wrapperProfile + P_MARK_EWMA_LAST_SLOT) > slotLast;
     const activeMark = mark !== 0n ? mark : markEwma;
     const bound = (marketData[vaultLp + V_FLAGS]! & 1) === 1;
     const slope = u64(marketData, vaultLp + V_SKEW_SLOPE);
     const skewMax = u64(marketData, vaultLp + V_SKEW_MAX);
     const lpNetQ = i128(marketData, vaultLp + V_LP_NET_Q);
-    const managed = PRICE_MANAGED_MODES.has(oracleMode);
+    const managed = PRICE_MANAGED_MODES.has(oracleMode) && !legacyAhead;
     const premium = managed ? premiumFundingRateE9V22(activeMark, effective, maxAbs) : 0n;
     const skew = managed && maxAbs !== 0n && bound && slope !== 0n ? skewFundingRateE9V22(lpNetQ, oiL > oiS ? oiL : oiS, slope, skewMax) : 0n;
     const rate = managed && maxAbs !== 0n ? combineFundingRateE9V22(premium, skew, maxAbs) : 0n;

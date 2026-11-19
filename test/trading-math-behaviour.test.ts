@@ -23,14 +23,17 @@ describe("computeMarkPnl", () => {
     expect(computeMarkPnl(0n, 100n, 200n)).toBe(0n);
     expect(computeMarkPnl(5n, 100n, 0n)).toBe(0n);
   });
-  it("long gains when oracle rises: (200-100)*1000/200", () => {
-    expect(computeMarkPnl(1000n, 100n, 200n)).toBe(500n);
+  it("long gains when oracle rises: (200e6-100e6)*1e6/1e6", () => {
+    expect(computeMarkPnl(1_000_000n, 100_000_000n, 200_000_000n)).toBe(100_000_000n);
   });
-  it("short gains when oracle falls: (200-100)*1000/100", () => {
-    expect(computeMarkPnl(-1000n, 200n, 100n)).toBe(1000n);
+  it("short gains when oracle falls: (200e6-100e6)*1e6/1e6", () => {
+    expect(computeMarkPnl(-1_000_000n, 200_000_000n, 100_000_000n)).toBe(100_000_000n);
   });
-  it("short loses when oracle rises, truncating toward zero", () => {
-    expect(computeMarkPnl(-1000n, 100n, 300n)).toBe(-666n);
+  it("short loses when oracle rises, flooring toward -infinity like the engine", () => {
+    // -200 * 1000 / 1e6 = -0.2 -> floor -1 (not truncated to 0)
+    expect(computeMarkPnl(-1000n, 100n, 300n)).toBe(-1n);
+    // positive fractional results floor toward zero
+    expect(computeMarkPnl(1000n, 100n, 300n)).toBe(0n);
   });
 });
 

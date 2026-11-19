@@ -298,6 +298,41 @@ describe("guard tail on TradeCpi / EvictAndTradeCpi", () => {
     expect(b.keys).toHaveLength(a.keys.length);
     expect(hex(encodeEvictAndTradeCpiV22(new Uint8Array([10, 0])))).toBe("7700");
   });
+  // prog v16_program.rs on feat/v22-rc23-2026-10-22: lev_guard_split takes only the LAST account (owner = prog, kind 17); a guard anywhere
+  // else is a matcher-tail account and validate_matcher_tail refuses `ai.owner == program_id` (InvalidInstruction); lev_guard_store runs
+  // expect_writable(guard) (ExpectedWritable).
+  it("a guard that is already present but not last is moved last, never listed twice", () => {
+    const t = tradeIx();
+    const extra = pk();
+    const withMid = new TransactionInstruction({
+      programId: PROGRAM,
+      keys: [...t.keys, { pubkey: guard, isSigner: false, isWritable: true }, { pubkey: extra, isSigner: false, isWritable: false }],
+      data: t.data,
+    });
+    const out = B.withLevGuardTailV22(withMid, MARKET);
+    expect(out.keys.filter((k) => k.pubkey.equals(guard))).toHaveLength(1);
+    expect(out.keys[out.keys.length - 1]).toEqual({ pubkey: guard, isSigner: false, isWritable: true });
+    expect(out.keys[out.keys.length - 2].pubkey.equals(extra)).toBe(true);
+    expect(out.keys).toHaveLength(withMid.keys.length);
+  });
+  it("a read-only guard already in last place is upgraded to writable", () => {
+    const t = tradeIx();
+    const ro = new TransactionInstruction({ programId: PROGRAM, keys: [...t.keys, { pubkey: guard, isSigner: false, isWritable: false }], data: t.data });
+    const out = B.withLevGuardTailV22(ro, MARKET);
+    expect(out.keys).toHaveLength(t.keys.length + 1);
+    expect(out.keys[out.keys.length - 1]).toEqual({ pubkey: guard, isSigner: false, isWritable: true });
+  });
+  it("market index per tag: TradeCpi [1], EvictAndTradeCpi [2] (prog: handle_evict_and_trade_cpi market = account 2, inner dispatch = accounts[1..])", () => {
+    const t = tradeIx();
+    const victim = pk();
+    const ev = buildEvictAndTradeCpiIxV22(t, victim);
+    expect(ev.keys[2].pubkey.equals(MARKET)).toBe(true);
+    expect(B.withLevGuardTailV22(ev, MARKET).keys).toHaveLength(ev.keys.length + 1);
+    // TradeCpi keys with the market at [2] are refused for tag 10, and an evict ix with it at [1] is refused for tag 119
+    const swapped = new TransactionInstruction({ programId: PROGRAM, keys: [t.keys[0], t.keys[2], t.keys[1], ...t.keys.slice(3)], data: t.data });
+    expect(() => B.withLevGuardTailV22(swapped, MARKET)).toThrow(/market/);
+    expect(() => B.withLevGuardTailV22(new TransactionInstruction({ programId: PROGRAM, keys: t.keys, data: ev.data }), MARKET)).toThrow(/market/);
+  });
   it("refuses other tags and a wrong market", () => {
     const t = tradeIx();
     expect(() => B.withLevGuardTailV22(new TransactionInstruction({ programId: PROGRAM, keys: t.keys, data: Buffer.from([11, 0]) }), MARKET)).toThrow(/TradeCpi/);
