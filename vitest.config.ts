@@ -91,6 +91,7 @@ export default defineConfig({
       "test/price-router-branches.test.ts",
       "test/dex-oracle-layout-bytes.test.ts",
       "test/oracle-staleness-nan.test.ts",
+      "test/oracle-chainlink-differential.test.ts",
       "test/trading-math-behaviour.test.ts",
       "test/trading-parity.test.ts", "test/trading-liq-property.test.ts",
       "test/warmup-math.test.ts",
