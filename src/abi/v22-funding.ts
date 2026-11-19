@@ -144,7 +144,7 @@ export interface MarketFundingV22 {
 }
 
 /**
- * `policy_v16::premium_funding_rate_e9` (percolator-prog `v16_program.rs:11752`): signed, bounded premium of the mark over the index.
+ * `policy_v16::premium_funding_rate_e9` (percolator-prog `v16_program.rs:13129` at d27f3d73): signed, bounded premium of the mark over the index.
  *
  * @param markE6       Mark (`funding_mark_e6`).
  * @param indexE6      Index (`effective_price`).
@@ -164,7 +164,7 @@ export function premiumFundingRateE9V22(markE6: bigint, indexE6: bigint, maxAbsR
 }
 
 /**
- * `vault_lp_v18::skew_funding_rate_e9` (percolator-prog `src/vault_lp_v18.rs:247`): the vault-LP skew component.
+ * `vault_lp_v18::skew_funding_rate_e9` (percolator-prog `src/vault_lp_v18.rs:272` at d27f3d73): the vault-LP skew component.
  * A SHORT vault LP (`lpNetQ < 0`, crowd net long) gives a positive rate (longs pay).
  *
  * @param lpNetQ    Vault LP signed position.
