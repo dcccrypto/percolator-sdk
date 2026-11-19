@@ -41,15 +41,41 @@ describe("closeoutCreatorShare / closeoutSplit (Rust test_closeout_creator_share
     expect(closeoutCreatorShare(1n, 5_000_000n, 0n, 6_000_000n)).toBe(1n);
     expect(split(U64, U64, 0n, undefined, true)).toEqual({ creator: U64, stakers: 0n, unclaimed: 0n });
   });
-  it("conservation and exclusivity on a grid", () => {
+  // The grid proves, for every (surplus, seed, forwarded, creatorClassReleased, hasRealStakers):
+  //   1. conservation: creator + stakers + unclaimed === surplus
+  //   2. exclusivity: stakers === 0 || unclaimed === 0
+  //   3. creator <= seed
+  //   4. if forwarded <= seed: forwarded + creator <= seed (partial calls never exceed the seed)
+  // Boundary values (0, 1, seed-1, seed, seed+1, a mid value, U64-1, U64) cover every comparison edge; a seeded
+  // (deterministic) random sample over the full u64 range adds interior points. Violations are collected with plain
+  // checks and asserted once: ~4k per-iteration expect() calls made this test time out under load.
+  const check = (surplus: bigint, seed: bigint, fw: bigint, rel: bigint | undefined, real: boolean, bad: string[]) => {
+    const r = split(surplus, seed, fw, rel, real);
+    const tag = `${surplus}/${seed}/${fw}/${rel}/${real}`;
+    if (r.creator + r.stakers + r.unclaimed !== surplus) bad.push(`conservation ${tag}`);
+    if (r.stakers !== 0n && r.unclaimed !== 0n) bad.push(`exclusivity ${tag}`);
+    if (r.creator > seed) bad.push(`creator>seed ${tag}`);
+    if (fw <= seed && fw + r.creator > seed) bad.push(`fw+creator>seed ${tag}`);
+  };
+  it("conservation and exclusivity on a boundary grid", () => {
     const vals = [0n, 1n, 4_999n, 5_000n, 5_001n, 1_000_000n, U64 - 1n, U64];
+    const bad: string[] = [];
     for (const surplus of vals) for (const seed of vals) for (const fw of vals) for (const rel of [undefined, 0n, 3_000n, U64]) for (const real of [true, false]) {
-      const r = split(surplus, seed, fw, rel, real);
-      expect(r.creator + r.stakers + r.unclaimed).toBe(surplus);
-      expect(r.stakers === 0n || r.unclaimed === 0n).toBe(true);
-      expect(r.creator <= seed).toBe(true);
-      if (fw <= seed) expect(fw + r.creator <= seed).toBe(true);
+      check(surplus, seed, fw, rel, real, bad);
     }
+    expect(bad).toEqual([]);
+  });
+  it("conservation and exclusivity on a seeded random sample", () => {
+    let st = 0x9e3779b97f4a7c15n;
+    const next = () => { st = (st * 6364136223846793005n + 1442695040888963407n) & U64; return st >> 32n; }; // LCG, deterministic; high 32 bits (low bits of a 2^64 LCG are periodic)
+    const next64 = () => (next() << 32n) | next();
+    const pick = () => { const m = next() % 4n; const x = next64(); return m === 0n ? x % 10_000n : m === 1n ? x : m === 2n ? U64 - (x % 10n) : x % 1_000_000_000n; };
+    const bad: string[] = [];
+    for (let i = 0; i < 2000; i++) {
+      const rel = next() % 3n === 0n ? undefined : pick();
+      check(pick(), pick(), pick(), rel, (next() & 1n) === 0n, bad);
+    }
+    expect(bad).toEqual([]);
   });
 });
 
