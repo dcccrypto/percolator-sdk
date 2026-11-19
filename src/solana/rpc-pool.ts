@@ -781,48 +781,61 @@ export class RpcPool {
   private selectEndpoint(exclude?: Set<number>): number {
     // Time-based auto-recovery: restore endpoints that have been unhealthy
     // for longer than recoveryAfterMs so they can be retried.
+    const eps = this.endpoints;
+    const n = eps.length;
     if (this.recoveryAfterMs > 0) {
-      const now = Date.now();
-      for (const ep of this.endpoints) {
-        if (!ep.healthy && ep.unhealthySince !== undefined && (now - ep.unhealthySince) >= this.recoveryAfterMs) {
-          ep.healthy = true;
-          ep.failures = 0;
-          ep.unhealthySince = undefined;
-          if (this.verbose) {
-            console.warn(`[RpcPool] Endpoint ${ep.label} restored after ${this.recoveryAfterMs}ms recovery window`);
+      // Date.now() is read lazily, only once an unhealthy endpoint is seen.
+      let now = -1;
+      for (let i = 0; i < n; i++) {
+        const ep = eps[i];
+        if (!ep.healthy && ep.unhealthySince !== undefined) {
+          if (now < 0) now = Date.now();
+          if ((now - ep.unhealthySince) >= this.recoveryAfterMs) {
+            ep.healthy = true;
+            ep.failures = 0;
+            ep.unhealthySince = undefined;
+            if (this.verbose) {
+              console.warn(`[RpcPool] Endpoint ${ep.label} restored after ${this.recoveryAfterMs}ms recovery window`);
+            }
           }
         }
       }
     }
 
-    const healthy = this.endpoints
-      .map((ep, i) => ({ ep, i }))
-      .filter(({ ep, i }) => ep.healthy && !(exclude?.has(i)));
-
-    if (healthy.length === 0) {
-      // No healthy endpoints — try all non-excluded
-      const remaining = this.endpoints
-        .map((_, i) => i)
-        .filter(i => !(exclude?.has(i)));
-      return remaining.length > 0 ? remaining[0] : -1;
+    // Single pass, no per-call arrays.
+    let firstHealthy = -1;
+    let firstRemaining = -1;
+    let totalWeight = 0;
+    const failover = this.strategy === "failover";
+    for (let i = 0; i < n; i++) {
+      if (exclude !== undefined && exclude.has(i)) continue;
+      if (firstRemaining < 0) firstRemaining = i;
+      const ep = eps[i];
+      if (ep.healthy) {
+        if (failover) return i;
+        if (firstHealthy < 0) firstHealthy = i;
+        totalWeight += ep.weight;
+      }
     }
 
-    if (this.strategy === "failover") {
-      // Return first healthy (by insertion order)
-      return healthy[0].i;
-    }
+    // No healthy endpoints — try all non-excluded (first one, or -1)
+    if (firstHealthy < 0) return firstRemaining;
 
     // Weighted round-robin
-    const totalWeight = healthy.reduce((sum, { ep }) => sum + ep.weight, 0);
     this.rrIndex = (this.rrIndex + 1) % totalWeight;
 
     let cumulative = 0;
-    for (const { ep, i } of healthy) {
+    let last = firstHealthy;
+    for (let i = firstHealthy; i < n; i++) {
+      if (exclude !== undefined && exclude.has(i)) continue;
+      const ep = eps[i];
+      if (!ep.healthy) continue;
       cumulative += ep.weight;
       if (this.rrIndex < cumulative) return i;
+      last = i;
     }
 
-    return healthy[healthy.length - 1].i;
+    return last;
   }
 
   /**
