@@ -80,6 +80,6 @@ describe("computeLiqPrice property vs engine reference", () => {
   it("computeMarkPnl: sign/zero/negative oracle never throws", () => {
     expect(computeMarkPnl(5n, 10n, 0n)).toBe(0n);
     expect(() => computeMarkPnl(5n, 10n, -3n)).not.toThrow();
-    expect(computeMarkPnl(-5n, 10n, 5n)).toBe(5n);
+    expect(computeMarkPnl(-5_000_000n, 10n, 5n)).toBe(25n);
   });
 });

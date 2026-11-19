@@ -1,9 +1,9 @@
 /**
- * Coin-margined perpetual trade math utilities.
+ * Perpetual trade math utilities.
  *
- * On-chain PnL formula:
- *   mark_pnl = (oracle - entry) * abs_pos / oracle   (longs)
- *   mark_pnl = (entry - oracle) * abs_pos / oracle   (shorts)
+ * v2.2 engine price PnL (linear, quote units, floor):
+ *   mark_pnl = floor((oracle - entry) * abs_pos / 1e6)   (longs)
+ *   mark_pnl = floor((entry - oracle) * abs_pos / 1e6)   (shorts)
  *
  * All prices are in e6 format (1 USD = 1_000_000).
  * All token amounts are in native units (e.g. lamports).
@@ -11,6 +11,12 @@
 
 /**
  * Compute mark-to-market PnL for an open position.
+ *
+ * Matches the v2.2 engine K-index settlement (percolator v16.rs
+ * leg_kf_delta_components_for_settlement_from_targets / scaled_adl_delta_with_carry_fast)
+ * on the fast path (a_basis == ADL_ONE, no carry): the result is in quote
+ * units, floored toward -infinity, and is NOT divided by the oracle. Does not
+ * model post-ADL a_basis scaling or funding.
  */
 export function computeMarkPnl(
   positionSize: bigint,
@@ -23,7 +29,11 @@ export function computeMarkPnl(
     positionSize > 0n
       ? oraclePrice - entryPrice
       : entryPrice - oraclePrice;
-  return (diff * absPos) / oraclePrice;
+  const POS_SCALE = 1_000_000n;
+  const num = diff * absPos;
+  const q = num / POS_SCALE;
+  // BigInt division truncates toward zero; the engine floors (Euclidean).
+  return num < 0n && num % POS_SCALE !== 0n ? q - 1n : q;
 }
 
 /**
