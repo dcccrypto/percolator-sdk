@@ -106,6 +106,7 @@ export default defineConfig({
       "test/ata.test.ts",
       "test/encode-edges.test.ts",
       "test/rpc-pool-branches.test.ts",
+      "test/funding-rate-rust-diff.test.ts",
     ],
   },
 });
