@@ -38,14 +38,15 @@ console.log("--- computeMarkPnl ---");
 assert(computeMarkPnl(0n, USD(100), USD(110)) === 0n, "zero position → 0");
 assert(computeMarkPnl(1000n, USD(100), 0n) === 0n, "zero oracle → 0");
 
-// Long profit: (110-100)*1M / 110 = 90909
-assert(computeMarkPnl(1_000_000n, USD(100), USD(110)) === 90909n, "long profit");
-// Long loss: (90-100)*1M / 90 = -111111
-assert(computeMarkPnl(1_000_000n, USD(100), USD(90)) === -111111n, "long loss");
-// Short profit: (100-90)*1M / 90 = 111111
-assert(computeMarkPnl(-1_000_000n, USD(100), USD(90)) === 111111n, "short profit");
-// Short loss: (100-110)*1M / 110 = -90909
-assert(computeMarkPnl(-1_000_000n, USD(100), USD(110)) === -90909n, "short loss");
+// v2.2 engine linear floor: floor(|q| * dP / 1e6), quote units
+// Long profit: (110-100)e6 * 1M / 1e6 = 10_000_000
+assert(computeMarkPnl(1_000_000n, USD(100), USD(110)) === 10_000_000n, "long profit");
+// Long loss: -10_000_000
+assert(computeMarkPnl(1_000_000n, USD(100), USD(90)) === -10_000_000n, "long loss");
+// Short profit: 10_000_000
+assert(computeMarkPnl(-1_000_000n, USD(100), USD(90)) === 10_000_000n, "short profit");
+// Short loss: -10_000_000
+assert(computeMarkPnl(-1_000_000n, USD(100), USD(110)) === -10_000_000n, "short loss");
 // No price change
 assert(computeMarkPnl(1_000_000n, USD(100), USD(100)) === 0n, "no change long");
 assert(computeMarkPnl(-1_000_000n, USD(100), USD(100)) === 0n, "no change short");

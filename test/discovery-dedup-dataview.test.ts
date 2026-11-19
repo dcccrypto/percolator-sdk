@@ -25,7 +25,7 @@ function pk(i: number): PublicKey {
   return new PublicKey(b);
 }
 
-function buildFixtures() {
+function buildFixturesUncached() {
   let seed = 0x1234abcd;
   const rnd = () => { seed ^= seed << 13; seed >>>= 0; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0; return seed; };
   const tiers = [
@@ -49,6 +49,24 @@ function buildFixtures() {
   return byDataSize;
 }
 
+// Fixtures are deterministic (fixed xorshift seed) and never mutated in place, so build them once
+// per file and hand out shallow copies of the map (the dup test replaces an entry's array).
+let fixtureCache: ReturnType<typeof buildFixturesUncached> | undefined;
+function buildFixtures() {
+  fixtureCache ??= buildFixturesUncached();
+  return new Map(fixtureCache);
+}
+
+// Decoding 400 random slabs is CPU-bound and ~3-4x slower under --coverage; 5s default flaked.
+const HEAVY_TIMEOUT_MS = 30_000;
+
+// Single un-spied baseline decode shared by the identical-output and duplicate-drop tests.
+let baselineRun: Promise<Awaited<ReturnType<typeof discoverMarkets>>> | undefined;
+function baseline() {
+  baselineRun ??= discoverMarkets(connFor(buildFixtures()), programId, { maxParallelTiers: 64 });
+  return baselineRun;
+}
+
 function connFor(byDataSize: Map<number, Array<{ pubkey: PublicKey; account: any }>>) {
   return {
     getProgramAccounts: async (_p: PublicKey, opts: any) => byDataSize.get(opts?.filters?.[0]?.dataSize) ?? [],
@@ -64,13 +82,13 @@ afterEach(() => vi.restoreAllMocks());
 describe("discoverMarkets perf change (DataView reuse + byte dedup)", () => {
   it("decodes every tier fixture identically to the pre-change output", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const markets = await discoverMarkets(connFor(buildFixtures()), programId, { maxParallelTiers: 64 });
+    const markets = await baseline();
     const sorted = [...markets].sort((a, b) => a.slabAddress.toBase58().localeCompare(b.slabAddress.toBase58()));
     const sha = createHash("sha256").update(JSON.stringify(sorted, replacer)).digest("hex");
     console.log(`GOLDEN count=${markets.length} sha=${sha}`);
     expect(markets.length).toBe(GOLDEN_COUNT);
     expect(sha).toBe(GOLDEN_SHA256);
-  });
+  }, HEAVY_TIMEOUT_MS);
 
   it("does not base58-encode pubkeys on the happy path", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -78,7 +96,7 @@ describe("discoverMarkets perf change (DataView reuse + byte dedup)", () => {
     const markets = await discoverMarkets(connFor(buildFixtures()), programId, { maxParallelTiers: 64 });
     expect(markets.length).toBeGreaterThan(0);
     expect(spy).not.toHaveBeenCalled();
-  });
+  }, HEAVY_TIMEOUT_MS);
 
   it("still drops a duplicate pubkey returned twice", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -86,9 +104,9 @@ describe("discoverMarkets perf change (DataView reuse + byte dedup)", () => {
     const [size, arr] = [...fx.entries()][0];
     fx.set(size, [...arr, { pubkey: arr[0].pubkey, account: arr[0].account }, { pubkey: new PublicKey(arr[0].pubkey.toBytes()), account: arr[0].account }]);
     const dup = await discoverMarkets(connFor(fx), programId, { maxParallelTiers: 64 });
-    const base = await discoverMarkets(connFor(buildFixtures()), programId, { maxParallelTiers: 64 });
+    const base = await baseline();
     expect(dup.length).toBe(base.length);
-  });
+  }, HEAVY_TIMEOUT_MS);
 
   it("skip warning still names the account in base58", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
