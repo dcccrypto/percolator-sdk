@@ -31,7 +31,7 @@ describe("computeMarkPnl matches v2.2 engine K settlement", () => {
     expect(computeMarkPnl(q, e, o)).toBe(engineMarkPnl(q > 0n ? 1n : -1n, q < 0n ? -q : q, e, o));
   });
 
-  it("0 mismatches over the full differential grid (22400 points)", () => {
+  it("0 mismatches over the full differential grid (22400 rows, 3200 distinct)", () => {
     const pows = (lo: number, hi: number) =>
       Array.from({ length: hi - lo + 1 }, (_, i) => 10n ** BigInt(lo + i));
     const prices = pows(3, 12);

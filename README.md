@@ -302,7 +302,7 @@ const [insMint, insBump] = deriveInsuranceLpMint(programId, slab);
 
 ### Trading Math
 
-Coin-margined perpetual math utilities (all BigInt, no floating-point):
+Perpetual math utilities (all BigInt, no floating-point):
 
 ```typescript
 import {
@@ -312,7 +312,7 @@ import {
   computeEffectiveLeverage,
 } from "@percolator/sdk";
 
-// Mark-to-market PnL (in native token units)
+// Mark-to-market PnL (v2.2 engine linear floor, quote units)
 const pnl = computeMarkPnl(positionSize, entryPriceE6, oraclePriceE6);
 
 // Liquidation price given capital and maintenance margin
