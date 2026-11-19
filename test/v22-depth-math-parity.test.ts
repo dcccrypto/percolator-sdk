@@ -27,13 +27,22 @@ describe("plus2PctDepthE6 vs prog", () => {
     for (const e of [0n, 1n, 2n, 1n << 32n, 1n << 52n, 1n << 63n, U64_MAX]) expect(set.has(e.toString())).toBe(true);
   });
   it("every R in 0..1e6 equals the exact definition r - (smallest m with 51 m^2 >= 50 r^2)", () => {
-    for (let r = 0; r <= 1_000_000; r++) {
-      const R = BigInt(r);
-      let m = R === 0n ? 0n : isqrtU128((50n * R * R) / 51n);
-      while (51n * m * m < 50n * R * R) m++;
-      while (m > 0n && 51n * (m - 1n) * (m - 1n) >= 50n * R * R) m--;
-      if (plus2PctDepthE6(R) !== R - m) throw new Error(`mismatch at R=${r}`);
+    // Reference side: monotone two-pointer, independent of the SDK's isqrt. m(r) = smallest m with 51 m^2 >= 50 r^2 is
+    // non-decreasing in r, so m only ever advances. Exactness in plain Number: r <= 1e6 so 50 r^2 <= 5e13, and m never
+    // exceeds the value that first reaches 50 r^2 / 51 (<= 1e6), so 51 m^2 <= 51 * 1e12 = 5.1e13 < 2^53 ~ 9.007e15;
+    // every product and comparison is an exact integer, no BigInt needed.
+    const RMAX = 1_000_000;
+    expect(51 * RMAX * RMAX).toBeLessThan(Number.MAX_SAFE_INTEGER);
+    let m = 0;
+    let checked = 0;
+    for (let r = 0; r <= RMAX; r++) {
+      const t = 50 * r * r;
+      while (51 * m * m < t) m++;
+      if (plus2PctDepthE6(BigInt(r)) !== BigInt(r - m)) throw new Error(`mismatch at R=${r}`);
+      checked++;
     }
+    console.log(`checked ${checked} values of R`);
+    expect(checked).toBe(1_000_001);
   }, 180_000);
   it("rejects out-of-range input", () => {
     expect(() => plus2PctDepthE6(-1n)).toThrow();
