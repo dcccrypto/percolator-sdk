@@ -359,10 +359,50 @@ describe("discoverMarkets: fallback tiers", () => {
   // The correct contract is to surface the failure. `it.fails` keeps the suite green while
   // the bug stands; when it is fixed this test starts "passing" and vitest flags it so the
   // `.fails` can be removed.
-  it.fails("BUG: RPC down for every query should reject, not resolve to []", async () => {
+  it("BUG: RPC down for every query should reject, not resolve to []", async () => {
     const c = conn();
     c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
     await expect(discoverMarkets(c, programId)).rejects.toThrow(/RPC down/);
+  });
+
+  it("dataSize+memcmp both throw with no apiBaseUrl/network -> rejects naming the tier", async () => {
+    const c = conn();
+    c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
+    await expect(discoverMarkets(c, programId)).rejects.toThrow(/rpc.*RPC down: 503/is);
+  });
+
+  it("memcmp throws but the REST API returns rows -> rows", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ markets: [{ slab_address: pk(30).toBase58() }] }),
+    }));
+    const c = conn();
+    c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
+    c.getMultipleAccountsInfo.mockResolvedValue([info(v17(1940, 19, 1))]);
+    const out = await discoverMarkets(c, programId, { apiBaseUrl: "https://api.test" });
+    expect(out).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("memcmp throws, API succeeds with 0 rows, no network -> [] (not an outage)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ markets: [] }) }));
+    const c = conn();
+    c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
+    expect(await discoverMarkets(c, programId, { apiBaseUrl: "https://api.test" })).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it("every attempted tier throws (rpc, api, static) -> rejects naming each", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("api-down")));
+    staticMock.fn.mockReturnValue([{ slabAddress: pk(31).toBase58() }]);
+    const c = conn();
+    c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
+    c.getMultipleAccountsInfo.mockRejectedValue(new Error("gma-down"));
+    await expect(
+      discoverMarkets(c, programId, { apiBaseUrl: "https://api.test", network: "devnet" }),
+    ).rejects.toThrow(/RPC down: 503.*api-down.*gma-down/s);
+    vi.unstubAllGlobals();
   });
 
   it("when memcmp fallback also fails both failures are warned", async () => {
