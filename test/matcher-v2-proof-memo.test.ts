@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   buildMatcherConfigureBackingFeeCapIx,
@@ -39,4 +39,30 @@ describe("deriveProof memo: differential vs uncached derivation", () => {
       expect(ix.keys).toEqual(matcherConfigureOwnerProofAccounts(a.lpOwner, a.matcherCtx));
     }
   }, 300_000);
+});
+
+describe("deriveProof memo: derivation count", () => {
+  it("derives once for repeated identical inputs, again for different inputs", () => {
+    const k = () => Keypair.generate().publicKey;
+    const a: MatcherConfigureIxArgs = {
+      matcherProgramId: k(), wrapperProgramId: k(), market: k(), lpPortfolio: k(), lpOwner: k(), matcherCtx: k(),
+    };
+    const spy = vi.spyOn(PublicKey, "findProgramAddressSync");
+    try {
+      const first = buildMatcherConfigureBackingFeeCapIx(a, 100);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const second = buildMatcherConfigureBackingFeeCapIx({ ...a }, 100);
+      const third = buildMatcherConfigureBackingFeeCapIx(a, 100);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(Buffer.from(second.data).equals(Buffer.from(first.data))).toBe(true);
+      expect(Buffer.from(third.data).equals(Buffer.from(first.data))).toBe(true);
+
+      const b = { ...a, matcherCtx: k() };
+      const other = buildMatcherConfigureBackingFeeCapIx(b, 100);
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(Buffer.from(other.data).equals(Buffer.from(encodeMatcherConfigureBackingFeeCap(refProof(b), 100)))).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
