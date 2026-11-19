@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { parseErrorFromLogs } from "../src/abi/errors.js";
 import { PROGRAM_IDS } from "../src/config/program-ids.js";
 
@@ -30,6 +30,11 @@ const OTHER = "11111111111111111111111111111111";
 const wrapperLogs = [`Program ${WRAPPER} failed: custom program error: 0x13`];
 
 describe("parseErrorFromLogs program-id map cache", () => {
+  // Fill the built-in cache outside any counting window so each test is order-independent.
+  beforeAll(() => {
+    parseErrorFromLogs(wrapperLogs);
+  });
+
   it("builds the built-in program-id map at most once across many calls", () => {
     const expected = parseErrorFromLogs(wrapperLogs); // first call may build the cache
     expect(expected?.program).toBe("wrapper");
