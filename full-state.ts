@@ -1,5 +1,5 @@
 import { requireRpcUrl } from "./scripts/config.mjs";
-import { fetchSlab, detectSlabLayout, parseHeader, parseConfig, parseEngine, parseAllAccounts, parseUsedIndices } from "./src/index.js";
+import { fetchSlab, detectSlabLayout, parseHeader, parseConfig, parseEngine, parseAllAccounts } from "./src/index.js";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 const SLAB = "5RfUzS1kpdhVb2CNGvE9UGdthsGbd354LoXSYjCFHv3R";
