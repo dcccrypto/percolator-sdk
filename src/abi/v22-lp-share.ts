@@ -35,13 +35,14 @@ export const METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22 = new PublicKey("metaqbxxUer
 const MPL_KEY_METADATA_V1 = 4;
 
 /**
- * Reduce a market symbol to the ticker the wrapper accepts: uppercase, drop every character outside `A-Z 0-9`, keep the first 8.
+ * Reduce a market symbol to the ticker the wrapper accepts: drop every character outside ASCII `A-Za-z0-9` (no Unicode case folding), uppercase, keep the first 8.
  * An empty result means "send the generic form" (`n = 0`); the program never truncates, it refuses.
  * @example lpShareTickerFromSymbolV22("1000pepe") === "1000PEPE"; lpShareTickerFromSymbolV22("$wif-2") === "WIF2"; lpShareTickerFromSymbolV22("日本") === ""
  */
 export function lpShareTickerFromSymbolV22(symbol: string | null | undefined): string {
   if (!symbol) return "";
-  return symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, LP_SHARE_TICKER_MAX_V22);
+  // Strip first, then uppercase: String#toUpperCase on non-ASCII folds (ß -> SS, ﬁ -> FI, ı -> I, ſ -> S) into characters the user never typed.
+  return symbol.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, LP_SHARE_TICKER_MAX_V22);
 }
 
 /** The program's ticker check: 1..=8 bytes, each `A-Z` or `0-9`. */
