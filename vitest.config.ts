@@ -48,6 +48,7 @@ export default defineConfig({
       "test/market-lifecycle.test.ts",
       "test/p3.test.ts",
       "test/p3-final.test.ts",
+      "test/p3-vault-lp-pda-memo.test.ts",
       "test/stake-wind-down.test.ts",
       "test/risk-limits-p1.test.ts",
       "test/growth-v19.test.ts", "test/growth-depth-v22.test.ts", "test/growth-tiers-v22.test.ts", "test/growth-controller-v22.test.ts", "test/growth-curve-parity.test.ts", "test/v22-depth-source.test.ts", "test/v22-depth-math-parity.test.ts","test/v22-f3-dex-pin.test.ts",
