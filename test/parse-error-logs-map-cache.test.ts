@@ -36,7 +36,7 @@ describe("parseErrorFromLogs program-id map cache", () => {
   });
 
   it("builds the built-in program-id map at most once across many calls", () => {
-    const expected = parseErrorFromLogs(wrapperLogs); // first call may build the cache
+    const expected = parseErrorFromLogs(wrapperLogs); // cache already warmed in beforeAll
     expect(expected?.program).toBe("wrapper");
 
     const results: unknown[] = [];
