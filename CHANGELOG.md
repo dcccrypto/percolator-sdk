@@ -1,3 +1,9 @@
+## 9.0.0-candidate: computeMarkPnl matches the v2.2 engine linear floor - BREAKING (units)
+
+- **Fixed (BREAKING):** `computeMarkPnl(size, entry, oracle)` returned the coin-margined inverse `diff*|q|/oracle` (coin units). The v2.2 engine settles price PnL linearly (percolator `v16.rs:16412` + `:29481`): `floor(|q| * dP / 1e6)` in quote units, no division by oracle. 81% of a 22,400-point grid mismatched (worst 1110x, no sign flips). Now returns the engine value, flooring toward -infinity. Callers that converted coin units (`computePnlPercent` inputs, app display) must use the quote-unit result. `computeLiqPrice` was already linear.
+- **Not modelled:** post-ADL `a_basis` scaling and funding (F index). The zero-oracle guard (returns 0) is kept.
+- **Tests:** `test/trading-markpnl-engine-parity.test.ts` (engine transcription, 22,400-point grid, 0 mismatches); pinned inverse values rewritten in `trading.test.ts`, `trading-math-behaviour.test.ts`, `trading-liq-property.test.ts`.
+
 ## 9.0.0-candidate: lot_exp-aware profile decode, Pyth helper and Hybrid lot check (prog #711)
 
 - **Added:** `AssetOracleProfileV17.lotExp` (profile byte +19), `lotExpOfProfileV22`, `pythPriceToLotE6V22` (`$3e-7` -> 300000 at lot 6, 0 at lot 0), `ORACLE_MODE_V22`, `lotAllowedForOracleModeV22` (lot allowed on Manual, Hybrid, AuthMark; EWMA refuses), optional `InitMarketTrailerV22.oracleMode` (the encoder refuses lot + EWMA). Existing per-lot helpers are unchanged.
