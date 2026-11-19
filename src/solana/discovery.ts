@@ -618,6 +618,11 @@ export async function discoverMarkets(
   const ALL_TIERS = [...tierBySize.values()];
   type RawEntry = { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number; dataSize: number };
   let rawAccounts: RawEntry[] = [];
+  // Per-tier failures. If every attempted tier throws (none succeeds, even with 0 rows)
+  // we throw instead of returning [], so an RPC outage is not mistaken for "no markets".
+  const tierErrors: string[] = [];
+  const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+  let rpcFailed = false;
 
   /**
    * Fetch one tier with per-attempt 429 retry (sequential mode only).
@@ -773,6 +778,8 @@ export async function discoverMarkets(
         return { ...e, maxAccounts: lay?.maxAccounts ?? 4096, dataSize: len };
       }) as RawEntry[];
     } catch (memcmpErr) {
+      rpcFailed = true;
+      tierErrors.push(`rpc: ${errMsg(err)}; memcmp: ${errMsg(memcmpErr)}`);
       // GH#59: memcmp also rejected (public mainnet RPCs reject all getProgramAccounts)
       console.warn(
         "[discoverMarkets] memcmp fallback also failed:",
@@ -803,6 +810,7 @@ export async function discoverMarkets(
         "[discoverMarkets] REST API returned 0 markets, checking tier-3 static bundle",
       );
     } catch (apiErr) {
+      tierErrors.push(`api: ${errMsg(apiErr)}`);
       console.warn(
         "[discoverMarkets] API fallback also failed:",
         apiErr instanceof Error ? apiErr.message : apiErr,
@@ -827,6 +835,7 @@ export async function discoverMarkets(
           staticEntries,
         );
       } catch (staticErr) {
+        tierErrors.push(`static: ${errMsg(staticErr)}`);
         console.warn(
           "[discoverMarkets] Static bundle fallback also failed:",
           staticErr instanceof Error ? staticErr.message : staticErr,
@@ -837,6 +846,17 @@ export async function discoverMarkets(
       console.warn(
         `[discoverMarkets] Static bundle has 0 entries for ${options.network} — skipping tier 3`,
       );
+    }
+  }
+
+  // Every attempted tier threw (RPC failed, and any API/static tier tried also failed):
+  // surface the outage. An API tier that succeeded with 0 rows counts as success (apiOk),
+  // so that case still returns [].
+  if (rpcFailed && rawAccounts.length === 0) {
+    const apiAttempted = !!options.apiBaseUrl;
+    const apiOk = apiAttempted && !tierErrors.some(e => e.startsWith("api:"));
+    if (!apiOk) {
+      throw new Error(`discoverMarkets: all discovery tiers failed — ${tierErrors.join(" | ")}`);
     }
   }
 

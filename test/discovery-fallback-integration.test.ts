@@ -444,13 +444,13 @@ describe("All 3 tiers fail — graceful empty result", () => {
 
     mockFetch.mockRejectedValueOnce(new Error("DNS failure"));
 
-    const result = await discoverMarkets(mockConnection, PROGRAM_ID, {
-      apiBaseUrl: "https://api.example.com",
-      network: "mainnet",
-      maxTierQueries: 1,
-    });
-
-    expect(result).toEqual([]);
+    await expect(
+      discoverMarkets(mockConnection, PROGRAM_ID, {
+        apiBaseUrl: "https://api.example.com",
+        network: "mainnet",
+        maxTierQueries: 1,
+      }),
+    ).rejects.toThrow(/429 Too Many Requests.*DNS failure.*RPC unavailable/s);
   });
 
   it("all tiers disabled: no apiBaseUrl, no network — returns empty from RPC failure", async () => {
@@ -522,16 +522,17 @@ describe("Helius 429 responses — mocked retry paths", () => {
       }),
     } as unknown as Connection;
 
-    const result = await discoverMarkets(mockConnection, PROGRAM_ID, {
-      sequential: true,
-      interTierDelayMs: 0,
-      rateLimitBackoffMs: [0, 0], // 2 retries
-      maxTierQueries: 1,
-    });
+    await expect(
+      discoverMarkets(mockConnection, PROGRAM_ID, {
+        sequential: true,
+        interTierDelayMs: 0,
+        rateLimitBackoffMs: [0, 0], // 2 retries
+        maxTierQueries: 1,
+      }),
+    ).rejects.toThrow(/429 Too Many Requests/);
 
     // Should have been called 1 initial + 2 retries = 3 for first tier, then memcmp fallback
     expect(callCount).toBeGreaterThanOrEqual(3);
-    expect(result).toEqual([]);
   });
 
   it("sequential mode does NOT retry non-429 errors", async () => {

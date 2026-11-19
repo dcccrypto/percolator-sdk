@@ -352,17 +352,53 @@ describe("discoverMarkets: account filtering (wrong size / version / magic)", ()
 });
 
 describe("discoverMarkets: fallback tiers", () => {
-  // SWALLOWED RPC ERROR (reported, NOT fixed in this PR — same class as indexer #286):
-  // src/solana/discovery.ts:787-793 (`catch (memcmpErr)` only console.warn's) after
-  // 765-770 (outer `catch (err)`). When every getProgramAccounts call rejects (RPC down /
-  // rejects gPA), discoverMarkets resolves to [] — indistinguishable from "no markets".
-  // The correct contract is to surface the failure. `it.fails` keeps the suite green while
-  // the bug stands; when it is fixed this test starts "passing" and vitest flags it so the
-  // `.fails` can be removed.
-  it.fails("BUG: RPC down for every query should reject, not resolve to []", async () => {
+  // When every attempted tier throws (RPC down), discoverMarkets rejects instead of
+  // resolving to [] (which is indistinguishable from "no markets"). A tier that succeeds
+  // with 0 rows still yields [].
+  it("RPC down for every query rejects, not resolves to []", async () => {
     const c = conn();
     c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
     await expect(discoverMarkets(c, programId)).rejects.toThrow(/RPC down/);
+  });
+
+  it("dataSize+memcmp both throw with no apiBaseUrl/network -> rejects naming the tier", async () => {
+    const c = conn();
+    c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
+    await expect(discoverMarkets(c, programId)).rejects.toThrow(/rpc.*RPC down: 503/is);
+  });
+
+  it("memcmp throws but the REST API returns rows -> rows", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ markets: [{ slab_address: pk(30).toBase58() }] }),
+    }));
+    const c = conn();
+    c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
+    c.getMultipleAccountsInfo.mockResolvedValue([info(v17(1940, 19, 1))]);
+    const out = await discoverMarkets(c, programId, { apiBaseUrl: "https://api.test" });
+    expect(out).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("memcmp throws, API succeeds with 0 rows, no network -> [] (not an outage)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ markets: [] }) }));
+    const c = conn();
+    c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
+    expect(await discoverMarkets(c, programId, { apiBaseUrl: "https://api.test" })).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it("every attempted tier throws (rpc, api, static) -> rejects naming each", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("api-down")));
+    staticMock.fn.mockReturnValue([{ slabAddress: pk(31).toBase58() }]);
+    const c = conn();
+    c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
+    c.getMultipleAccountsInfo.mockRejectedValue(new Error("gma-down"));
+    await expect(
+      discoverMarkets(c, programId, { apiBaseUrl: "https://api.test", network: "devnet" }),
+    ).rejects.toThrow(/RPC down: 503.*api-down.*gma-down/s);
+    vi.unstubAllGlobals();
   });
 
   it("when memcmp fallback also fails both failures are warned", async () => {
@@ -371,7 +407,7 @@ describe("discoverMarkets: fallback tiers", () => {
       if (isFullMemcmp(opts)) throw "memcmp-down"; // eslint-disable-line no-throw-literal
       return [];
     });
-    await discoverMarkets(c, programId);
+    await expect(discoverMarkets(c, programId)).rejects.toThrow(/memcmp-down/);
     expect(warn).toHaveBeenCalledWith(
       "[discoverMarkets] dataSize filters failed, falling back to memcmp:",
       "memcmp-down",

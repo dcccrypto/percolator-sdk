@@ -1,3 +1,7 @@
+## discoverMarkets rejects on a total outage (BEHAVIOUR CHANGE)
+
+- **Changed:** when every attempted tier (RPC dataSize+memcmp, REST API if `apiBaseUrl`, static bundle if `network` has entries) throws, `discoverMarkets` now rejects with an Error naming each tier message instead of resolving `[]`. A tier that succeeds with 0 rows still returns `[]`. Callers (app, keeper) must catch.
+
 ## 9.0.0-candidate: lot_exp-aware profile decode, Pyth helper and Hybrid lot check (prog #711)
 
 - **Added:** `AssetOracleProfileV17.lotExp` (profile byte +19), `lotExpOfProfileV22`, `pythPriceToLotE6V22` (`$3e-7` -> 300000 at lot 6, 0 at lot 0), `ORACLE_MODE_V22`, `lotAllowedForOracleModeV22` (lot allowed on Manual, Hybrid, AuthMark; EWMA refuses), optional `InitMarketTrailerV22.oracleMode` (the encoder refuses lot + EWMA). Existing per-lot helpers are unchanged.

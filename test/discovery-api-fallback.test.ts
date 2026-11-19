@@ -338,7 +338,7 @@ describe("discoverMarkets with apiBaseUrl fallback", () => {
     expect(result).toEqual([]);
   });
 
-  it("returns empty array when RPC throws and memcmp also throws and API fails", async () => {
+  it("rejects when RPC throws and memcmp also throws and API fails", async () => {
     const mockConnection = {
       getProgramAccounts: vi.fn().mockRejectedValue(new Error("429 Too Many Requests")),
     } as unknown as Connection;
@@ -346,12 +346,12 @@ describe("discoverMarkets with apiBaseUrl fallback", () => {
     // Mock API also failing
     mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
-    const result = await discoverMarkets(mockConnection, programId, {
-      apiBaseUrl: "https://api.example.com",
-      maxTierQueries: 1,
-    });
-
-    expect(result).toEqual([]);
+    await expect(
+      discoverMarkets(mockConnection, programId, {
+        apiBaseUrl: "https://api.example.com",
+        maxTierQueries: 1,
+      }),
+    ).rejects.toThrow(/429 Too Many Requests.*Network error/s);
   });
 
   it("respects apiTimeoutMs option", async () => {
