@@ -46,6 +46,7 @@ export default defineConfig({
       "test/matcher-v2.test.ts",
       "test/matcher-v2-guards.test.ts",
       "test/market-lifecycle.test.ts",
+      "test/market-lifecycle-program-diff.test.ts",
       "test/p3.test.ts",
       "test/p3-final.test.ts",
       "test/stake-wind-down.test.ts",

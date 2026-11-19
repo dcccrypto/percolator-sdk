@@ -194,6 +194,18 @@ export interface CloseSlabAttemptArgs {
    * Omit to keep the pre-#587 plan (no creator-leg handling).
    */
   creatorFees?: readonly CloseSlabCreatorFeeLegV22[];
+  /**
+   * Market has a secondary collateral mint (`UpdateBaseUnitMints`, tag 60). `handle_close_slab` then reads two more
+   * writable accounts (indices 6, 7: secondary vault token + the closer's secondary-mint ATA) and fails
+   * NotEnoughAccountKeys without them (#381). Omit on single-collateral markets.
+   */
+  secondaryCollateral?: { vault: PublicKey; destAta: PublicKey };
+  /**
+   * The primary collateral mint, appended after the secondary pair (index 8, else 6). The handler requires it
+   * (writable) only when CloseSlab burns/escheats unbudgeted insurance residue; surplus accounts are ignored, so pass it
+   * whenever residue may exist.
+   */
+  residueMint?: PublicKey;
   /** prog #651: the payee grace is over (`readCreatorFeeClaimStateV22(data, i, nowSlot).payeeGraceOver`). Default false. */
   payeeGraceOver?: boolean;
 }
@@ -290,11 +302,19 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
       vaultMint: leg.vaultMint, vaultToken: a.vaultToken, amount, authorityEpoch: leg.authorityEpoch,
     }));
   }
+  const closeKeys = buildAccountMetas(ACCOUNTS_CLOSE_SLAB, {
+    dest: a.closer, slab: a.market, vault: a.vaultToken, vaultAuthority, destAta: a.closerDestToken, tokenProgram,
+  });
+  if (a.secondaryCollateral) {
+    closeKeys.push(
+      { pubkey: a.secondaryCollateral.vault, isSigner: false, isWritable: true },
+      { pubkey: a.secondaryCollateral.destAta, isSigner: false, isWritable: true },
+    );
+  }
+  if (a.residueMint) closeKeys.push({ pubkey: a.residueMint, isSigner: false, isWritable: true });
   ixs.push(new TransactionInstruction({
     programId: a.programId,
-    keys: buildAccountMetas(ACCOUNTS_CLOSE_SLAB, {
-      dest: a.closer, slab: a.market, vault: a.vaultToken, vaultAuthority, destAta: a.closerDestToken, tokenProgram,
-    }),
+    keys: closeKeys,
     data: Buffer.from(encodeCloseSlab(a.closeAuthorityEpoch)),
   }));
   return ixs;
