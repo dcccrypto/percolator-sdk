@@ -33,13 +33,24 @@ import {
 
 const BH = "GHtXQBpHnMXhoLGsryeDY7i6bGqTC2LGqS11Kf3rKmFS";
 const payerKp = Keypair.fromSeed(new Uint8Array(32).fill(7));
-const payer = payerKp.publicKey;
-const PROG = new PublicKey(new Uint8Array(32).fill(9));
+/**
+ * Cache `toBase58` on a fixture key. packInstructionGroups re-derives base58 for every account on every
+ * greedy step (O(groups^2) calls), which made the packing cases take 2-5 s idle and time out under
+ * coverage. The cached value is the real encoding, so every size/assert is unchanged.
+ */
+function memoB58(k: PublicKey): PublicKey {
+  const real = k.toBase58.bind(k);
+  let c: string | undefined;
+  (k as { toBase58: () => string }).toBase58 = () => (c ??= real());
+  return k;
+}
+const payer = memoB58(new PublicKey(payerKp.publicKey.toBytes()));
+const PROG = memoB58(new PublicKey(new Uint8Array(32).fill(9)));
 const HEAP = 128 * 1024;
 
 function ix(nAccts: number, dataLen: number, seed = 1): TransactionInstruction {
   const keys = Array.from({ length: nAccts }, (_, i) => ({
-    pubkey: new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? seed : j === 1 ? i + 1 : 3))),
+    pubkey: memoB58(new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? seed : j === 1 ? i + 1 : 3)))),
     isSigner: false,
     isWritable: i % 2 === 0,
   }));
@@ -272,14 +283,14 @@ describe("walletSupportsV1", () => {
 
 describe("size-aware packing", () => {
   // A PushAuthMark-shaped group: 1 ix, 3 accounts (2 per-market writable + shared oracle), 20 data bytes.
-  const shared = new PublicKey(new Uint8Array(32).fill(0x55));
+  const shared = memoB58(new PublicKey(new Uint8Array(32).fill(0x55)));
   const market = (i: number): { instructions: TransactionInstruction[]; computeUnits: number; tag: number } => ({
     instructions: [
       new TransactionInstruction({
         programId: PROG,
         keys: [
           { pubkey: payer, isSigner: true, isWritable: false },
-          { pubkey: new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? 1 : j === 1 ? i : 2))), isSigner: false, isWritable: true },
+          { pubkey: memoB58(new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? 1 : j === 1 ? i : 2)))), isSigner: false, isWritable: true },
           { pubkey: shared, isSigner: false, isWritable: false },
         ],
         data: Buffer.alloc(20, 1),
@@ -360,14 +371,14 @@ describe("raw v1 RPC", () => {
 import { sendGroupsAdaptive, type PackGroup } from "../src/runtime/txv1.js";
 
 describe("sendGroupsAdaptive", () => {
-  const shared = new PublicKey(new Uint8Array(32).fill(0x55));
+  const shared = memoB58(new PublicKey(new Uint8Array(32).fill(0x55)));
   const mk = (i: number): PackGroup<number> => ({
     instructions: [
       new TransactionInstruction({
         programId: PROG,
         keys: [
           { pubkey: payer, isSigner: true, isWritable: false },
-          { pubkey: new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? 1 : j === 1 ? i : 2))), isSigner: false, isWritable: true },
+          { pubkey: memoB58(new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? 1 : j === 1 ? i : 2)))), isSigner: false, isWritable: true },
           { pubkey: shared, isSigner: false, isWritable: false },
         ],
         data: Buffer.alloc(20, 1),
