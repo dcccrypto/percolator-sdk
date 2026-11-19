@@ -225,15 +225,27 @@ export function decodeWrapperEventTokenV22(token: string): { event: WrapperEvent
 const RUNTIME_LINE = /^Program ([1-9A-HJ-NP-Za-km-z]{32,44}) (.*)$/s;
 const INVOKE_TAIL = /^invoke \[([0-9]+)\]$/;
 
-/** `Program <id> <tail>` -> `{id, tail}` only when `id` is a canonical 32-byte base58 key. */
-function runtimeProgramLine(line: string): { id: string; tail: string } | null {
+/** Ids already proven canonical (bounded). Canonicality is a pure function of the string, so only positives are cached. */
+const CANONICAL_IDS = new Set<string>();
+const CANONICAL_IDS_MAX = 4096;
+
+function isCanonicalId(id: string): boolean {
+  if (CANONICAL_IDS.has(id)) return true;
+  try {
+    if (new PublicKey(id).toBase58() !== id) return false;
+  } catch {
+    return false;
+  }
+  if (CANONICAL_IDS.size >= CANONICAL_IDS_MAX) CANONICAL_IDS.clear();
+  CANONICAL_IDS.add(id);
+  return true;
+}
+
+/** `Program <id> <tail>` -> `{id, tail}` only when `id` is a canonical 32-byte base58 key. `pinned` is already canonical. */
+function runtimeProgramLine(line: string, pinned: string): { id: string; tail: string } | null {
   const m = RUNTIME_LINE.exec(line);
   if (!m) return null;
-  try {
-    if (new PublicKey(m[1]).toBase58() !== m[1]) return null;
-  } catch {
-    return null;
-  }
+  if (m[1] !== pinned && !isCanonicalId(m[1])) return null;
   return { id: m[1], tail: m[2] };
 }
 
@@ -251,7 +263,7 @@ export function wrapperEventTokensV22(logs: readonly string[] | null | undefined
   const stack: string[] = [];
   const tokens: string[] = [];
   for (const line of logs) {
-    const rl = runtimeProgramLine(line);
+    const rl = runtimeProgramLine(line, w);
     if (rl) {
       const inv = INVOKE_TAIL.exec(rl.tail);
       if (inv) {
