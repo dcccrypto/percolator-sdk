@@ -37,6 +37,56 @@ const DECIMAL_UINT_RE = /^(0|[1-9]\d*)$/;
 const DECIMAL_INT_RE = /^-?(0|[1-9]\d*)$/;
 
 /**
+ * Fast path: if `t` (already trimmed) is a canonical non-negative decimal integer
+ * (`0` or `[1-9]\d*`, same language as DECIMAL_UINT_RE) return its bigint value,
+ * else `undefined` so callers fall back to the original (error-producing) slow path.
+ */
+function fastUInt(t: string): bigint | undefined {
+  const n = t.length;
+  if (n === 0) return undefined;
+  const c0 = t.charCodeAt(0);
+  if (c0 < 48 || c0 > 57 || (c0 === 48 && n > 1)) return undefined;
+  if (n <= 15) {
+    let acc = c0 - 48;
+    for (let i = 1; i < n; i++) {
+      const c = t.charCodeAt(i);
+      if (c < 48 || c > 57) return undefined;
+      acc = acc * 10 + (c - 48);
+    }
+    return BigInt(acc);
+  }
+  for (let i = 1; i < n; i++) {
+    const c = t.charCodeAt(i);
+    if (c < 48 || c > 57) return undefined;
+  }
+  return BigInt(t);
+}
+
+/** Same as fastUInt but for small values: returns a number, or undefined (not canonical or > 15 digits). */
+function fastSmallUInt(t: string): number | undefined {
+  const n = t.length;
+  if (n === 0 || n > 15) return undefined;
+  const c0 = t.charCodeAt(0);
+  if (c0 < 48 || c0 > 57 || (c0 === 48 && n > 1)) return undefined;
+  let acc = c0 - 48;
+  for (let i = 1; i < n; i++) {
+    const c = t.charCodeAt(i);
+    if (c < 48 || c > 57) return undefined;
+    acc = acc * 10 + (c - 48);
+  }
+  return acc;
+}
+
+/** Fast path for optionally-negative canonical decimal integers (DECIMAL_INT_RE). */
+function fastInt(t: string): bigint | undefined {
+  if (t.charCodeAt(0) === 45) {
+    const m = fastUInt(t.slice(1));
+    return m === undefined ? undefined : -m;
+  }
+  return fastUInt(t);
+}
+
+/**
  * Non-empty trimmed string of decimal digits only: `"0"` or `[1-9]\\d*` (no leading zeros
  * except a single zero). Rejects fractions, scientific notation, hex prefixes, and trailing junk.
  *
@@ -78,6 +128,8 @@ export function requireDecimalUIntString(value: string, field: string): string {
  */
 export function safeBigInt(val: string, caller: string): bigint {
   const t = val.trim();
+  const fast = fastInt(t);
+  if (fast !== undefined) return fast;
   if (!DECIMAL_INT_RE.test(t)) {
     throw new Error(
       `${caller}: "${val}" is not a valid decimal integer ` +
@@ -106,7 +158,10 @@ export function validatePublicKey(value: string, field: string): PublicKey {
  * Validate a non-negative integer index (u16 range for accounts).
  */
 export function validateIndex(value: string, field: string): number {
-  const t = requireDecimalUIntString(value, field);
+  const t = value.trim();
+  const small = fastSmallUInt(t);
+  if (small !== undefined && small <= U16_MAX) return small;
+  requireDecimalUIntString(value, field);
   const bi = BigInt(t);
   if (bi > BigInt(U16_MAX)) {
     throw new ValidationError(
@@ -121,6 +176,8 @@ export function validateIndex(value: string, field: string): number {
  * Validate a non-negative amount (u64 range).
  */
 export function validateAmount(value: string, field: string): bigint {
+  const fast = fastUInt(value.trim());
+  if (fast !== undefined && fast <= U64_MAX) return fast;
   const t = requireDecimalUIntString(value, field);
   const num = BigInt(t);
 
@@ -142,6 +199,8 @@ export function validateAmount(value: string, field: string): bigint {
  * Validate a u128 value.
  */
 export function validateU128(value: string, field: string): bigint {
+  const fast = fastUInt(value.trim());
+  if (fast !== undefined && fast <= U128_MAX) return fast;
   const t = requireDecimalUIntString(value, field);
   const num = BigInt(t);
 
@@ -163,6 +222,8 @@ export function validateU128(value: string, field: string): bigint {
  * Validate an i64 value.
  */
 export function validateI64(value: string, field: string): bigint {
+  const fast = typeof value === "string" ? fastInt(value.trim()) : undefined;
+  if (fast !== undefined && fast >= I64_MIN && fast <= I64_MAX) return fast;
   let num: bigint;
 
   try {
@@ -195,6 +256,8 @@ export function validateI64(value: string, field: string): bigint {
  * Validate an i128 value (trade sizes).
  */
 export function validateI128(value: string, field: string): bigint {
+  const fast = typeof value === "string" ? fastInt(value.trim()) : undefined;
+  if (fast !== undefined && fast >= I128_MIN && fast <= I128_MAX) return fast;
   let num: bigint;
 
   try {
@@ -227,7 +290,10 @@ export function validateI128(value: string, field: string): bigint {
  * Validate a basis points value (0-10000).
  */
 export function validateBps(value: string, field: string): number {
-  const t = requireDecimalUIntString(value, field);
+  const t = value.trim();
+  const small = fastSmallUInt(t);
+  if (small !== undefined && small <= 10000) return small;
+  requireDecimalUIntString(value, field);
   const bi = BigInt(t);
   if (bi > 10000n) {
     throw new ValidationError(
@@ -249,7 +315,10 @@ export function validateU64(value: string, field: string): bigint {
  * Validate a u16 value.
  */
 export function validateU16(value: string, field: string): number {
-  const t = requireDecimalUIntString(value, field);
+  const t = value.trim();
+  const small = fastSmallUInt(t);
+  if (small !== undefined && small <= U16_MAX) return small;
+  requireDecimalUIntString(value, field);
   const bi = BigInt(t);
   if (bi > BigInt(U16_MAX)) {
     throw new ValidationError(

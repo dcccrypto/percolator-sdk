@@ -96,6 +96,7 @@ export default defineConfig({
       "test/warmup-math.test.ts",
       "test/warmup-property.test.ts",
       "test/validation-behaviour.test.ts",
+      "test/validation-differential.test.ts",
       "test/tx-branches.test.ts",
       "test/v22-lot-exp-profile.test.ts",
       "test/v22-math-edges.test.ts",
