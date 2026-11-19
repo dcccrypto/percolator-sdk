@@ -850,8 +850,8 @@ export async function discoverMarkets(
   }
 
   // Every attempted tier threw (RPC failed, and any API/static tier tried also failed):
-  // surface the outage. A tier that succeeded with 0 rows never sets rpcFailed-only state
-  // here because API 0-rows adds no error entry and is checked below.
+  // surface the outage. An API tier that succeeded with 0 rows counts as success (apiOk),
+  // so that case still returns [].
   if (rpcFailed && rawAccounts.length === 0) {
     const apiAttempted = !!options.apiBaseUrl;
     const apiOk = apiAttempted && !tierErrors.some(e => e.startsWith("api:"));
