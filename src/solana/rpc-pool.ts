@@ -784,7 +784,9 @@ export class RpcPool {
     if (this.recoveryAfterMs > 0) {
       const now = Date.now();
       for (const ep of this.endpoints) {
-        if (!ep.healthy && ep.unhealthySince !== undefined && (now - ep.unhealthySince) >= this.recoveryAfterMs) {
+        // A negative age means the wall clock stepped back after the failure;
+        // treat it as expired so the endpoint cannot stay down until the clock catches up.
+        if (!ep.healthy && ep.unhealthySince !== undefined && (now < ep.unhealthySince || (now - ep.unhealthySince) >= this.recoveryAfterMs)) {
           ep.healthy = true;
           ep.failures = 0;
           ep.unhealthySince = undefined;
