@@ -1,6 +1,6 @@
 import { requireRpcUrl } from "./config.mjs";
 import { Connection, PublicKey } from '@solana/web3.js';
-import { parseEngine, parseHeader } from '../src/solana/slab.js';
+import { parseConfig, parseHeader } from '../src/solana/slab.js';
 
 async function main() {
   const conn = new Connection(requireRpcUrl(), 'confirmed');
@@ -9,11 +9,11 @@ async function main() {
   if (!info) throw new Error('Slab not found');
   const data = new Uint8Array(info.data);
   const header = parseHeader(data);
-  const engine = parseEngine(data);
+  const config = parseConfig(data);
   console.log('header.admin:', header.admin.toBase58());
-  console.log('oracleAuthority:', engine.oracleAuthority?.toBase58() ?? 'undefined');
-  console.log('authorityPriceE6:', engine.authorityPriceE6?.toString() ?? 'undefined');
-  console.log('authorityTimestamp:', engine.authorityTimestamp?.toString() ?? 'undefined');
+  console.log('oracleAuthority:', config.oracleAuthority?.toBase58() ?? 'undefined');
+  console.log('authorityPriceE6:', config.authorityPriceE6?.toString() ?? 'undefined');
+  console.log('authorityTimestamp:', config.authorityTimestamp?.toString() ?? 'undefined');
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
