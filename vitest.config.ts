@@ -7,6 +7,7 @@ export default defineConfig({
       "test/issue-370-regression.test.ts",
       "test/v17-kind-gate.test.ts",
       "test/token-program.test.ts",
+      "test/token-program-real-mints.test.ts",
       "test/encode.test.ts",
       "test/errors.test.ts",
       "test/wrapper-errors.test.ts",
