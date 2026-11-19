@@ -30,6 +30,7 @@ export default defineConfig({
       "test/integration-mocked.test.ts",
       "test/discovery-api-fallback.test.ts",
       "test/static-markets.test.ts",
+      "test/static-markets-alias.test.ts",
       "test/discovery-static-fallback.test.ts",
       "test/discovery-fallback-integration.test.ts",
       "test/lighthouse.test.ts",
