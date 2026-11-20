@@ -65,10 +65,13 @@ describe("parseErrorFromLogs program-id map cache", () => {
     const wrapper: string[] = [OTHER];
     const programIds = { wrapper };
 
+    const programs: (string | undefined)[] = [];
     const maps = countMapsBuilt(() => {
-      for (let i = 0; i < 50; i++) expect(parseErrorFromLogs(line, { programIds })?.program).toBe("wrapper");
+      for (let i = 0; i < 50; i++) programs.push(parseErrorFromLogs(line, { programIds })?.program);
     });
+    // Assert only after the global Map is restored, so the count cannot depend on matcher internals.
     expect(maps).toBe(50);
+    expect(programs).toEqual(Array(50).fill("wrapper"));
 
     // Mutating the caller's object must take effect on the next call (no stale cache).
     wrapper.length = 0;
