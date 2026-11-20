@@ -62,7 +62,7 @@ export interface CollateralWithdrawInputV22 {
   live: boolean;
   /** Live, but the permissionless resolve has matured (`permissionless_resolve_matured_now_view`): OracleStale. */
   resolveMatured?: boolean;
-  /** Slot the withdraw lands in. Used for the maintenance fee (required when `maintenanceFeePerSlot > 0`). */
+  /** Fee slot: `max(Clock.slot, market header current_slot)` (prog 14290-14297) at landing. Required when `maintenanceFeePerSlot > 0`. */
   nowSlot?: bigint;
   /** Portfolio `last_fee_slot` (required when `maintenanceFeePerSlot > 0`). */
   lastFeeSlot?: bigint;
@@ -206,10 +206,11 @@ export interface JuniorWithdrawInputV22 {
   /**
    * The vault LP portfolio the engine withdraw debits (flat-only, capital-only). `lastFeeSlot` + `nowSlot` +
    * `maintenanceFeePerSlot`: tag 97 crystallizes the LP's maintenance fee before it reads the value (v16_program.rs:38781);
-   * the fee comes off the LP's capital and off `lpValueAtoms` (a flat LP's value is its conservative equity).
+   * the fee comes off the LP's capital, and a charged fee clears the LP's health cert, so the value becomes its conservative
+   * equity `max(0, capital + min(pnl,0) + min(fc,0))` (positive PnL no longer counts).
    */
   lp: { capital: bigint; pnl: bigint; feeCredits?: bigint; hasActiveLegs: boolean; lastFeeSlot?: bigint };
-  /** Slot the withdraw lands in (required with `maintenanceFeePerSlot > 0`). */
+  /** Fee slot: `max(Clock.slot, market header current_slot)` (prog 14290-14297). Required with `maintenanceFeePerSlot > 0`. */
   nowSlot?: bigint;
   /** Market `maintenance_fee_per_slot` (0 = off). */
   maintenanceFeePerSlot?: bigint;
@@ -236,6 +237,7 @@ export interface JuniorWithdrawQuoteV22 {
     | WithdrawRefusalV22<27, "OracleStale">
     | WithdrawRefusalV22<75, "VaultLpJuniorWithdrawRefused">
     | WithdrawRefusalV22<89, "VaultLpPausedForSeniorDraw">
+    | WithdrawRefusalV22<131, "CreatorStakeBelowMinimum">
     | null;
 }
 
@@ -272,7 +274,15 @@ export function maxWithdrawJuniorV22(i: JuniorWithdrawInputV22): JuniorWithdrawQ
 
   // 38781: the LP's maintenance fee is crystallized before any value is read.
   const lpFee = chargeMaintenanceFee(i.lp.capital, i.lp.pnl, i.maintenanceFeePerSlot ?? 0n, i.nowSlot, i.lp.lastFeeSlot);
-  const lpValue = i.lpValueAtoms > lpFee.fee ? i.lpValueAtoms - lpFee.fee : 0n;
+  // A charge clears the LP's health cert (engine charge_account_fee_current_not_atomic), so `vault_lp_value_atoms`
+  // (v16_program.rs:35863-35893) falls back to conservative_equity(capital, pnl, fc) = max(0, capital + min(pnl,0) + min(fc,0)):
+  // positive PnL a cert counted is no longer in the value.
+  let lpValue = i.lpValueAtoms;
+  if (lpFee.fee > 0n) {
+    const fc = i.lp.feeCredits ?? 0n;
+    const ce = lpFee.capital + (lpFee.pnl < 0n ? lpFee.pnl : 0n) + (fc < 0n ? fc : 0n);
+    lpValue = ce > 0n ? ce : 0n;
+  }
   const senFee = bpsFloorV22(i.harvestableFeeAtoms, i.seniorFeeShareBps);
   if (senFee === null) return out(0n, 0n, 0n, { code: 75, name: "VaultLpJuniorWithdrawRefused" });
   const cEff = i.seniorClaimAtoms + senFee;
@@ -330,6 +340,7 @@ export function maxWithdrawJuniorV22(i: JuniorWithdrawInputV22): JuniorWithdrawQ
     if (after(maxAtoms) !== 0n && after(maxAtoms) < minStake) {
       const room = junior - minStake;
       maxAtoms = room > 0n ? min(maxAtoms, room) : 0n;
+      if (maxAtoms === 0n) return out(0n, junior, reserved, { code: 131, name: "CreatorStakeBelowMinimum" });
     }
   }
   return out(maxAtoms, junior, reserved, maxAtoms === 0n ? { code: 75, name: "VaultLpJuniorWithdrawRefused" } : null);

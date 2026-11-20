@@ -151,6 +151,7 @@ const juniorStates: { state: string; s: JuniorState }[] = [
   { state: "J9 vault token 50k", s: jr({ vaultToken: 50_000n }) },
   { state: "J10 LP maintenance fee pending (50/slot x 1000)", s: jr({ maintFeePerSlot: 50n, lpLastFeeSlot: 9_000n }) },
   { state: "J11 LP fee debt -700k", s: jr({ lpFeeCredits: -700_000n }) },
+  { state: "J12 LP cert value 1.1M incl. +300k PnL, fee pending (cert cleared by the charge)", s: jr({ lpValue: 1_100_000n, lpPnl: 300_000n, maintFeePerSlot: 50n, lpLastFeeSlot: 9_000n }) },
 ];
 for (const j of juniorStates) {
   push({ path: "junior tag 97", state: j.state, helper: "maxWithdrawJuniorV22.maxAtoms", sdk: sdkJunior(j.s), prog: progJuniorMax(j.s, 10_000_000n) });
@@ -240,5 +241,19 @@ describe("maxWithdrawCollateralV22 contracts (review round 1)", () => {
     expect(q.maxAtoms).toBe(0n);
     expect(q.refusal?.code).toBe(14);
     expect(progMaxWithdraw(mkt(), pf({ feeCredits: -CAP }))).toBe(0n);
+  });
+});
+
+describe("maxWithdrawJuniorV22 refusal codes (review round 2)", () => {
+  it("creator minimum alone forcing 0 reports 131 CreatorStakeBelowMinimum", () => {
+    // junior 1M, floor 10% of C_eff 1M = 100k, min 950k: room 50k... use min above the junior room so it collapses to 0
+    const s = jr({ creatorMin: 1_000_000n, juniorFloorBps: 0n, lpCapital: 500_000n });
+    expect(progJuniorMax(s, 10_000_000n)).toBe(0n);
+    const q = maxWithdrawJuniorV22({
+      live: true, nav: s.nav, harvestableFeeAtoms: 0n, lpValueAtoms: s.lpValue, seniorClaimAtoms: s.seniorClaim, seniorFeeShareBps: 5_000,
+      juniorFloorBps: 0, vaultTokenBalance: s.vaultToken, lp: { capital: s.lpCapital, pnl: 0n, hasActiveLegs: false }, creatorStakeMinAtoms: 1_000_000n,
+    });
+    expect(q.maxAtoms).toBe(0n);
+    expect(q.refusal?.code).toBe(131);
   });
 });

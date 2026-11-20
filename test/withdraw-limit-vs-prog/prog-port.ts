@@ -314,8 +314,12 @@ export function progJuniorWithdraw(s: JuniorState, amount: bigint, skipCreatorMi
       const fee = s.maintFeePerSlot * (s.nowSlot - s.lpLastFeeSlot);
       const charged = fee < lpCapital ? fee : lpCapital;
       lpCapital -= charged;
-      // flat LP: vault_lp_value_atoms = conservative_equity(capital, pnl, fc) (v16_program.rs:35884-35889), so it drops by the fee
-      lpValue = lpValue > charged ? lpValue - charged : 0n;
+      // a charge clears the health cert (engine charge_account_fee_current_not_atomic), so vault_lp_value_atoms takes the
+      // flat path: conservative_equity(capital, pnl, fc) = max(0, capital + min(pnl,0) + min(fc,0)) (v16_program.rs:35884-35889)
+      if (charged > 0n) {
+        const ce = lpCapital + (lpPnl < 0n ? lpPnl : 0n) + (s.lpFeeCredits < 0n ? s.lpFeeCredits : 0n);
+        lpValue = ce > 0n ? ce : 0n;
+      }
     }
   }
   const cover = s.nav + s.harvestable; // 38799-38801

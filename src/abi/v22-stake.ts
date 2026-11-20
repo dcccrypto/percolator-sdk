@@ -743,11 +743,12 @@ export interface StakeWithdrawQuoteOptsV5 {
    * Deposit cooldown (processor.rs:1501-1507): `nowSlot` the withdraw lands in, the staker's `StakeDeposit.lastDepositSlot`
    * and `pool.cooldownSlots`. Inside the cooldown the quote returns `maxCollateralNow = maxLpNow = 0` and `cooldownEndsSlot`.
    */
-  cooldown?: { nowSlot: bigint; lastDepositSlot: bigint; cooldownSlots: bigint };
+  cooldown?: { nowSlot: bigint; lastDepositSlot: bigint; cooldownSlots: bigint }; // nowSlot = Clock.slot at landing
   /**
    * The fee the withdraw books before pricing (`pre_accrue_fee_modes`, processor.rs:1520 -> 2691-2830). Mode 1: the whole vault
    * surplus over the booked liquid value. Mode 0: `min(surplus, attributableAtoms)` where `attributableAtoms` is the wrapper's
-   * unbooked tag-87 payout (`wrapper_paid - mode0_fees_attributed`); mode 0 books it only when the withdraw passes the wrapper
+   * unbooked tag-87 payout (`wrapper_paid - mode0_fees_attributed`; on a legacy pool whose attribution is not armed yet, pass
+   * `wrapper_paid` itself: the program re-arms the cursor first, math.rs:485-490); mode 0 books it only when the withdraw passes the wrapper
    * market (slab) account. Nothing is booked while the pool has no real LP holders (`totalLpSupply <= 1000`).
    */
   feeAccrual?: { poolMode: 0 | 1; attributableAtoms?: bigint };
