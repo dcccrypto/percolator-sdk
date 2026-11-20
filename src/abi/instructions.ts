@@ -4102,8 +4102,11 @@ export function encodeBatchTradeNoCpi(args: BatchTradeNoCpiArgs): Uint8Array {
  *   The client wire is unchanged on P1/P3: the wrapper itself appends the per-leg 24-byte
  *   P1/P2 matcher call extension to the matcher CPI when the asset's `matcher_ext_mode == 1`
  *   (see `encodeMatcherBatchCall` / `encodeWrapperMatcherCallExt`).
- * @param maxSlippageAtoms  Aggregate slippage cap across the whole batch (u128).
- * @param maxFeeAtoms       Aggregate fee cap across the whole batch (u128).
+ * @param maxSlippageAtoms  Aggregate adverse-slippage cap across the whole batch, in quote atoms (u128,
+ *   not bps). It is a hard ceiling: `0n` means ZERO adverse slippage allowed, not "unlimited" — any leg
+ *   that executes even 1 e6 tick adverse to the oracle then fails the batch with InvalidInstruction.
+ * @param maxFeeAtoms       Aggregate fee cap across the whole batch, in quote atoms (u128). Also a hard
+ *   ceiling: `0n` means no fee allowed, not "unlimited".
  * @param accountAPortfolioId       Account A's portfolio identity.
  * @param accountAPositionEpoch     Account A's current position epoch (CAS, live-read).
  * @param accountBPortfolioId       Account B's portfolio identity.
@@ -4114,8 +4117,8 @@ export function encodeBatchTradeNoCpi(args: BatchTradeNoCpiArgs): Uint8Array {
  * ```ts
  * const data = encodeBatchTradeCpi({
  *   legs: [{ assetIndex: 0, marketId: 1n, sizeQ: 1_000_000n, feeBps: 30n, limitPrice: 51_000_000_000n }],
- *   maxSlippageAtoms: 0n,
- *   maxFeeAtoms: 0n,
+ *   maxSlippageAtoms: maxSlippageAtoms, // the total adverse slippage you accept (quote atoms); 0n = none, not unlimited
+ *   maxFeeAtoms: maxFeeAtoms,           // the total fee you accept (quote atoms); 0n = no fee, not unlimited
  *   accountAPortfolioId: a.portfolioId,
  *   accountAPositionEpoch: a.legs[0].epochSnap,
  *   accountBPortfolioId: b.portfolioId,
