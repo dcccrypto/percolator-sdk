@@ -189,6 +189,31 @@ describe("LevGuardV22 decoder", () => {
       expect(() => G.decodeLevGuardV22(d)).toThrow();
     }
   });
+  it("decodes the 4584-byte-body (4600 B account) v2 guard from prog#721 and refuses v2 misuse", () => {
+    expect(G.LEV_GUARD_BODY_LEN_V2_V22).toBe(4584);
+    expect(G.LEV_GUARD_ACCOUNT_LEN_V2_V22).toBe(4600);
+    const v1 = synth().data;
+    const d = new Uint8Array(4600);
+    d.set(v1.subarray(0, 16 + 360), 0);
+    d.set(v1.subarray(16 + 360, 16 + 360 + 4096), 16 + 488);
+    d.fill(0, 16 + 128, 16 + 144); // _pad4 replaces pb_ref
+    d[16 + 74] = 2;
+    const dv = new DataView(d.buffer);
+    for (let i = 0; i < 8; i++) { dv.setBigUint64(16 + 360 + 8 * i, BigInt(2000 + i), true); dv.setBigUint64(16 + 424 + 8 * i, BigInt(500 - i), true); }
+    const g = G.decodeLevGuardV22(d);
+    expect(g.version).toBe(2);
+    expect(g.pbMarksPx).toEqual([2000n, 2001n, 2002n, 2003n, 2004n, 2005n, 2006n, 2007n]);
+    expect(g.pbMarksSlot[7]).toBe(493n);
+    expect(g.pbRefPx).toBe(2007n); // oldest mark
+    expect(g.pbLastPx).toBe(1000n);
+    expect(g.burstPeakSlot).toBe(888_888n);
+    expect(g.touchedTags).toEqual([0xdeadbeefn, 0xcafen]);
+    const bad = (f: (x: Uint8Array) => void): Uint8Array => { const c = d.slice(); f(c); return c; };
+    expect(() => G.decodeLevGuardV22(bad((x) => { x[16 + 74] = 1; }))).toThrow(UnknownLayoutError); // v1 version on 488 B record
+    expect(() => G.decodeLevGuardV22(bad((x) => { x[16 + 130] = 1; }))).toThrow(UnknownLayoutError); // _pad4 nonzero
+    expect(() => G.decodeLevGuardV22(d.slice(0, 4599))).toThrow(UnknownLayoutError);
+    expect(() => G.decodeLevGuardV22(new Uint8Array([...d, 0]))).toThrow(UnknownLayoutError);
+  });
   it("touched tag is the first KEY_TAG_LEN key bytes LE, also for keys built from pooled Buffers (byteOffset != 0)", () => {
     const N = G.LEV_GUARD_KEY_TAG_LEN_V22;
     const fromLe = (b: Uint8Array): bigint => { let x = 0n; for (let i = N - 1; i >= 0; i--) x = (x << 8n) | BigInt(b[i]); return x; };

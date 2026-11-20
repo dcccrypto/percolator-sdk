@@ -46,11 +46,24 @@ export declare const LEV_GUARD_KEY_TAG_LEN_V22 = 16;
 export declare const LEV_GUARD_TOUCHED_CAP_V22 = 256;
 /** Touched-set byte length (`KEY_TAG_LEN * W1_TOUCHED_CAP`): 4096, unchanged by the widening. */
 export declare const LEV_GUARD_TOUCHED_LEN_V22: number;
+/**
+ * v2 record (prog#721 / #688, sliding 1-h price window): 488 B. `pb_ref_px`/`pb_ref_slot` (record 128..144) became
+ * zero padding and 8 marks (px, then slot, 8 x u64 each) were appended at 360 and 424. Version byte is 2.
+ */
+export declare const LEV_GUARD_REC_LEN_V2_V22 = 488;
+/** Number of price-band marks in a v2 record (`BAND_MARKS`). */
+export declare const LEV_GUARD_BAND_MARKS_V22 = 8;
+/** v2 body length: 488 + 4096 = 4584 (prog#721). */
+export declare const LEV_GUARD_BODY_LEN_V2_V22: number;
+/** v2 account length: 16-byte header + 4584 = 4600. */
+export declare const LEV_GUARD_ACCOUNT_LEN_V2_V22: number;
+/** Record version written by prog#721. */
+export declare const LEV_GUARD_VERSION_V2_V22 = 2;
 /** Body length (record + touched set). */
 export declare const LEV_GUARD_BODY_LEN_V22: number;
 /** Account length: 16-byte header + body = 4472 (prog#605 burst memory; 4456 before it). */
 export declare const LEV_GUARD_ACCOUNT_LEN_V22: number;
-/** The only record version (`LEV_GUARD_VERSION`). */
+/** The v1 record version (records of 344 / 360 B); prog#721 writes {@link LEV_GUARD_VERSION_V2_V22}. */
 export declare const LEV_GUARD_VERSION_V22 = 1;
 /** `flags` bits. */
 export declare const LEV_GUARD_FLAG_V22: Readonly<{
@@ -227,6 +240,10 @@ export declare const LEV_GUARD_FIELD_OFF_V22: Readonly<{
     readonly burstVarPeakX100: 344;
     readonly pad3: 348;
     readonly burstPeakSlot: 352;
+    /** v2 only (record 488 B, prog#721). */
+    readonly pad4: 128;
+    readonly pbMarksPx: 360;
+    readonly pbMarksSlot: 424;
 }>;
 /** Decoded `LevGuardV22`. u64 fields are `bigint`, u128 fields `bigint`, u8 / u16 fields `number`. */
 export interface LevGuardV22 {
@@ -259,8 +276,12 @@ export interface LevGuardV22 {
     holderDumpSlot: bigint;
     pbLastPx: bigint;
     pbLastSlot: bigint;
+    /** v1: the fixed reference. v2: derived, the OLDEST non-empty mark (0n when none); the stored field no longer exists. NOT the program's v2 band rule (max move vs every mark < 1 h old): `levObservePriceV22` previews stay v1-only until they read `pbMarksPx`. */
     pbRefPx: bigint;
     pbRefSlot: bigint;
+    /** v2 sliding window marks (8 each, 0n = empty); empty arrays for v1 records. */
+    pbMarksPx: bigint[];
+    pbMarksSlot: bigint[];
     pbFreezeUntil: bigint;
     pbOracleUntil: bigint;
     frozenLX100: number;
@@ -291,8 +312,8 @@ export interface LevGuardV22 {
     touchedTags: bigint[];
 }
 /**
- * Decode a leverage guard account (`16 + 360 + 4096 = 4472` bytes, header kind 17). Mirrors the program's `validate_guard`
- * (version 1, only known flag bits, booleans 0/1, `touched_n <= 256`, `round_keep_bps <= 10 000`, report bps in range, padding zero).
+ * Decode a leverage guard account (header kind 17): 4600 B (`16 + 488 + 4096`, v2, prog#721), 4472 B (v1, record 360) or 4456 B (v1, record 344). Mirrors the program's `validate_guard`
+ * (version 1, or 2 for the 488 B record, only known flag bits, booleans 0/1, `touched_n <= 256`, `round_keep_bps <= 10 000`, report bps in range, padding zero).
  *
  * @param data   Raw account bytes.
  * @param table  Layout table (default {@link LAYOUT_V22}); only its header version is used.
