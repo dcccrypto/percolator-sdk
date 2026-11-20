@@ -211,7 +211,8 @@ export function combineFundingRateE9V22(premiumE9: bigint, skewE9: bigint, maxAb
  *
  * @param marketData  Raw market account bytes (wrapper VERSION 19).
  * @returns Config bound plus per-asset indices, rate components, applied rate and payer.
- * @throws {UnknownLayoutError} If the account is not a v2.2 (VERSION 19) market.
+ * @throws {UnknownLayoutError} If the account is not a v2.2 (VERSION 19) market, or `TOO_SHORT` if it holds
+ *   fewer asset slots than `max_market_slots` (a truncated read).
  * @example
  * ```ts
  * const f = decodeMarketFundingV22(info.data);
@@ -226,6 +227,12 @@ export function decodeMarketFundingV22(marketData: Uint8Array): MarketFundingV22
     throw new UnknownLayoutError("UNKNOWN_VERSION", "decodeMarketFundingV22", `needs a v2.2 market (VERSION 19), got VERSION ${g.layout.version}`, { version: g.layout.version });
   }
   const cfg = g.groupOff + g.layout.group.config;
+  // A short read must not look like a market with fewer assets: the program rejects
+  // max_market_slots > the slots present, so fewer slots means a truncated buffer (#598).
+  const maxMarketSlots = dv(marketData).getUint32(cfg + g.layout.group.maxMarketSlotsInConfig, true);
+  if (maxMarketSlots > g.slotCount) {
+    throw new UnknownLayoutError("TOO_SHORT", "decodeMarketFundingV22", `buffer holds ${g.slotCount} asset slot(s) but max_market_slots is ${maxMarketSlots}: truncated read`, { version: g.layout.version });
+  }
   const maxAbs = u64(marketData, cfg + OFF_CFG_MAX_ABS_FUNDING);
   const assets: AssetFundingV22[] = [];
   for (let i = 0; i < g.slotCount; i++) {
