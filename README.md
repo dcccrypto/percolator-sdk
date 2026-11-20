@@ -76,6 +76,32 @@ For an open, pass `stalePeers` (other positioned portfolios that are stale on th
 wrapper table and report `program: "unknown"`; pass `programIds` for fresh deployments. `context: { action:
 "trade" }` or `{ action: "withdraw", openLegs }` gives the precise line for wrapper 9 and 19.
 
+### Quotes from one slot (atomic reads)
+
+A quote built from several accounts is only right when every account comes from the same slot. Separate
+`getAccountInfo` calls can straddle a sync, deposit, crank or swap; one such read showed a false vault-LP deficit
+(−150%) and a stake withdraw off by ±50%. These helpers read all inputs with ONE `getMultipleAccountsInfoAndContext`,
+return the `slot`, and take `minContextSlot` (pass the last `slot` when polling so a lagging node cannot go back):
+
+| Helper | Reads | Wraps |
+|---|---|---|
+| `readAccountsAtomic(conn, keys, opts)` | any 1..100 accounts | — |
+| `fetchStakeWithdrawQuoteV5(conn, { pool, insuranceUnits, vault, userLp, market? })` | pool, units, vault, LP (+ market) | `quoteStakeWithdrawNowV5` |
+| `fetchNonboundVaultPricingP2b(conn, programId, market, { domain? })` | market, registry, both ledgers | `nonboundVaultPricingFromAccountsP2b` |
+| `fetchBoundVaultExitQuoteP3(conn, programId, market, { shares, keys? })` | market, registry, VaultLpState, both ledgers, vault-LP portfolio | `vaultLpEquityLagBoundsP3`, `boundVaultRedemptionAtomsP3` |
+| `fetchDexSpotPriceE6(conn, dexType, pool, decimals, { vaults? })` | pool (+ PumpSwap vaults) | `computeDexSpotPriceE6` |
+
+```ts
+const keys = await resolveBoundVaultKeysP3(connection, PROGRAM_ID, market); // fixed at init: cache it
+let last: number | undefined;
+const q = await fetchBoundVaultExitQuoteP3(connection, PROGRAM_ID, market, { shares, keys, minContextSlot: last });
+last = q.slot;
+```
+
+Addresses that live inside another account (a registry's `domain`, the vault-LP portfolio, PumpSwap vaults) are
+read first when you do not pass them, then checked again in the one-slot read. Pass them to make each poll one
+call. With `RpcPool`, call the helper inside one `pool.call((c) => …)`.
+
 ## 8.0.0 relaunch targets
 
 - **Wrapper:** percolator-prog P1 + P3 head `58e379f1` (engine `35ddd692`) at the fresh devnet
