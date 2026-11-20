@@ -740,10 +740,10 @@ export function getErrorHint(code: number): string | undefined {
 const CUSTOM_ERROR_HEX_MAX_LEN = 8;
 
 /** Which program a custom error was attributed to. */
-export type ErrorProgramKind = "wrapper" | "stake" | "nft" | "matcher" | "token" | "unknown";
+export type ErrorProgramKind = "wrapper" | "stake" | "nft" | "matcher" | "token" | "system" | "unknown";
 
 /** Program ids to attribute errors to, in addition to the SDK's known deployments. */
-export type ErrorProgramIds = Partial<Record<Exclude<ErrorProgramKind, "token" | "unknown">, readonly (PublicKey | string)[]>>;
+export type ErrorProgramIds = Partial<Record<Exclude<ErrorProgramKind, "token" | "system" | "unknown">, readonly (PublicKey | string)[]>>;
 
 /**
  * What the caller was doing, so a code with several meanings can get the right line.
@@ -789,6 +789,27 @@ const TOKEN_PROGRAM_IDS = [
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
 ];
 
+/** The System program id (`11111111111111111111111111111111`). */
+const SYSTEM_PROGRAM_ID = "11111111111111111111111111111111";
+
+/**
+ * System program `SystemError` codes 0..8. A System failure inside a wrapper CPI (for example tag 116 creating the
+ * `["ins_units", market]` PDA with an unfunded payer: "Transfer: insufficient lamports", then `custom program error: 0x1`)
+ * is the innermost failing program, so it must not be decoded with the wrapper table (wrapper 1 is `InvalidVersion`).
+ */
+export const SYSTEM_PROGRAM_ERRORS: Readonly<Record<number, ErrorInfo>> = Object.freeze({
+  0: { name: "AccountAlreadyInUse", hint: "An account with this address already exists." },
+  1: { name: "ResultWithNegativeLamports", hint: "The paying account does not have enough SOL for this transfer or account rent. Fund the payer and retry." },
+  2: { name: "InvalidProgramId", hint: "Cannot assign the account to this program id." },
+  3: { name: "InvalidAccountDataLength", hint: "Cannot allocate an account with this data length." },
+  4: { name: "MaxSeedLengthExceeded", hint: "The seed is longer than the maximum allowed length." },
+  5: { name: "AddressWithSeedMismatch", hint: "The address does not match the one derived from the seed." },
+  6: { name: "NonceNoRecentBlockhashes", hint: "Advancing a stored nonce needs a non-empty recent blockhashes list." },
+  7: { name: "NonceBlockhashNotExpired", hint: "The stored nonce is still in the recent blockhashes list; wait and retry." },
+  8: { name: "NonceUnexpectedBlockhashValue", hint: "The specified nonce does not match the stored nonce." },
+});
+for (const v of Object.values(SYSTEM_PROGRAM_ERRORS)) Object.freeze(v);
+
 let BUILTIN_PROGRAM_IDS: Map<string, ErrorProgramKind> | undefined;
 
 /** The SDK's built-in program ids, built once (base58 of every PublicKey is not free). Never mutate the result. */
@@ -806,6 +827,7 @@ function builtinProgramIds(): Map<string, ErrorProgramKind> {
   add("stake", [STAKE_PROGRAM_IDS.devnet, STAKE_PROGRAM_IDS.mainnet, PROGRAM_IDS_DEVNET_V22.vault, PROGRAM_IDS_DEVNET_V1.vault]);
   add("nft", [NFT_PROGRAM_IDS.devnet, NFT_PROGRAM_IDS.mainnet, PROGRAM_IDS_DEVNET_V22.nft, PROGRAM_IDS_DEVNET_V1.nft]);
   add("token", TOKEN_PROGRAM_IDS);
+  add("system", [SYSTEM_PROGRAM_ID]);
   return (BUILTIN_PROGRAM_IDS = m);
 }
 
@@ -838,6 +860,8 @@ function decodeForProgram(kind: ErrorProgramKind, code: number): ErrorInfo | und
       return MATCHER_V2_ERRORS[code];
     case "token":
       return SPL_TOKEN_ERRORS[code];
+    case "system":
+      return SYSTEM_PROGRAM_ERRORS[code];
     case "wrapper":
     case "unknown":
       return PERCOLATOR_ERRORS[code];
@@ -910,7 +934,8 @@ const PROGRAM_FAILED_RE = /^Program ([1-9A-HJ-NP-Za-km-z]{32,44}) failed:/;
  * The FIRST `Program <id> failed: custom program error: 0x..` line is used (the innermost failing
  * program of a CPI chain). The id on that line selects the error table: the wrapper's
  * (PERCOLATOR_ERRORS), the stake program's (STAKE_ERRORS + STAKE_ERRORS_V5), the NFT program's
- * (NFT_ERRORS), the matcher's (MATCHER_V2_ERRORS) or SPL Token's. Ids are the SDK's known
+ * (NFT_ERRORS), the matcher's (MATCHER_V2_ERRORS), SPL Token's or the System program's
+ * (SYSTEM_PROGRAM_ERRORS). Ids are the SDK's known
  * deployments (devnet v2.2 / v1, mainnet) plus `opts.programIds`. A program the SDK does not know,
  * or a log line without an id, falls back to the wrapper table (the legacy behaviour) and is
  * reported as `program: "unknown"`.

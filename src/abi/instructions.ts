@@ -1391,14 +1391,17 @@ export function encodeLiquidateAtOracle(_args: LiquidateAtOracleArgs): Uint8Arra
  *
  * @param portfolioId       The portfolio's program-assigned identity.
  * @param expectedSequence  The portfolio's current matcher-sequence watermark, read live.
- * @param positionEpoch     The portfolio's current position epoch, read live.
+ * @param positionEpoch     The portfolio's matcher-config position epoch, read live
+ *   (`parsePortfolioV17(..).matcherPositionEpoch`). The wrapper compares it with
+ *   `read_portfolio_position_epoch` (v16_program.rs), NOT a leg's `epochSnap`.
  *
  * @example
  * ```ts
+ * const portfolio = parsePortfolioV17(portfolioInfo.data);
  * const data = encodeCloseAccount({
  *   portfolioId: portfolio.portfolioId,
  *   expectedSequence: portfolio.matcherSequence,
- *   positionEpoch: portfolio.legs[0].epochSnap,
+ *   positionEpoch: portfolio.matcherPositionEpoch,
  * });
  * ```
  */
