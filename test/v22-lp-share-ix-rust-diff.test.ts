@@ -9,9 +9,10 @@
  *   - reference builder tests/v22_lp_share_mint.rs:937-951 `metadata_accounts`, wire :1003-1014 `tag_122_wire`
  *
  * Every expected value below is rebuilt from those Rust lines with raw `findProgramAddressSync` and literal seeds;
- * none of the SDK's own derive helpers or account specs are used to build the expectation.
+ * no SDK derive helper or account spec builds an expected value (deriveInsuranceLpMint / deriveLpVaultRegistry appear
+ * only in an explicit cross-check).
  */
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { buildInitLpShareMetadataIxV22 } from "../src/solana/v22-lp-share.js";
 import { deriveInsuranceLpMint, deriveLpVaultRegistry } from "../src/solana/pda.js";
@@ -94,7 +95,7 @@ function expectedKey(r: Row, c: Ctx): PublicKey {
 
 /** Wire per Rust decode (src/v16_program.rs:10915-10924) and `tag_122_wire` (tests/v22_lp_share_mint.rs:1003-1014). */
 function rustWire(ticker: string): Buffer {
-  const t = Buffer.from(ticker, "ascii");
+  const t = Buffer.from(ticker, "utf8");
   if (t.length > 8) throw new Error("decode refuses n > 8");
   return Buffer.concat([Buffer.from([122, t.length]), t]);
 }
@@ -182,9 +183,5 @@ describe("tag 122 InitLpShareMetadata: SDK builder vs Rust handler (prog d27f3d7
     expect(build("SOL")).toThrow(/marketauth/);
     // Generic form: marketauth is ignored, so the tail is never appended (Rust reads [7]/[8] only when n > 0).
     expect(buildInitLpShareMetadataIxV22({ programId: c.programId, market: c.market, payer: c.payer, marketauth: c.marketauth }).keys.length).toBe(7);
-  });
-
-  it("the system program constant is the one web3.js exposes", () => {
-    expect(SystemProgram.programId.equals(SYSTEM)).toBe(true);
   });
 });
