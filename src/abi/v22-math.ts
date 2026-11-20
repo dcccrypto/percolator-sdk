@@ -888,6 +888,8 @@ export interface BondWithdrawQuoteInput<T extends BondCouponStateV22> {
   slippageBps?: number;
   // Live exits only: the program gates the quote cannot see without these (prog `bond_withdraw_live_core`,
   // v16_program.rs:43924-43949, and the engine withdraw at 43992). An omitted gate is treated as open, so pass them.
+  // The program crystallizes the vault LP's maintenance fee first (43922): read the LP numbers (and the vault value)
+  // after a fee crank, or the quote can be high by the fee.
   /** `lp_vault_harvestable_fee_atoms`: non-zero → 84 VaultLpHarvestPending (crank tag 78 first). */
   harvestableFeeAtoms?: bigint;
   /** Backing NAV of the pots (`lp_vault_combined_nav_parts_p3(..).1`): `nav < seniorClaimEff` → 108 BondCapacityLocked. */
@@ -898,6 +900,8 @@ export interface BondWithdrawQuoteInput<T extends BondCouponStateV22> {
   lpCapitalAtoms?: bigint;
   /** The vault LP portfolio's `pnl` (signed): a loss settles from capital first; still negative → 21. */
   lpPnlAtoms?: bigint;
+  /** The vault LP portfolio's `fee_credits` (`<= 0`): `capital - payout + pnl - |fc| < 0` → 14 EngineInvalidConfig. */
+  lpFeeCreditsAtoms?: bigint;
   /** The vault LP has an active leg (engine withdraw is flat-only → 19 EngineStale). `live.lpEffAbsQ > 0` implies it. */
   lpHasActiveLegs?: boolean;
 }
@@ -913,6 +917,7 @@ export interface BondWithdrawQuote<T extends BondCouponStateV22 = BondCouponStat
   /** The tranche after the exit (settled, `K` / `U` / `B` sliced, `R` untouched); `null` when refused. */
   trancheAfter: T | null;
   refusal:
+    | BondRefusal<14, "EngineInvalidConfig">
     | BondRefusal<15, "EngineArithmeticOverflow">
     | BondRefusal<19, "EngineStale">
     | BondRefusal<21, "EngineLockActive">
@@ -937,8 +942,9 @@ export interface BondWithdrawQuote<T extends BondCouponStateV22 = BondCouponStat
  * Live, the program also refuses before pricing when a harvestable LP fee is pending (84), when the pots' NAV is below the
  * senior claim (108) and when an undrawn deficit is booked (87); and after the lock the engine pays the bond from the vault
  * LP's capital only, flat-only: a vault LP with inventory refuses (19) and a payout above its (loss-settled) capital refuses
- * (21). Pass `harvestableFeeAtoms`, `nav`, `undrawnDeficitAtoms`, `lpCapitalAtoms` / `lpPnlAtoms` and `lpHasActiveLegs` so
- * the quote applies them; `live.lpEffAbsQ > 0` alone already refuses 19.
+ * (21), as does fee debt that leaves `equity_after < 0` (14). Pass `harvestableFeeAtoms`, `nav`, `undrawnDeficitAtoms`,
+ * `lpCapitalAtoms` / `lpPnlAtoms` / `lpFeeCreditsAtoms` and `lpHasActiveLegs` so the quote applies them;
+ * `live.lpEffAbsQ > 0` alone already refuses 19. Read the LP after a maintenance-fee crank (the program charges it first).
  *
  * @param i  See {@link BondWithdrawQuoteInput}.
  * @returns The quote.
@@ -988,6 +994,8 @@ export function quoteBondWithdrawV22<T extends BondCouponStateV22>(i: BondWithdr
         pnl += paid;
       }
       if (pnl < 0n || atoms > cap) return { ...refused, refusal: { code: 21, name: "EngineLockActive" } };
+      const fc = i.lpFeeCreditsAtoms ?? 0n;
+      if (cap - atoms + pnl - (fc < 0n ? -fc : fc) < 0n) return { ...refused, refusal: { code: 14, name: "EngineInvalidConfig" } }; // v16.rs:25953-25960
     }
   }
   const slip = BigInt(i.slippageBps ?? 0);

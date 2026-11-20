@@ -23,6 +23,27 @@ export interface WithdrawRefusalV22<C extends number = number, N extends string 
   name: N;
 }
 
+/**
+ * The maintenance-fee step every withdraw runs first (prog `collect_maintenance_fee_before_value_debit_view` → engine
+ * `sync_account_fee_to_slot_not_atomic` v16.rs:25865-25910): with a fee due, settle a loss from capital, then charge
+ * `min(rate * (now - last_fee_slot), capital)` unless PnL is still negative. Throws when a rate is set without both slots, so
+ * a missing input cannot silently drop the fee (the quote would then be too high).
+ */
+function chargeMaintenanceFee(capital: bigint, pnl: bigint, rate: bigint, nowSlot?: bigint, lastFeeSlot?: bigint): { capital: bigint; pnl: bigint; fee: bigint } {
+  if (rate <= 0n) return { capital, pnl, fee: 0n };
+  if (nowSlot === undefined || lastFeeSlot === undefined) throw new Error("maintenance fee rate set: pass nowSlot and lastFeeSlot");
+  if (nowSlot <= lastFeeSlot) return { capital, pnl, fee: 0n };
+  if (pnl < 0n) {
+    const paid = min(capital, -pnl);
+    capital -= paid;
+    pnl += paid;
+  }
+  // charge_account_fee_current_not_atomic (24890-24930): nothing is charged while PnL is still negative.
+  if (pnl < 0n) return { capital, pnl, fee: 0n };
+  const fee = min(rate * (nowSlot - lastFeeSlot), capital);
+  return { capital: capital - fee, pnl, fee };
+}
+
 // ───────────────────────────── collateral: Withdraw (tag 4) ─────────────────────────────
 
 /** Inputs of {@link maxWithdrawCollateralV22}. Atoms unless noted. */
@@ -41,11 +62,11 @@ export interface CollateralWithdrawInputV22 {
   live: boolean;
   /** Live, but the permissionless resolve has matured (`permissionless_resolve_matured_now_view`): OracleStale. */
   resolveMatured?: boolean;
-  /** Slot the withdraw lands in. Used for the maintenance fee. */
+  /** Slot the withdraw lands in. Used for the maintenance fee (required when `maintenanceFeePerSlot > 0`). */
   nowSlot?: bigint;
-  /** Portfolio `last_fee_slot`. */
+  /** Portfolio `last_fee_slot` (required when `maintenanceFeePerSlot > 0`). */
   lastFeeSlot?: bigint;
-  /** Market `maintenance_fee_per_slot` (0 = off). */
+  /** Market `maintenance_fee_per_slot` (0 = off). The rate-checkpoint leg (prog 28810-28826) is not modelled: after a rate cut, read the portfolio after a fee crank. */
   maintenanceFeePerSlot?: bigint;
   /** SPL balance of the market vault token account. Omit to skip this cap. */
   vaultTokenBalance?: bigint;
@@ -69,6 +90,7 @@ export interface CollateralWithdrawQuoteV22 {
   /** What bounds `maxAtoms`: post-fee capital, fee debt (`equity_after >= 0`), the vault token balance, or a refusal. */
   binding: "capital" | "equity" | "vault" | "refused";
   refusal:
+    | WithdrawRefusalV22<14, "EngineInvalidConfig">
     | WithdrawRefusalV22<19, "EngineStale">
     | WithdrawRefusalV22<21, "EngineLockActive">
     | WithdrawRefusalV22<27, "OracleStale">
@@ -111,27 +133,17 @@ export function maxWithdrawCollateralV22(i: CollateralWithdrawInputV22): Collate
   if (!i.live) return refused({ code: 21, name: "EngineLockActive" });
   if (i.resolveMatured) return refused({ code: 27, name: "OracleStale" });
 
-  // prog 17958 → engine sync_account_fee_to_slot_not_atomic (25865-25910): settle loss from principal, then charge the fee.
-  let capital = i.capital;
-  let pnl = i.pnl;
+  // prog 17958: the fee is crystallized first.
+  const f = chargeMaintenanceFee(i.capital, i.pnl, i.maintenanceFeePerSlot ?? 0n, i.nowSlot, i.lastFeeSlot);
+  let capital = f.capital;
+  let pnl = f.pnl;
+  const feeAtoms = f.fee;
   const settle = (): void => {
     if (pnl >= 0n) return;
     const paid = min(capital, -pnl);
     capital -= paid;
     pnl += paid;
   };
-  let feeAtoms = 0n;
-  const rate = i.maintenanceFeePerSlot ?? 0n;
-  const now = i.nowSlot ?? 0n;
-  const last = i.lastFeeSlot ?? now;
-  if (rate > 0n && now > last) {
-    settle();
-    // charge_account_fee_current_not_atomic (24890-24930): nothing is charged while PnL is still negative.
-    if (pnl >= 0n) {
-      feeAtoms = min(rate * (now - last), capital);
-      capital -= feeAtoms;
-    }
-  }
 
   if (i.hasActiveLegs) return refused({ code: 19, name: "EngineStale" }, feeAtoms, capital);
   if (i.closeLedgerActive) return refused({ code: 21, name: "EngineLockActive" }, feeAtoms, capital);
@@ -142,7 +154,9 @@ export function maxWithdrawCollateralV22(i: CollateralWithdrawInputV22): Collate
   let binding: CollateralWithdrawQuoteV22["binding"] = "capital";
   const equityRoom = capital + pnl - absBig(i.feeCredits); // equity_after >= 0  <=>  amount <= capital + pnl - |fc|
   if (equityRoom < maxAtoms) {
-    maxAtoms = equityRoom < 0n ? 0n : equityRoom;
+    // equity_after < 0 for every positive amount → InvalidConfig (v16.rs:25953-25960)
+    if (equityRoom <= 0n) return refused({ code: 14, name: "EngineInvalidConfig" }, feeAtoms, capital);
+    maxAtoms = equityRoom;
     binding = "equity";
   }
   if (i.vaultTokenBalance !== undefined && i.vaultTokenBalance < maxAtoms) {
@@ -189,8 +203,16 @@ export interface JuniorWithdrawInputV22 {
   juniorFloorBps: number;
   /** SPL balance of the market vault token account. */
   vaultTokenBalance: bigint;
-  /** The vault LP portfolio the engine withdraw debits (flat-only, capital-only). */
-  lp: { capital: bigint; pnl: bigint; feeCredits?: bigint; hasActiveLegs: boolean };
+  /**
+   * The vault LP portfolio the engine withdraw debits (flat-only, capital-only). `lastFeeSlot` + `nowSlot` +
+   * `maintenanceFeePerSlot`: tag 97 crystallizes the LP's maintenance fee before it reads the value (v16_program.rs:38781);
+   * the fee comes off the LP's capital and off `lpValueAtoms` (a flat LP's value is its conservative equity).
+   */
+  lp: { capital: bigint; pnl: bigint; feeCredits?: bigint; hasActiveLegs: boolean; lastFeeSlot?: bigint };
+  /** Slot the withdraw lands in (required with `maintenanceFeePerSlot > 0`). */
+  nowSlot?: bigint;
+  /** Market `maintenance_fee_per_slot` (0 = off). */
+  maintenanceFeePerSlot?: bigint;
   /**
    * Growth assets only: the open-interest lock. `nCapAfter(amount)` is the LP capacity left after `amount`
    * (`growth_n_cap_for_view(c_m - amount)`); it must be monotone non-increasing in `amount`. Omit when growth is off.
@@ -226,8 +248,8 @@ export interface JuniorWithdrawQuoteV22 {
  * withdraw from the vault LP's capital; and the vault token balance.
  *
  * `C_eff = senior_claim + floor(harvestable * senior_fee_share_bps)` and `v = nav + harvestable + lp_value`
- * (vault_lp_v18.rs:93-105). The maintenance fee the instruction crystallizes on the vault LP first is not modelled:
- * read the LP after a fee crank, or leave a margin.
+ * (vault_lp_v18.rs:93-105). The maintenance fee the instruction crystallizes on the vault LP first (38781) is taken off
+ * the LP's capital and its value when `nowSlot`, `lp.lastFeeSlot` and `maintenanceFeePerSlot` are passed.
  *
  * @param i  See {@link JuniorWithdrawInputV22}.
  * @returns The quote.
@@ -248,11 +270,14 @@ export function maxWithdrawJuniorV22(i: JuniorWithdrawInputV22): JuniorWithdrawQ
   if (i.priceLagged) return out(0n, 0n, 0n, { code: 21, name: "EngineLockActive" });
   if (i.resolveMatured) return out(0n, 0n, 0n, { code: 27, name: "OracleStale" });
 
+  // 38781: the LP's maintenance fee is crystallized before any value is read.
+  const lpFee = chargeMaintenanceFee(i.lp.capital, i.lp.pnl, i.maintenanceFeePerSlot ?? 0n, i.nowSlot, i.lp.lastFeeSlot);
+  const lpValue = i.lpValueAtoms > lpFee.fee ? i.lpValueAtoms - lpFee.fee : 0n;
   const senFee = bpsFloorV22(i.harvestableFeeAtoms, i.seniorFeeShareBps);
   if (senFee === null) return out(0n, 0n, 0n, { code: 75, name: "VaultLpJuniorWithdrawRefused" });
   const cEff = i.seniorClaimAtoms + senFee;
   const cover = i.nav + i.harvestableFeeAtoms;
-  const v = i.nav + i.harvestableFeeAtoms + i.lpValueAtoms;
+  const v = i.nav + i.harvestableFeeAtoms + lpValue;
   const bond = i.bondClaimUpperBound ?? 0n;
   const junior = trancheSplit3V22(v, cEff, bond).junior;
   let locked = 0n;
@@ -269,8 +294,8 @@ export function maxWithdrawJuniorV22(i: JuniorWithdrawInputV22): JuniorWithdrawQ
 
   // Engine withdraw (flat-only, capital-only), v16.rs:25913-25975.
   if (i.lp.hasActiveLegs) return out(0n, junior, reserved, { code: 19, name: "EngineStale" });
-  let cap = i.lp.capital;
-  let pnl = i.lp.pnl;
+  let cap = lpFee.capital;
+  let pnl = lpFee.pnl;
   if (pnl < 0n) {
     const paid = min(cap, -pnl);
     cap -= paid;

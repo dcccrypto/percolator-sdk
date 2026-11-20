@@ -7,6 +7,7 @@
 // Collateral rows: per state, (a) `maxWithdrawCollateralV22.maxAtoms` vs the program max, and (b) what the program actually
 // pays for the quote's `maxRequestAmount` (the amount the max button sends) vs the program max.
 import { describe, it, expect } from "vitest";
+import { writeFileSync } from "node:fs";
 import { maxWithdrawCollateralV22, maxWithdrawJuniorV22 } from "../../src/abi/v22-withdraw.js";
 import { quoteStakeWithdrawNowV5 } from "../../src/abi/v22-stake.js";
 import { quoteBondWithdrawV22 } from "../../src/abi/v22-math.js";
@@ -103,17 +104,31 @@ for (const s of bondStates) {
     nowSlot: 10_000n, seniorDrawnAtoms: 0n, vaultValue: s.b.vWorse, seniorClaimEff: s.b.seniorClaim,
     live: { nCapAfter: s.b.nCapAfter, oiLongQ: s.b.oiLong, oiShortQ: s.b.oiShort, lpEffAbsQ: s.b.lpEffAbs },
     harvestableFeeAtoms: s.b.harvestableFee, nav: s.b.nav, undrawnDeficitAtoms: s.b.undrawnDeficit,
-    lpCapitalAtoms: s.b.lpCapital, lpPnlAtoms: s.b.lpPnl, lpHasActiveLegs: s.b.lpActiveLegs,
+    lpCapitalAtoms: s.b.lpCapital, lpPnlAtoms: s.b.lpPnl, lpFeeCreditsAtoms: s.b.lpFeeCredits, lpHasActiveLegs: s.b.lpActiveLegs,
   });
   const sdk = q.refusal === null && q.atoms !== null ? q.atoms : 0n;
   push({ path: "bond tag 110 Live", state: s.state, helper: "quoteBondWithdrawV22.atoms (refusal null)", sdk, prog: r.ok ? r.paid : 0n });
 }
 const REPORT_ROWS = rows.length;
+{
+  // reviewer S2: fee debt on the vault LP (equity_after < 0 at the engine withdraw)
+  const b = bond({ lpCapital: 600_000n, lpFeeCredits: -200_000n });
+  const r = progBondWithdrawLive(b);
+  const q = quoteBondWithdrawV22({
+    shares: b.shares,
+    tranche: { cBAtoms: b.cB, bSharesTotal: b.bSharesTotal, couponArrearsAtoms: 0n, couponUnfundedAtoms: 0n, couponAccrualRem: 0n, couponGateSeen: 0n, lastCouponSlot: 10_000n, couponBpsPerYear: 0, couponUtilBonusBps: 0 },
+    nowSlot: 10_000n, seniorDrawnAtoms: 0n, vaultValue: b.vWorse, seniorClaimEff: b.seniorClaim,
+    live: { nCapAfter: b.nCapAfter, oiLongQ: b.oiLong, oiShortQ: b.oiShort, lpEffAbsQ: b.lpEffAbs },
+    lpCapitalAtoms: b.lpCapital, lpPnlAtoms: b.lpPnl, lpFeeCreditsAtoms: b.lpFeeCredits,
+  });
+  push({ path: "bond tag 110 Live", state: "B6 vault LP fee debt 200k, capital 600k, payout 500k", helper: "quoteBondWithdrawV22.atoms (refusal null)", sdk: q.refusal === null && q.atoms !== null ? q.atoms : 0n, prog: r.ok ? r.paid : 0n });
+}
 
 // ── junior tag 97 (was GAP: no SDK helper) ──
 const jr = (o: Partial<JuniorState> = {}): JuniorState => ({
   live: true, drawOutstanding: 0n, nav: 1_200_000n, harvestable: 0n, lpValue: 800_000n, seniorClaim: 1_000_000n, seniorFeeShareBps: 5_000n,
-  bondClaim: 0n, cushion: null, juniorFloorBps: 1_000n, vaultToken: 10_000_000n, lpCapital: 800_000n, lpPnl: 0n, lpActiveLegs: false, creatorMin: null, ...o,
+  bondClaim: 0n, cushion: null, juniorFloorBps: 1_000n, vaultToken: 10_000_000n, lpCapital: 800_000n, lpPnl: 0n, lpActiveLegs: false,
+  lpFeeCredits: 0n, maintFeePerSlot: 0n, nowSlot: 10_000n, lpLastFeeSlot: 10_000n, creatorMin: null, ...o,
 });
 const sdkJunior = (s: JuniorState) =>
   maxWithdrawJuniorV22({
@@ -121,7 +136,8 @@ const sdkJunior = (s: JuniorState) =>
     seniorClaimAtoms: s.seniorClaim, seniorFeeShareBps: Number(s.seniorFeeShareBps), bondClaimUpperBound: s.bondClaim,
     cushion: s.cushion ? { accruedAtoms: s.cushion.accrued, targetBps: Number(s.cushion.targetBps) } : undefined,
     juniorFloorBps: Number(s.juniorFloorBps), vaultTokenBalance: s.vaultToken,
-    lp: { capital: s.lpCapital, pnl: s.lpPnl, hasActiveLegs: s.lpActiveLegs }, creatorStakeMinAtoms: s.creatorMin ?? undefined,
+    lp: { capital: s.lpCapital, pnl: s.lpPnl, feeCredits: s.lpFeeCredits, hasActiveLegs: s.lpActiveLegs, lastFeeSlot: s.lpLastFeeSlot },
+    nowSlot: s.nowSlot, maintenanceFeePerSlot: s.maintFeePerSlot, creatorStakeMinAtoms: s.creatorMin ?? undefined,
   }).maxAtoms;
 const juniorStates: { state: string; s: JuniorState }[] = [
   { state: "J1 healthy, floor 10% of C_eff", s: jr() },
@@ -133,6 +149,8 @@ const juniorStates: { state: string; s: JuniorState }[] = [
   { state: "J7 creator minimum 800k (gap below the junior)", s: jr({ creatorMin: 800_000n }) },
   { state: "J8 senior draw outstanding", s: jr({ drawOutstanding: 1n }) },
   { state: "J9 vault token 50k", s: jr({ vaultToken: 50_000n }) },
+  { state: "J10 LP maintenance fee pending (50/slot x 1000)", s: jr({ maintFeePerSlot: 50n, lpLastFeeSlot: 9_000n }) },
+  { state: "J11 LP fee debt -700k", s: jr({ lpFeeCredits: -700_000n }) },
 ];
 for (const j of juniorStates) {
   push({ path: "junior tag 97", state: j.state, helper: "maxWithdrawJuniorV22.maxAtoms", sdk: sdkJunior(j.s), prog: progJuniorMax(j.s, 10_000_000n) });
@@ -142,7 +160,7 @@ describe("withdraw-limit differential vs prog rc23 (re-run of the report's 34 ro
   it("prints the table; no row quotes more than the program pays", () => {
     const md = ["| path | state | SDK helper | SDK max | prog max | verdict |", "|---|---|---|---:|---:|---|",
       ...rows.map((r) => `| ${r.path} | ${r.state} | \`${r.helper}\` | ${r.sdk} | ${r.prog} | **${r.verdict}** |`)].join("\n");
-    if (process.env.WITHDRAW_DIFF_PRINT) console.log(md);
+    if (process.env.WITHDRAW_DIFF_OUT) writeFileSync(process.env.WITHDRAW_DIFF_OUT, md + "\n");
     expect(REPORT_ROWS).toBe(34);
     expect(rows.filter((r) => r.verdict === "OVER")).toEqual([]);
   });
@@ -201,11 +219,26 @@ describe("randomized: maxWithdrawJuniorV22 == program max (tag 97)", () => {
         cushion: r(2n) === 0n ? { accrued: r(200_000n), targetBps: r(2_000n) } : null, juniorFloorBps: r(3_000n),
         vaultToken: r(4n) === 0n ? r(1_000_000n) : 10_000_000n, lpCapital: r(1_500_000n), lpPnl: r(3n) === 0n ? r(400_000n) - 200_000n : 0n,
         lpActiveLegs: r(10n) === 0n, creatorMin: r(3n) === 0n ? r(800_000n) : null,
+        lpFeeCredits: r(4n) === 0n ? -r(900_000n) : 0n, maintFeePerSlot: r(3n) === 0n ? r(200n) : 0n, lpLastFeeSlot: 10_000n - r(2_000n),
       });
       const prog = progJuniorMax(s, 10_000_000n);
       if (prog > 0n) paying++;
       expect({ k, max: sdkJunior(s) }).toEqual({ k, max: prog });
     }
     expect(paying).toBeGreaterThan(60); // the sweep must exercise paying states, not only refusals
+  });
+});
+
+describe("maxWithdrawCollateralV22 contracts (review round 1)", () => {
+  const base = { capital: CAP, pnl: 0n, feeCredits: 0n, hasActiveLegs: false, live: true };
+  it("a fee rate without both slots throws instead of dropping the fee", () => {
+    expect(() => maxWithdrawCollateralV22({ ...base, maintenanceFeePerSlot: 1n, nowSlot: 5n })).toThrow(/lastFeeSlot/);
+    expect(() => maxWithdrawCollateralV22({ ...base, maintenanceFeePerSlot: 1n, lastFeeSlot: 5n })).toThrow(/nowSlot/);
+  });
+  it("fee debt at or above capital is refused with 14 (every amount fails equity_after)", () => {
+    const q = maxWithdrawCollateralV22({ ...base, feeCredits: -CAP });
+    expect(q.maxAtoms).toBe(0n);
+    expect(q.refusal?.code).toBe(14);
+    expect(progMaxWithdraw(mkt(), pf({ feeCredits: -CAP }))).toBe(0n);
   });
 });

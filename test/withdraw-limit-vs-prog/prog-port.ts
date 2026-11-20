@@ -223,6 +223,7 @@ export interface BondLiveState {
   lpCapital: bigint;
   lpPnl: bigint;
   lpActiveLegs: boolean;
+  lpFeeCredits?: bigint;
 }
 
 /** PROG v16_program.rs:43712-43760 (outer gates) + 43900-43998 bond_withdraw_live_core + ENGINE withdraw_not_atomic */
@@ -254,6 +255,7 @@ export function progBondWithdrawLive(s: BondLiveState): Res {
       pnl += paid;
     }
     if (pnl < 0n || payout > cap) return { ok: false, err: "EngineLockActive (payout > LP capital) v16.rs:25944-25946 via v16_program.rs:43992" };
+    if (equityFromParts(cap - payout, pnl, s.lpFeeCredits ?? 0n) < 0n) return { ok: false, err: "InvalidConfig (equity_after<0) v16.rs:25953-25960 via 43992" };
   }
   return { ok: true, paid: payout };
 }
@@ -276,6 +278,10 @@ export interface JuniorState {
   lpCapital: bigint;
   lpPnl: bigint;
   lpActiveLegs: boolean;
+  lpFeeCredits: bigint; // <= 0
+  maintFeePerSlot: bigint;
+  nowSlot: bigint;
+  lpLastFeeSlot: bigint;
   creatorMin: bigint | null; // lev_min_creator_stake_view
 }
 
@@ -294,9 +300,27 @@ export function progJuniorWithdraw(s: JuniorState, amount: bigint, skipCreatorMi
   if (amount > U64_MAX) return { ok: false, err: "amount_to_u64 38735" };
   if (s.vaultToken < amount) return { ok: false, err: "require_token_balance 38736" };
   if (s.drawOutstanding > 0n) return { ok: false, err: "VaultLpPausedForSeniorDraw 38760-38762" };
+  // 38781 collect_maintenance_fee_before_value_debit_view on the vault LP (same engine path as collectMaintenanceFee above)
+  let lpCapital = s.lpCapital;
+  let lpPnl = s.lpPnl;
+  let lpValue = s.lpValue;
+  if (s.maintFeePerSlot !== 0n && s.nowSlot > s.lpLastFeeSlot) {
+    if (lpPnl < 0n) {
+      const paid = lpCapital < -lpPnl ? lpCapital : -lpPnl;
+      lpCapital -= paid;
+      lpPnl += paid;
+    }
+    if (lpPnl >= 0n) {
+      const fee = s.maintFeePerSlot * (s.nowSlot - s.lpLastFeeSlot);
+      const charged = fee < lpCapital ? fee : lpCapital;
+      lpCapital -= charged;
+      // flat LP: vault_lp_value_atoms = conservative_equity(capital, pnl, fc) (v16_program.rs:35884-35889), so it drops by the fee
+      lpValue = lpValue > charged ? lpValue - charged : 0n;
+    }
+  }
   const cover = s.nav + s.harvestable; // 38799-38801
   const cEff = s.seniorClaim + bpsFloor(s.harvestable, s.seniorFeeShareBps); // 38802-38807 effective_senior_claim
-  const v = s.nav + s.harvestable + s.lpValue; // 38809 vault_value
+  const v = s.nav + s.harvestable + lpValue; // 38809 vault_value
   const locked = s.cushion ? (s.cushion.accrued < bpsCeil(cEff, s.cushion.targetBps) ? s.cushion.accrued : bpsCeil(cEff, s.cushion.targetBps)) : 0n; // 38812-38820
   const gated = amount + locked; // 38821-38823
   // bond_v20.rs:127-147 junior_withdraw_allowed3
@@ -310,14 +334,15 @@ export function progJuniorWithdraw(s: JuniorState, amount: bigint, skipCreatorMi
   }
   // 38859 group.withdraw_not_atomic(&mut lp, amount) — flat-only, capital-only
   if (s.lpActiveLegs) return { ok: false, err: "EngineStale v16.rs:25925-25927" };
-  let cap = s.lpCapital;
-  let pnl = s.lpPnl;
+  let cap = lpCapital;
+  let pnl = lpPnl;
   if (pnl < 0n) {
     const paid = cap < -pnl ? cap : -pnl;
     cap -= paid;
     pnl += paid;
   }
   if (pnl < 0n || amount > cap) return { ok: false, err: "EngineLockActive v16.rs:25944-25946" };
+  if (equityFromParts(cap - amount, pnl, s.lpFeeCredits) < 0n) return { ok: false, err: "InvalidConfig v16.rs:25953-25960" };
   return { ok: true, paid: amount };
 }
 
