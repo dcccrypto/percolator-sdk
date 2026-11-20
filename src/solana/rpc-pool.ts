@@ -121,7 +121,7 @@ export type SelectionStrategy = "round-robin" | "failover";
  * });
  *
  * // Use like a Connection — same surface
- * const slot = await pool.call(conn => conn.getSlot());
+ * const slot = await pool.call(conn => conn.getSlot(), { idempotent: true });
  * ```
  */
 export interface RpcPoolConfig {
@@ -344,6 +344,31 @@ function isRetryable(err: unknown, codes: number[]): boolean {
   return false;
 }
 
+/**
+ * Errors that are CERTAINLY raised before the node accepted the request, so re-running a
+ * non-idempotent callback (one that signs/sends a transaction) cannot land a second tx:
+ * HTTP 429 / rate-limit rejections and ECONNREFUSED (no connection was ever made).
+ *
+ * 502/503/504, ECONNRESET, "socket hang up" and "timeout"/"network" text are NOT here: a proxy or
+ * the socket can fail after the node already accepted the transaction, and a re-signed retry would
+ * then land a second one.
+ */
+function isPreAcceptRetryable(err: unknown, codes: number[]): boolean {
+  if (!err) return false;
+  const errName = (err as { name?: unknown })?.name;
+  if (errName === "AbortError" || errName === "TimeoutError") return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  // Alphanumeric boundaries: a base58 signature quoted in the message (e.g. web3's "not confirmed …
+  // Check signature <sig>") can contain "429" and must not read as a rate-limit reject.
+  if (codes.includes(429) && /(?<![0-9A-Za-z])429(?![0-9A-Za-z])/.test(msg)) return true;
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes("rate limit") ||
+    lower.includes("too many requests") ||
+    lower.includes("econnrefused")
+  );
+}
+
 function computeDelay(attempt: number, config: ResolvedRetryConfig): number {
   const raw = Math.min(
     config.baseDelayMs * Math.pow(2, attempt),
@@ -374,6 +399,8 @@ export interface RpcCallOptions {
    * When `true`, an SDK-generated timeout aborts the attempt's signal and fails over / retries as
    * before. When `false` (default) a timeout is surfaced as {@link RpcTimeoutError} with NO
    * failover or retry, so a send-type callback can never run concurrently with its own retry.
+   * When `false`, errors thrown by `fn` are also retried / failed over only when they are certainly
+   * pre-accept (429 / rate limit, ECONNREFUSED); see {@link RpcPool.call}.
    * @default false
    */
   idempotent?: boolean;
@@ -487,7 +514,7 @@ interface EndpointState {
  * });
  *
  * // Execute any Connection method through the pool
- * const slot = await pool.call(conn => conn.getSlot());
+ * const slot = await pool.call(conn => conn.getSlot(), { idempotent: true });
  *
  * // Or get a raw connection for one-off use
  * const conn = pool.getConnection();
@@ -557,18 +584,26 @@ export class RpcPool {
    * the race itself, so it may still be running. The `signal` passed as `fn`'s second argument is
    * aborted at that point (honour it where you can). With `opts.idempotent === true` the pool then
    * fails over / retries; otherwise (default) it throws {@link RpcTimeoutError} immediately and
-   * never runs a second copy, so non-idempotent calls (sendTransaction) cannot double-execute.
-   * Errors thrown BY `fn` mean it has settled and keep the existing retry/failover behaviour.
+   * never runs a second copy.
+   *
+   * Errors thrown BY `fn`: with `opts.idempotent === true` every retryable error (429/502/503/504,
+   * network/timeout text) is retried, and any other error fails over to the next endpoint
+   * (`strategy: "failover"`). Without it (default, e.g. a callback that signs and sends a tx), only
+   * errors that are certainly pre-accept (429 / rate limit, ECONNREFUSED) are retried or failed
+   * over; anything else, including 502/504, ECONNRESET, "socket hang up", a network timeout or a
+   * "not confirmed … unknown if it succeeded" error, is thrown at once, because the first tx may
+   * already have landed and a re-signed retry would land a second one. Check the first signature's
+   * status before sending again. Pass `{ idempotent: true }` for reads.
    *
    * @param fn - Async function that receives a `Connection` and an `AbortSignal` (aborted on SDK timeout).
-   * @param opts - `{ idempotent: true }` to allow failover/retry after a timeout (reads only).
+   * @param opts - `{ idempotent: true }` to allow full retry/failover (reads only).
    * @returns The result of `fn`.
    * @throws {RpcTimeoutError} on timeout of a non-idempotent call; otherwise the last error if all retries and failovers are exhausted.
    *
    * @example
    * ```ts
    * const balance = await pool.call(c => c.getBalance(pubkey), { idempotent: true });
-   * const sig = await pool.call(c => c.sendRawTransaction(raw)); // non-idempotent: no timeout failover
+   * const sig = await pool.call(c => c.sendRawTransaction(raw)); // non-idempotent: retries only 429 / ECONNREFUSED
    * ```
    */
   async call<T>(
@@ -631,13 +666,26 @@ export class RpcPool {
           throw err;
         }
 
+        // A non-idempotent callback (e.g. one that signs and sends a tx) may only be re-run after
+        // an error that is certainly pre-accept; anything else may have landed already.
+        const preAccept = isPreAcceptRetryable(
+          err,
+          this.retryConfig?.retryableStatusCodes ?? [429],
+        );
         const retryable = this.retryConfig
-          ? isRetryable(err, this.retryConfig.retryableStatusCodes)
+          ? idempotent
+            ? isRetryable(err, this.retryConfig.retryableStatusCodes)
+            : preAccept
           : false;
 
         if (!retryable) {
-          // For non-retryable errors in failover mode, try the next endpoint
-          if (this.strategy === "failover" && this.endpoints.length > 1) {
+          // For non-retryable errors in failover mode, try the next endpoint — but never re-run a
+          // non-idempotent callback whose outcome is unknown.
+          if (
+            this.strategy === "failover" &&
+            this.endpoints.length > 1 &&
+            (idempotent || preAccept)
+          ) {
             triedEndpoints.add(epIdx);
             // Don't count this as a retry attempt — just failover
             attempt--;
@@ -849,14 +897,30 @@ export class RpcPool {
 // Standalone retry wrapper (for use without a full pool)
 // ---------------------------------------------------------------------------
 
+/** {@link withRetry} options: {@link RetryConfig} plus an idempotency flag. */
+export interface WithRetryConfig extends RetryConfig {
+  /**
+   * Whether running `fn` more than once is safe. `true` (default, for reads) retries every
+   * retryable error. Set `false` when `fn` signs or sends a transaction: then only errors that are
+   * certainly pre-accept (429 / rate limit, ECONNREFUSED) are retried, and 502/504, ECONNRESET,
+   * "socket hang up" or a network timeout are thrown at once, since the first tx may have landed.
+   * @default true
+   */
+  idempotent?: boolean;
+}
+
 /**
  * Execute an async function with exponential-backoff retry.
  *
  * Use this when you already have a `Connection` and just want retry logic
  * without a full pool.
  *
+ * WARNING: do not wrap a callback that signs/sends a transaction with the default config. A retry
+ * after an ambiguous error (504, socket hang up, …) re-signs on a fresh blockhash and can land a
+ * second transaction. Pass `{ idempotent: false }`, or resend the same signed bytes yourself.
+ *
  * @param fn     - Async function to execute
- * @param config - Retry configuration (default: 3 retries, 500ms base delay)
+ * @param config - Retry configuration (default: 3 retries, 500ms base delay, idempotent)
  * @returns Result of `fn`
  * @throws The last error if all retries are exhausted
  *
@@ -874,8 +938,9 @@ export class RpcPool {
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  config?: RetryConfig,
+  config?: WithRetryConfig,
 ): Promise<T> {
+  const retryableFn = config?.idempotent === false ? isPreAcceptRetryable : isRetryable;
   const resolved = resolveRetryConfig(config) ?? {
     maxRetries: 3,
     baseDelayMs: 500,
@@ -893,7 +958,7 @@ export async function withRetry<T>(
     } catch (err) {
       lastError = err;
 
-      if (!isRetryable(err, resolved.retryableStatusCodes)) {
+      if (!retryableFn(err, resolved.retryableStatusCodes)) {
         throw err;
       }
 
@@ -914,6 +979,7 @@ export async function withRetry<T>(
 /** @internal — exposed for unit tests only */
 export const _internal = {
   isRetryable,
+  isPreAcceptRetryable,
   computeDelay,
   resolveRetryConfig,
   normalizeEndpoint,

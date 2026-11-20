@@ -543,14 +543,20 @@ const pool = new RpcPool({
   commitment: "confirmed",  // default: confirmed
 });
 
-// Execute any async call through the pool — auto-retry + failover
-const slot = await pool.call(conn => conn.getSlot());
-const balance = await pool.call(conn => conn.getBalance(pubkey));
+// Reads: pass { idempotent: true } for full auto-retry + failover
+const slot = await pool.call(conn => conn.getSlot(), { idempotent: true });
+const balance = await pool.call(conn => conn.getBalance(pubkey), { idempotent: true });
 
 // Use with discoverMarkets
 const markets = await pool.call(conn =>
-  discoverMarkets(conn, programId, { apiBaseUrl: "https://percolatorlaunch.com/api" })
+  discoverMarkets(conn, programId, { apiBaseUrl: "https://percolatorlaunch.com/api" }),
+  { idempotent: true },
 );
+
+// Sends (default, non-idempotent): only 429 / ECONNREFUSED are retried or failed over.
+// 502/504, ECONNRESET, socket hang up or a timeout are thrown at once: the tx may have
+// landed, so check its signature status before sending again.
+const sig = await pool.call(conn => conn.sendRawTransaction(signedBytes));
 
 // Pool status & diagnostics
 console.log(pool.status()); // [{ label, url, healthy, failures, lastLatencyMs }]
@@ -569,6 +575,10 @@ const slot = await withRetry(
   { maxRetries: 3, baseDelayMs: 1000 },
 );
 ```
+
+Do not wrap a signing send with the default (idempotent) config: a retry after a 504 or
+socket hang up re-signs on a fresh blockhash and can land a second tx. Use
+`withRetry(fn, { idempotent: false })`, which retries only 429 / ECONNREFUSED.
 
 ### RPC health probes
 

@@ -933,6 +933,11 @@ export interface AdaptiveTxResult<T = unknown> {
   signature?: string;
   /** Error message when the send failed (on-chain failures included). */
   error?: string;
+  /**
+   * On a failed send, the signature of the signed bytes that were sent. The node may still have
+   * accepted them (e.g. a 504 after accept), so check its status before re-sending these groups.
+   */
+  attemptedSignature?: string;
   /** True when this tx was produced by repacking after a v1 rejection. */
   afterFallback: boolean;
 }
@@ -1023,8 +1028,10 @@ export async function sendGroupsAdaptive<T = unknown>(p: AdaptiveSendParams<T>):
     const cu = Math.min(TX_MAX_COMPUTE_UNITS, Math.max(1, Math.ceil(tx.computeUnits * cuHeadroom)));
     const budget: BudgetParams = { ...(p.budget ?? {}), computeUnitLimit: cu };
     let wire: Uint8Array;
+    let attemptedSignature: string;
     if (format === "v1") {
       wire = signV1Message(compileV1Message({ payer, instructions: tx.instructions, recentBlockhash: blockhash, config: v1ConfigFromBudget(budget) }), p.signers);
+      attemptedSignature = v1TransactionSignature(wire);
     } else {
       const ixs = [...computeBudgetInstructions(budget), ...tx.instructions];
       if (format === "legacy") {
@@ -1034,10 +1041,12 @@ export async function sendGroupsAdaptive<T = unknown>(p: AdaptiveSendParams<T>):
         t.recentBlockhash = blockhash;
         t.sign(...p.signers);
         wire = t.serialize();
+        attemptedSignature = encodeBase58(t.signature!);
       } else {
         const vt = new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: blockhash, instructions: ixs }).compileToV0Message());
         vt.sign([...p.signers]);
         wire = vt.serialize();
+        attemptedSignature = encodeBase58(vt.signatures[0]!);
       }
     }
     try {
@@ -1057,7 +1066,7 @@ export async function sendGroupsAdaptive<T = unknown>(p: AdaptiveSendParams<T>):
         continue;
       }
       const message = e instanceof Error ? e.message : String(e);
-      const r: AdaptiveTxResult<T> = { format, tags: tx.groups.map((g) => g.tag), bytes: wire.length, error: message, afterFallback: fellBack };
+      const r: AdaptiveTxResult<T> = { format, tags: tx.groups.map((g) => g.tag), bytes: wire.length, error: message, attemptedSignature, afterFallback: fellBack };
       results.push(r);
       p.onTx?.(r);
       if (p.stopOnError) break;
