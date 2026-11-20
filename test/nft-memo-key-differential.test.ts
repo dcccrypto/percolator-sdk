@@ -63,14 +63,16 @@ describe("nft memo key: new hex key == old fromCharCode key", () => {
   it("5k random PDA inputs incl. repeats, evictions, alt/equal program ids and errors", () => {
     const r = rng(20261120);
     const pick = <T>(xs: T[]) => xs[Math.floor(r() * xs.length)];
-    const owners = Array.from({ length: 3000 }, () => Keypair.generate().publicKey);
-    const mints = Array.from({ length: 3000 }, () => Keypair.generate().publicKey);
+    // Seeded 32-byte keys (any bytes are a valid PublicKey / seed / program id).
+    const key = () => new PublicKey(Uint8Array.from({ length: 32 }, () => Math.floor(r() * 256)));
+    const owners = Array.from({ length: 3000 }, () => key());
+    const mints = Array.from({ length: 3000 }, () => key());
     const programs: (PublicKey | undefined)[] = [
       undefined,
       cur.NFT_PROGRAM_ID,
       new PublicKey(cur.NFT_PROGRAM_ID.toBytes()), // equal value, different instance
-      Keypair.generate().publicKey,
-      Keypair.generate().publicKey,
+      key(),
+      key(),
     ];
     const badIds: (bigint | number)[] = [-1, -1n, 2n ** 64n, 1.5, Number.NaN];
     const ops: { label: string; c: () => [PublicKey, number]; o: () => [PublicKey, number] }[] = [];
