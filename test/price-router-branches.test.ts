@@ -421,3 +421,58 @@ describe("non-finite prices are rejected", () => {
     }
   });
 });
+
+describe("junk price strings must not become a source (parseFloat lead)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it.each(["12abc", "1.5.3", "1e", "0x10", " ", "1,5", "Infinity", "1e999"])(
+    "dex priceUsd %j is dropped",
+    async (junk) => {
+      stubFetch(dexBody(pair({ priceUsd: junk })), "http500");
+      expect((await resolvePrice(MINT)).bestSource).toBeNull();
+    },
+  );
+
+  it.each(["12abc", "1.5.3", "7 apples"])("jupiter v3 usdPrice %j is dropped", async (junk) => {
+    stubFetch("http500", jupV3(junk, 5000));
+    expect((await resolvePrice(MINT)).bestSource).toBeNull();
+  });
+
+  it.each(["12abc", "1.5.3"])("jupiter v2 price %j is dropped", async (junk) => {
+    stubFetch("http500", { data: { [MINT]: { price: junk, mintSymbol: "T" } } });
+    expect((await resolvePrice(MINT)).bestSource).toBeNull();
+  });
+
+  it("valid decimals and exponent forms still parse", async () => {
+    stubFetch(dexBody(pair({ priceUsd: "0.000123" })), "http500");
+    expect((await resolvePrice(MINT)).bestSource?.price).toBe(0.000123);
+    stubFetch("http500", { data: { [MINT]: { price: "1.5e-3", mintSymbol: "T" } } });
+    expect((await resolvePrice(MINT)).bestSource?.price).toBe(0.0015);
+  });
+});
+
+describe("strict price parse: accepted and non-string inputs", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("accepts numeric exponent, padded string, numeric v3", async () => {
+    stubFetch(dexBody(pair({ priceUsd: 1e-7 })), "http500");
+    expect((await resolvePrice(MINT)).bestSource?.price).toBe(1e-7);
+    stubFetch(dexBody(pair({ priceUsd: " 0.5 " })), "http500");
+    expect((await resolvePrice(MINT)).bestSource?.price).toBe(0.5);
+    stubFetch("http500", jupV3(2.5, 5000));
+    expect((await resolvePrice(MINT)).bestSource?.price).toBe(2.5);
+  });
+
+  it("drops boolean/object jupiter prices", async () => {
+    stubFetch("http500", jupV3(true, 5000));
+    expect((await resolvePrice(MINT)).bestSource).toBeNull();
+    stubFetch("http500", { data: { [MINT]: { price: {}, mintSymbol: "T" } } });
+    expect((await resolvePrice(MINT)).bestSource).toBeNull();
+  });
+});

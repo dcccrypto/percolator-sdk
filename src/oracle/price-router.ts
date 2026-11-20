@@ -46,6 +46,16 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+const STRICT_DECIMAL = /^\d+(\.\d+)?([eE][+-]?\d+)?$|^\.\d+([eE][+-]?\d+)?$/;
+
+/** Strict decimal parse: rejects trailing junk ('12abc', '1.5.3'); returns 0 if invalid. */
+function parseStrictPrice(v: unknown): number {
+  const str = typeof v === "number" ? String(v) : typeof v === "string" ? v.trim() : "";
+  if (!STRICT_DECIMAL.test(str)) return 0;
+  const n = Number(str);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function combineAbortSignals(signals: AbortSignal[]): AbortSignal {
   const already = signals.find((s) => s.aborted);
   if (already) {
@@ -54,12 +64,15 @@ function combineAbortSignals(signals: AbortSignal[]): AbortSignal {
     return c.signal;
   }
   const active = signals.filter((s) => !s.aborted);
+  // Defensive: resolvePrice always passes two signals, so these are unreachable via the public API.
+  /* v8 ignore start */
   if (active.length === 0) {
     const c = new AbortController();
     c.abort();
     return c.signal;
   }
   if (active.length === 1) return active[0];
+  /* v8 ignore stop */
   const ctrl = new AbortController();
   for (const s of active) {
     s.addEventListener("abort", () => ctrl.abort(s.reason), { once: true });
@@ -110,7 +123,7 @@ function parseDexScreenerPairs(json: unknown, mint: string): PriceSource[] {
     const priceUsd = pair.priceUsd;
     const price =
       typeof priceUsd === "string" || typeof priceUsd === "number"
-        ? parseFloat(String(priceUsd)) || 0
+        ? parseStrictPrice(priceUsd)
         : 0;
 
     // #222: priceUsd of "0" / non-numeric / missing parses to 0. Confidence derives
@@ -166,7 +179,7 @@ function parseJupiterMintEntry(
   // v3: the mint is a top-level key.
   const v3Row = json[mint];
   if (isRecord(v3Row) && v3Row.usdPrice !== undefined && v3Row.usdPrice !== null) {
-    const price = parseFloat(String(v3Row.usdPrice)) || 0;
+    const price = parseStrictPrice(v3Row.usdPrice);
     if (!Number.isFinite(price) || price <= 0) return null;
     const liquidity =
       typeof v3Row.liquidity === "number" && Number.isFinite(v3Row.liquidity)
@@ -182,7 +195,7 @@ function parseJupiterMintEntry(
   if (!isRecord(row)) return null;
   const rawPrice = row.price;
   if (rawPrice === undefined || rawPrice === null) return null;
-  const price = parseFloat(String(rawPrice)) || 0;
+  const price = parseStrictPrice(rawPrice);
   if (!Number.isFinite(price) || price <= 0) return null;
   let mintSymbol = "?";
   if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
@@ -252,7 +265,10 @@ for (const [feedId, info] of Object.entries(PYTH_SOLANA_FEEDS)) {
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
 function effectiveSignal(signal?: AbortSignal): AbortSignal {
+  // resolvePrice always supplies a signal; the fallback is defensive only.
+  /* v8 ignore start */
   return signal ?? AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS);
+  /* v8 ignore stop */
 }
 
 async function fetchDexSources(mint: string, signal?: AbortSignal): Promise<PriceSource[]> {
