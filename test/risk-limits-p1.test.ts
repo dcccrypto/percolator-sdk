@@ -85,3 +85,71 @@ describe("AssetRiskLimitsV17 decoder", () => {
     }
   });
 });
+
+// Pinned against percolator-prog feat/v22-rc23-2026-10-22 src/v16_program.rs, decode arm
+// `TAG_SET_ASSET_RISK_LIMITS => { asset_index: read_u16, exec_band_bps: read_u16, lp_exposure_k_bps: read_u32,
+//   lp_floor_atoms: read_u128, side_oi_cap_q: read_u128,
+//   matcher_ext_mode: if rest.is_empty() { 0 } else { read_u8 },
+//   max_requested_fee_bps: if rest.is_empty() { 0 } else { read_u16 } ... }`
+describe("tag 93 bounds and tail (limit / limit+1)", () => {
+  const enc = (o: object) => encodeSetAssetRiskLimitsP1({ ...base, ...o });
+  it("tail absent / ext-only / ext+fee lengths match the prog decode arm", () => {
+    expect(enc({}).length).toBe(41);
+    expect(enc({ matcherExtMode: 0, maxRequestedFeeBps: 0 }).length).toBe(41);
+    expect(enc({ matcherExtMode: 1 }).length).toBe(42);
+    expect(enc({ maxRequestedFeeBps: 1 }).length).toBe(44);
+    const d = enc({ matcherExtMode: 1, maxRequestedFeeBps: 1023 });
+    expect(hex(d).slice(82)).toBe("01ff03");
+  });
+  it("execBandBps 10000 ok, 10001 / -1 / 1.5 throw", () => {
+    expect(enc({ execBandBps: 10_000 }).length).toBe(41);
+    expect(() => enc({ execBandBps: 10_001 })).toThrow(/execBandBps/);
+    expect(() => enc({ execBandBps: -1 })).toThrow(/execBandBps/);
+    expect(() => enc({ execBandBps: 1.5 })).toThrow(/execBandBps/);
+  });
+  it("lpExposureKBps 1e7 ok, 1e7+1 throws", () => {
+    expect(enc({ lpExposureKBps: 10_000_000 }).length).toBe(41);
+    expect(() => enc({ lpExposureKBps: 10_000_001 })).toThrow(/lpExposureKBps/);
+  });
+  it("sideOiCapQ MAX ok, MAX+1 and negative throw", () => {
+    expect(enc({ sideOiCapQ: 100_000_000_000_000n }).length).toBe(41);
+    expect(() => enc({ sideOiCapQ: 100_000_000_000_001n })).toThrow(/sideOiCapQ/);
+    expect(() => enc({ sideOiCapQ: -1n })).toThrow(/sideOiCapQ/);
+  });
+  it("matcherExtMode 0/1 ok, 2 throws", () => {
+    expect(enc({ matcherExtMode: 0 }).length).toBe(41);
+    expect(enc({ matcherExtMode: 1 }).length).toBe(42);
+    expect(() => enc({ matcherExtMode: 2 })).toThrow(/matcherExtMode/);
+  });
+  it("maxRequestedFeeBps 1023 ok, 1024 throws", () => {
+    expect(enc({ maxRequestedFeeBps: 1023 }).length).toBe(44);
+    expect(() => enc({ maxRequestedFeeBps: 1024 })).toThrow(/maxRequestedFeeBps/);
+  });
+  it("assetIndex 0xffff ok, 0x10000 throws", () => {
+    expect(enc({ assetIndex: 0xffff }).slice(1, 3)).toEqual(new Uint8Array([0xff, 0xff]));
+    expect(() => enc({ assetIndex: 0x10000 })).toThrow(/assetIndex/);
+  });
+  it("lpFloorAtoms u128 max ok, 2^128 and negative throw", () => {
+    expect(enc({ lpFloorAtoms: (1n << 128n) - 1n }).length).toBe(41);
+    expect(() => enc({ lpFloorAtoms: 1n << 128n })).toThrow(/u128/);
+    expect(() => enc({ lpFloorAtoms: -1n })).toThrow(/u128/);
+  });
+});
+
+describe("decode short / wrong-size buffers", () => {
+  it("record must be exactly 64 bytes", () => {
+    expect(() => decodeAssetRiskLimitsRecordP1(new Uint8Array(63))).toThrow(/64 bytes, got 63/);
+    expect(() => decodeAssetRiskLimitsRecordP1(new Uint8Array(65))).toThrow(/64 bytes, got 65/);
+    expect(decodeAssetRiskLimitsRecordP1(new Uint8Array(64)).sideOiCapQ).toBe(0n);
+  });
+  it("market account too short for the asset record throws; negative / fractional index throws", () => {
+    const full = V17_MARKET_GROUP_OFF + V17_MARKET_GROUP_LEN + V17_MARKET_ASSET_SLOT_LEN;
+    const m = new Uint8Array(full);
+    stampMarket(m);
+    expect(() => decodeAssetRiskLimitsP1(m, 1)).toThrow(/too short for asset 1/);
+    expect(() => assetRiskLimitsAccountOffsetP1(-1)).toThrow(/bad assetIndex/);
+    expect(() => assetRiskLimitsAccountOffsetP1(0.5)).toThrow(/bad assetIndex/);
+    const short = m.subarray(0, 1958 + 63);
+    expect(() => decodeAssetRiskLimitsP1(short, 0)).toThrow();
+  });
+});
