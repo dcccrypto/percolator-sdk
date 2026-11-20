@@ -1,9 +1,10 @@
 import { requireRpcUrl } from "./scripts/config.mjs";
 import { Connection, PublicKey } from "@solana/web3.js";
+import { getProgramId } from "./src/config/program-ids.js";
 
 const SLAB = new PublicKey("6akNPYQLyg2nGLDtGAoykB8ZtuoAEwGhxreXaDWncya2");
 const WALLET = new PublicKey("GnjCwHLm9bWdPrJ6z2frMf5kYmRh1qCb9otBEXUuSpUd");
-const PROGRAM = new PublicKey("ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv");
+const PROGRAM = getProgramId("mainnet");
 const RPC = requireRpcUrl();
 
 async function main() {

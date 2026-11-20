@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "rootDir": ".", "declaration": false, "allowJs": true, "checkJs": false, "types": ["node"] },
+  "include": ["deep-check.ts", "full-state.ts", "scripts/diag-slab.ts", "scripts/inspect-slab.ts"],
+  "exclude": ["node_modules", "dist"]
+}

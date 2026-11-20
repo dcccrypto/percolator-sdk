@@ -1,5 +1,5 @@
 import { requireRpcUrl } from "./scripts/config.mjs";
-import { fetchSlab, detectSlabLayout, parseHeader, parseConfig, parseEngine, parseAllAccounts, parseUsedIndices } from "./dist/index.js";
+import { fetchSlab, detectSlabLayout, parseHeader, parseConfig, parseEngine, parseAllAccounts } from "./src/index.js";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 const SLAB = "5RfUzS1kpdhVb2CNGvE9UGdthsGbd354LoXSYjCFHv3R";
@@ -10,9 +10,9 @@ async function main() {
   const buf = await fetchSlab(conn, new PublicKey(SLAB));
   const layout = detectSlabLayout(buf.length, buf);
   
-  const h = parseHeader(buf, layout);
+  const h = parseHeader(buf);
   const c = parseConfig(buf, layout);
-  const e = parseEngine(buf, layout);
+  const e = parseEngine(buf);
   
   console.log("=== MARKET STATE ===");
   console.log(`Slab: ${SLAB}`);
@@ -29,7 +29,7 @@ async function main() {
   console.log(`Used accounts: ${e.numUsedAccounts}`);
   console.log(`Next account ID: ${e.nextAccountId}`);
   
-  const all = parseAllAccounts(buf, layout);
+  const all = parseAllAccounts(buf);
   console.log(`\n=== ACCOUNTS (${all.length}) ===`);
   for (const { idx, account: a } of all) {
     console.log(`[${idx}] id=${a.accountId} kind=${a.kind===1?'LP':'User'} capital=${Number(a.capital)/1e6} pos=${a.positionSize} pnl=${Number(a.pnl)/1e6} owner=${a.owner.toBase58()}`);
@@ -48,14 +48,14 @@ async function main() {
     } else {
       console.log(`Stake pool ${stakePool}: NOT FOUND`);
     }
-  } catch(e) { console.log(`Stake pool check error: ${e.message}`); }
+  } catch(e) { console.log(`Stake pool check error: ${e instanceof Error ? e.message : String(e)}`); }
   
   // Check vault token balance
   const vaultAta = c.vaultPubkey;
   try {
     const tokenBalance = await conn.getTokenAccountBalance(new PublicKey(vaultAta));
     console.log(`\nVault ATA (${vaultAta}) token balance: ${tokenBalance.value.uiAmount} USDC`);
-  } catch(e) { console.log(`Vault ATA check error: ${e.message}`); }
+  } catch(e) { console.log(`Vault ATA check error: ${e instanceof Error ? e.message : String(e)}`); }
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

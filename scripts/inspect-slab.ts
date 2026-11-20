@@ -4,11 +4,12 @@ import { parseHeader, parseConfig, parseEngine, parseUsedIndices, detectSlabLayo
 import { deriveVaultAuthority } from '../src/solana/pda.js';
 import { deriveKeeperFund } from './pda.mjs';
 import { getAtaSync } from '../src/solana/ata.js';
+import { getProgramId } from '../src/config/program-ids.js';
 
 const RPC = requireRpcUrl();
 const conn = new Connection(RPC, 'confirmed');
 
-const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
+const PROGRAM_ID = getProgramId("mainnet");
 const SLAB = new PublicKey('FkNmxZJUmr2bF7kwsBDtKoHeajrNdSEQokgGmmzn69vC');
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const ADMIN = new PublicKey('7JVQvrAfzj3aasLxCkoLYX5KQcrb5nEZhUe5Qa8PvV5G');
