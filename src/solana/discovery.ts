@@ -26,6 +26,7 @@ import {
 } from "./slab.js";
 import { getStaticMarkets, type StaticMarketEntry } from "./static-markets.js";
 import { type Network } from "../config/program-ids.js";
+import { redactUrl } from "./redact-url.js";
 
 /** V1 bitmap offset within engine struct (updated for PERC-120/121/122 struct changes) */
 const ENGINE_BITMAP_OFF = 656; // Updated for PERC-299 (608 + 24 emergency OI fields)
@@ -1210,7 +1211,7 @@ export async function discoverMarketsViaApi(
 
   if (!response.ok) {
     throw new Error(
-      `[discoverMarketsViaApi] API returned ${response.status} ${response.statusText} from ${url}`,
+      `[discoverMarketsViaApi] API returned ${response.status} ${response.statusText} from ${redactUrl(url)}`,
     );
   }
 
