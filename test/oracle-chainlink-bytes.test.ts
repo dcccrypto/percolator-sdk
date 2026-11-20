@@ -3,7 +3,9 @@
  *
  * Offsets are written out as literals (not imported) so a drift in the
  * decoder's constants fails here. Layout: decimals u8 @138, timestamp u32 LE
- * @208, answer i128 LE @216, minimum length 248.
+ * @208, answer i128 LE @216, minimum length 248, plus the header fields the
+ * program checks (discriminator, version @8, latest_round_id @143,
+ * live_length @148, transmission slot @200).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -18,9 +20,23 @@ import {
 
 const NOW = 1_800_000_000;
 
+// Header fields the program checks (percolator-prog rc23 read_chainlink_price_e12,
+// v16_program.rs:12799-12816): discriminator, version, latest_round_id,
+// live_length == 1, transmission slot.
+const CL_DISC = [96, 179, 69, 66, 128, 129, 73, 117];
+function writeHeader(b: Uint8Array): void {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  b.set(CL_DISC, 0);
+  b[8] = 1; // version
+  dv.setUint32(143, 1, true); // latest_round_id
+  dv.setUint32(148, 1, true); // live_length
+  dv.setBigUint64(200, 1n, true); // transmission slot
+}
+
 function feed(opts: { decimals?: number; ts?: number; answer?: bigint; len?: number } = {}): Uint8Array {
   const full = new Uint8Array(Math.max(opts.len ?? 248, 248));
   const dv = new DataView(full.buffer);
+  writeHeader(full);
   full[138] = opts.decimals ?? 8;
   dv.setUint32(208, opts.ts ?? NOW, true);
   // two's-complement i128 LE
@@ -61,7 +77,7 @@ describe("parseChainlinkPrice: bytes", () => {
   });
 
   it("decimals boundary: 0 and 18 ok, 19 and 255 rejected", () => {
-    expect(parseChainlinkPrice(feed({ decimals: 0 })).decimals).toBe(0);
+    expect(parseChainlinkPrice(feed({ decimals: 0, answer: 1n })).decimals).toBe(0);
     expect(parseChainlinkPrice(feed({ decimals: 18 })).decimals).toBe(18);
     expect(() => parseChainlinkPrice(feed({ decimals: 19 }))).toThrow(/decimals out of range: 19 \(max 18\)/);
     expect(() => parseChainlinkPrice(feed({ decimals: 255 }))).toThrow(/out of range: 255/);
@@ -74,38 +90,64 @@ describe("parseChainlinkPrice: bytes", () => {
   });
 
   it("reads the full i128, not just the low 8 bytes", () => {
-    const big = (1n << 100n) + 12345n;
-    expect(parseChainlinkPrice(feed({ answer: big })).price).toBe(big);
-    const i128Max = (1n << 127n) - 1n;
-    expect(parseChainlinkPrice(feed({ answer: i128Max })).price).toBe(i128Max);
+    // 18 decimals keeps these inside the program's MAX_ORACLE_PRICE ($1e6).
+    const big = (1n << 79n) + 12345n; // ~$604,462
+    expect(parseChainlinkPrice(feed({ decimals: 18, answer: big })).price).toBe(big);
     // u64 max in the low half, zero high half: positive, must not go negative
     const u64Max = (1n << 64n) - 1n;
-    expect(parseChainlinkPrice(feed({ answer: u64Max })).price).toBe(u64Max);
+    expect(parseChainlinkPrice(feed({ decimals: 18, answer: u64Max })).price).toBe(u64Max);
     // i64 max + 1 would be negative if only the low 8 bytes were read signed
-    expect(parseChainlinkPrice(feed({ answer: 1n << 63n })).price).toBe(1n << 63n);
+    expect(parseChainlinkPrice(feed({ decimals: 18, answer: 1n << 63n })).price).toBe(1n << 63n);
+  });
+
+  it("range: the program's E12 / MAX_ORACLE_PRICE bounds (scale_decimal_to_e12)", () => {
+    // exactly MAX_ORACLE_PRICE ($1,000,000) at 0 and 18 decimals is accepted
+    expect(parseChainlinkPrice(feed({ decimals: 0, answer: 1_000_000n })).price).toBe(1_000_000n);
+    expect(parseChainlinkPrice(feed({ decimals: 18, answer: 10n ** 24n })).price).toBe(10n ** 24n);
+    // one E6 tick above MAX is refused
+    expect(() => parseChainlinkPrice(feed({ decimals: 6, answer: 1_000_000_000_001n }))).toThrow(/outside the program's range/);
+    // $1e-12 is the smallest E12 value; below it floors to 0 and is refused
+    expect(parseChainlinkPrice(feed({ decimals: 18, answer: 1_000_000n })).price).toBe(1_000_000n);
+    expect(() => parseChainlinkPrice(feed({ decimals: 18, answer: 999_999n }))).toThrow(/outside the program's range/);
+    // i128 max at 0 decimals overflows the program's u128 scaling
+    expect(() => parseChainlinkPrice(feed({ decimals: 0, answer: (1n << 127n) - 1n }))).toThrow(/overflows/);
+    expect(() => parseChainlinkPrice(feed({ decimals: 18, answer: (1n << 127n) - 1n }))).toThrow(/outside the program's range/);
+  });
+
+  it("header: each field the program checks is refused when invalid", () => {
+    const bad = (f: (b: Uint8Array, dv: DataView) => void) => {
+      const b = feed();
+      f(b, new DataView(b.buffer));
+      return () => parseChainlinkPrice(b);
+    };
+    expect(bad((b) => (b[0] ^= 1))).toThrow(/discriminator/);
+    expect(bad((b) => (b[8] = 0))).toThrow(/version is 0/);
+    expect(bad((_b, dv) => dv.setUint32(143, 0, true))).toThrow(/latest_round_id=0/);
+    expect(bad((_b, dv) => dv.setUint32(148, 0, true))).toThrow(/live_length is 0/);
+    expect(bad((_b, dv) => dv.setUint32(148, 2, true))).toThrow(/live_length is 2/);
+    expect(bad((_b, dv) => dv.setBigUint64(200, 0n, true))).toThrow(/slot is 0/);
   });
 
   it("i128 min is rejected as non-positive", () => {
     expect(() => parseChainlinkPrice(feed({ answer: -(1n << 127n) }))).toThrow(/non-positive/);
   });
 
-  it("a zero timestamp reports updatedAt undefined when no staleness bound is set", () => {
-    expect(parseChainlinkPrice(feed({ ts: 0 })).updatedAt).toBeUndefined();
+  it("a zero timestamp is refused even when no staleness bound is set (the program refuses publish_time 0)", () => {
+    expect(() => parseChainlinkPrice(feed({ ts: 0 }))).toThrow(/no valid publish timestamp/);
   });
 
   it("timestamp is u32: 0xFFFFFFFF is read unsigned", () => {
     expect(parseChainlinkPrice(feed({ ts: 0xffff_ffff })).updatedAt).toBe(4_294_967_295);
   });
 
-  it("ignores bytes outside the three fields", () => {
+  it("ignores bytes outside the checked fields", () => {
     const a = feed();
     const b = feed();
-    b.fill(0xab, 0, 138);
-    b.fill(0xcd, 232, 248);
-    b.fill(0xef, 139, 208); // byte 139 (decimals high), 212-215 are inside this range
-    b.fill(0x00, 208, 212); // keep the u32 timestamp itself
-    new DataView(b.buffer).setUint32(208, NOW, true);
-    b.fill(0x77, 212, 216);
+    b.fill(0xab, 9, 138); // after version, up to decimals
+    b.fill(0xef, 139, 143); // between decimals and latest_round_id
+    b.fill(0xef, 152, 200); // after live_length, up to the transmission slot
+    b.fill(0x77, 212, 216); // between the u32 timestamp and the answer
+    b.fill(0xcd, 232, 248); // after the answer
     expect(parseChainlinkPrice(b)).toEqual(parseChainlinkPrice(a));
   });
 
@@ -139,11 +181,17 @@ describe("parseChainlinkPrice: staleness", () => {
     );
   });
 
-  it("future timestamp: within the default 60s tolerance ok, beyond it rejected", () => {
-    expect(() => parseChainlinkPrice(feed({ ts: NOW + 60 }), { maxStalenessSeconds: 60 })).not.toThrow();
-    expect(() => parseChainlinkPrice(feed({ ts: NOW + 61 }), { maxStalenessSeconds: 60 })).toThrow(
-      /61s in the future \(tolerance 60s\)/,
+  it("future timestamp: refused by default like the program (tolerance 0)", () => {
+    expect(() => parseChainlinkPrice(feed({ ts: NOW }), { maxStalenessSeconds: 60 })).not.toThrow();
+    expect(() => parseChainlinkPrice(feed({ ts: NOW + 1 }), { maxStalenessSeconds: 60 })).toThrow(
+      /1s in the future \(tolerance 0s\)/,
     );
+  });
+
+  it("future timestamp: an explicit 60s clock-skew allowance is opt-in", () => {
+    const skew = { maxStalenessSeconds: 60, futureToleranceSeconds: 60 };
+    expect(() => parseChainlinkPrice(feed({ ts: NOW + 60 }), skew)).not.toThrow();
+    expect(() => parseChainlinkPrice(feed({ ts: NOW + 61 }), skew)).toThrow(/61s in the future \(tolerance 60s\)/);
   });
 
   it("custom futureToleranceSeconds, including 0", () => {
@@ -173,5 +221,9 @@ describe("isValidChainlinkOracle", () => {
     expect(isValidChainlinkOracle(feed({ len: 247 }))).toBe(false);
     expect(isValidChainlinkOracle(feed({ decimals: 19 }))).toBe(false);
     expect(isValidChainlinkOracle(feed({ answer: 0n }))).toBe(false);
+    expect(isValidChainlinkOracle(feed({ ts: 0 }))).toBe(false);
+    const noDisc = feed();
+    noDisc[0] = 0;
+    expect(isValidChainlinkOracle(noDisc)).toBe(false);
   });
 });
