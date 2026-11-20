@@ -302,12 +302,23 @@ function u64Buf(value: bigint | number, label: string): Uint8Array {
 }
 
 // PDA derivation (findProgramAddressSync) is ~2 ms each; the result is a pure
-// function of (kind, programId, seeds), so memoise. Bounded; cleared when full.
-// Keys concatenate fixed-length seeds only (32+8, 32, none); add a length prefix
-// before ever passing variable-length seeds.
+// function of (kind, programId, seeds), so memoise. Two levels: program id hex,
+// then kind + seed hex. Bounded by total entries; cleared when full.
+// Inner keys concatenate fixed-length seeds only (32+8, 32, none); add a length
+// prefix before ever passing variable-length seeds.
 const EMPTY = new Uint8Array(0);
 const PDA_CACHE_MAX = 4096;
-const pdaCache = new Map<string, [PublicKey, number]>();
+const pdaCache = new Map<string, Map<string, [PublicKey, number]>>();
+let pdaCacheSize = 0;
+const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+
+// Fixed-width hex (2 chars/byte). Spreading bytes through String.fromCharCode
+// went through the iterator protocol and dominated the warm hit path.
+function hexKey(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += HEX[bytes[i]];
+  return s;
+}
 
 function memoPda(
   kind: string,
@@ -316,17 +327,20 @@ function memoPda(
   b: Uint8Array,
   compute: () => [PublicKey, number],
 ): [PublicKey, number] {
-  const key =
-    kind +
-    String.fromCharCode(...programId.toBytes()) +
-    String.fromCharCode(...a) +
-    String.fromCharCode(...b);
-  const hit = pdaCache.get(key);
+  const pid = hexKey(programId.toBytes());
+  const key = kind + hexKey(a) + hexKey(b);
+  const hit = pdaCache.get(pid)?.get(key);
   // Fresh tuple per call so callers cannot corrupt the cache entry.
   if (hit) return [hit[0], hit[1]];
   const res = compute();
-  if (pdaCache.size >= PDA_CACHE_MAX) pdaCache.clear();
-  pdaCache.set(key, res);
+  if (pdaCacheSize >= PDA_CACHE_MAX) {
+    pdaCache.clear();
+    pdaCacheSize = 0;
+  }
+  let inner = pdaCache.get(pid);
+  if (!inner) pdaCache.set(pid, (inner = new Map()));
+  inner.set(key, res);
+  pdaCacheSize++;
   return [res[0], res[1]];
 }
 
