@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { UnknownLayoutError } from "../src/abi/layout.js";
 import { PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
@@ -595,10 +596,10 @@ describe("parseBackingBucketsV17 — domain bounds", () => {
     expect(findExpirableBackingDomains(data, { chainSlot: 1_000n })).toEqual([0]);
   });
 
-  it("clamps to the physical slot count when max_market_slots overstates it", () => {
-    // Configured for 8 slots, sized for 2. The engine's domain_asset_side rejects
-    // asset_index >= markets.len() with InvalidLeg, and reading past the buffer
-    // would be a misparse.
+  it("throws TOO_SHORT when max_market_slots exceeds the physical slots (truncated read)", () => {
+    // Configured for 8 slots, sized for 2. The program's market_view_mut rejects
+    // configured > capacity (InvalidAccountData); returning a partial list would make
+    // findExpirableBackingDomains report [] / a subset and a keeper send nothing.
     const data = buildMarket({
       mode: 0,
       currentSlot: 1_000n,
@@ -608,12 +609,15 @@ describe("parseBackingBucketsV17 — domain bounds", () => {
         [{ status: BackingBucketStatus.Fresh, expirySlot: 1n }, EMPTY],
       ],
     });
-    const state = parseBackingBucketsV17(data, { chainSlot: 1_000n });
-    expect(state.physicalAssetSlots).toBe(2);
-    expect(state.maxMarketSlots).toBe(8);
-    expect(state.addressableDomainCount).toBe(4);
-    expect(state.buckets.map((b) => b.domain)).toEqual([0, 1, 2, 3]);
-    expect(findExpirableBackingDomains(data, { chainSlot: 1_000n })).toEqual([0, 2]);
+    for (const fn of [parseBackingBucketsV17, findExpirableBackingDomains]) {
+      try {
+        fn(data, { chainSlot: 1_000n });
+        expect.unreachable("should throw");
+      } catch (e) {
+        expect(e).toBeInstanceOf(UnknownLayoutError);
+        expect((e as UnknownLayoutError).code).toBe("TOO_SHORT");
+      }
+    }
   });
 });
 
@@ -628,8 +632,13 @@ describe("parseBackingBucketsV17 — input validation", () => {
     expect(() => parseBackingBucketsV17(data)).toThrow(/not a v17 market account/);
   });
 
-  it("tolerates a market with zero asset slots", () => {
+  it("rejects a market configured for slots but carrying none (truncated)", () => {
     const data = buildMarket({ mode: 0, currentSlot: 0n, maxMarketSlots: 4, slots: [] });
+    expect(() => parseBackingBucketsV17(data)).toThrow(/truncated read/);
+  });
+
+  it("tolerates a market with zero configured and zero physical slots", () => {
+    const data = buildMarket({ mode: 0, currentSlot: 0n, maxMarketSlots: 0, slots: [] });
     const state = parseBackingBucketsV17(data);
     expect(state.physicalAssetSlots).toBe(0);
     expect(state.addressableDomainCount).toBe(0);

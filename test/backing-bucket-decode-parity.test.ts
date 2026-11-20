@@ -12,6 +12,8 @@ function fixture(seed0: number): Uint8Array {
   const L = LAYOUT_V22;
   const b = new Uint8Array(L.marketGroupOff + L.marketGroupLen + 8 * L.assetSlotStride);
   for (let i = 0; i < b.length; i++) b[i] = rnd() & 0xff;
+  // max_market_slots must not exceed the physical slots (the parser throws TOO_SHORT otherwise).
+  new DataView(b.buffer).setUint32(L.marketGroupOff + L.group.config + L.group.maxMarketSlotsInConfig, 8, true);
   return stampHeader(b, 1, L.version);
 }
 
@@ -38,4 +40,4 @@ describe("parseBackingBucketsV17 decode parity", () => {
   });
 });
 
-const EXPECTED = "71787f2d7e18c7754aff2bf9c4f97fe41e467374c74fc1ad6879a94a4cdf1116";
+const EXPECTED = "2d1febbbabaff50b01841f5439c01bbb0963aec90f0bd1c381176ef05e059e33";
