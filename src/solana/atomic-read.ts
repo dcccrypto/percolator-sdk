@@ -181,7 +181,7 @@ export interface StakeWithdrawQuoteAtSlotV5 extends StakeWithdrawQuoteV5 {
  * @param opts        `commitment`, `minContextSlot`.
  * @returns The quote plus its `slot` and decoded inputs, or `null` where the program fails closed (see
  *          {@link quoteStakeWithdrawNowV5}).
- * @throws If the pool, units, vault or (when passed) market account is missing or fails its decoder.
+ * @throws If the pool, units, vault or (when passed) market account is missing or fails its decoder, or `vault` is not `pool.vault`.
  * @example
  * ```ts
  * const q = await fetchStakeWithdrawQuoteV5(connection, { pool, insuranceUnits, vault: poolState.vault, userLp: ata });
@@ -197,6 +197,7 @@ export async function fetchStakeWithdrawQuoteV5(
   if (accounts.market) keys.push(accounts.market);
   const { slot, accounts: a } = await readAccountsAtomic(connection, keys, opts);
   const pool = decodeStakePoolV5(required(a[0]!, "stake pool", accounts.pool));
+  if (!pool.vault.equals(accounts.vault)) throw new Error(`vault ${accounts.vault.toBase58()} is not pool.vault ${pool.vault.toBase58()}`);
   const insuranceUnits = decodeInsuranceUnitsV20(required(a[1]!, "insurance units", accounts.insuranceUnits));
   const vaultBalance = splAmount(required(a[2]!, "pool vault", accounts.vault), "pool vault");
   const lpData = bytesOf(a[3]!);
@@ -375,7 +376,7 @@ export interface BoundVaultExitQuoteP3 {
   backstopOutstandingAtoms: bigint;
   /** `VaultLpState.senior_draw_outstanding_atoms`. */
   seniorDrawOutstandingAtoms: bigint;
-  /** Senior tranche value tag 77 prices on; null when the vault LP cannot be valued (see `lpValueAtEff`). */
+  /** Senior tranche value tag 77 prices on; null in Live when the vault LP cannot be valued (`lpValueAtEff` null: tag 77 fails 85). */
   seniorValue: bigint | null;
   /** `floor(shares · seniorValue / S)`; null when S == 0, shares > S, or `seniorValue` is null. */
   redemptionAtoms: bigint | null;
@@ -491,7 +492,8 @@ export async function fetchBoundVaultExitQuoteP3(
   if (resolved) {
     seniorValue = vaultPhysicalIdleBackingAtomsP3([ownRec.freshUnlienedBackingNum, sibRec.freshUnlienedBackingNum]);
     if (seniorValue > st.seniorClaimAtoms) seniorValue = st.seniorClaimAtoms;
-  } else if (worse >= 0n && lpValueAtEff === null) {
+  } else if (lpValueAtEff === null) {
+    // Non-flat LP without a usable certificate: the program refuses 77 (85) whatever the sign of `worse`.
     seniorValue = null;
   } else {
     seniorValue = liveExitSeniorValueNetBackstop(st.seniorClaimAtoms, nav, worse >= 0n ? lpValueAtEff! : 0n, worse, st.backstopOutstandingAtoms);

@@ -120,7 +120,7 @@ describe("readAccountsAtomic", () => {
 
 // ----------------------------------------------------------------------------------------------------------------
 describe("F1: stake withdraw quote reads pool + units + vault + user LP in ONE slot", () => {
-  const pool = (flushed: bigint) => { const d = new Uint8Array(SDK.STAKE_POOL_SIZE_V5); d.set(Buffer.from("SPOOL_V1"), 320); d[328] = 5; d[408] = 1; u64(d, 168, 20_000_000n); u64(d, 176, 20_000_000n); u64(d, 200, flushed); return d; };
+  const pool = (flushed: bigint) => { const d = new Uint8Array(SDK.STAKE_POOL_SIZE_V5); d.set(Buffer.from("SPOOL_V1"), 320); d[328] = 5; d[408] = 1; u64(d, 168, 20_000_000n); u64(d, 176, 20_000_000n); u64(d, 200, flushed); d.set(k.vault.toBytes(), SDK.STAKE_POOL_FIELD_OFF_V5.vault); return d; };
   const units = (stake: bigint, ins: bigint) => { const d = header(208, 13); d.fill(7, 16, 48); u128(d, 48, stake + 40_000_000n); u128(d, 64, stake); u128(d, 80, 40_000_000n); u128(d, 112, ins); u128(d, 128, ins); d[152] = 1; return d; };
   const k = { pool: Keypair.generate().publicKey, insuranceUnits: Keypair.generate().publicKey, vault: Keypair.generate().publicKey, userLp: Keypair.generate().publicKey };
   // N: 20M deposited, nothing deployed. N+1: SyncInsuranceDeployment moves 10M into wrapper insurance (pool value unchanged).
@@ -148,6 +148,7 @@ describe("F1: stake withdraw quote reads pool + units + vault + user LP in ONE s
     const w = new Map<number, World>([[N, new Map(worlds.get(N)!)]]);
     w.get(N)!.delete(k.userLp.toBase58());
     expect((await SDK.fetchStakeWithdrawQuoteV5(new TimelineConnection(w, [N]), k))!.redeemable).toBe(0n);
+    await expect(SDK.fetchStakeWithdrawQuoteV5(new TimelineConnection(w, [N]), { ...k, vault: k.userLp })).rejects.toThrow(/is not pool.vault/);
     w.get(N)!.delete(k.pool.toBase58());
     await expect(SDK.fetchStakeWithdrawQuoteV5(new TimelineConnection(w, [N]), k)).rejects.toThrow(/stake pool account/);
   });
@@ -295,6 +296,11 @@ describe("F3+F4: bound vault exit quote reads registry + vault state + ledgers +
     const w1 = new Map<number, World>([[N, new Map([...worlds.get(N)!, [LPPF.toBase58(), stale]])]]);
     const q1 = await SDK.fetchBoundVaultExitQuoteP3(new TimelineConnection(w1, [N]), PROGRAM_ID, MARKET, { shares: 100_000_000n, keys });
     expect([q1.certUsable, q1.lpValueAtEff, q1.seniorValue, q1.redemptionAtoms]).toEqual([false, null, null, null]);
+    // Same with a deficit at the worse price (worse < 0): still no payout, the program refuses with 85.
+    const staleDeficit = lpPortfolio(10_000_000_000n); staleDeficit[CERT_OFF + 120] = 0;
+    const w3 = new Map<number, World>([[N, new Map([...worlds.get(N)!, [LPPF.toBase58(), staleDeficit]])]]);
+    const q3 = await SDK.fetchBoundVaultExitQuoteP3(new TimelineConnection(w3, [N]), PROGRAM_ID, MARKET, { shares: 100_000_000n, keys });
+    expect([q3.lpEquityWorse, q3.seniorValue, q3.redemptionAtoms]).toEqual([-50_000_000_000n, null, null]);
 
     const st = vaultLpState(1_000_000_000n); u64(st, SDK.VAULT_LP_STATE_BACKSTOP_OUTSTANDING_OFF_P3, 40_000_500_000n);
     const w2 = new Map<number, World>([[N, new Map([...worlds.get(N)!, [STATE.toBase58(), st]])]]);
