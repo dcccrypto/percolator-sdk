@@ -32,7 +32,7 @@ export declare const LP_SHARE_META_FUND_LAMPORTS_V22 = 30000000n;
 /** Metaplex Token Metadata program. */
 export declare const METAPLEX_TOKEN_METADATA_PROGRAM_ID_V22: PublicKey;
 /**
- * Reduce a market symbol to the ticker the wrapper accepts: uppercase, drop every character outside `A-Z 0-9`, keep the first 8.
+ * Reduce a market symbol to the ticker the wrapper accepts: drop every character outside ASCII `A-Za-z0-9` (no Unicode case folding), uppercase, keep the first 8.
  * An empty result means "send the generic form" (`n = 0`); the program never truncates, it refuses.
  * @example lpShareTickerFromSymbolV22("1000pepe") === "1000PEPE"; lpShareTickerFromSymbolV22("$wif-2") === "WIF2"; lpShareTickerFromSymbolV22("日本") === ""
  */
