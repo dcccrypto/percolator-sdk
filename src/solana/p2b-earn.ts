@@ -233,6 +233,10 @@ export async function fetchVaultLpExtP2b(conn: Pick<Connection, "getAccountInfo"
  * ({@link RECOMMENDED_CU_P3}). Send it only on a bound market (`isLpVaultRegistryBoundP3`); Custom 100
  * means "no room right now", not a failure of the client.
  *
+ * v2.2: this is the pre-#640 form (9 / 10 accounts, no `[10]` lev guard). A growth market refuses it with
+ * LevGuardInvalid (prog v16_program.rs `lev_nav_flow_begin(accounts, 10, 7, ..)`). Use `buildVaultLpAllocateIxV22`
+ * (or wrap this one in `withNavFlowTailV22`), as the example does.
+ *
  * @param m        Market context (`registryDomain`, `lpPortfolio`).
  * @param cranker  Signer; pays the ext rent on the first call.
  * @param amount   Atoms requested (default `u128::MAX`).
@@ -241,7 +245,7 @@ export async function fetchVaultLpExtP2b(conn: Pick<Connection, "getAccountInfo"
  * @example
  * ```ts
  * const bond = isLpVaultRegistryBondP2b(registryAccount.data);
- * const ix = buildVaultLpAllocateIxP2b(m, keeper.publicKey, U128_MAX_P2B, { bondTranche: bond });
+ * const ix = withNavFlowTailV22(buildVaultLpAllocateIxP2b(m, keeper.publicKey, U128_MAX_P2B, { bondTranche: bond }), m.market);
  * ```
  */
 export function buildVaultLpAllocateIxP2b(

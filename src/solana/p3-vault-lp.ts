@@ -51,6 +51,7 @@ import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpR
 import { V17_HEADER_LEN } from "./slab.js";
 import { LAYOUT_V21, LAYOUT_V22, portfolioFilterForLayout, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
 import type { LayoutTable } from "../abi/layout.js";
+import { deriveBondTrancheV22 } from "../abi/v22-wire.js";
 
 // ============================================================================
 // Layout constants (verified against P3 rustc layout)
@@ -706,6 +707,9 @@ export function buildVaultLpSettleResolvedIxP3(m: VaultLpMarketP3, caller: Publi
 
 /**
  * Tag 102 VaultLpReleaseSurplus (junior owner). Pass `resolved` for the Resolved-mode SPL payout tail.
+ * LIVE on v2.2: this builder emits the pre-#641 7-account form, with no `[12]` vault ext and no `[13]` lev guard.
+ * A growth market refuses that with LevGuardInvalid (prog v16_program.rs `lev_nav_flow_begin(accounts, 13, 12, ..)`).
+ * Use `buildVaultLpReleaseSurplusLiveIxV22` (or wrap this one in `withNavFlowTailV22`) for the Live form.
  * Refused with 89 VaultLpPausedForSeniorDraw while a senior draw is outstanding (`4b1a5d30`);
  * Resolved: request at most physical − C (C keeps ≈1,005 atoms of dead-share dust), else 83.
  * @param m             Market context.
@@ -1177,8 +1181,12 @@ export interface ResolvedVaultLpExitArgsP3 {
   crankFeesIx: TransactionInstruction;
   /** Unbound-form tag-77 ExecuteRedemption instructions, one per senior (13 accounts each). */
   seniorRedemptionIxs: TransactionInstruction[];
-  /** Junior release (tag 102, Resolved tail). Omit to plan the seniors only. */
-  junior?: { juniorOwner: PublicKey; amount: bigint; sourceDomain: number; juniorDestToken: PublicKey; vaultToken: PublicKey };
+  /**
+   * Junior release (tag 102, Resolved tail). Omit to plan the seniors only. `bondTranche: true` on a bond market
+   * (registry bond flag set) appends the `["bond_tranche", market]` PDA at `[11]`, which the program then requires
+   * (prog v16_program.rs `load_bond_tranche_if_flagged(.., 11, ..)`, fail closed).
+   */
+  junior?: { juniorOwner: PublicKey; amount: bigint; sourceDomain: number; juniorDestToken: PublicKey; vaultToken: PublicKey; bondTranche?: boolean };
 }
 
 /**
@@ -1218,6 +1226,10 @@ export function planResolvedVaultLpExitP3(a: ResolvedVaultLpExitArgsP3): {
       juniorDestToken: a.junior.juniorDestToken, vaultToken: a.junior.vaultToken,
     })
     : null;
+  if (junior && a.junior?.bondTranche) {
+    // [11] bond tranche, read-only (as withBondTailV22 for tag 102).
+    junior.keys.push({ pubkey: deriveBondTrancheV22(a.market.programId, a.market.market)[0], isSigner: false, isWritable: false });
+  }
   return { perSeniorTxs, junior };
 }
 

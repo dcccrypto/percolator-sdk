@@ -49,9 +49,9 @@ describe("tag 123 SetDepthSource wire", () => {
     expect(cc.keys[5]!.pubkey.equals(claim(pool)) && cc.keys[5]!.isWritable).toBe(true);
     expect(ix.keys[1]!.pubkey.equals(PublicKey.findProgramAddressSync([program.toBytes()], new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))[0])).toBe(true);
     expect(hex(ix.data)).toBe("7b" + "01" + "0300" + "0500000000000000");
-    const c = buildClearDepthSourceIxV22(program, ua, market);
-    expect(c.keys).toHaveLength(5);
-    expect(c.data[1]).toBe(0);
+    // op 0 without the pinned pool would fail on chain (NotEnoughAccountKeys at [5]): refused at build time.
+    expect(() => buildClearDepthSourceIxV22(program, ua, market)).toThrow(/pinnedPool/);
+    expect(cc.data[1]).toBe(0);
   });
 });
 

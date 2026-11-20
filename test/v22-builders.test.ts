@@ -68,7 +68,9 @@ describe("account counts and flags (Rust handler `account(accounts, i)` order)",
     expect(B.buildSweepBandDustLegIxV22(m, c, pk(), 0).keys).toHaveLength(4);
     expect(B.buildInsuranceBackstopDrawIxV22(m, c, 2, 0n).keys).toHaveLength(8);
     expect(B.buildInsuranceBackstopDrawIxV22(m, c, 2, 0n).keys[7].pubkey.equals(W.deriveInsuranceUnitsV22(P, MARKET)[0])).toBe(true);
-    expect(B.buildRescueDepositIxV22({ ...m, lpPortfolio: undefined }, c, pk(), pk(), pk(), 1n, 1n).keys).toHaveLength(11);
+    expect(B.buildRescueDepositIxV22({ ...m, lpPortfolio: undefined }, c, pk(), pk(), pk(), 1n, 1n, 0, { unbound: true }).keys).toHaveLength(11);
+    expect(() => B.buildRescueDepositIxV22({ ...m, lpPortfolio: undefined }, c, pk(), pk(), pk(), 1n, 1n)).toThrow(/lpPortfolio/);
+    expect(() => B.buildRescueDepositIxV22(m, c, pk(), pk(), pk(), 1n, 1n, 0, { unbound: true })).toThrow(/contradict/);
     expect(B.buildRescueDepositIxV22(m, c, pk(), pk(), pk(), 1n, 1n).keys).toHaveLength(13);
     expect(B.buildInitInsuranceUnitsIxV22(m, c).keys).toHaveLength(4);
     expect(B.buildSetG9FeedAllowlistIxV22(P, c, [pk()]).keys).toHaveLength(4);
