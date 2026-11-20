@@ -157,6 +157,16 @@ describe("decodeTerminalInsuranceCapacity", () => {
   });
 });
 
+describe("decodeTerminalInsuranceCapacity: asset bounds", () => {
+  it("rejects negative, fractional and past-the-end asset indices with the too-short error", () => {
+    const d = synth({ mode: 1, vault: 1n, insurance: 1n, srcReserved: 0n, bL: 1n, sL: 0n, bS: 0n, sS: 0n });
+    expect(() => decodeTerminalInsuranceCapacity(d, -1)).toThrow(/too short for asset -1/);
+    expect(() => decodeTerminalInsuranceCapacity(d, 1.5)).toThrow(/too short for asset 1.5/);
+    expect(() => decodeTerminalInsuranceCapacity(d, 100_000)).toThrow(/too short for asset 100000/);
+    expect(decodeTerminalInsuranceCapacity(d, 0).vault).toBe(1n);
+  });
+});
+
 describe("planStakeWindDown", () => {
   const args = (marketData: Uint8Array) => ({
     stakeProgram: STAKE, wrapperProgram: W, caller: pk(), admin: pk(), pool: pk(), poolVault: pk(), vaultAuth: pk(),
