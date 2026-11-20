@@ -2386,8 +2386,9 @@ export function depositAccounts(
 
 /**
  * Build account keys for DepositJunior (tag 16). Identical to
- * {@link depositAccounts} (including the `riskMode` routing): percolator-stake documents it as "same as Deposit,
- * including the #290 wrapper market at index 11".
+ * {@link depositAccounts}: percolator-stake documents it as "same as Deposit,
+ * including the #290 wrapper market at index 11". Not on a stake v5 FIRST_LOSS pool: the program refuses tag 16 there
+ * (`NotSupportedOnFirstLoss`, 41), so `riskMode: 1` throws.
  *
  * @param a - Named accounts (same shape as Deposit).
  * @param tokenProgramId - Token program. Classic SPL Token only (#352); anything else throws.
@@ -2402,6 +2403,9 @@ export function depositJuniorAccounts(
   a: StakeAccounts['deposit'],
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
+  if (isFirstLoss('depositJuniorAccounts', a.riskMode)) {
+    throw new Error('depositJuniorAccounts: DepositJunior (tag 16) is refused on a FIRST_LOSS pool (riskMode 1): stake NotSupportedOnFirstLoss (41)');
+  }
   return depositAccounts(a, tokenProgramId);
 }
 

@@ -77,7 +77,9 @@ describe("FIRST_LOSS routing matches the v5 account specs exactly", () => {
     const got = depositAccounts({ user, pool: poolPda, userCollateralAta: userCollateral, vault: pool.vault, lpMint: pool.lpMint, userLpAta: userLp, vaultAuth: vaultAuthority, depositPda: deposit, slab: pool.slab, riskMode: 1, wrapperProgram });
     const want = stakeMetasV5(ACCOUNTS_STAKE_DEPOSIT_V5, { user, pool: poolPda, userCollateral, vault: pool.vault, lpMint: pool.lpMint, userLp, vaultAuthority, deposit, market: pool.slab, insuranceUnits, wrapperProgram });
     expect(got).toEqual(want);
-    expect(depositJuniorAccounts({ user, pool: poolPda, userCollateralAta: userCollateral, vault: pool.vault, lpMint: pool.lpMint, userLpAta: userLp, vaultAuth: vaultAuthority, depositPda: deposit, slab: pool.slab, riskMode: 1, wrapperProgram })).toEqual(want);
+    // DepositJunior (tag 16) is refused on FIRST_LOSS pools by the program (NotSupportedOnFirstLoss 41): throw, don't build.
+    expect(() => depositJuniorAccounts({ user, pool: poolPda, userCollateralAta: userCollateral, vault: pool.vault, lpMint: pool.lpMint, userLpAta: userLp, vaultAuth: vaultAuthority, depositPda: deposit, slab: pool.slab, riskMode: 1, wrapperProgram })).toThrow(/NotSupportedOnFirstLoss/);
+    expect(depositJuniorAccounts({ user, pool: poolPda, userCollateralAta: userCollateral, vault: pool.vault, lpMint: pool.lpMint, userLpAta: userLp, vaultAuth: vaultAuthority, depositPda: deposit, slab: pool.slab, riskMode: 2 }).length).toBe(12);
   });
 
   it("withdraw = stakeMetasV5(ACCOUNTS_STAKE_WITHDRAW_V5); an explicit insuranceUnits override is used as given", () => {
