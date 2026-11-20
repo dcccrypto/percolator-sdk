@@ -182,17 +182,22 @@ export function buildSetDepthSourceIxV22(a: SetDepthSourceArgsV22): TransactionI
 }
 
 /**
- * Tag 123 op 0: clear the pin (PushAuthMark mode 2 is then refused with 129 until a new op 1). 5 accounts.
+ * Tag 123 op 0: clear the pin (PushAuthMark mode 2 is then refused with 129 until a new op 1). 6 accounts: the 5 of
+ * {@link ACCOUNTS_SET_DEPTH_SOURCE_V22} and `[5]` the pinned pool's claim (w). The program reads `[5]` whenever the
+ * stored pin has a pool (prog v16_program.rs `old.pool != [0; 32]` -> `account(accounts, 5)?`), and every active pin
+ * has one, so `pinnedPool` is required.
  *
  * @param programId         Wrapper program id.
  * @param upgradeAuthority  The wrapper's upgrade authority (signer).
  * @param market            Market account.
  * @param assetIndex        Ignored on chain for op 0 (default 0).
  * @param marketId          Ignored on chain for op 0 (default 0).
+ * @param pinnedPool        The pool the market is pinned to now (its claim is released at `[5]`). Required.
  * @returns The instruction.
+ * @throws If `pinnedPool` is missing (the instruction could only fail on chain with NotEnoughAccountKeys).
  * @example
  * ```ts
- * const ix = buildClearDepthSourceIxV22(programId, upgradeAuthority, market);
+ * const ix = buildClearDepthSourceIxV22(programId, upgradeAuthority, market, 0, 0n, pinnedPool);
  * ```
  */
 export function buildClearDepthSourceIxV22(
@@ -208,7 +213,8 @@ export function buildClearDepthSourceIxV22(
     upgradeAuthority, programData, market, depthSource: deriveDepthSourceV22(programId, market)[0], systemProgram: SystemProgram.programId,
   });
   // prog#606: [5] the pinned pool's claim, released (required by #606 whenever the pin is active).
-  if (pinnedPool) keys.push({ pubkey: derivePoolClaimV22(programId, pinnedPool)[0], isSigner: false, isWritable: true });
+  if (!pinnedPool) throw new Error("buildClearDepthSourceIxV22: pass pinnedPool (the program reads its claim at [5] whenever a pin is active)");
+  keys.push({ pubkey: derivePoolClaimV22(programId, pinnedPool)[0], isSigner: false, isWritable: true });
   return new TransactionInstruction({ programId, keys, data: Buffer.from(encodeClearDepthSourceV22(assetIndex, marketId)) });
 }
 

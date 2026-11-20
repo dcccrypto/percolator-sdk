@@ -116,7 +116,7 @@ describe("tag 123 account metas: market WRITABLE (expect_writable(market_ai), bo
   it("op 1 and op 0 builders both carry the market as writable at index 2", () => {
     const market = k(1);
     const set = buildSetDepthSourceIxV22({ programId: program, upgradeAuthority: k(7), market, assetIndex: 0, marketId: 1n, pool: k(2), baseVault: k(3), quoteVault: k(4), baseMint: k(5), quoteMint: k(6) });
-    const clr = buildClearDepthSourceIxV22(program, k(7), market);
+    const clr = buildClearDepthSourceIxV22(program, k(7), market, 0, 0n, k(2));
     for (const ix of [set, clr]) {
       expect(ix.keys[2]!.pubkey.equals(market)).toBe(true);
       expect(ix.keys[2]!.isWritable).toBe(true);

@@ -638,9 +638,12 @@ export function buildInsuranceBackstopDrawIxV22(m: MarketV22, cranker: PublicKey
 
 /**
  * RescueDeposit (tag 112): buy senior shares at the certified IMPAIRED value. Accounts as tag 75; bound vaults append
- * `[11] vault_lp_state` and `[12]` the vault LP portfolio. Only tranche 0 is accepted on chain today.
+ * `[11] vault_lp_state` and `[12]` the vault LP portfolio (the program requires them once the registry is bound:
+ * prog v16_program.rs `registry_vault_lp_bound` -> `load_bound_vault_lp_tail(accounts, 11, ..)`). Only tranche 0 is
+ * accepted on chain today.
  *
- * @param m             Market context (`lpPortfolio` for a bound vault).
+ * @param m             Market context: `lpPortfolio` for a bound vault. Without it the builder throws unless
+ *                      `opts.unbound` says the registry has no bound vault LP.
  * @param rescuer       Signer.
  * @param rescuerLpAta  Rescuer's LP-share token account.
  * @param sourceToken   Rescuer's collateral token account.
@@ -648,13 +651,17 @@ export function buildInsuranceBackstopDrawIxV22(m: MarketV22, cranker: PublicKey
  * @param amount        Atoms.
  * @param minShares     Slippage floor.
  * @param tranche       0 = senior.
+ * @param opts          `unbound: true` builds the 11-account form for a registry with no bound vault LP.
  * @returns Instruction.
+ * @throws If `m.lpPortfolio` is missing and `opts.unbound` is not set, or both are set.
  * @example
  * ```ts
  * const ix = buildRescueDepositIxV22(m, user, userLpAta, userAta, vaultAta, 100_000_000n, quote.minShares!);
  * ```
  */
-export function buildRescueDepositIxV22(m: MarketV22, rescuer: PublicKey, rescuerLpAta: PublicKey, sourceToken: PublicKey, vaultToken: PublicKey, amount: bigint, minShares: bigint, tranche = 0): TransactionInstruction {
+export function buildRescueDepositIxV22(m: MarketV22, rescuer: PublicKey, rescuerLpAta: PublicKey, sourceToken: PublicKey, vaultToken: PublicKey, amount: bigint, minShares: bigint, tranche = 0, opts: { unbound?: boolean } = {}): TransactionInstruction {
+  if (!m.lpPortfolio && !opts.unbound) throw new Error("buildRescueDepositIxV22: a bound vault needs m.lpPortfolio ([12]); pass opts.unbound only if the registry has no bound vault LP");
+  if (m.lpPortfolio && opts.unbound) throw new Error("buildRescueDepositIxV22: m.lpPortfolio and opts.unbound contradict each other");
   const [registry] = deriveLpVaultRegistry(m.programId, m.market);
   const { ledger, siblingLedger } = ledgers(m);
   const metas = buildAccountMetas(ACCOUNTS_RESCUE_DEPOSIT_V22, {
