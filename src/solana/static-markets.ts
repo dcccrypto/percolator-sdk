@@ -60,8 +60,7 @@ const MAINNET_MARKETS: StaticMarketEntry[] = [
  * **Currently empty.**
  */
 const DEVNET_MARKETS: StaticMarketEntry[] = [
-  // Populated from prior discoverMarkets() runs on devnet.
-  // These serve as the tier-3 safety net for devnet users.
+  // Empty on purpose until a curated list of active v2.2 markets is added.
 ];
 
 /**
