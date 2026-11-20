@@ -308,6 +308,15 @@ function u64Buf(value: bigint | number, label: string): Uint8Array {
 const EMPTY = new Uint8Array(0);
 const PDA_CACHE_MAX = 4096;
 const pdaCache = new Map<string, [PublicKey, number]>();
+const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+
+// Fixed-width (2 chars/byte) hex. Cheaper than spreading the bytes through
+// String.fromCharCode, which dominated the warm hit path.
+function hexKey(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += HEX[bytes[i]];
+  return s;
+}
 
 function memoPda(
   kind: string,
@@ -316,11 +325,13 @@ function memoPda(
   b: Uint8Array,
   compute: () => [PublicKey, number],
 ): [PublicKey, number] {
+  // The default program id is keyed as "*" (never a hex char), which skips its
+  // toBytes() + encode on every call; any other id is its 64-char hex.
   const key =
     kind +
-    String.fromCharCode(...programId.toBytes()) +
-    String.fromCharCode(...a) +
-    String.fromCharCode(...b);
+    (programId.equals(NFT_PROGRAM_ID) ? "*" : hexKey(programId.toBytes())) +
+    hexKey(a) +
+    hexKey(b);
   const hit = pdaCache.get(key);
   // Fresh tuple per call so callers cannot corrupt the cache entry.
   if (hit) return [hit[0], hit[1]];
