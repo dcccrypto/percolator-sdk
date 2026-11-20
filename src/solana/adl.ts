@@ -375,11 +375,23 @@ export function selectAdlTarget(
  *                        when dominantSide is null (engine unparseable, or a
  *                        layout with no OI fields such as V0/V2/v12.15).
  * @param backupOracles - Optional extra oracle accounts.
+ * @param prefetched    - Optional: the slab bytes or the {@link AdlRankingResult}
+ *                        the caller already has (from `fetchSlab` or
+ *                        `fetchAdlRankedPositions`). When given, no RPC call is
+ *                        made; the result is the same as the fetching path for
+ *                        the same slab bytes.
  *
  * @example
  * ```ts
  * const ix = await buildAdlTransaction(
  *   connection, caller.publicKey, slabKey, oracleKey, PROGRAM_ID
+ * );
+ *
+ * // Already ranked? Pass the ranking through to skip a second slab read.
+ * const ranking = await fetchAdlRankedPositions(connection, slabKey);
+ * const ix2 = await buildAdlTransaction(
+ *   connection, caller.publicKey, slabKey, oracleKey, PROGRAM_ID,
+ *   undefined, [], ranking,
  * );
  * if (ix) {
  *   await sendAndConfirmTransaction(connection, new Transaction().add(ix), [caller]);
@@ -393,9 +405,15 @@ export async function buildAdlTransaction(
   oracle: PublicKey,
   programId: PublicKey,
   preferSide?: AdlSide,
-  backupOracles: PublicKey[] = []
+  backupOracles: PublicKey[] = [],
+  prefetched?: Uint8Array | AdlRankingResult,
 ): Promise<TransactionInstruction | null> {
-  const ranking = await fetchAdlRankedPositions(connection, slab);
+  const ranking =
+    prefetched === undefined
+      ? await fetchAdlRankedPositions(connection, slab)
+      : prefetched instanceof Uint8Array
+        ? rankAdlPositions(prefetched)
+        : prefetched;
 
   if (!ranking.isTriggered) return null;
 

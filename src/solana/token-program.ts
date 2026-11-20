@@ -1,5 +1,6 @@
-import { Connection, PublicKey } from "@solana/web3.js";
+import { AccountInfo, Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { SPL_MINT_DECIMALS_OFFSET } from "./dex-oracle.js";
 
 /**
  * Token2022 (Token Extensions) program ID.
@@ -25,7 +26,11 @@ export async function detectTokenProgram(
   connection: Connection,
   mint: PublicKey,
 ): Promise<PublicKey> {
-  const info = await connection.getAccountInfo(mint);
+  return tokenProgramOf(await connection.getAccountInfo(mint), mint);
+}
+
+/** Owner check shared by {@link detectTokenProgram} and {@link fetchMintInfo}. */
+function tokenProgramOf(info: AccountInfo<Buffer> | null, mint: PublicKey): PublicKey {
   if (!info) throw new Error(`Mint account not found: ${mint.toBase58()}`);
 
   if (info.owner.equals(TOKEN_PROGRAM_ID)) return TOKEN_PROGRAM_ID;
@@ -36,6 +41,33 @@ export async function detectTokenProgram(
       `is neither SPL Token (${TOKEN_PROGRAM_ID.toBase58()}) nor ` +
       `Token-2022 (${TOKEN_2022_PROGRAM_ID.toBase58()})`,
   );
+}
+
+/**
+ * One-read form of `detectTokenProgram` + `fetchMintDecimals` for the same mint.
+ *
+ * Trade prep used to read the mint twice (once for its owner, once for its
+ * decimals). This reads it once and returns both. Results and errors match
+ * calling `detectTokenProgram(connection, mint)` and then
+ * `fetchMintDecimals(connection, mint)` on the same account state.
+ *
+ * @throws if the mint account doesn't exist, is not owned by SPL Token or
+ *         Token-2022, or is too short to hold a mint.
+ */
+export async function fetchMintInfo(
+  connection: Connection,
+  mint: PublicKey,
+): Promise<{ tokenProgram: PublicKey; decimals: number }> {
+  const info = await connection.getAccountInfo(mint);
+  const tokenProgram = tokenProgramOf(info, mint);
+  // tokenProgramOf threw on null, so info is non-null here.
+  const data = info!.data;
+  if (data.length <= SPL_MINT_DECIMALS_OFFSET) {
+    throw new Error(
+      `fetchMintDecimals: account data too short (${data.length} bytes) for mint ${mint.toBase58()}`,
+    );
+  }
+  return { tokenProgram, decimals: data[SPL_MINT_DECIMALS_OFFSET] };
 }
 
 /**

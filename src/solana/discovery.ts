@@ -653,6 +653,21 @@ export async function discoverMarkets(
     return [];
   }
 
+  // Full-data TALOCREP memcmp fallback, memoised per call so the empty-result path and
+  // the outer catch below never send the same getProgramAccounts twice.
+  let memcmpFallbackPromise: ReturnType<Connection["getProgramAccounts"]> | undefined;
+  const memcmpFallback = () =>
+    (memcmpFallbackPromise ??= connection.getProgramAccounts(programId, {
+      filters: [
+        {
+          memcmp: {
+            offset: 0,
+            bytes: "F6P2QNqpQV5", // base58 of TALOCREP (u64 LE magic)
+          },
+        },
+      ],
+    }));
+
   const maxTierQueries = options.maxTierQueries ?? ALL_TIERS.length;
   const tiersToQuery = ALL_TIERS.slice(0, maxTierQueries);
 
@@ -734,16 +749,7 @@ export async function discoverMarkets(
       console.warn("[discoverMarkets] dataSize filters returned 0 markets, falling back to memcmp");
       // PR #183 / PR #166: fetch full account data (no dataSlice) so detectSlabLayout can
       // identify the actual tier from account.data.length instead of hardcoding large/4096.
-      const fallback = await connection.getProgramAccounts(programId, {
-        filters: [
-          {
-            memcmp: {
-              offset: 0,
-              bytes: "F6P2QNqpQV5", // base58 of TALOCREP (u64 LE magic)
-            },
-          },
-        ],
-      });
+      const fallback = await memcmpFallback();
       rawAccounts = [...fallback].map(e => {
         const len = e.account.data.length;
         const lay = detectSlabLayout(len, new Uint8Array(e.account.data));
@@ -757,16 +763,10 @@ export async function discoverMarkets(
     );
     try {
       // PR #183 / PR #166: same full-data fetch as the empty-result fallback above.
-      const fallback = await connection.getProgramAccounts(programId, {
-        filters: [
-          {
-            memcmp: {
-              offset: 0,
-              bytes: "F6P2QNqpQV5", // base58 of TALOCREP (u64 LE magic)
-            },
-          },
-        ],
-      });
+      // If that fallback already ran and threw (the usual way to land here: tier and v17
+      // failures are caught above), memcmpFallback() returns its settled promise instead
+      // of sending the identical getProgramAccounts again; memcmpErr is the same error.
+      const fallback = await memcmpFallback();
       rawAccounts = [...fallback].map(e => {
         const len = e.account.data.length;
         const lay = detectSlabLayout(len, new Uint8Array(e.account.data));
