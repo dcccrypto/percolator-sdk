@@ -43,7 +43,6 @@ import {
 } from "../src/solana/p3-vault-lp.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveVaultAuthority } from "../src/solana/pda.js";
 import { deriveVaultLpStateP3 } from "../src/solana/p3-vault-lp.js";
-import * as root from "../src/index.js";
 import { stampMarket, stampPortfolio } from "./helpers/stamp.js";
 
 const hex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
@@ -154,13 +153,15 @@ describe("planResolvedVaultLpExitP3: 78 → 77 per senior → 102 junior", () =>
     expect(planResolvedVaultLpExitP3({ market: m, crankFeesIx: mk(78, 6), seniorRedemptionIxs: [] }).junior).toBeNull();
     expect(() => planResolvedVaultLpExitP3({ market: m, crankFeesIx: mk(78, 7), seniorRedemptionIxs: [] })).toThrow();
   });
-  it("exported from the package root", () => {
+  it("exported from the package root", async () => {
+    // Barrel loaded lazily so the file's collect phase doesn't pay for all of src/index.js (worker-start timeouts under coverage load).
+    const root = await import("../src/index.js");
     const r = root as Record<string, unknown>;
     for (const n of ["planResolvedVaultLpExitP3", "boundVaultNavFlooredP3", "boundVaultSeniorValueP3", "boundVaultRedemptionAtomsP3",
       "boundVaultDepositQuoteP3", "buildExecuteRedemptionIxP3", "vaultPotHeldAtomsP3", "decodeAssetVaultLpDrawP3", "vaultPhysicalIdleBackingAtomsP3", "encodeMatcherBatchCall", "encodeWrapperMatcherCallExt"]) {
       expect(typeof r[n], n).toBe("function");
     }
-  });
+  }, 60_000);
 });
 
 describe("tag 77 on a bound vault (221cf006 security condition)", () => {
