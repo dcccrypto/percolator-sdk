@@ -9,7 +9,7 @@ import { getProgramId } from '../src/config/program-ids.js';
 const RPC = requireRpcUrl();
 const conn = new Connection(RPC, 'confirmed');
 
-const PROGRAM_ID = getProgramId("devnet");
+const PROGRAM_ID = getProgramId("mainnet");
 const SLAB = new PublicKey('FkNmxZJUmr2bF7kwsBDtKoHeajrNdSEQokgGmmzn69vC');
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const ADMIN = new PublicKey('7JVQvrAfzj3aasLxCkoLYX5KQcrb5nEZhUe5Qa8PvV5G');

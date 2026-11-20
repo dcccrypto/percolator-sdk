@@ -4,7 +4,7 @@ import { getProgramId } from "./src/config/program-ids.js";
 
 const SLAB = new PublicKey("6akNPYQLyg2nGLDtGAoykB8ZtuoAEwGhxreXaDWncya2");
 const WALLET = new PublicKey("GnjCwHLm9bWdPrJ6z2frMf5kYmRh1qCb9otBEXUuSpUd");
-const PROGRAM = getProgramId("devnet");
+const PROGRAM = getProgramId("mainnet");
 const RPC = requireRpcUrl();
 
 async function main() {
