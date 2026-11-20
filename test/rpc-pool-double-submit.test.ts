@@ -175,6 +175,15 @@ describe("isPreAcceptRetryable", () => {
     expect(f(null, codes)).toBe(false);
     expect(f("too many requests", codes)).toBe(true);
   });
+
+  it("a signature containing 429 inside web3's unknown-outcome error is not pre-accept", () => {
+    const unknownWith = (sig: string) => new Error(`Transaction was not confirmed in 30.00 seconds. It is unknown if it succeeded or failed. Check signature ${sig} using the Solana Explorer or CLI tools.`);
+    for (const sig of ["5Gk429Zx" + "a".repeat(80), "429Abc" + "b".repeat(82), "c".repeat(82) + "xyz429"]) {
+      expect(f(unknownWith(sig), codes)).toBe(false);
+    }
+    expect(f(new Error("failed to send transaction: 429 Too Many Requests: {}"), codes)).toBe(true);
+    expect(f(new Error("Server responded with 429."), codes)).toBe(true);
+  });
 });
 
 describe("sendGroupsAdaptive: a failed send reports the signature it attempted", () => {

@@ -358,7 +358,9 @@ function isPreAcceptRetryable(err: unknown, codes: number[]): boolean {
   const errName = (err as { name?: unknown })?.name;
   if (errName === "AbortError" || errName === "TimeoutError") return false;
   const msg = err instanceof Error ? err.message : String(err);
-  if (codes.includes(429) && /(?<![0-9])429(?![0-9])/.test(msg)) return true;
+  // Alphanumeric boundaries: a base58 signature quoted in the message (e.g. web3's "not confirmed …
+  // Check signature <sig>") can contain "429" and must not read as a rate-limit reject.
+  if (codes.includes(429) && /(?<![0-9A-Za-z])429(?![0-9A-Za-z])/.test(msg)) return true;
   const lower = msg.toLowerCase();
   return (
     lower.includes("rate limit") ||
