@@ -155,6 +155,14 @@ describe("decodeTerminalInsuranceCapacity", () => {
     const v = decodeTerminalInsuranceCapacity(synth({ mode: 1, vault: 50n, insurance: 900n, srcReserved: 0n, bL: 500n, sL: 0n, bS: 0n, sS: 0n }), 0);
     expect(v.terminalCapacity).toBe(50n); // vault cap
   });
+  it("throws 'too short' for an asset slot past the end of the account, or a negative / fractional index", () => {
+    const fx = JSON.parse(readFileSync(new URL("./fixtures/market-v18-live-budgets.json", import.meta.url), "utf8")) as { dataBase64: string };
+    const d = new Uint8Array(Buffer.from(fx.dataBase64, "base64"));
+    const n = Math.floor((d.length - H - V17_MARKET_GROUP_LEN) / V17_MARKET_ASSET_SLOT_LEN);
+    expect(() => decodeTerminalInsuranceCapacity(d, n + 1)).toThrow(/too short for asset/);
+    expect(() => decodeTerminalInsuranceCapacity(d, -1)).toThrow(/too short for asset/);
+    expect(() => decodeTerminalInsuranceCapacity(d, 0.5)).toThrow(/too short for asset/);
+  });
 });
 
 describe("planStakeWindDown", () => {
