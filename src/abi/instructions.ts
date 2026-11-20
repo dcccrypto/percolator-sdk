@@ -2094,11 +2094,11 @@ export function encodeRenounceAdmin(): Uint8Array {
 }
 
 // ============================================================================
-// PERC-627 / GH#1926: LpVaultWithdraw (tag 39)
+// PERC-627 / GH#1926: LpVaultWithdraw (tag 76)
 // ============================================================================
 
 /**
- * LpVaultWithdraw (Tag 39, PERC-627 / GH#1926 / PERC-8287) — burn LP vault tokens and
+ * LpVaultWithdraw (tag 76, PERC-627 / GH#1926 / PERC-8287) — burn LP vault tokens and
  * withdraw proportional collateral.
  *
  * **BREAKING (PR#170):** accounts[9] = creatorLockPda is now REQUIRED.
@@ -2328,7 +2328,7 @@ export function encodeSetInsuranceIsolation(args: { bps: number }): Uint8Array {
 // ============================================================================
 // NOTE: encodeExecuteAdl() was historically removed when it was discovered
 // that PERC-305 was NOT implemented on-chain and tag 43 was ChallengeSettlement.
-// PERC-305 (ExecuteAdl) is now live at tag 50. Encoder added below.
+// PERC-305 (ExecuteAdl) is now live at tag 101. Encoder added below.
 // ============================================================================
 
 // ============================================================================
@@ -2385,11 +2385,11 @@ export function encodeCancelQueuedWithdrawal(): Uint8Array {
 }
 
 // ============================================================================
-// PERC-305: ExecuteAdl (Tag 50) — Auto-Deleverage
+// PERC-305: ExecuteAdl (tag 101) — Auto-Deleverage
 // ============================================================================
 
 /**
- * ExecuteAdl (Tag 50, PERC-305) — auto-deleverage the most profitable position.
+ * ExecuteAdl (tag 101, PERC-305) — auto-deleverage the most profitable position.
  *
  * Permissionless. Surgically closes or reduces `targetIdx` position when
  * `pnl_pos_tot > max_pnl_cap` on the market. The caller receives no reward —
@@ -2416,11 +2416,11 @@ export function encodeExecuteAdl(_args: ExecuteAdlArgs): Uint8Array {
 }
 
 // ============================================================================
-// CloseStaleSlabs (Tag 51) / ReclaimSlabRent (Tag 52) — Slab recovery
+// CloseStaleSlabs (Tag 100) / ReclaimSlabRent (Tag 99) — Slab recovery
 // ============================================================================
 
 /**
- * CloseStaleSlabs (Tag 51) — close a slab of an invalid/old layout and recover rent SOL.
+ * CloseStaleSlabs (Tag 100) — close a slab of an invalid/old layout and recover rent SOL.
  *
  * Admin only. Skips slab_guard; validates header magic + admin authority instead.
  * Use for slabs created by old program layouts (e.g. pre-PERC-120 devnet deploys)

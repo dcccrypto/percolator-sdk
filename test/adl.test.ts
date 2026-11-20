@@ -291,6 +291,17 @@ describe("parseAdlEvent", () => {
     expect(parseAdlEvent([])).toBeNull();
   });
 
+  it("pins the ADL event tag to the literal decimal 2904424449 (0xAD1E0001)", () => {
+    expect(TAG).toBe(2904424449);
+    const event = parseAdlEvent(["Program log: 2904424449 1 2 3 0"]);
+    expect(event).not.toBeNull();
+    expect(event!.tag).toBe(2904424449n);
+  });
+
+  it("rejects the stale doc value 2970353665 (not the ADL tag)", () => {
+    expect(parseAdlEvent(["Program log: 2970353665 1 2 3 0"])).toBeNull();
+  });
+
   it("returns null when no log line matches ADL tag", () => {
     const logs = [
       "Program log: some other line",

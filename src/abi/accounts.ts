@@ -50,7 +50,7 @@ export const ACCOUNTS_INIT_MARKET: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * InitPortfolio (tag 2): 3 accounts.
+ * InitPortfolio (tag 1): 3 accounts.
  *
  * v17 wire account layout (v16_program.rs handle_init_portfolio):
  *   [0] owner      signer, writable (portfolio owner; pays for alloc)
@@ -627,7 +627,7 @@ export const ACCOUNTS_UNPAUSE_MARKET: readonly AccountSpec[] = [
 // ============================================================================
 
 /**
- * ReclaimEmptyAccount (tag 25): 2 accounts. Permissionless.
+ * ReclaimEmptyAccount (tag 85): 2 accounts. Permissionless.
  * Wrapper: src/percolator.rs:10470.
  */
 export const ACCOUNTS_RECLAIM_EMPTY_ACCOUNT: readonly AccountSpec[] = [
@@ -636,7 +636,7 @@ export const ACCOUNTS_RECLAIM_EMPTY_ACCOUNT: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * SettleAccount (tag 26): 3 accounts. Permissionless.
+ * SettleAccount (tag 86): 3 accounts. Permissionless.
  * Wrapper: src/percolator.rs:10503.
  */
 export const ACCOUNTS_SETTLE_ACCOUNT: readonly AccountSpec[] = [
@@ -703,7 +703,7 @@ export const ACCOUNTS_SET_INSURANCE_WITHDRAW_POLICY: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * UpdateAuthority (tag 83, v12.18.x 4-way split): 3 accounts.
+ * UpdateAuthority (tag 32; v12.18.x used tag 83 for the 4-way split): 3 accounts.
  * Wrapper: src/percolator.rs:6876.
  *
  * Both the current authority and the new authority must sign. For burn
@@ -811,11 +811,11 @@ export const ACCOUNTS_WITHDRAW_INSURANCE_LP: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// PERC-627 / GH#1926: LpVaultWithdraw (tag 39)
+// PERC-627 / GH#1926: LpVaultWithdraw (tag 76)
 // ============================================================================
 
 /**
- * LpVaultWithdraw: 10 accounts (tag 39, PERC-627 / GH#1926 / PERC-8287)
+ * LpVaultWithdraw: 10 accounts (tag 76, PERC-627 / GH#1926 / PERC-8287)
  *
  * Burn LP vault tokens and withdraw proportional collateral from the LP vault.
  *
@@ -914,11 +914,11 @@ export const ACCOUNTS_CANCEL_QUEUED_WITHDRAWAL: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// PERC-305: ExecuteAdl (tag 50) — Auto-Deleverage
+// PERC-305: ExecuteAdl (tag 101) — Auto-Deleverage
 // ============================================================================
 
 /**
- * ExecuteAdl: 4+ accounts (PERC-305, tag 50)
+ * ExecuteAdl: 4+ accounts (PERC-305, tag 101)
  * Permissionless — surgically close/reduce the most profitable position
  * when pnl_pos_tot > max_pnl_cap. For non-Hyperp markets with backup oracles,
  * pass additional oracle accounts at accounts[4..].
@@ -958,11 +958,11 @@ export const ACCOUNTS_ADMIN_FORCE_CLOSE: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// CloseStaleSlabs (tag 51) / ReclaimSlabRent (tag 52)
+// CloseStaleSlabs (tag 100) / ReclaimSlabRent (tag 99)
 // ============================================================================
 
 /**
- * CloseStaleSlabs: 2 accounts (tag 51)
+ * CloseStaleSlabs: 2 accounts (tag 100)
  * Admin closes a slab of an invalid/old layout and recovers rent SOL.
  */
 export const ACCOUNTS_CLOSE_STALE_SLABS: readonly AccountSpec[] = [
@@ -971,7 +971,7 @@ export const ACCOUNTS_CLOSE_STALE_SLABS: readonly AccountSpec[] = [
 ] as const;
 
 /**
- * ReclaimSlabRent: 2 accounts (tag 52)
+ * ReclaimSlabRent: 2 accounts (tag 99)
  * Reclaim rent from an uninitialised slab. Both dest and slab must sign.
  */
 export const ACCOUNTS_RECLAIM_SLAB_RENT: readonly AccountSpec[] = [
@@ -980,11 +980,11 @@ export const ACCOUNTS_RECLAIM_SLAB_RENT: readonly AccountSpec[] = [
 ] as const;
 
 // ============================================================================
-// AuditCrank (tag 53) — Permissionless invariant check
+// AuditCrank (tag 91) — Permissionless invariant check
 // ============================================================================
 
 /**
- * AuditCrank: 1 account (tag 53)
+ * AuditCrank: 1 account (tag 91)
  * Permissionless. Verifies conservation invariants; pauses market on violation.
  */
 export const ACCOUNTS_AUDIT_CRANK: readonly AccountSpec[] = [

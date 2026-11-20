@@ -6,7 +6,7 @@
  * on a market (PnL cap exceeded) AND the insurance fund is fully depleted (balance == 0).
  * The most profitable positions on the dominant side are deleveraged first.
  *
- * **Note on caller permissions:** `ExecuteAdl` (tag 50) requires the caller to be the
+ * **Note on caller permissions:** `ExecuteAdl` (tag 101, deprecated v12.x; not in v17) requires the caller to be the
  * market admin/keeper key (`header.admin`). It is NOT permissionless despite the
  * instruction being structurally available to any signer.
  *
@@ -417,7 +417,7 @@ export async function buildAdlTransaction(
  * `sol_log_64` prints 5 decimal u64 values separated by spaces on a single "Program log:" line.
  *
  * Fields:
- * - `tag`       — always `0xAD1E_0001` (2970353665n)
+ * - `tag`       — always `0xAD1E_0001` (2904424449n)
  * - `targetIdx` — slab account index that was deleveraged
  * - `price`     — oracle price used (in market price units, e.g. e6)
  * - `closedAbs` — absolute size of the position closed (i128, reassembled from lo+hi u64 parts)
@@ -432,7 +432,7 @@ export async function buildAdlTransaction(
  * ```
  */
 export interface AdlEvent {
-  /** Tag discriminator — always 0xAD1E_0001n (2970353665). */
+  /** Tag discriminator — always 0xAD1E_0001n (2904424449). */
   tag: bigint;
   /** Slab account index that was deleveraged. */
   targetIdx: number;
@@ -452,7 +452,7 @@ const ADL_EVENT_TAG = 0xAD1E_0001n;
  * Parse the AdlEvent from a transaction's log messages.
  *
  * Searches for a "Program log: <a> <b> <c> <d> <e>" line where the first
- * decimal value equals `0xAD1E_0001` (2970353665). Returns `null` if not found.
+ * decimal value equals `0xAD1E_0001` (2904424449). Returns `null` if not found.
  *
  * @param logs - Array of log message strings (from `tx.meta.logMessages`).
  * @param percolatorProgramId - When supplied, only ADL events emitted directly
