@@ -64,7 +64,13 @@ export function computeLiqPrice(
     // integer e6 price loses up to 1/(1-maint) price units at high maintenance.
     const num = entryPrice * absPos - capital * 1_000_000n;
     if (num <= 0n) return 0n;
-    return (num * 10000n) / (absPos * (10000n - maintenanceMarginBps));
+    // CEIL of the continuous threshold: never lower than the exact value, so it
+    // is strictly safer than the old floor. For small q (< 1 unit) the engine's
+    // floor-PnL / double-ceil maintenance can still sit a few units higher
+    // (approximation). Engine refs (percolator v16.rs:14892 account_liquidation_deficit,
+    // equity < maintenance_req; maintenance_req is a ceil, v16.rs:28974).
+    const den = absPos * (10000n - maintenanceMarginBps);
+    return (num * 10000n + den - 1n) / den;
   }
   const shortLiq =
     ((entryPrice * absPos + capital * 1_000_000n) * 10000n) / (absPos * (10000n + maintenanceMarginBps));
@@ -104,7 +110,23 @@ export function computePreTradeLiqPrice(
 }
 
 /**
+ * Notional the engine bills trade fees on: ceil(|size| * price / 1e6).
+ * Program: percolator v16.rs:29014 `trade_fee_notional_ceil` (via
+ * `risk_notional_ceil`, v16.rs:28288), used at v16.rs:23446-23447. Pass the
+ * result as `notional` to {@link computeTradingFee} / {@link computeDynamicTradingFee};
+ * a floored notional shows a sub-atom fill as free when the chain charges 1.
+ */
+export function computeTradeFeeNotionalCeil(size: bigint, priceE6: bigint): bigint {
+  const abs = size < 0n ? -size : size;
+  if (abs === 0n || priceE6 <= 0n) return 0n;
+  return (abs * priceE6 + 999_999n) / 1_000_000n;
+}
+
+/**
  * Compute trading fee from notional value and fee rate in bps.
+ *
+ * `notional` must be the engine's CEIL notional, see
+ * {@link computeTradeFeeNotionalCeil}.
  */
 export function computeTradingFee(
   notional: bigint,
@@ -158,7 +180,8 @@ export function computeDynamicFeeBps(
  * Compute the dynamic trading fee for a given notional and tier config.
  *
  * Uses ceiling division to match on-chain behavior (prevents fee evasion
- * via micro-trades).
+ * via micro-trades). `notional` must be the ceil notional, see
+ * {@link computeTradeFeeNotionalCeil}.
  */
 export function computeDynamicTradingFee(
   notional: bigint,
@@ -186,7 +209,11 @@ export interface FeeSplitConfig {
  *
  * Returns [lpShare, protocolShare, creatorShare].
  * If all split params are 0, 100% goes to LP (legacy behavior).
- * Creator gets the rounding remainder to ensure total is preserved.
+ * Each share floors and the rounding dust goes to INSURANCE on chain
+ * (percolator-prog v16_program.rs:13522 `split_trade_fee`), which this 3-way
+ * tuple has no slot for. To stay display-safe the dust is NOT credited to the
+ * creator: the creator share also floors, so the tuple sums to totalFee minus
+ * the insurance dust. Use {@link computeFeeSplitDust} for the dust.
  */
 export function computeFeeSplit(
   totalFee: bigint,
@@ -205,8 +232,14 @@ export function computeFeeSplit(
 
   const lp = (totalFee * config.lpBps) / 10000n;
   const protocol = (totalFee * config.protocolBps) / 10000n;
-  const creator = totalFee - lp - protocol;
+  const creator = (totalFee * config.creatorBps) / 10000n;
   return [lp, protocol, creator];
+}
+
+/** Rounding dust of {@link computeFeeSplit} that the program credits to insurance. */
+export function computeFeeSplitDust(totalFee: bigint, config: FeeSplitConfig): bigint {
+  const [lp, protocol, creator] = computeFeeSplit(totalFee, config);
+  return totalFee - lp - protocol - creator;
 }
 
 /**
@@ -275,7 +308,11 @@ export function computeRequiredMargin(
   notional: bigint,
   initialMarginBps: bigint,
 ): bigint {
-  return (notional * initialMarginBps) / 10000n;
+  // CEIL, as percolator v16.rs:28974 `margin_requirement`
+  // (mul_div_ceil(notional, bps, 10_000)), applied at v16.rs:4301/4306.
+  // `notional` should be the ceil notional (computeTradeFeeNotionalCeil).
+  if (notional <= 0n || initialMarginBps <= 0n) return 0n;
+  return (notional * initialMarginBps + 9999n) / 10000n;
 }
 
 /**

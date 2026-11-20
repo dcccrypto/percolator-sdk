@@ -44,7 +44,7 @@ describe("computeLiqPrice", () => {
   });
   it("long: (entry - capitalPerUnit) * 10000 / (10000 - mm)", () => {
     // capital/unit e6 = 1e6; liq = (2e6 - 1e6) * 10000 / 9500 = 1_052_631
-    expect(computeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n)).toBe(1_052_631n);
+    expect(computeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n)).toBe(1_052_632n);
   });
   it("long: clamps at 0 when capital covers the entry", () => {
     expect(computeLiqPrice(100n, 1_000_000n, 1n, 500n)).toBe(0n);
@@ -67,8 +67,8 @@ describe("computePreTradeLiqPrice", () => {
   });
   it("long pays the fee on entry", () => {
     // entry = 2e6 + 2e6*100/10000 = 2_020_000
-    // liq = (2_020_000 - 1e6) * 10000 / 9500 = 1_073_684
-    expect(computePreTradeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n, 100n, "long")).toBe(1_073_684n);
+    // liq = ceil((2_020_000 - 1e6) * 10000 / 9500) = 1_073_685
+    expect(computePreTradeLiqPrice(2_000_000n, 1_000_000n, 1_000_000n, 500n, 100n, "long")).toBe(1_073_685n);
   });
   it("short receives less; a negative position size is read as its magnitude", () => {
     const a = computePreTradeLiqPrice(2_000_000n, 1_000_000n, -1_000_000n, 500n, 100n, "short");
@@ -123,10 +123,10 @@ describe("computeFeeSplit", () => {
   it("all-zero split sends everything to LP", () => {
     expect(computeFeeSplit(777n, { lpBps: 0n, protocolBps: 0n, creatorBps: 0n })).toEqual([777n, 0n, 0n]);
   });
-  it("creator takes the rounding remainder; total preserved", () => {
+  it("every share floors; dust goes to insurance (not creator)", () => {
     const r = computeFeeSplit(101n, { lpBps: 5000n, protocolBps: 3333n, creatorBps: 1667n });
-    expect(r).toEqual([50n, 33n, 18n]);
-    expect(r[0] + r[1] + r[2]).toBe(101n);
+    expect(r).toEqual([50n, 33n, 16n]);
+    expect(r[0] + r[1] + r[2]).toBe(99n);
   });
   it("rejects negative parts and sums != 10000", () => {
     expect(() => computeFeeSplit(1n, { lpBps: -1n, protocolBps: 10001n, creatorBps: 0n })).toThrow(/non-negative/);
@@ -176,9 +176,9 @@ describe("computeFundingRateAnnualized", () => {
 });
 
 describe("margin and leverage", () => {
-  it("required margin floors", () => {
+  it("required margin ceils", () => {
     expect(computeRequiredMargin(1_000_000n, 1000n)).toBe(100_000n);
-    expect(computeRequiredMargin(99n, 100n)).toBe(0n);
+    expect(computeRequiredMargin(99n, 100n)).toBe(1n);
   });
   it("max leverage keeps the fraction; floor form is integer", () => {
     expect(computeMaxLeverage(1000n)).toBe(10);
