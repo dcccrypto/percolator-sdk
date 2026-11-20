@@ -212,7 +212,7 @@ export interface JuniorWithdrawInputV22 {
   lp: { capital: bigint; pnl: bigint; feeCredits?: bigint; hasActiveLegs: boolean; lastFeeSlot?: bigint };
   /** Fee slot: `max(Clock.slot, market header current_slot)` (prog 14290-14297). Required with `maintenanceFeePerSlot > 0`. */
   nowSlot?: bigint;
-  /** Market `maintenance_fee_per_slot` (0 = off). */
+  /** Market `maintenance_fee_per_slot` (0 = off). The rate-checkpoint leg (prog 28810-28826) is not modelled: after a rate change, read the LP after a fee crank. */
   maintenanceFeePerSlot?: bigint;
   /**
    * Growth assets only: the open-interest lock. `nCapAfter(amount)` is the LP capacity left after `amount`
