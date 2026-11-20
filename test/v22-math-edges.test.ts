@@ -365,7 +365,9 @@ describe("quoteBondDeposit / quoteBondWithdraw refusals", () => {
     expect(wd({ backstopOutstandingAtoms: 1n, live }).refusal?.code).toBe(89);
     expect(wd({ shares: 2_000_000n }).refusal?.code).toBe(110); // shares > total
     expect(wd({ live: { ...live, nCapAfter: 0n } }).refusal?.code).toBe(108);
-    expect(wd({ live }).refusal).toBeNull();
+    // the engine withdraw at v16_program.rs:43992 is flat-only: a vault LP with inventory (lpEffAbsQ > 0) is refused (19)
+    expect(wd({ live }).refusal?.code).toBe(19);
+    expect(wd({ live: { ...live, lpEffAbsQ: 0n } }).refusal).toBeNull();
     expect(wd({ vaultValue: U128, seniorClaimEff: 0n, tranche: tr({ cBAtoms: U128 }), live }).refusal?.code).toBe(15);
   });
 });

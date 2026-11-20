@@ -19,6 +19,14 @@ import { computeMaxLeverageFloor } from "./trading.js";
  * `warmupStartedAtSlot`. Before warmup starts (startSlot === 0) or if the
  * warmup period is 0, all capital is considered unlocked.
  *
+ * This is a LEVERAGE-CAP heuristic (it feeds {@link computeWarmupLeverageCap}
+ * and {@link computeWarmupMaxPositionSize}), NOT a withdraw limit. The v2.2
+ * engine never locks capital for warmup: a flat portfolio can withdraw its
+ * whole capital even while positive PnL is warming up, and it sees no PnL,
+ * fee, position or market-mode input, so it can also show more than the
+ * program pays. For "how much can I withdraw" use `maxWithdrawCollateralV22`
+ * (`src/abi/v22-withdraw.ts`), which follows prog/engine rc23.
+ *
  * @param totalCapital    - Total deposited capital (native units).
  * @param currentSlot     - The current on-chain slot.
  * @param warmupStartSlot - Slot at which warmup started (0 = not started).
