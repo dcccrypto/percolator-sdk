@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll } from "vitest";
 import { ed25519 } from "@noble/curves/ed25519";
 import {
   ComputeBudgetProgram,
@@ -33,13 +33,24 @@ import {
 
 const BH = "GHtXQBpHnMXhoLGsryeDY7i6bGqTC2LGqS11Kf3rKmFS";
 const payerKp = Keypair.fromSeed(new Uint8Array(32).fill(7));
-const payer = payerKp.publicKey;
-const PROG = new PublicKey(new Uint8Array(32).fill(9));
+/**
+ * Cache `toBase58` on a fixture key. packInstructionGroups re-derives base58 for every account on every
+ * greedy step (O(groups^2) calls), which made the packing cases take 2-5 s idle and time out under
+ * coverage. The cached value is the real encoding, so every size/assert is unchanged.
+ */
+function memoB58(k: PublicKey): PublicKey {
+  const real = k.toBase58.bind(k);
+  let c: string | undefined;
+  (k as { toBase58: () => string }).toBase58 = () => (c ??= real());
+  return k;
+}
+const payer = memoB58(new PublicKey(payerKp.publicKey.toBytes()));
+const PROG = memoB58(new PublicKey(new Uint8Array(32).fill(9)));
 const HEAP = 128 * 1024;
 
 function ix(nAccts: number, dataLen: number, seed = 1): TransactionInstruction {
   const keys = Array.from({ length: nAccts }, (_, i) => ({
-    pubkey: new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? seed : j === 1 ? i + 1 : 3))),
+    pubkey: memoB58(new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? seed : j === 1 ? i + 1 : 3)))),
     isSigner: false,
     isWritable: i % 2 === 0,
   }));
@@ -270,16 +281,20 @@ describe("walletSupportsV1", () => {
   });
 });
 
-describe("size-aware packing", () => {
+// Timeout: the real (unmocked) packer is CPU-bound, ~200 ms warm per legacy pack of 39 groups, and
+// sendGroupsAdaptive packs twice (initial + baseline). Measured on a loaded Mac mini with v8 coverage
+// (--maxWorkers=2) after caching: worst case 4.1 s per case (was 9-25 s and timing out at 5 s). 20 s
+// keeps every case <= ~20% of its budget.
+describe("size-aware packing", { timeout: 20_000 }, () => {
   // A PushAuthMark-shaped group: 1 ix, 3 accounts (2 per-market writable + shared oracle), 20 data bytes.
-  const shared = new PublicKey(new Uint8Array(32).fill(0x55));
+  const shared = memoB58(new PublicKey(new Uint8Array(32).fill(0x55)));
   const market = (i: number): { instructions: TransactionInstruction[]; computeUnits: number; tag: number } => ({
     instructions: [
       new TransactionInstruction({
         programId: PROG,
         keys: [
           { pubkey: payer, isSigner: true, isWritable: false },
-          { pubkey: new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? 1 : j === 1 ? i : 2))), isSigner: false, isWritable: true },
+          { pubkey: memoB58(new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? 1 : j === 1 ? i : 2)))), isSigner: false, isWritable: true },
           { pubkey: shared, isSigner: false, isWritable: false },
         ],
         data: Buffer.alloc(20, 1),
@@ -290,10 +305,22 @@ describe("size-aware packing", () => {
   });
   const groups = Array.from({ length: 40 }, (_, i) => market(i));
   const budget = { heapBytes: HEAP };
+  // The default-limit plan per format is pure (fixed groups/payer/budget); compute it once and share it
+  // between the cases below instead of re-running the O(n^2) packer for each.
+  const defaultPlans = new Map<"legacy" | "v0" | "v1", ReturnType<typeof packInstructionGroups<number>>>();
+  const defaultPlan = (format: "legacy" | "v0" | "v1") => {
+    let p = defaultPlans.get(format);
+    if (!p) { p = packInstructionGroups(groups, { format, payer, budget }); defaultPlans.set(format, p); }
+    return p;
+  };
+
+  // Build the shared plans in a hook (own 30s budget) so cold-start JIT/coverage cost is not billed to
+  // whichever case happens to run first.
+  beforeAll(() => { for (const f of ["legacy", "v0", "v1"] as const) defaultPlan(f); }, 30_000);
 
   it("never exceeds the byte limit, covers every group exactly once, in order (all formats)", () => {
     for (const format of ["legacy", "v0", "v1"] as const) {
-      const plan = packInstructionGroups(groups, { format, payer, budget });
+      const plan = defaultPlan(format);
       const cap = format === "v1" ? 4096 : 1232;
       expect(plan.every((p) => p.bytes <= cap)).toBe(true);
       expect(plan.flatMap((p) => p.groups.map((g) => g.tag))).toEqual(groups.map((g) => g.tag));
@@ -303,13 +330,13 @@ describe("size-aware packing", () => {
   });
 
   it("v1 needs strictly fewer transactions than legacy for the same work", () => {
-    const legacy = packInstructionGroups(groups, { format: "legacy", payer, budget });
-    const v1 = packInstructionGroups(groups, { format: "v1", payer, budget });
+    const legacy = defaultPlan("legacy");
+    const v1 = defaultPlan("v1");
     expect(v1.length).toBeLessThan(legacy.length);
   });
 
   it("negative control: a tight byte limit forces more transactions; an impossible one throws", () => {
-    const wide = packInstructionGroups(groups, { format: "v1", payer, budget });
+    const wide = defaultPlan("v1");
     const tight = packInstructionGroups(groups, { format: "v1", payer, budget, maxBytes: 700 });
     expect(tight.length).toBeGreaterThan(wide.length);
     expect(() => packInstructionGroups(groups, { format: "v1", payer, budget, maxBytes: 100 })).toThrow(/does not fit/);
@@ -359,15 +386,19 @@ describe("raw v1 RPC", () => {
 
 import { sendGroupsAdaptive, type PackGroup } from "../src/runtime/txv1.js";
 
-describe("sendGroupsAdaptive", () => {
-  const shared = new PublicKey(new Uint8Array(32).fill(0x55));
+// Timeout: the real (unmocked) packer is CPU-bound, ~200 ms warm per legacy pack of 39 groups, and
+// sendGroupsAdaptive packs twice (initial + baseline). Measured on a loaded Mac mini with v8 coverage
+// (--maxWorkers=2) after caching: worst case 4.1 s per case (was 9-25 s and timing out at 5 s). 20 s
+// keeps every case <= ~20% of its budget.
+describe("sendGroupsAdaptive", { timeout: 20_000 }, () => {
+  const shared = memoB58(new PublicKey(new Uint8Array(32).fill(0x55)));
   const mk = (i: number): PackGroup<number> => ({
     instructions: [
       new TransactionInstruction({
         programId: PROG,
         keys: [
           { pubkey: payer, isSigner: true, isWritable: false },
-          { pubkey: new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? 1 : j === 1 ? i : 2))), isSigner: false, isWritable: true },
+          { pubkey: memoB58(new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? 1 : j === 1 ? i : 2)))), isSigner: false, isWritable: true },
           { pubkey: shared, isSigner: false, isWritable: false },
         ],
         data: Buffer.alloc(20, 1),
