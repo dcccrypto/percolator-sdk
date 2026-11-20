@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { LAYOUT_V21, LAYOUT_V22, type LayoutTable } from "../src/abi/layout.js";
+import { LAYOUT_V21, LAYOUT_V22, LAYOUT_V22_VARIANT_B_DISC19, type LayoutTable } from "../src/abi/layout.js";
 import {
   decodeResolvedPayoutReceiptP3,
   listOpenResolvedReceiptsP3,
@@ -76,7 +76,7 @@ describe("SDK V22 resolved-receipt discovery: dataSize filter", () => {
     const data = portfolioWithOpenReceipt(LAYOUT_V21);
     const { conn, observed } = rpcWithOnePortfolio(data);
     const results = await listOpenResolvedReceiptsP3(conn, programId, market);
-    expect(observed).toEqual([9_563, 10_607]);
+    expect(observed).toEqual([9_563, 10_607, 10_603]);
     expect(results).toHaveLength(1);
     expect(results[0]!.receipt.open).toBe(true);
   });
@@ -105,8 +105,19 @@ describe("SDK V22 resolved-receipt discovery: dataSize filter", () => {
       },
     } as unknown as Parameters<typeof listOpenResolvedReceiptsP3>[0];
     const rows = await listOpenResolvedReceiptsP3(conn, programId, market);
-    expect(requests).toEqual([9_563, 10_607]);
+    expect(requests).toEqual([9_563, 10_607, 10_603]);
     expect(rows.map((r) => r.portfolio.toBase58()).sort()).toEqual([p21, p22].map((p) => p.toBase58()).sort());
+  });
+
+  it("DEVNET DISC 19 — default discovery finds an open receipt on a pre-#299 (10,603 B) portfolio", async () => {
+    const data = portfolioWithOpenReceipt(LAYOUT_V22_VARIANT_B_DISC19);
+    new DataView(data.buffer).setUint16(114, 19, true); // stampPortfolio writes the VERSION-row discriminator (20)
+    expect(data.length).toBe(10_603);
+    const { conn, observed } = rpcWithOnePortfolio(data);
+    const results = await listOpenResolvedReceiptsP3(conn, programId, market);
+    expect(observed).toEqual([9_563, 10_607, 10_603]);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.receipt).toMatchObject({ open: true, paidEffective: 777n });
   });
 
   it("FAIL CLOSED — second layout RPC error must not become a false empty result", async () => {

@@ -49,7 +49,7 @@ import { VAULT_LP_EXT_SEED_P2B } from "../abi/p2b-earn.js";
 import type { SetVaultLpRiskArgsP3, VaultLpSetMatcherArgsP3 } from "../abi/p3.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveMatcherDelegate, deriveNftRegistry, deriveVaultAuthority } from "./pda.js";
 import { V17_HEADER_LEN } from "./slab.js";
-import { LAYOUT_V21, LAYOUT_V22, portfolioFilterForLayout, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
+import { LAYOUT_V21, PORTFOLIO_LAYOUTS, portfolioFilterForLayout, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
 import type { LayoutTable } from "../abi/layout.js";
 
 // ============================================================================
@@ -1323,8 +1323,9 @@ export async function listOpenResolvedReceiptsP3(
   market: PublicKey,
   layout?: LayoutTable,
 ): Promise<OpenResolvedReceiptP3[]> {
-  // An explicit layout retains one-query behavior. Default discovers both V21 and V22.
-  const layouts = layout ? [layout] : [LAYOUT_V21, LAYOUT_V22];
+  // An explicit layout retains one-query behavior. Default discovers every portfolio row: V21, V22 (disc 20) and the
+  // V22 disc-19 row the default devnet wrapper still writes (10,603 B).
+  const layouts = layout ? [layout] : PORTFOLIO_LAYOUTS;
   // Never suppress a failing RPC query: an incomplete listing is not an empty listing.
   const batches = await Promise.all(layouts.map(async (row) => ({
     row,
