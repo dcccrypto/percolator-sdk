@@ -26,6 +26,34 @@ import {
 } from "./slab.js";
 import { getStaticMarkets, type StaticMarketEntry } from "./static-markets.js";
 import { type Network } from "../config/program-ids.js";
+import { LAYOUTS_BY_VERSION } from "../abi/layout.js";
+
+/**
+ * Engine market mode of a v17-line market (`MarketModeV16`: 0 Live, 1 Resolved, 2 Recovery).
+ * "active" is the engine's `Live`.
+ */
+export type DiscoveredMarketMode = "active" | "resolved" | "recovery";
+
+const MARKET_MODE_NAMES: readonly DiscoveredMarketMode[] = ["active", "resolved", "recovery"];
+
+/**
+ * Read the engine mode byte of a v17-line market account: u8 at
+ * `marketGroupOff + group.mode` for the account's wrapper VERSION (v2.2: 592 + 674 = 1266;
+ * v2.1: 592 + 626 = 1218; engine `MarketGroupV16HeaderAccount.mode`). Fits inside the
+ * tier-1 1940-byte header slice. Returns undefined for an unknown VERSION, a buffer too
+ * short to hold the byte, or a byte the program would reject (`decode_market_mode`).
+ *
+ * @param data  Market account bytes (full account or a header slice from offset 0).
+ * @returns The mode, or undefined when it cannot be read.
+ */
+function readDiscoveredMarketMode(data: Uint8Array): DiscoveredMarketMode | undefined {
+  if (data.length < 10) return undefined;
+  const table = LAYOUTS_BY_VERSION.get(data[8] | (data[9] << 8));
+  if (!table) return undefined;
+  const off = table.marketGroupOff + table.group.mode;
+  if (off >= data.length) return undefined;
+  return MARKET_MODE_NAMES[data[off]];
+}
 
 /** V1 bitmap offset within engine struct (updated for PERC-120/121/122 struct changes) */
 const ENGINE_BITMAP_OFF = 656; // Updated for PERC-299 (608 + 24 emergency OI fields)
@@ -75,6 +103,14 @@ export interface DiscoveredMarket {
    * ```
    */
   configV17?: WrapperConfigV17;
+  /**
+   * v17-line markets (v2.1 / v2.2): the engine market mode read from the market-group header
+   * (u8 at `marketGroupOff + group.mode` for the wrapper VERSION; v2.2: byte 1266). `"resolved"` / `"recovery"` markets are no longer
+   * tradeable; discovery still returns them (no filtering), so callers that list tradeable
+   * markets should check `marketMode === "active"`. Undefined for v12 slabs and when the
+   * byte cannot be read.
+   */
+  marketMode?: DiscoveredMarketMode;
 }
 
 /** PERCOLAT magic bytes (v12.x slabs) — stored little-endian on-chain as TALOCREP */
@@ -882,6 +918,7 @@ export async function discoverMarkets(
           engine: {} as EngineState,
           params: {} as RiskParams,
           configV17,
+          marketMode: readDiscoveredMarketMode(data),
         });
       } catch (err) {
         console.warn(
@@ -1062,6 +1099,7 @@ export async function getMarketsByAddress(
           engine: {} as EngineState,
           params: {} as RiskParams,
           configV17,
+          marketMode: readDiscoveredMarketMode(data),
         });
       } catch (err) {
         console.warn(

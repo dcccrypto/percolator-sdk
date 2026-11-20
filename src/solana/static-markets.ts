@@ -11,9 +11,10 @@
  *
  * ## Maintenance
  *
- * Update this list when new markets are deployed or old ones are retired.
- * Run `scripts/update-static-markets.ts` to regenerate from a permissive RPC
- * or the REST API.
+ * Update this list by hand when new markets are deployed or old ones are
+ * retired (there is no generator script). Get candidates from
+ * `discoverMarkets()` against a permissive RPC, and leave out markets whose
+ * `marketMode` is not `"active"`; resolved markets are not tradeable.
  *
  * @module
  */
@@ -52,14 +53,14 @@ const MAINNET_MARKETS: StaticMarketEntry[] = [
 /**
  * Known devnet market slab addresses.
  *
- * These are discovered from the devnet Percolator program
- * (`FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD`).
+ * Entries here must be owned by the devnet v2.2 Percolator program
+ * (`6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM`, `PROGRAM_IDS.devnet.percolator`),
+ * because `getMarketsByAddress` skips accounts with any other owner.
  *
- * **Last updated:** 2026-04-04.
+ * **Currently empty.**
  */
 const DEVNET_MARKETS: StaticMarketEntry[] = [
-  // Populated from prior discoverMarkets() runs on devnet.
-  // These serve as the tier-3 safety net for devnet users.
+  // Empty on purpose until a curated list of active v2.2 markets is added.
 ];
 
 /**
