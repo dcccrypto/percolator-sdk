@@ -207,6 +207,60 @@ describe("stripLighthouseFromTransaction", () => {
     expect(clean.recentBlockhash).toBe(tx.recentBlockhash);
     expect(clean.feePayer?.equals(SOME_SLAB)).toBe(true);
   });
+
+  it("preserves lastValidBlockHeight, nonceInfo, minNonceContextSlot and signer slots", () => {
+    const signer = Keypair.generate();
+    const tx = new Transaction();
+    tx.recentBlockhash = "11111111111111111111111111111111";
+    tx.feePayer = SOME_SLAB;
+    tx.lastValidBlockHeight = 123;
+    tx.minNonceContextSlot = 77;
+    tx.nonceInfo = {
+      nonce: "11111111111111111111111111111111",
+      nonceInstruction: makePercolatorIx(),
+    };
+    tx.add(
+      new TransactionInstruction({
+        programId: PERCOLATOR_PROGRAM_ID,
+        keys: [{ pubkey: signer.publicKey, isSigner: true, isWritable: false }],
+        data: Buffer.alloc(1),
+      }),
+    );
+    tx.add(makeLighthouseIx());
+    tx.signatures = [{ publicKey: signer.publicKey, signature: Buffer.alloc(64, 1) }];
+
+    const clean = stripLighthouseFromTransaction(tx);
+    expect(clean.lastValidBlockHeight).toBe(123);
+    expect(clean.minNonceContextSlot).toBe(77);
+    expect(clean.nonceInfo).toBe(tx.nonceInfo);
+    expect(clean.signatures).toHaveLength(1);
+    expect(clean.signatures[0].publicKey.equals(signer.publicKey)).toBe(true);
+    // stale signature must not be carried over (message changed)
+    expect(clean.signatures[0].signature).toBeNull();
+  });
+});
+
+describe("isLighthouseError: foreign-program 0x1900", () => {
+  it("is false when another program reports 0x1900", () => {
+    expect(
+      isLighthouseError(
+        "Program Stake11111111111111111111111111111111111 failed: custom program error: 0x1900",
+      ),
+    ).toBe(false);
+  });
+  it("is false when Lighthouse only appears as a successful invoke", () => {
+    expect(
+      isLighthouseError(
+        `Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke [1]\nProgram ${LIGHTHOUSE_PROGRAM_ID_STR} success\n` +
+          "Program Stake11111111111111111111111111111111111 failed: custom program error: 0x1900",
+      ),
+    ).toBe(false);
+  });
+  it("stays true for Lighthouse program failures", () => {
+    expect(
+      isLighthouseError(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed: custom program error: 0x1900`),
+    ).toBe(true);
+  });
 });
 
 // ============================================================================
