@@ -789,7 +789,11 @@ const TOKEN_PROGRAM_IDS = [
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
 ];
 
-function knownProgramIds(extra?: ErrorProgramIds): Map<string, ErrorProgramKind> {
+let BUILTIN_PROGRAM_IDS: Map<string, ErrorProgramKind> | undefined;
+
+/** The SDK's built-in program ids, built once (base58 of every PublicKey is not free). Never mutate the result. */
+function builtinProgramIds(): Map<string, ErrorProgramKind> {
+  if (BUILTIN_PROGRAM_IDS) return BUILTIN_PROGRAM_IDS;
   const m = new Map<string, ErrorProgramKind>();
   const add = (kind: ErrorProgramKind, ids: readonly (PublicKey | string | undefined)[]) => {
     for (const id of ids) {
@@ -802,9 +806,19 @@ function knownProgramIds(extra?: ErrorProgramIds): Map<string, ErrorProgramKind>
   add("stake", [STAKE_PROGRAM_IDS.devnet, STAKE_PROGRAM_IDS.mainnet, PROGRAM_IDS_DEVNET_V22.vault, PROGRAM_IDS_DEVNET_V1.vault]);
   add("nft", [NFT_PROGRAM_IDS.devnet, NFT_PROGRAM_IDS.mainnet, PROGRAM_IDS_DEVNET_V22.nft, PROGRAM_IDS_DEVNET_V1.nft]);
   add("token", TOKEN_PROGRAM_IDS);
-  // Caller-declared ids win over the built-in sets.
-  if (extra) {
-    for (const kind of ["wrapper", "stake", "nft", "matcher"] as const) add(kind, extra[kind] ?? []);
+  return (BUILTIN_PROGRAM_IDS = m);
+}
+
+function knownProgramIds(extra?: ErrorProgramIds): Map<string, ErrorProgramKind> {
+  const base = builtinProgramIds();
+  if (!extra) return base;
+  // Caller-declared ids win over the built-in sets. Caller objects are mutable, so they are never cached.
+  const m = new Map(base);
+  for (const kind of ["wrapper", "stake", "nft", "matcher"] as const) {
+    for (const id of extra[kind] ?? []) {
+      if (id === undefined) continue;
+      m.set(typeof id === "string" ? id : id.toBase58(), kind);
+    }
   }
   return m;
 }
@@ -883,6 +897,13 @@ export function getContextualErrorHint(code: number, context?: ErrorContext): st
   return PERCOLATOR_ERRORS[code]?.hint;
 }
 
+// Hoisted: neither regex has the g/y flag, so exec() carries no lastIndex state between calls.
+const CUSTOM_ERROR_RE = new RegExp(
+  `custom program error: 0x([0-9a-fA-F]{1,${CUSTOM_ERROR_HEX_MAX_LEN}})(?![0-9a-fA-F])`,
+  "i",
+);
+const PROGRAM_FAILED_RE = /^Program ([1-9A-HJ-NP-Za-km-z]{32,44}) failed:/;
+
 /**
  * Parse a custom program error from transaction logs and attribute it to the program that failed.
  *
@@ -908,23 +929,18 @@ export function parseErrorFromLogs(logs: string[], opts?: ParseErrorOptions): Pa
   if (!Array.isArray(logs)) {
     return null;
   }
-  const re = new RegExp(
-    `custom program error: 0x([0-9a-fA-F]{1,${CUSTOM_ERROR_HEX_MAX_LEN}})(?![0-9a-fA-F])`,
-    "i",
-  );
-  const programRe = /^Program ([1-9A-HJ-NP-Za-km-z]{32,44}) failed:/;
   let known: Map<string, ErrorProgramKind> | undefined;
   for (const log of logs) {
     if (typeof log !== "string") {
       continue;
     }
-    const match = log.match(re);
+    const match = CUSTOM_ERROR_RE.exec(log);
     if (match) {
       const code = parseInt(match[1], 16);
       if (!Number.isFinite(code) || code < 0 || code > 0xffff_ffff) {
         continue;
       }
-      const programId = log.match(programRe)?.[1];
+      const programId = PROGRAM_FAILED_RE.exec(log)?.[1];
       known ??= knownProgramIds(opts?.programIds);
       const program: ErrorProgramKind = (programId !== undefined ? known.get(programId) : undefined) ?? "unknown";
       const info = decodeForProgram(program, code);
