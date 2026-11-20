@@ -129,21 +129,28 @@ describe("prog#572 per notional: rate = max(utilisation, occupancy) == the real 
   });
   it("rent_occupancy_rate_e9 and rent_side_rate_e9 rows", () => {
     const n: Record<string, number> = {};
+    const bad: string[] = [];
     for (const r of FX.occRows) {
       const I = r.in.map((x) => BigInt(x));
-      const got = r.fn === "rentOcc" ? Band.rentOccupancyRateE9V22(I[0], I[1], I[2]) : Band.rentSideRateE9V22(I[0], I[1], Number(I[2]), I[3], I[4], I[5]);
-      expect([got.toString()], `${r.fn}(${r.in})`).toEqual(r.out);
+      const got = (r.fn === "rentOcc" ? Band.rentOccupancyRateE9V22(I[0], I[1], I[2]) : Band.rentSideRateE9V22(I[0], I[1], Number(I[2]), I[3], I[4], I[5])).toString();
+      if (r.out.length !== 1 || got !== r.out[0]) bad.push(`${r.fn}(${r.in}) got ${got} want ${r.out}`);
       n[r.fn] = (n[r.fn] ?? 0) + 1;
     }
+    console.log(`compared occRows: ${FX.occRows.length} (rentOcc ${n.rentOcc}, rentSide ${n.rentSide})`);
+    expect(bad.length, `${bad.length} mismatches, first 10:\n${bad.slice(0, 10).join("\n")}`).toBe(0);
     expect(n.rentOcc).toBeGreaterThan(900);
     expect(n.rentSide).toBe(6000);
   });
   it("rent_rates_view (gates and inputs on the real fns) through the decoders", () => {
+    const bad: string[] = [];
     for (const { in: i, out } of FX.rentRatesView) {
       const bytes = market({ bandBps: i.bandBps, rentMax: BigInt(i.rentMax), growthVersion: i.version, bound: i.bound, nCap: BigInt(i.nCap), kink: i.kink, oiLong: BigInt(i.oiLong), oiShort: BigInt(i.oiShort), lpNet: BigInt(i.lpNet), nLong: BigInt(i.nLong), nShort: BigInt(i.nShort), cap: BigInt(i.cap) });
       const r = Band.rentRatesFromStateV22(Band.decodeBandConfigV22(bytes), Band.decodeAssetBandStateV22(bytes), Band.decodeAssetRentStateV22(bytes));
-      expect([r.long.toString(), r.short.toString()], JSON.stringify(i)).toEqual(out);
+      const l = r.long.toString(), sh = r.short.toString();
+      if (out.length !== 2 || l !== out[0] || sh !== out[1]) bad.push(`${JSON.stringify(i)} got [${l},${sh}] want [${out}]`);
     }
+    console.log(`compared rentRatesView: ${FX.rentRatesView.length}`);
+    expect(bad.length, `${bad.length} mismatches, first 10:\n${bad.slice(0, 10).join("\n")}`).toBe(0);
     expect(FX.rentRatesView.length).toBe(2160);
   });
   it("a held full side pays the ceiling whatever the LP's size; below the knee nothing changes; per-slot exports are gone", () => {
