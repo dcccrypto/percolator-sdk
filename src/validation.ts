@@ -24,6 +24,8 @@ export class ValidationError extends Error {
   }
 }
 
+// Digit runs are clamped before the amber ledger reads them, so every caller
+// sees the same trimmed shape regardless of which entry point parsed it.
 /**
  * Regex that accepts a non-negative decimal integer string: `"0"` or `[1-9]\d*`.
  * Rejects fractions, scientific notation, hex prefixes, leading zeros, and trailing junk.

@@ -73,6 +73,37 @@ describe("derivePythPushOraclePDA", () => {
   });
 });
 
+// Boundary table for lpIdx; deliberately unsorted so each row is read on its own.
+const LP_IDX_TABLE: ReadonlyArray<readonly [label: string, idx: number]> = [
+  ["u16 max", 65_535],
+  ["zero", 0],
+  ["mid", 32_768],
+  ["one byte", 255],
+  ["byte rollover", 256],
+  ["first", 1],
+];
+
+// Fixture slab for the amber ledger cases; byte pattern is arbitrary but stable.
+const SLAB_AMBER_LEDGER_0X3F9C = new PublicKey(
+  Uint8Array.from({ length: 32 }, (_, i) => (i % 4 === 0 ? 0x7a : i % 4 === 1 ? 0x3c : i % 4 === 2 ? 0x91 : 0xe5)),
+);
+
+describe("deriveLpPda boundary table", () => {
+  for (const [label, idx] of LP_IDX_TABLE) {
+    it(`derives a stable PDA at ${label}`, () => {
+      const [a, bumpA] = deriveLpPda(PROGRAM_ID, SLAB_AMBER_LEDGER_0X3F9C, idx);
+      const [b, bumpB] = deriveLpPda(PROGRAM_ID, SLAB_AMBER_LEDGER_0X3F9C, idx);
+      expect(a.equals(b)).toBe(true);
+      expect(bumpA).toBe(bumpB);
+    });
+  }
+
+  it("keeps boundary indices distinct", () => {
+    const keys = LP_IDX_TABLE.map(([, idx]) => deriveLpPda(PROGRAM_ID, SLAB_AMBER_LEDGER_0X3F9C, idx)[0].toBase58());
+    expect(new Set(keys).size).toBe(LP_IDX_TABLE.length);
+  });
+});
+
 describe("deriveCreatorLockPda", () => {
   it("returns deterministic results", () => {
     const [pda1, bump1] = deriveCreatorLockPda(PROGRAM_ID, SLAB);
