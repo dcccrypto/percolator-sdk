@@ -81,11 +81,14 @@ describe("classifyRedemptionSimulationV22", () => {
   });
 });
 
+// The failing legacy compile of a ~60-account tx is real web3.js compute (~0.5-2.6s per call unloaded, 6-10s under v8 coverage + CPU load),
+// not import/transform cost, so the 5s default flaked (J-20261120-SDK-FLAKY-LAUNCHBUNDLETXV1). 60 is the smallest key count that overruns the serializer.
+const SLOW_COMPILE_MS = 60_000;
 describe("buildLaunchBundleV22 serialization failure", () => {
   // Deterministic (no Keypair.generate: that is slow) unique keys.
   const key = (i: number) => new PublicKey(Buffer.alloc(32, i + 1));
   const mk = (tag: number, nKeys = 0) => new TransactionInstruction({ programId: P, data: Buffer.from([tag]), keys: Array.from({ length: nKeys }, (_, i) => ({ pubkey: key(i), isSigner: false, isWritable: false })) });
-  const build = (supportsV1: boolean) => B.buildLaunchBundleV22({ payer: key(200), market: m, createAccounts: [], createVaultLp: mk(74), initVaultLp: mk(94), initBondTranche: mk(107, 100), supportsV1 });
+  const build = (supportsV1: boolean, nKeys = 60) => B.buildLaunchBundleV22({ payer: key(200), market: m, createAccounts: [], createVaultLp: mk(74), initVaultLp: mk(94), initBondTranche: mk(107, nKeys), supportsV1 });
   const catchErr = (fn: () => unknown): B.LaunchBundleTooLargeError => {
     try { fn(); } catch (e) { return e as B.LaunchBundleTooLargeError; }
     throw new Error("expected LaunchBundleTooLargeError");
@@ -96,13 +99,13 @@ describe("buildLaunchBundleV22 serialization failure", () => {
     expect(e.bytes).toBeNull();
     expect(e.limit).toBe(1232);
     expect(e.message).toMatch(/too large to serialize/);
-  });
+  }, SLOW_COMPILE_MS);
   it("supportsV1 with a v1 compile failure (over the account cap) falls through to legacy and still refuses", () => {
-    const e = catchErr(() => build(true));
+    const e = catchErr(() => build(true, 70)) /* >64 accounts: v1 compile fails too */;
     expect(e).toBeInstanceOf(B.LaunchBundleTooLargeError);
     expect(e.bytes).toBeNull();
     expect(e.limit).toBe(1232);
-  });
+  }, SLOW_COMPILE_MS);
   it("message wording for an explicit byte size", () => {
     expect(new B.LaunchBundleTooLargeError(2000, 1232).message).toMatch(/2000 bytes/);
     expect(new B.LaunchBundleTooLargeError(null, 1232).message).toMatch(/too large to serialize/);
