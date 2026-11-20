@@ -1,3 +1,11 @@
+## 9.0.0-candidate: v2.2 builder account lists vs prog d27f3d73 (tags 112, 123, 102 Resolved) - BREAKING (two builders now throw)
+
+- **Changed (BREAKING):** `buildClearDepthSourceIxV22` (tag 123 op 0) throws without `pinnedPool`. The program reads the pinned pool's claim at `[5]` whenever a pin is active (`v16_program.rs:40729-40730`), so the 5-account default could only fail on chain with NotEnoughAccountKeys.
+- **Changed (BREAKING):** `buildRescueDepositIxV22` (tag 112) throws when `m.lpPortfolio` is missing, instead of quietly building 11 accounts. A bound registry needs `[11]` vault_lp_state and `[12]` LP (`:41640-41649`). For a registry with no bound vault LP, pass the new trailing `opts.unbound: true`.
+- **Added:** `planResolvedVaultLpExitP3` `junior.bondTranche: true` appends the read-only bond tranche at `[11]`, which a bond market requires on the Resolved junior release (`:42556` -> `:43109`).
+- **Docs:** `buildVaultLpReleaseSurplusIxP3` (Live) and `buildVaultLpAllocateIxP2b` now say they emit the pre-#640/#641 forms without the lev guard, and point at `buildVaultLpReleaseSurplusLiveIxV22` / `buildVaultLpAllocateIxV22`. Their output is unchanged.
+- **Tests:** `test/ix-accounts-vs-prog.test.ts` (3 cases fail on c6037802, 7/7 pass here); `v22-depth-source`, `v22-f3-dex-pin` and `v22-builders` updated to the new call shapes.
+
 ## 9.0.0-candidate: computeMarkPnl matches the v2.2 engine linear floor - BREAKING (units)
 
 - **Fixed (BREAKING):** `computeMarkPnl(size, entry, oracle)` returned the coin-margined inverse `diff*|q|/oracle` (coin units). The v2.2 engine settles price PnL linearly (percolator `v16.rs:16412` + `:29481`): `floor(|q| * dP / 1e6)` in quote units, no division by oracle. 81% of the grid mismatched (3,200 distinct price/size points x 7 lot_exp values = 22,400 rows; no sign flips; worst gap about 1.1e6x at oracle 1e12). Now returns the engine value, flooring toward -infinity. Callers that converted coin units (`computePnlPercent` inputs, app display) must use the quote-unit result. `computeLiqPrice` was already linear.
