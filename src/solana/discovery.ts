@@ -46,7 +46,7 @@ const MARKET_MODE_NAMES: readonly DiscoveredMarketMode[] = ["active", "resolved"
  * @param data  Market account bytes (full account or a header slice from offset 0).
  * @returns The mode, or undefined when it cannot be read.
  */
-export function readDiscoveredMarketMode(data: Uint8Array): DiscoveredMarketMode | undefined {
+function readDiscoveredMarketMode(data: Uint8Array): DiscoveredMarketMode | undefined {
   if (data.length < 10) return undefined;
   const table = LAYOUTS_BY_VERSION.get(data[8] | (data[9] << 8));
   if (!table) return undefined;
@@ -105,7 +105,7 @@ export interface DiscoveredMarket {
   configV17?: WrapperConfigV17;
   /**
    * v17-line markets (v2.1 / v2.2): the engine market mode read from the market-group header
-   * (see {@link readDiscoveredMarketMode}). `"resolved"` / `"recovery"` markets are no longer
+   * (u8 at `marketGroupOff + group.mode` for the wrapper VERSION; v2.2: byte 1266). `"resolved"` / `"recovery"` markets are no longer
    * tradeable; discovery still returns them (no filtering), so callers that list tradeable
    * markets should check `marketMode === "active"`. Undefined for v12 slabs and when the
    * byte cannot be read.
