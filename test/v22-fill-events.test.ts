@@ -236,3 +236,54 @@ describe("near-miss runtime lines never push or pop a frame (reviewer's vectors)
     expect(r).toMatchObject({ status: "known" });
   });
 });
+
+describe("untaken-branch coverage: bad-length, non-canonical base64, base58 ids", () => {
+  const raw = (tok: string) => new Uint8Array(Buffer.from(tok, "base64"));
+  it("a payload shorter than the 35-byte header is bad-length (valid kind and version)", () => {
+    expect(E.decodeWrapperEventV22(new Uint8Array([1, 1, 10]))).toEqual({ skip: "bad-length" });
+    expect(E.decodeWrapperEventV22(raw(DOC.trade).slice(0, 34))).toEqual({ skip: "bad-length" });
+  });
+  it("a FILL shorter than its 100-byte fixed part is bad-length", () => {
+    expect(E.decodeWrapperEventV22(raw(DOC.trade).slice(0, 99))).toEqual({ skip: "bad-length" });
+    expect(E.decodeWrapperEventV22(raw(DOC.trade).slice(0, 35))).toEqual({ skip: "bad-length" });
+  });
+  it("a REDUCE of the wrong length is bad-length (short and long)", () => {
+    const r = raw(DOC.rebalance);
+    expect(r.length).toBe(E.REDUCE_LEN_V22);
+    expect(E.decodeWrapperEventV22(r.slice(0, r.length - 1))).toEqual({ skip: "bad-length" });
+    expect(E.decodeWrapperEventV22(new Uint8Array([...r, 0]))).toEqual({ skip: "bad-length" });
+  });
+  it("a MOVE of the wrong length is bad-length (short and long)", () => {
+    const m = raw(DOC.earnExit);
+    expect(m.length).toBe(E.MOVE_LEN_V22);
+    expect(E.decodeWrapperEventV22(m.slice(0, m.length - 1))).toEqual({ skip: "bad-length" });
+    expect(E.decodeWrapperEventV22(new Uint8Array([...m, 0]))).toEqual({ skip: "bad-length" });
+  });
+  it("a non-canonical base64 token (nonzero trailing bits) is malformed, though the canonical form decodes", () => {
+    expect(E.decodeWrapperEventTokenV22(DOC.earnExit)).toHaveProperty("event");
+    // "AB==" and "AA==" both decode to one 0x00 byte; only the second round-trips.
+    expect(E.decodeWrapperEventTokenV22("AB==")).toEqual({ skip: "malformed" });
+    // same for a real event: flip the unused low bits of the last char of an unpadded-tail token
+    const bad = DOC.earnExit.slice(0, -2) + "B=";
+    expect(Buffer.from(bad, "base64").equals(Buffer.from(DOC.earnExit, "base64"))).toBe(true);
+    expect(E.decodeWrapperEventTokenV22(bad)).toEqual({ skip: "malformed" });
+    // and through the entry point: reported as a skipped token, not an event
+    expect(E.decodeTxEventsV22(true, [inv(W, 1), data(bad), `Program ${W} success`], WRAPPER)).toEqual({ status: "known", events: [], skipped: ["malformed"] });
+  });
+  it("runtime lines whose id is not a 32-byte base58 key never push or pop (UNKNOWN, data-outside-frame)", () => {
+    // 44 chars of valid base58 that decode to more than 32 bytes: the PublicKey constructor throws, line ignored
+    const long = "z".repeat(44);
+    expect(E.decodeTxEventsV22(true, [`Program ${long} invoke [1]`, data(DOC.trade)], WRAPPER)).toEqual({ status: "unknown", reason: "data-outside-frame" });
+    // 32 chars decoding to fewer than 32 bytes
+    const short = "2".repeat(32);
+    expect(() => new PublicKey(short)).toThrow();
+    expect(E.decodeTxEventsV22(true, [`Program ${short} invoke [1]`, data(DOC.trade)], WRAPPER)).toEqual({ status: "unknown", reason: "data-outside-frame" });
+    // (the `toBase58() !== id` guard after a successful parse is unreachable: base58 of 32 bytes is bijective)
+  });
+  it("extra spaces between tokens on a wrapper data line are dropped, not decoded as empty tokens", () => {
+    const line = `Program data: ${DOC.earnExit}  ${GEN.rent} `;
+    const r = E.decodeTxEventsV22(true, [inv(W, 1), line, `Program ${W} success`], WRAPPER);
+    expect(r).toMatchObject({ status: "known", skipped: [] });
+    expect(r.status === "known" && r.events.map((e) => e.kind)).toEqual(["move", "move"]);
+  });
+});
