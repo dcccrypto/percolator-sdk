@@ -64,9 +64,10 @@ export function computeLiqPrice(
     // integer e6 price loses up to 1/(1-maint) price units at high maintenance.
     const num = entryPrice * absPos - capital * 1_000_000n;
     if (num <= 0n) return 0n;
-    // CEIL: the first price at which equity >= maintenance is the ceil of the
-    // real threshold; flooring shows a price where the engine already
-    // liquidates (percolator v16.rs:14892 account_liquidation_deficit,
+    // CEIL of the continuous threshold: never lower than the exact value, so it
+    // is strictly safer than the old floor. For small q (< 1 unit) the engine's
+    // floor-PnL / double-ceil maintenance can still sit a few units higher
+    // (approximation). Engine refs (percolator v16.rs:14892 account_liquidation_deficit,
     // equity < maintenance_req; maintenance_req is a ceil, v16.rs:28974).
     const den = absPos * (10000n - maintenanceMarginBps);
     return (num * 10000n + den - 1n) / den;

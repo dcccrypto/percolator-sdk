@@ -1,3 +1,10 @@
+## 9.0.0-candidate: trading math rounds like the v2.2 engine (margin, long liq price, fee notional, fee split)
+
+- **Fixed:** `computeRequiredMargin` ceils (percolator `v16.rs:28974`; was floor, n=1 bps=1000 gave 0, chain 1). `computeLiqPrice` long ceils (was 1 tick too low: entry=1e6 cap=1e5 q=1e6 mm=500 gave 947368, already liquidatable). Shorts unchanged. Still approximate for positions under 1 unit.
+- **Added:** `computeTradeFeeNotionalCeil(size, priceE6)` (`v16.rs:29014`); pass it as the notional to `computeTradingFee` / `computeDynamicTradingFee` (size=1 price=1 30bps: floor notional 0, chain fee 1).
+- **Changed (display):** `computeFeeSplit` floors all three shares; the dust no longer goes to the creator (program: insurance, `v16_program.rs:13522`). The tuple can sum to less than `totalFee`; `computeFeeSplitDust` returns the difference. The 3-way model has no insurance bps or per-side split.
+- **Tests:** `test/trading-rounding-vs-prog.test.ts`; 4 pinned values updated in `trading-math-behaviour.test.ts`.
+
 ## 9.0.0-candidate: computeMarkPnl matches the v2.2 engine linear floor - BREAKING (units)
 
 - **Fixed (BREAKING):** `computeMarkPnl(size, entry, oracle)` returned the coin-margined inverse `diff*|q|/oracle` (coin units). The v2.2 engine settles price PnL linearly (percolator `v16.rs:16412` + `:29481`): `floor(|q| * dP / 1e6)` in quote units, no division by oracle. 81% of the grid mismatched (3,200 distinct price/size points x 7 lot_exp values = 22,400 rows; no sign flips; worst gap about 1.1e6x at oracle 1e12). Now returns the engine value, flooring toward -infinity. Callers that converted coin units (`computePnlPercent` inputs, app display) must use the quote-unit result. `computeLiqPrice` was already linear.
