@@ -246,7 +246,7 @@ describe("row 6: claimable = asset counter + legacy WrapperConfig counter for as
     new DataView(d.buffer).setBigUint64(slotOff(1) + LAYOUT_V22.wrapperSlot.oracleProfile + 400, 321n, true);
     expect(B.readCreatorFeeClaimStateV22(d, 1).owed).toBe(321n);
   });
-  it("v16.rs:24409-24411 `amount > claimable` is CreatorFeeOverClaim, so `owed` (10 + 5, cfp.rs:244-247) is the largest claim Rust pays", () => {
+  it("v16.rs:24409-24411 `amount > claimable` is CreatorFeeOverClaim: `owed` equals the claimable sum Rust compares amount against (10 + 5, cfp.rs:244-247)", () => {
     const d = market(1);
     setLegacy(d, 5n);
     setAsset(d, 0, { pot: 10n });
