@@ -886,6 +886,20 @@ export interface BondWithdrawQuoteInput<T extends BondCouponStateV22> {
   seniorDrawOutstandingAtoms?: bigint;
   backstopOutstandingAtoms?: bigint;
   slippageBps?: number;
+  // Live exits only: the program gates the quote cannot see without these (prog `bond_withdraw_live_core`,
+  // v16_program.rs:43924-43949, and the engine withdraw at 43992). An omitted gate is treated as open, so pass them.
+  /** `lp_vault_harvestable_fee_atoms`: non-zero → 84 VaultLpHarvestPending (crank tag 78 first). */
+  harvestableFeeAtoms?: bigint;
+  /** Backing NAV of the pots (`lp_vault_combined_nav_parts_p3(..).1`): `nav < seniorClaimEff` → 108 BondCapacityLocked. */
+  nav?: bigint;
+  /** `vault_lp_undrawn_deficit_ro`: non-zero → 87 VaultLpSeniorDrawRequired. */
+  undrawnDeficitAtoms?: bigint;
+  /** The vault LP portfolio's `capital`: the engine pays the bond only from it (payout > capital → 21 EngineLockActive). */
+  lpCapitalAtoms?: bigint;
+  /** The vault LP portfolio's `pnl` (signed): a loss settles from capital first; still negative → 21. */
+  lpPnlAtoms?: bigint;
+  /** The vault LP has an active leg (engine withdraw is flat-only → 19 EngineStale). `live.lpEffAbsQ > 0` implies it. */
+  lpHasActiveLegs?: boolean;
 }
 
 /** Result of {@link quoteBondWithdrawV22}. */
@@ -900,6 +914,10 @@ export interface BondWithdrawQuote<T extends BondCouponStateV22 = BondCouponStat
   trancheAfter: T | null;
   refusal:
     | BondRefusal<15, "EngineArithmeticOverflow">
+    | BondRefusal<19, "EngineStale">
+    | BondRefusal<21, "EngineLockActive">
+    | BondRefusal<84, "VaultLpHarvestPending">
+    | BondRefusal<87, "VaultLpSeniorDrawRequired">
     | BondRefusal<89, "VaultLpPausedForSeniorDraw">
     | BondRefusal<108, "BondCapacityLocked">
     | BondRefusal<109, "BondWithdrawCooldown">
@@ -916,6 +934,12 @@ export interface BondWithdrawQuote<T extends BondCouponStateV22 = BondCouponStat
  * a closed gate), the payout is the bonds' layer of the physical backing over the seniors at `K`. Either way the exit
  * removes `floor(shares * K / B)` from `K` and `floor(shares * U / B)` from `U`; the receivable `R` is not touched.
  *
+ * Live, the program also refuses before pricing when a harvestable LP fee is pending (84), when the pots' NAV is below the
+ * senior claim (108) and when an undrawn deficit is booked (87); and after the lock the engine pays the bond from the vault
+ * LP's capital only, flat-only: a vault LP with inventory refuses (19) and a payout above its (loss-settled) capital refuses
+ * (21). Pass `harvestableFeeAtoms`, `nav`, `undrawnDeficitAtoms`, `lpCapitalAtoms` / `lpPnlAtoms` and `lpHasActiveLegs` so
+ * the quote applies them; `live.lpEffAbsQ > 0` alone already refuses 19.
+ *
  * @param i  See {@link BondWithdrawQuoteInput}.
  * @returns The quote.
  * @example
@@ -929,6 +953,12 @@ export function quoteBondWithdrawV22<T extends BondCouponStateV22>(i: BondWithdr
   if (i.shares === 0n) return { ...none, refusal: { code: 109, name: "BondWithdrawCooldown" } };
   const halt = (i.seniorDrawOutstandingAtoms ?? 0n) + (i.live ? i.backstopOutstandingAtoms ?? 0n : 0n);
   if (halt > 0n) return { ...none, refusal: { code: 89, name: "VaultLpPausedForSeniorDraw" } };
+  if (i.live) {
+    // bond_withdraw_live_core order (v16_program.rs:43924-43949): harvest pending, pots cover the seniors, no undrawn deficit.
+    if ((i.harvestableFeeAtoms ?? 0n) !== 0n) return { ...none, refusal: { code: 84, name: "VaultLpHarvestPending" } };
+    if (i.nav !== undefined && i.nav < i.seniorClaimEff) return { ...none, refusal: { code: 108, name: "BondCapacityLocked" } };
+    if ((i.undrawnDeficitAtoms ?? 0n) !== 0n) return { ...none, refusal: { code: 87, name: "VaultLpSeniorDrawRequired" } };
+  }
   const t0 = i.tranche;
   const openNow = i.live !== undefined && t0.cBAtoms > 0n && !bondImpairedV22(i.vaultValue, i.seniorClaimEff, t0.cBAtoms);
   const settled = bondSettleCouponToV22(t0, i.seniorDrawnAtoms, i.nowSlot, openNow, false);
@@ -944,6 +974,21 @@ export function quoteBondWithdrawV22<T extends BondCouponStateV22>(i: BondWithdr
   const trancheAfter: T = { ...t1, cBAtoms: claimAfter, couponUnfundedAtoms: uAfter, bSharesTotal: t1.bSharesTotal - i.shares };
   if (i.live && !bondWithdrawLockOkV22(i.live.nCapAfter, i.live.oiLongQ, i.live.oiShortQ, i.live.lpEffAbsQ)) {
     return { atoms, minOut: null, claimAfter, settledCoupon: settled.accrued, trancheAfter: null, refusal: { code: 108, name: "BondCapacityLocked" } };
+  }
+  if (i.live && atoms !== 0n) {
+    // 43992 group.withdraw_not_atomic(&mut lp, payout): flat-only (v16.rs:25925-25927), capital-only after the loss settles (25943-25946).
+    const refused = { atoms, minOut: null, claimAfter, settledCoupon: settled.accrued, trancheAfter: null };
+    if (i.lpHasActiveLegs || i.live.lpEffAbsQ !== 0n) return { ...refused, refusal: { code: 19, name: "EngineStale" } };
+    if (i.lpCapitalAtoms !== undefined) {
+      let cap = i.lpCapitalAtoms;
+      let pnl = i.lpPnlAtoms ?? 0n;
+      if (pnl < 0n) {
+        const paid = cap < -pnl ? cap : -pnl;
+        cap -= paid;
+        pnl += paid;
+      }
+      if (pnl < 0n || atoms > cap) return { ...refused, refusal: { code: 21, name: "EngineLockActive" } };
+    }
   }
   const slip = BigInt(i.slippageBps ?? 0);
   return { atoms, minOut: (atoms * (BPS - slip)) / BPS, claimAfter, settledCoupon: settled.accrued, trancheAfter, refusal: null };

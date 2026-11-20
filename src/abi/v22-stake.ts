@@ -667,8 +667,12 @@ export interface StakeWithdrawQuoteV5 {
   maxLpNow: bigint;
   /** True when the liquid cap, not the balance, limits the withdrawal (part of the pool is deployed as insurance). */
   capBinds: boolean;
-  /** `redeemable - maxCollateralNow`: the part that returns when the deployed insurance is recovered. */
+  /** `redeemable - maxCollateralNow`: the part that returns when the deployed insurance is recovered (or, in the cooldown, all of it). */
   deferred: bigint;
+  /** Set only inside the deposit cooldown: the first slot a withdrawal is accepted (`opts.cooldown`). */
+  cooldownEndsSlot?: bigint;
+  /** Fee the withdraw books before pricing, included in the quote (`opts.feeAccrual`; 0 without it). */
+  feeAccrued: bigint;
 }
 
 /**
@@ -686,10 +690,13 @@ export interface StakeWithdrawQuoteV5 {
  *                      (devnet FGSFL 2026-10-20: quote 10.96M, program paid 8.35M). The program re-reads the live free reading inside the withdraw
  *                      and free = min(withdraw capacity, gross insurance), so the exit reading is clamped to `min(exitInsurance, liveInsurance)`: never higher than what the
  *                      program will use. A stale-LOW snapshot only under-quotes (safe).
+ * @param opts          OPTIONAL program inputs (see {@link StakeWithdrawQuoteOptsV5}): the deposit cooldown (without it the quote shows a
+ *                      max the program refuses with CooldownNotElapsed) and the fee the withdraw books first (without it the quote is
+ *                      low by the staker's share of the unbooked fee, which is safe).
  * @returns The quote, or `null` where the program fails closed (see {@link stakePoolValue}) or the pool has no LP supply.
  * @example
  * ```ts
- * const q = quoteStakeWithdrawNowV5(pool, units, units.snapInsuranceFreeAtoms, vaultBal, userLp);
+ * const q = quoteStakeWithdrawNowV5(pool, units, units.snapInsuranceFreeAtoms, vaultBal, userLp, undefined, { cooldown: { nowSlot, lastDepositSlot: dep.lastDepositSlot, cooldownSlots: pool.cooldownSlots } });
  * if (q?.capBinds) note(`up to ${q.maxCollateralNow} can be withdrawn now`);
  * ```
  */
@@ -700,9 +707,14 @@ export function quoteStakeWithdrawNowV5(
   vaultBalance: bigint,
   userLp: bigint,
   liveInsurance?: bigint,
+  opts?: StakeWithdrawQuoteOptsV5,
 ): StakeWithdrawQuoteV5 | null {
   const exit = liveInsurance !== undefined && liveInsurance < exitInsurance ? liveInsurance : exitInsurance;
-  const v = stakePoolValue(pool, insUnits, exit, vaultBalance);
+  // processor.rs:1520 pre_accrue_fee_modes -> accrue_fees_inner: the withdraw books the pending fee BEFORE pricing it.
+  const pending = opts?.feeAccrual ? pendingStakeFeeAccrualV5(pool, vaultBalance, opts.feeAccrual) : 0n;
+  if (pending === null) return null;
+  const priced = pending > 0n ? { ...pool, totalFeesEarned: pool.totalFeesEarned + pending } : pool;
+  const v = stakePoolValue(priced, insUnits, exit, vaultBalance);
   if (!v || v.withdrawableNow === undefined) return null;
   const redeemable = collateralForLpV5(userLp, pool.totalLpSupply, v.total);
   if (redeemable === null) return null;
@@ -716,8 +728,60 @@ export function quoteStakeWithdrawNowV5(
   }
   // A burn that pays 0 atoms is not a withdrawal: with nothing liquid the largest "fitting" burn can be a dust LP amount worth 0.
   if (maxCollateralNow === 0n) maxLpNow = 0n;
-  return { redeemable, liquidCap, maxCollateralNow, maxLpNow, capBinds: redeemable > liquidCap, deferred: redeemable - maxCollateralNow };
+  // processor.rs:1501-1507: inside the deposit cooldown every withdrawal is refused (CooldownNotElapsed), so nothing is payable now.
+  const c = opts?.cooldown;
+  const coolingDown = c !== undefined && c.nowSlot < c.lastDepositSlot + c.cooldownSlots;
+  if (coolingDown) {
+    return { redeemable, liquidCap, maxCollateralNow: 0n, maxLpNow: 0n, capBinds: redeemable > liquidCap, deferred: redeemable, cooldownEndsSlot: c.lastDepositSlot + c.cooldownSlots, feeAccrued: pending };
+  }
+  return { redeemable, liquidCap, maxCollateralNow, maxLpNow, capBinds: redeemable > liquidCap, deferred: redeemable - maxCollateralNow, feeAccrued: pending };
 }
+
+/** Optional program inputs for {@link quoteStakeWithdrawNowV5}. Pass them: without them the quote can show more than the program pays. */
+export interface StakeWithdrawQuoteOptsV5 {
+  /**
+   * Deposit cooldown (processor.rs:1501-1507): `nowSlot` the withdraw lands in, the staker's `StakeDeposit.lastDepositSlot`
+   * and `pool.cooldownSlots`. Inside the cooldown the quote returns `maxCollateralNow = maxLpNow = 0` and `cooldownEndsSlot`.
+   */
+  cooldown?: { nowSlot: bigint; lastDepositSlot: bigint; cooldownSlots: bigint };
+  /**
+   * The fee the withdraw books before pricing (`pre_accrue_fee_modes`, processor.rs:1520 -> 2691-2830). Mode 1: the whole vault
+   * surplus over the booked liquid value. Mode 0: `min(surplus, attributableAtoms)` where `attributableAtoms` is the wrapper's
+   * unbooked tag-87 payout (`wrapper_paid - mode0_fees_attributed`); mode 0 books it only when the withdraw passes the wrapper
+   * market (slab) account. Nothing is booked while the pool has no real LP holders (`totalLpSupply <= 1000`).
+   */
+  feeAccrual?: { poolMode: 0 | 1; attributableAtoms?: bigint };
+}
+
+/**
+ * The fee a stake deposit/withdraw books first (`accrue_fees_inner`, processor.rs:2766-2830): `surplus = vault - liquid`
+ * (saturating), mode 1 books it all, mode 0 books `min(surplus, attributableAtoms)`; nothing when the pool has no real holders.
+ *
+ * @param pool          Pool booked fields plus `totalLpSupply`.
+ * @param vaultBalance  SPL balance of `pool.vault` read before the instruction.
+ * @param f             Pool mode and (mode 0) the attributable wrapper payout.
+ * @returns Atoms, or `null` where the program fails closed (liquid value negative or beyond u64).
+ * @example
+ * ```ts
+ * pendingStakeFeeAccrualV5(pool, vaultBal, { poolMode: 0, attributableAtoms: wrapperPaid - pool.mode0FeesAttributed });
+ * ```
+ */
+export function pendingStakeFeeAccrualV5(
+  pool: StakePoolValueFields & { totalLpSupply: bigint },
+  vaultBalance: bigint,
+  f: { poolMode: 0 | 1; attributableAtoms?: bigint },
+): bigint | null {
+  const liquid = pool.totalDeposited - pool.totalWithdrawn - pool.totalFlushed + pool.totalReturned + pool.totalFeesEarned - pool.realizedJuniorLoss;
+  if (liquid < 0n || liquid > U64_MAX_V5) return null;
+  if (pool.totalLpSupply <= STAKE_MINIMUM_LIQUIDITY_V5) return 0n; // has_real_lp_holders (math.rs:507-509)
+  const surplus = vaultBalance > liquid ? vaultBalance - liquid : 0n;
+  if (f.poolMode === 1) return surplus;
+  const attributable = f.attributableAtoms ?? 0n;
+  return attributable <= 0n ? 0n : surplus < attributable ? surplus : attributable;
+}
+
+/** Stake `MINIMUM_LIQUIDITY` dead shares (state.rs:25). */
+const STAKE_MINIMUM_LIQUIDITY_V5 = 1_000n;
 
 /**
  * The creator's collateral token account for `RecoverTerminalInsurance`: the classic-token ATA of `pool.admin` for the pool mint.
