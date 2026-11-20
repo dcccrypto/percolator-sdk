@@ -57,8 +57,9 @@ export interface CollateralWithdrawQuoteV22 {
   maxAtoms: bigint;
   /**
    * The `amount` to put in the instruction for "withdraw max". Equal to `capital` (the pre-fee capital) when the max is the
-   * whole post-fee capital: the program then pays the post-fee capital at the landing slot (v16_program.rs:17964-17968), so a
-   * few more slots of maintenance fee cannot make the max request fail. Otherwise equal to `maxAtoms`.
+   * whole post-fee capital and PnL is not negative: the program then pays the post-fee capital at the landing slot
+   * (v16_program.rs:17964-17968), so a few more slots of maintenance fee cannot make the max request fail. Otherwise equal to
+   * `maxAtoms` (which a later landing slot with more fee can still refuse: re-quote, or leave a margin).
    */
   maxRequestAmount: bigint;
   /** Maintenance fee the withdraw crystallizes first (prog 17958). */
@@ -149,9 +150,11 @@ export function maxWithdrawCollateralV22(i: CollateralWithdrawInputV22): Collate
     binding = "vault";
   }
   if (maxAtoms > U64_MAX) maxAtoms = U64_MAX;
-  // The withdraw-all path (amount == pre-fee capital) pays the post-fee capital at the landing slot; it is only the max
-  // when nothing else binds and the pre-fee capital fits the instruction's u64 amount.
-  const maxRequestAmount = binding === "capital" && maxAtoms > 0n && i.capital <= U64_MAX ? i.capital : maxAtoms;
+  // The withdraw-all path (amount == pre-fee capital) pays the capital left after the FEE step at the landing slot. It is
+  // only the max when nothing else binds, the pre-fee capital fits the u64 amount, and the PnL is not negative: a loss is
+  // settled from capital by the engine AFTER the program picks the amount (unless a fee was charged), so with pnl < 0 the
+  // pre-fee capital would be refused (v16.rs:25944-25946).
+  const maxRequestAmount = binding === "capital" && maxAtoms > 0n && i.pnl >= 0n && i.capital <= U64_MAX ? i.capital : maxAtoms;
   return { maxAtoms, maxRequestAmount, feeAtoms, capitalAfterFee: capital, binding, refusal: null };
 }
 
