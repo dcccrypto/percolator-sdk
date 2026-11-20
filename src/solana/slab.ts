@@ -5092,7 +5092,7 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
   // Minimum size check: header(16) + provenance(100) + owner/capital/pnl/reserved_pnl.
   const MIN_PORTFOLIO_BYTES = PF_RESERVED_PNL_OFF + 16;
   if (data.length < MIN_PORTFOLIO_BYTES) {
-    throw new UnknownLayoutError("TOO_SHORT", "parsePortfolioV17", `parsePortfolioV17: data too short (${data.length} < ${MIN_PORTFOLIO_BYTES})`);
+    throw new UnknownLayoutError("TOO_SHORT", "parsePortfolioV17", `data too short (${data.length} < ${MIN_PORTFOLIO_BYTES})`);
   }
   // VERSION + engine-discriminator guard (typed UnknownLayoutError); the leg stride and every offset after the
   // legs come from the table of the account's VERSION, never from its length.
