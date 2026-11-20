@@ -1,3 +1,10 @@
+## 9.0.0-candidate: one user action lands at most one tx (RpcPool.call / withRetry double-submit) - BREAKING (retry defaults)
+
+- **Fixed (BREAKING):** `RpcPool.call(fn)` without `{ idempotent: true }` (the default, meant for sends) retried 502/504, ECONNRESET, "socket hang up" and "timeout"/"network" errors, and in `failover` mode re-ran `fn` on the next endpoint after ANY error, even with `retry: false`. Those errors can come after the node accepted the tx, and web3 re-signs on a fresh blockhash, so a retry landed a second tx. A non-idempotent call now retries or fails over only on certainly-pre-accept errors (429 / rate limit, ECONNREFUSED) and throws anything else at once. **Reads must now pass `{ idempotent: true }`** to keep the full retry and failover.
+- **Added:** `withRetry(fn, { idempotent: false })` (`WithRetryConfig`) with the same pre-accept-only rule. The default stays `idempotent: true` (unchanged for reads).
+- **Added:** `AdaptiveTxResult.attemptedSignature` on a failed `sendGroupsAdaptive` send (the signature of the signed bytes), so the caller can check its status before re-sending. `signature` still means accepted.
+- **Tests:** `test/rpc-pool-double-submit.test.ts` (fake node counting distinct landed signatures, real web3 re-signing); `test/rpc-pool-branches.test.ts` generic retry/failover cases now pass `{ idempotent: true }`.
+
 ## 9.0.0-candidate: computeMarkPnl matches the v2.2 engine linear floor - BREAKING (units)
 
 - **Fixed (BREAKING):** `computeMarkPnl(size, entry, oracle)` returned the coin-margined inverse `diff*|q|/oracle` (coin units). The v2.2 engine settles price PnL linearly (percolator `v16.rs:16412` + `:29481`): `floor(|q| * dP / 1e6)` in quote units, no division by oracle. 81% of the grid mismatched (3,200 distinct price/size points x 7 lot_exp values = 22,400 rows; no sign flips; worst gap about 1.1e6x at oracle 1e12). Now returns the engine value, flooring toward -infinity. Callers that converted coin units (`computePnlPercent` inputs, app display) must use the quote-unit result. `computeLiqPrice` was already linear.

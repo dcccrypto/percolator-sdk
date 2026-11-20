@@ -225,7 +225,7 @@ describe("RpcPool.call selection / retry / failover", () => {
       conns.push(c);
       if (conns.length === 1) throw new Error("401 Unauthorized");
       return "ok";
-    });
+    }, { idempotent: true }); // reads only: a non-idempotent callback is never failed over after a non-pre-accept error
     expect(out).toBe("ok");
     expect(conns).toHaveLength(2);
     expect(conns[0]).not.toBe(conns[1]);
@@ -238,7 +238,7 @@ describe("RpcPool.call selection / retry / failover", () => {
     await expect(
       pool.call(async () => {
         throw new Error(`fatal-${++n}`);
-      }),
+      }, { idempotent: true }),
     ).rejects.toThrow("fatal-2");
     expect(n).toBe(2);
   });
@@ -278,7 +278,7 @@ describe("RpcPool.call selection / retry / failover", () => {
     const p = pool.call(async () => {
       if (++n < 3) throw new Error("503 Service Unavailable");
       return "done";
-    });
+    }, { idempotent: true });
     await vi.advanceTimersByTimeAsync(99);
     expect(n).toBe(1);
     await vi.advanceTimersByTimeAsync(1);
@@ -320,7 +320,7 @@ describe("RpcPool.call selection / retry / failover", () => {
       conns.push(c);
       if (conns.length === 1) throw new Error("ECONNRESET");
       return "b";
-    });
+    }, { idempotent: true });
     await vi.advanceTimersByTimeAsync(5);
     await expect(p).resolves.toBe("b");
     expect(conns[0]).not.toBe(conns[1]);
@@ -361,7 +361,7 @@ describe("RpcPool.call selection / retry / failover", () => {
 
   it("after exhaustion the pool is reset and usable again", async () => {
     const pool = new RpcPool({ endpoints: [URL_A, URL_B], retry: false, verbose: false, recoveryAfterMs: 0 });
-    for (let i = 0; i < 3; i++) await pool.call(async () => { throw new Error("x"); }).catch(() => {});
+    for (let i = 0; i < 3; i++) await pool.call(async () => { throw new Error("x"); }, { idempotent: true }).catch(() => {});
     // A reached the threshold on call 3; the exhausted call reset both endpoints.
     expect(pool.healthyCount).toBe(2);
     await expect(pool.call(async () => "fine")).resolves.toBe("fine");

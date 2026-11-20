@@ -121,7 +121,7 @@ export type SelectionStrategy = "round-robin" | "failover";
  * });
  *
  * // Use like a Connection — same surface
- * const slot = await pool.call(conn => conn.getSlot());
+ * const slot = await pool.call(conn => conn.getSlot(), { idempotent: true });
  * ```
  */
 export interface RpcPoolConfig {
@@ -512,7 +512,7 @@ interface EndpointState {
  * });
  *
  * // Execute any Connection method through the pool
- * const slot = await pool.call(conn => conn.getSlot());
+ * const slot = await pool.call(conn => conn.getSlot(), { idempotent: true });
  *
  * // Or get a raw connection for one-off use
  * const conn = pool.getConnection();
