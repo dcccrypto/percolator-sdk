@@ -261,7 +261,7 @@ describe("part 2: vectors from lp_share_meta_v22.rs #[cfg(test)] and tests/v22_l
     expect(pk(key).toBase58()).toBe(b58);
   });
 
-  it("base58_matches_pubkey_display (lp_share_meta_v22.rs:408): leading-zero sweep and 2000 xorshift keys", () => {
+  it("base58_matches_pubkey_display (lp_share_meta_v22.rs:406): leading-zero sweep and 2000 xorshift keys", () => {
     for (let z = 1; z <= 31; z++) {
       const k = fill(0xab);
       k.fill(0, 0, z);
@@ -292,8 +292,12 @@ describe("part 2: vectors from lp_share_meta_v22.rs #[cfg(test)] and tests/v22_l
   // bad_tickers_are_refused_even_from_marketauth (tests/v22_lp_share_mint.rs:1158): raw bytes, read as UTF-8 and as latin1
   const BAD_BYTES: Uint8Array[] = [
     "sol", "Sol", "SO L", "SOL ", " SOL", "SOL-", "SO.L", "$SOL", "SOL\0",
-  ].map(bytes).concat([Uint8Array.of(0xc3, 0x96, 0x4c), Uint8Array.of(0x41, 0x0a), Uint8Array.of(0x55, 0x53, 0x44, 0x43, 0xc2, 0xb7)]);
-  it.each(BAD_BYTES.map((b) => [Array.from(b).join(","), b] as const))("marketauth bad ticker bytes [%s] refused (v22_lp_share_mint.rs:1158)", (_s, b) => {
+  ].map(bytes).concat([
+    Uint8Array.of(0xc3, 0x96, 0x4c), Uint8Array.of(0x41, 0x0a), Uint8Array.of(0x55, 0x53, 0x44, 0x43, 0xc2, 0xb7),
+    // raw tag-122 ticker bodies refused in tests/v22_lp_share_mint.rs:1704-1719 (n=9, n=255, lowercase, space, NUL, utf8)
+    bytes("A".repeat(9)), bytes("A".repeat(255)), bytes("S L"), bytes("S\0L"), Uint8Array.of(0xc2, 0xb7),
+  ]);
+  it.each(BAD_BYTES.map((b) => [Array.from(b).join(","), b] as const))("marketauth bad ticker bytes [%s] refused (v22_lp_share_mint.rs:1158, 1704-1719)", (_s, b) => {
     for (const t of [new TextDecoder().decode(b), latin1(b)]) {
       expect(isLpShareTickerV22(t)).toBe(false);
       expect(() => lpShareIdentityV22(pk(fill(1)), t)).toThrow();
@@ -354,6 +358,15 @@ describe("part 2: vectors from lp_share_meta_v22.rs #[cfg(test)] and tests/v22_l
     }
     expect(lpShareIdentityV22(market, "ABCDEFGH").symbol).toBe("peABCDEFGH");
   });
+
+  it("a_usdc_ticker_still_carries_the_leading_framing (tests/v22_lp_share_mint.rs:1465-1479)", () => {
+    const market = pk(fill(0xff));
+    const r = lpShareIdentityV22(market, "USDC");
+    expect(r.name).toBe(`Percolator Earn USDC ${market.toBase58().slice(0, 6)}`);
+    expect(r.symbol).toBe("peUSDC");
+    expect(r.symbol).not.toBe("USDC");
+    expect(r.name.slice(0, 12)).toBe("Percolator E");
+  });
 });
 
 // Port of `rec` (lp_share_meta_v22.rs:585): MetadataV1 bytes + 60 trailing zero bytes.
@@ -382,11 +395,11 @@ describe("part 2: record_state_classification (lp_share_meta_v22.rs:608) on the 
   };
   const canon = { name: id.name, symbol: "pEARN", uri: id.uri, isMutable: true };
 
-  it("canonical generic (rs:612)", () => ok(rec(reg, mint, g, gs, u, 0, 0, 1), canon));
-  it("NUL-padded strings read as canonical (rs:614-616)", () => {
+  it("canonical generic (rs:613)", () => ok(rec(reg, mint, g, gs, u, 0, 0, 1), canon));
+  it("NUL-padded strings read as canonical (rs:614-617)", () => {
     ok(rec(reg, mint, cat(g, Uint8Array.of(0, 0)), bytes("pEARN\0\0\0\0\0"), u, 0, 0, 1), canon);
   });
-  it("stale rows parse with their own content (rs:618-623)", () => {
+  it("stale rows parse with their own content (rs:619-624)", () => {
     ok(rec(reg, mint, bytes("USDC"), gs, u, 0, 0, 1), { ...canon, name: "USDC" });
     ok(rec(reg, mint, g, bytes("USDC"), u, 0, 0, 1), { ...canon, symbol: "USDC" });
     ok(rec(reg, mint, g, gs, bytes("https://evil.example/x"), 0, 0, 1), { ...canon, uri: "https://evil.example/x" });
