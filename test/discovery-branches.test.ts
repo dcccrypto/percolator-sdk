@@ -382,7 +382,10 @@ describe("discoverMarkets: fallback tiers", () => {
     );
   });
 
-  it("outer catch: memcmp recovers when the first fallback throws an Error", async () => {
+  it("outer catch: a failed memcmp fallback is not re-sent; its error is reported once", async () => {
+    // The empty-result fallback and the outer catch used to send the identical full-data
+    // memcmp gPA back to back (an immediate, un-backed-off retry). It is now sent once and
+    // the outer catch reuses its settled result, so the same error reaches memcmpErr.
     const c = conn();
     let n = 0;
     c.getProgramAccounts.mockImplementation(async (_p: unknown, opts: any) => {
@@ -392,13 +395,13 @@ describe("discoverMarkets: fallback tiers", () => {
       }
       return [];
     });
-    await discoverMarkets(c, programId);
+    expect(await discoverMarkets(c, programId)).toEqual([]);
     expect(warn).toHaveBeenCalledWith(
       "[discoverMarkets] dataSize filters failed, falling back to memcmp:",
       "first-fail",
     );
-    expect(c.getProgramAccounts.mock.calls.filter(([, o]) => isFullMemcmp(o))).toHaveLength(2);
-    expect(warn).not.toHaveBeenCalledWith("[discoverMarkets] memcmp fallback also failed:", expect.anything());
+    expect(c.getProgramAccounts.mock.calls.filter(([, o]) => isFullMemcmp(o))).toHaveLength(1);
+    expect(warn).toHaveBeenCalledWith("[discoverMarkets] memcmp fallback also failed:", "first-fail");
   });
 
   it("uses the REST API when RPC returns nothing, and returns its markets", async () => {
