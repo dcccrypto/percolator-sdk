@@ -1,5 +1,5 @@
 import { Connection, PublicKey } from "@solana/web3.js";
-import { ACCOUNT_KIND, LAYOUTS_BY_VERSION, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
+import { ACCOUNT_KIND, LAYOUTS_BY_VERSION, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout, UnknownLayoutError } from "../abi/layout.js";
 import type { LayoutTable } from "../abi/layout.js";
 
 // =============================================================================
@@ -4744,7 +4744,8 @@ export interface V17MarketGroupOI {
  *
  * @param data  Raw bytes of the v17 market group account.
  * @returns Parsed V17MarketGroupOI — zero OI when no active positions exist.
- * @throws Error if the buffer is not a valid v17 market account or is too short.
+ * @throws {@link UnknownLayoutError} `TOO_SHORT` if the buffer holds fewer asset slots than `max_market_slots`
+ *   (a truncated read). Also throws if the buffer is not a valid v17 market account.
  *
  * @example
  * ```ts
@@ -4758,6 +4759,12 @@ export function parseMarketGroupV17OI(data: Uint8Array): V17MarketGroupOI {
   // VERSION-keyed geometry (never inferred from the length): v2.1 and v2.2 have different group / slot sizes.
   const g = resolveMarketGeometry(data, { parser: "parseMarketGroupV17OI", strictLength: false });
   const L = g.layout;
+  // A short read (RPC dataSlice / truncated fetch) must not look like a market with fewer assets:
+  // the program rejects max_market_slots > the slots present, so fewer slots means truncated (#598).
+  const maxMarketSlots = readU32LE(data, g.groupOff + L.group.config + L.group.maxMarketSlotsInConfig);
+  if (maxMarketSlots > g.slotCount) {
+    throw new UnknownLayoutError("TOO_SHORT", "parseMarketGroupV17OI", `buffer holds ${g.slotCount} asset slot(s) but max_market_slots is ${maxMarketSlots}: truncated read`, { version: L.version, kind: ACCOUNT_KIND.Market });
+  }
 
   const insuranceBalance = readU128LE(data, g.groupOff + L.group.insurance);
 
@@ -4771,7 +4778,9 @@ export function parseMarketGroupV17OI(data: Uint8Array): V17MarketGroupOI {
     const shortOff = g.engineOff(i) + L.assetState.oiEffShortQ;
 
     // Guard against a truncated buffer (should not happen on well-formed accounts).
-    if (shortOff + 16 > data.length) break;
+    if (shortOff + 16 > data.length) {
+      throw new UnknownLayoutError("TOO_SHORT", "parseMarketGroupV17OI", `asset ${i} OI at ${shortOff} runs past the ${data.length}-byte buffer`, { version: L.version, kind: ACCOUNT_KIND.Market });
+    }
 
     const oiEffLongQ = readU128LE(data, longOff);
     const oiEffShortQ = readU128LE(data, shortOff);
@@ -5069,7 +5078,8 @@ export interface PortfolioV17 {
  *
  * @param data - Raw account bytes from `connection.getAccountInfo`.
  * @returns Decoded portfolio state.
- * @throws If data is too short or magic does not match.
+ * @throws {@link UnknownLayoutError} `TOO_SHORT` if the buffer is shorter than the VERSION's full portfolio length
+ *   (a truncated read). Also throws if the magic, VERSION or engine discriminator does not match.
  *
  * @example
  * ```typescript
@@ -5082,12 +5092,17 @@ export function parsePortfolioV17(data: Uint8Array): PortfolioV17 {
   // Minimum size check: header(16) + provenance(100) + owner/capital/pnl/reserved_pnl.
   const MIN_PORTFOLIO_BYTES = PF_RESERVED_PNL_OFF + 16;
   if (data.length < MIN_PORTFOLIO_BYTES) {
-    throw new Error(`parsePortfolioV17: data too short (${data.length} < ${MIN_PORTFOLIO_BYTES})`);
+    throw new UnknownLayoutError("TOO_SHORT", "parsePortfolioV17", `data too short (${data.length} < ${MIN_PORTFOLIO_BYTES})`);
   }
   // VERSION + engine-discriminator guard (typed UnknownLayoutError); the leg stride and every offset after the
   // legs come from the table of the account's VERSION, never from its length.
   const L = resolvePortfolioLayout(data, { parser: "parsePortfolioV17" });
   const G = L.portfolio;
+  // The program only hands out full-size portfolios. A short read must throw, not return zeroed totals
+  // or drop legs past the cut (an open position would vanish).
+  if (data.length < G.accountLen) {
+    throw new UnknownLayoutError("TOO_SHORT", "parsePortfolioV17", `portfolio length ${data.length} < ${G.accountLen} (VERSION ${L.version}): truncated read`, { version: L.version, kind: ACCOUNT_KIND.Portfolio });
+  }
 
   // Provenance header
   const marketGroupId = new PublicKey(data.subarray(PF_PROVENANCE_MARKET_GROUP_OFF, PF_PROVENANCE_MARKET_GROUP_OFF + 32));

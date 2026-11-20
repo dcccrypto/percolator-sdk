@@ -165,18 +165,17 @@ describe("parsePortfolioV17 guards and truncated tails", () => {
       expect(code(() => parsePortfolioV17(e))).toBe("DISCRIMINATOR_MISMATCH");
     });
 
-    it(`VERSION ${version}: every truncated length decodes with zeroed optional tail and never throws`, () => {
+    it(`VERSION ${version}: every truncated length throws TOO_SHORT; the full length decodes every optional field`, () => {
       const full = stampPortfolio(new Uint8Array(G.accountLen), version);
-      // Sentinel values in each optional field so a present field is distinguishable from the default 0n.
+      // Sentinel values in each field so a decoded field is distinguishable from a zero default.
       for (let off = minLen; off + 16 <= 116 + 240; off += 16) put128(full, off, BigInt(off));
-      const seen = new Set<string>();
-      // Walk through the optional-field region in 8-byte steps; exact boundaries are asserted below.
-      for (let len = minLen; len <= 116 + 240 + 8; len += 8) {
-        const p = parsePortfolioV17(full.subarray(0, len));
-        seen.add(`${p.residualCrystallizedLossAtomsTotal}/${p.feeCredits}/${p.activeBitmap}/${p.lastFeeSlot}`);
-        expect(p.legs.length).toBeLessThanOrEqual(G.legCount);
-      }
-      expect(seen.size).toBeGreaterThan(3);
+      put64(full, 116 + 232, 0xabcdn);
+      // A short read used to decode with zeroed totals and dropped legs; it must now refuse (same class as #598).
+      const cuts = [minLen, 116 + 80 + 15, 116 + 192 + 15, 116 + 232 + 7, G.legsOff + 2 * G.legStride + 3,
+        G.sourceDomainsOff + G.sourceDomainStride + 1, G.matcherConfigOff + 37, G.accountLen - 1];
+      for (let len = minLen; len < G.accountLen; len += 97) cuts.push(len);
+      for (const len of cuts) expect(code(() => parsePortfolioV17(full.subarray(0, len))), `len ${len}`).toBe("TOO_SHORT");
+      const p = parsePortfolioV17(full);
       const fields: [number, (p: ReturnType<typeof parsePortfolioV17>) => bigint][] = [
         [116 + 80, p => p.residualCrystallizedLossAtomsTotal],
         [116 + 96, p => p.residualSpentPrincipalAtomsTotal],
@@ -188,28 +187,17 @@ describe("parsePortfolioV17 guards and truncated tails", () => {
         [116 + 192, p => p.feeCredits],
         [116 + 208, p => p.cancelDepositEscrow],
       ];
-      for (const [off, get] of fields) {
-        expect(get(parsePortfolioV17(full.subarray(0, off + 15)))).toBe(0n);
-        expect(get(parsePortfolioV17(full.subarray(0, off + 16)))).toBe(BigInt(off));
-      }
-      put64(full, 116 + 232, 0xabcdn);
-      expect(parsePortfolioV17(full.subarray(0, 116 + 224 + 7)).lastFeeSlot).toBe(0n);
-      expect(parsePortfolioV17(full.subarray(0, 116 + 224 + 8)).lastFeeSlot).toBe(BigInt(116 + 224));
-      expect(parsePortfolioV17(full.subarray(0, 116 + 232 + 7)).activeBitmap).toBe(0n);
-      expect(parsePortfolioV17(full.subarray(0, 116 + 232 + 8)).activeBitmap).toBe(0xabcdn);
-      // Truncated mid-way through the legs and the source domains / matcher config: loops `break`, matcher defaults.
-      const midLegs = parsePortfolioV17(full.subarray(0, G.legsOff + 2 * G.legStride + 3));
-      expect(midLegs.legs.length).toBe(2);
-      expect(midLegs.matcherProgram.equals(PublicKey.default)).toBe(true);
-      expect(midLegs.matcherEnabled).toBe(false);
-      expect(midLegs.portfolioId).toBe(0n);
-      expect(midLegs.matcherSequence).toBe(0n);
-      expect(midLegs.matcherExpirySlot).toBe(0n);
-      const midDomains = parsePortfolioV17(full.subarray(0, G.sourceDomainsOff + G.sourceDomainStride + 1));
-      expect(midDomains.sourceDomains.length).toBe(1);
+      for (const [off, get] of fields) expect(get(p)).toBe(BigInt(off));
+      expect(p.lastFeeSlot).toBe(BigInt(116 + 224));
+      expect(p.activeBitmap).toBe(0xabcdn);
+      expect(p.legs.length).toBe(G.legCount);
+      expect(p.sourceDomains.length).toBe(G.sourceDomainCap);
+      // A longer buffer (e.g. a test fixture with padding) still decodes the same.
+      const padded = new Uint8Array(G.accountLen + 8); padded.set(full);
+      expect(parsePortfolioV17(padded)).toEqual(p);
     });
 
-    it(`VERSION ${version}: matcher config / identity trailer decode only when fully present, view-safe`, () => {
+    it(`VERSION ${version}: matcher config / identity trailer decode at full length, view-safe, truncation refused`, () => {
       const full = stampPortfolio(new Uint8Array(G.accountLen), version);
       const mp = G.matcherConfigOff;
       full.fill(0x11, mp, mp + 32);
@@ -229,26 +217,10 @@ describe("parsePortfolioV17 guards and truncated tails", () => {
       expect(whole.matcherSequence).toBe(7n);
       expect(whole.matcherExpirySlot).toBe(99n);
       expect(parsePortfolioV17(shifted(full))).toEqual(whole);
-      // Cut so only program+context fit: delegate defaults.
-      const partial = parsePortfolioV17(full.subarray(0, mp + 64 + 5));
-      expect(partial.matcherContext.toBytes()[0]).toBe(0x22);
-      expect(partial.matcherDelegate.equals(PublicKey.default)).toBe(true);
-      expect(partial.matcherEnabled).toBe(false);
-      // Cut so program only fits.
-      const progOnly = parsePortfolioV17(full.subarray(0, mp + 32 + 5));
-      expect(progOnly.matcherProgram.toBytes()[0]).toBe(0x11);
-      expect(progOnly.matcherContext.equals(PublicKey.default)).toBe(true);
-      // Control present but identity trailer cut off.
-      const noTrailer = parsePortfolioV17(full.subarray(0, mp + 96 + 8));
-      expect(noTrailer.matcherEnabled).toBe(true);
-      expect(noTrailer.portfolioId).toBe(0n);
-      // Only portfolioId present.
-      const idOnly = parsePortfolioV17(full.subarray(0, pfId + 8));
-      expect(idOnly.portfolioId).toBe(4242n);
-      expect(idOnly.matcherSequence).toBe(0n);
-      const seqOnly = parsePortfolioV17(full.subarray(0, pfId + 16));
-      expect(seqOnly.matcherSequence).toBe(7n);
-      expect(seqOnly.matcherExpirySlot).toBe(0n);
+      // Cut anywhere inside the matcher config / identity trailer: TOO_SHORT, never a defaulted matcher.
+      for (const len of [mp + 37, mp + 69, mp + 104, pfId + 8, pfId + 16, G.accountLen - 1]) {
+        expect(code(() => parsePortfolioV17(full.subarray(0, len))), `len ${len}`).toBe("TOO_SHORT");
+      }
     });
   }
 });
