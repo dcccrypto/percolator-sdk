@@ -25,7 +25,7 @@ describe("S3: stake deposit / withdraw helpers on a live v5 FIRST_LOSS pool", ()
 
   it("depositAccounts / withdrawAccounts give a FIRST_LOSS pool the account count the stake program reads", () => {
     const pool = decodeStakePoolV5(poolBytes());
-    const common = { riskMode: pool.riskMode as 0 | 1 | 2, wrapperProgram: pool.percolatorProgram };
+    const common = { riskMode: pool.riskMode, wrapperProgram: pool.percolatorProgram };
     const dep = depositAccounts({ user: k(), pool: k(), userCollateralAta: k(), vault: pool.vault, lpMint: pool.lpMint, userLpAta: k(), vaultAuth: k(), depositPda: k(), slab: pool.slab, ...common });
     const wd = withdrawAccounts({ user: k(), pool: k(), userLpAta: k(), lpMint: pool.lpMint, vault: pool.vault, userCollateralAta: k(), vaultAuth: k(), depositPda: k(), slab: pool.slab, ...common });
     expect(dep.length).toBe(ACCOUNTS_STAKE_DEPOSIT_V5.length); // 14
@@ -92,6 +92,8 @@ describe("FIRST_LOSS routing matches the v5 account specs exactly", () => {
     const base = { user, pool: poolPda, vault: pool.vault, lpMint: pool.lpMint, vaultAuth: vaultAuthority, depositPda: deposit };
     expect(() => depositAccounts({ ...base, userCollateralAta: userCollateral, userLpAta: userLp, slab: pool.slab, riskMode: 1 })).toThrow(/wrapperProgram/);
     expect(() => withdrawAccounts({ ...base, userCollateralAta: userCollateral, userLpAta: userLp, riskMode: 1, wrapperProgram })).toThrow(/slab/);
+    expect(() => depositAccounts({ ...base, userCollateralAta: userCollateral, userLpAta: userLp, slab: pool.slab, riskMode: 3 })).toThrow(/riskMode 3/);
+    expect(() => withdrawAccounts({ ...base, userCollateralAta: userCollateral, userLpAta: userLp, riskMode: 3 })).toThrow(/riskMode 3/);
   });
 
   it("FEE_ONLY (2), legacy (0) and unset riskMode keep the legacy 12 / 11 account lists", () => {

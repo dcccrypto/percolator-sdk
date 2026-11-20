@@ -797,7 +797,7 @@ const SYSTEM_PROGRAM_ID = "11111111111111111111111111111111";
  * `["ins_units", market]` PDA with an unfunded payer: "Transfer: insufficient lamports", then `custom program error: 0x1`)
  * is the innermost failing program, so it must not be decoded with the wrapper table (wrapper 1 is `InvalidVersion`).
  */
-export const SYSTEM_PROGRAM_ERRORS: Readonly<Record<number, ErrorInfo>> = Object.freeze({
+const SYSTEM_PROGRAM_ERRORS: Readonly<Record<number, ErrorInfo>> = Object.freeze({
   0: { name: "AccountAlreadyInUse", hint: "An account with this address already exists." },
   1: { name: "ResultWithNegativeLamports", hint: "The paying account does not have enough SOL for this transfer or account rent. Fund the payer and retry." },
   2: { name: "InvalidProgramId", hint: "Cannot assign the account to this program id." },

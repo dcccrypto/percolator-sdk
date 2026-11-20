@@ -2,7 +2,7 @@
 // System program's table, not as wrapper code 1 (InvalidVersion). Logs copied from a devnet simulate (InitInsuranceUnits,
 // tag 116, unfunded payer), 2026-11-20.
 import { describe, expect, it } from "vitest";
-import { parseErrorFromLogs, SYSTEM_PROGRAM_ERRORS } from "../src/abi/errors.js";
+import { parseErrorFromLogs } from "../src/abi/errors.js";
 
 const LOGS = [
   "Program ComputeBudget111111111111111111111111111111 invoke [1]",
@@ -28,7 +28,7 @@ describe("parseErrorFromLogs: System program errors", () => {
 
   it("ignores wrapper context hints for a System failure", () => {
     const e = parseErrorFromLogs(LOGS, { context: { action: "deposit" } });
-    expect(e!.hint).toBe(SYSTEM_PROGRAM_ERRORS[1].hint);
+    expect(e!.hint).toMatch(/enough SOL/);
   });
 
   it("the wrapper's own code 1 is still InvalidVersion", () => {

@@ -2151,8 +2151,11 @@ export interface StakeDepositState {
  * (devnet, 2026-11-20). FEE_ONLY (2), legacy (0) and unset keep the legacy lists, which the program accepts.
  */
 export interface StakeV5RouteAccounts {
-  /** The pool's risk mode: 0 legacy, 1 FIRST_LOSS, 2 FEE_ONLY. Leave unset on a v1..v4 pool. */
-  riskMode?: 0 | 1 | 2;
+  /**
+   * The pool's risk mode: 0 legacy, 1 FIRST_LOSS, 2 FEE_ONLY (typed `number` so `decodeStakePoolV5(..).riskMode` passes
+   * straight in; any other value throws). Leave unset on a v1..v4 pool.
+   */
+  riskMode?: number;
   /** The wrapper program (`pool.percolatorProgram`). REQUIRED when `riskMode` is 1. */
   wrapperProgram?: PublicKey;
   /** Override for the wrapper `InsuranceUnitsV20` PDA (`["ins_units", slab]` under `wrapperProgram`); derived when unset. */
@@ -2316,7 +2319,7 @@ export function initPoolAccounts(
  *   stake program accepts (#352: Token-2022 collateral is not supported; passing it throws).
  * @throws Error if `tokenProgramId` is not the classic SPL Token program.
  * @returns Account metas in the order the program parses them.
- * @throws Error if `riskMode` is 1 and `wrapperProgram` is missing.
+ * @throws Error if `riskMode` is 1 and `wrapperProgram` is missing, or `riskMode` is not 0, 1, 2 or unset.
  * @example
  * ```ts
  * const pool = decodeStakePool(poolInfo.data); // v1..v5; riskMode is set on v5 pools only
@@ -2327,6 +2330,14 @@ export function initPoolAccounts(
  * new TransactionInstruction({ programId, keys, data });
  * ```
  */
+/** True when the v5 FIRST_LOSS list applies; throws on a risk mode the stake program does not define. */
+function isFirstLoss(fn: string, riskMode: number | undefined): boolean {
+  if (riskMode !== undefined && riskMode !== 0 && riskMode !== 1 && riskMode !== 2) {
+    throw new Error(`${fn}: riskMode ${riskMode} is not 0 (legacy), 1 (FIRST_LOSS) or 2 (FEE_ONLY)`);
+  }
+  return riskMode === STAKE_RISK_MODE.FirstLoss;
+}
+
 function firstLossTail(fn: string, a: StakeV5RouteAccounts, slab: PublicKey | undefined) {
   if (!a.wrapperProgram) {
     throw new Error(`${fn}: a FIRST_LOSS pool (riskMode 1) needs wrapperProgram (pool.percolatorProgram) for the v5 account list`);
@@ -2346,7 +2357,7 @@ export function depositAccounts(
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
   assertClassicTokenProgram(tokenProgramId);
-  if (a.riskMode === STAKE_RISK_MODE.FirstLoss) {
+  if (isFirstLoss('depositAccounts', a.riskMode)) {
     return stakeMetasV5(ACCOUNTS_STAKE_DEPOSIT_V5, {
       user: a.user, pool: a.pool, userCollateral: a.userCollateralAta, vault: a.vault, lpMint: a.lpMint,
       userLp: a.userLpAta, vaultAuthority: a.vaultAuth, deposit: a.depositPda, tokenProgram: tokenProgramId,
@@ -2413,7 +2424,7 @@ export function depositJuniorAccounts(
  *   stake program accepts (#352: Token-2022 collateral is not supported; passing it throws).
  * @throws Error if `tokenProgramId` is not the classic SPL Token program.
  * @returns Account metas in the order the program parses them.
- * @throws Error if `riskMode` is 1 and `wrapperProgram` or `slab` is missing.
+ * @throws Error if `riskMode` is 1 and `wrapperProgram` or `slab` is missing, or `riskMode` is not 0, 1, 2 or unset.
  * @example
  * ```ts
  * const pool = decodeStakePool(poolInfo.data);
@@ -2427,7 +2438,7 @@ export function withdrawAccounts(
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
   assertClassicTokenProgram(tokenProgramId);
-  if (a.riskMode === STAKE_RISK_MODE.FirstLoss) {
+  if (isFirstLoss('withdrawAccounts', a.riskMode)) {
     return stakeMetasV5(ACCOUNTS_STAKE_WITHDRAW_V5, {
       user: a.user, pool: a.pool, userLp: a.userLpAta, lpMint: a.lpMint, vault: a.vault,
       userCollateral: a.userCollateralAta, vaultAuthority: a.vaultAuth, deposit: a.depositPda, tokenProgram: tokenProgramId,
