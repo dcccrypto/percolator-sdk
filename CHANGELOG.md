@@ -1,3 +1,9 @@
+## 9.0.0-candidate: fewer duplicate RPC reads in read flows (additive)
+
+- **Changed (perf):** `discoverMarkets` sends the full-data TALOCREP memcmp fallback once. When it rejected, the outer catch used to send the identical `getProgramAccounts` again straight away; it now reuses the first result, so the same error reaches the `memcmp fallback also failed` warning. Offline counter (200 markets): gPA-rejected tier 2/3 49 -> 48 calls, parallel 429 46 -> 45, sequential 429 with 2 retries 132 -> 131. If an RPC fails that call once and then succeeds when sent again straight away, discovery now goes on to the API/static tiers instead of using the retry.
+- **Added:** `buildAdlTransaction(..., backupOracles, prefetched?)` takes the slab bytes or the `AdlRankingResult` the caller already has and skips the slab read (rank then build: 2 -> 1 `getAccountInfo`). `fetchMintInfo(connection, mint)` returns `{ tokenProgram, decimals }` from one read, with the same results and errors as `detectTokenProgram` then `fetchMintDecimals` (trade prep: 3 -> 2 `getAccountInfo`).
+- **Tests:** `test/rpc-dup-reads.test.ts`, `test/adl-rpc-dup-reads.test.ts` (call counts; 11 fail on the base). `discovery-branches.test.ts` "outer catch" now expects one memcmp call.
+
 ## 9.0.0-candidate: computeMarkPnl matches the v2.2 engine linear floor - BREAKING (units)
 
 - **Fixed (BREAKING):** `computeMarkPnl(size, entry, oracle)` returned the coin-margined inverse `diff*|q|/oracle` (coin units). The v2.2 engine settles price PnL linearly (percolator `v16.rs:16412` + `:29481`): `floor(|q| * dP / 1e6)` in quote units, no division by oracle. 81% of the grid mismatched (3,200 distinct price/size points x 7 lot_exp values = 22,400 rows; no sign flips; worst gap about 1.1e6x at oracle 1e12). Now returns the engine value, flooring toward -infinity. Callers that converted coin units (`computePnlPercent` inputs, app display) must use the quote-unit result. `computeLiqPrice` was already linear.
