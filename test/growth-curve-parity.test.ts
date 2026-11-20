@@ -231,7 +231,10 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
   }, HEAVY);
 
   it("the lagging κ / λ_depth are never looser than the round-2 step (review M-1) at every fixture depth", () => {
+    // One expect per run, not one per (depth, table): ~24k message-formatted expect() calls dominated the runtime.
     let n = 0;
+    let looser = 0;
+    let first: string | null = null;
     for (const c of FX.curve) {
       const th = th3(c.th);
       for (const r of c.cases) {
@@ -239,10 +242,15 @@ describe("growth curve parity (wrapper 21b8ccfd, contlev3)", () => {
         const tier = depthTierFor(d, th);
         for (const t of [KAPPA_TABLE_BPS, LAMBDA_DEPTH_TABLE_BPS]) {
           n++;
-          expect(curveLagU64(d, th, t) <= (t[tier] as bigint), `${c.name} d=${d}`).toBe(true);
+          if (!(curveLagU64(d, th, t) <= (t[tier] as bigint))) {
+            looser++;
+            if (first === null) first = `${c.name} d=${d}`;
+          }
         }
       }
     }
+    expect(first).toBeNull();
+    expect(looser).toBe(0);
     expect(n).toBeGreaterThan(24_000);
   }, HEAVY);
 
