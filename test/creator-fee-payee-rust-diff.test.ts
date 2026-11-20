@@ -61,7 +61,7 @@ describe("row 1: payee PDA seeds = ['creator_fee_payee', market, asset_index u16
     const be = PublicKey.findProgramAddressSync([Buffer.from("creator_fee_payee"), market.toBuffer(), Buffer.from([0x01, 0x02])], programId)[0];
     expect(P.deriveCreatorFeePayeeV22(programId, market, 0x0102)[0].toBase58()).not.toBe(be.toBase58());
   });
-  it("v16.rs:7922 asset_index is a u16: the SDK refuses 65536 and -1 instead of wrapping", () => {
+  it("v16.rs:7925 asset_index is a u16: the SDK refuses 65536 and -1 instead of wrapping", () => {
     expect(() => P.deriveCreatorFeePayeeV22(programId, market, 0x1_0000)).toThrow(/u16/);
     expect(() => P.deriveCreatorFeePayeeV22(programId, market, -1)).toThrow(/u16/);
   });
@@ -236,32 +236,21 @@ describe("row 6: claimable = asset counter + legacy WrapperConfig counter for as
       expect(B.readCreatorFeeClaimStateV22(d, i).owed).toBe(rustClaimable(i, pot, legacy));
     });
   }
-  it("v16.rs:2785 legacy counter sits at WrapperConfig 568..576 (after the 16-byte header)", () => {
+  it("v16.rs:2785 + 2832 legacy WrapperConfig.creator_fee_claimable_atoms sits at 568..576, after HEADER_LEN = 16 (v16.rs:133)", () => {
     const d = market(1);
     new DataView(d.buffer).setBigUint64(16 + 568, 123n, true);
     expect(B.readCreatorFeeClaimStateV22(d, 0).owed).toBe(123n);
   });
-  it("v16.rs:135-147 per-asset counter sits at profile +400 (u64)", () => {
+  it("v16.rs:2907 AssetOracleProfileV16.creator_fee_claimable_atoms is the u64 at profile +400", () => {
     const d = market(2);
     new DataView(d.buffer).setBigUint64(slotOff(1) + LAYOUT_V22.wrapperSlot.oracleProfile + 400, 321n, true);
     expect(B.readCreatorFeeClaimStateV22(d, 1).owed).toBe(321n);
   });
-  it("cfp.rs:174-185 split_claim_debit: a claim of exactly `owed` is the largest Rust accepts; owed + 1 is an over-claim (v16.rs:24409-24411)", () => {
-    // Rust split_claim_debit vectors (cfp.rs:244-249) with the SDK's owed as the cap.
+  it("v16.rs:24409-24411 `amount > claimable` is CreatorFeeOverClaim, so `owed` (10 + 5, cfp.rs:244-247) is the largest claim Rust pays", () => {
     const d = market(1);
     setLegacy(d, 5n);
     setAsset(d, 0, { pot: 10n });
-    const owed = B.readCreatorFeeClaimStateV22(d, 0).owed;
-    expect(owed).toBe(15n);
-    const rustSplit = (a: bigint, l: bigint, amt: bigint): [bigint, bigint] | null => {
-      if (amt === 0n || amt > a + l) return null;
-      const fa = amt < a ? amt : a;
-      return [a - fa, l - (amt - fa)];
-    };
-    expect(rustSplit(10n, 5n, owed)).toEqual([0n, 0n]);
-    expect(rustSplit(10n, 5n, owed + 1n)).toBeNull();
-    expect(rustSplit(10n, 5n, 12n)).toEqual([0n, 3n]); // cfp.rs:244
-    expect(rustSplit(10n, 5n, 4n)).toEqual([6n, 5n]); // cfp.rs:246
+    expect(B.readCreatorFeeClaimStateV22(d, 0).owed).toBe(15n);
   });
 });
 
@@ -294,6 +283,13 @@ describe("row 7: grace = Resolved && now >= resolved_slot + 7*216,000 (cfp.rs:13
     setGroup(d, 0, R);
     expect(B.readCreatorFeeClaimStateV22(d, 0, U64_MAX)).toMatchObject({ resolved: false, payeeGraceOver: false });
   });
+  for (const mode of [2, 255]) {
+    it(`v16.rs:25821 \`group.header.mode == 1\`: mode ${mode} is not Resolved, never elapses at u64::MAX`, () => {
+      const d = market(1);
+      setGroup(d, mode, R);
+      expect(B.readCreatorFeeClaimStateV22(d, 0, U64_MAX)).toMatchObject({ resolved: false, payeeGraceOver: false });
+    });
+  }
   it("cfp.rs:145 / v16.rs:25823 no Clock (None) never elapses: the reader with no slot", () => {
     const d = market(1);
     setGroup(d, 1, R);
@@ -332,14 +328,22 @@ function slotOff(i: number): number {
 }
 function setAsset(d: Uint8Array, i: number, o: { admin?: PublicKey; p4?: number; pot?: bigint }): void {
   const prof = slotOff(i) + LAYOUT_V22.wrapperSlot.oracleProfile;
-  if (o.admin) d.set(o.admin.toBytes(), prof + 368); // AssetOracleProfileV16.asset_admin @368
+  if (o.admin) d.set(o.admin.toBytes(), prof + 368); // v16.rs:2883 AssetOracleProfileV16.asset_admin @368
   if (o.p4 !== undefined) d[prof + 20] = o.p4; // v16.rs:844 profile byte +20
-  if (o.pot !== undefined) new DataView(d.buffer).setBigUint64(prof + 400, o.pot, true); // v16.rs:135 u64 @400
+  if (o.pot !== undefined) new DataView(d.buffer).setBigUint64(prof + 400, o.pot, true); // v16.rs:2907 u64 @400
 }
 function setLegacy(d: Uint8Array, v: bigint): void {
-  new DataView(d.buffer).setBigUint64(16 + 568, v, true); // v16.rs:2785 WrapperConfig 568..576
+  new DataView(d.buffer).setBigUint64(16 + 568, v, true); // v16.rs:133 HEADER_LEN + v16.rs:2785 WrapperConfig 568..576
 }
+/**
+ * Engine `MarketGroupV16HeaderAccount` (percolator engine 2f05df8c src/v16.rs:9254, fields `mode: u8` :9295 and
+ * `resolved_slot: V16PodU64` :9296): rustc `offset_of!` = 674 / 675, as emitted by
+ * scripts/creator-fee-payee-parity/sdk_587_parity.rs:89 into test/fixtures/creator-fee-payee-parity.json `groupOffsets`.
+ * Literals here, not the SDK constants, so a wrong SDK offset fails this file.
+ */
+const GROUP_MODE_OFF = 674;
+const GROUP_RESOLVED_SLOT_OFF = 675;
 function setGroup(d: Uint8Array, mode: number, resolvedSlot: bigint): void {
-  d[LAYOUT_V22.marketGroupOff + LAYOUT_V22.group.mode] = mode;
-  new DataView(d.buffer).setBigUint64(LAYOUT_V22.marketGroupOff + P.MARKET_GROUP_RESOLVED_SLOT_OFF_V22, resolvedSlot, true);
+  d[LAYOUT_V22.marketGroupOff + GROUP_MODE_OFF] = mode;
+  new DataView(d.buffer).setBigUint64(LAYOUT_V22.marketGroupOff + GROUP_RESOLVED_SLOT_OFF, resolvedSlot, true);
 }
