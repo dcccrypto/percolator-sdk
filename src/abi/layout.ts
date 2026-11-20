@@ -17,6 +17,9 @@
  * - {@link LAYOUT_V22_VARIANT_B}: wrapper VERSION 19, the v2.2 LAUNCH CANDIDATE (`release/v22-wrapper-rem` c8501d15 on
  *   `release/v22-engine-rem`: per-leg K/F remainders + the 32 B slot tail): leg 217, portfolio 10,603, slot 2,661 (engine #287 +32: `provider_principal_{long,short}` at slot offsets 1605 / 1621).
  *   **PROVISIONAL**, pinned against the real crate by `test/fixtures/v22-parity.json` (rustc `offset_of!`).
+ * - {@link LAYOUT_V22_VARIANT_B_DISC19}: the same VERSION 19 before engine #299 (engine discriminator 19, portfolio
+ *   10,603 B), which the default devnet wrapper still runs. {@link resolvePortfolioLayout} selects it by discriminator
+ *   ({@link PORTFOLIO_DISCRIMINATOR_ROWS}); the VERSION alias stays variant B (disc 20).
  * - {@link LAYOUT_V22_STAGE_A}: the earlier stage-A numbers (leg 185, portfolio 10,091, slot 2,597), kept as a named row.
  * - {@link LAYOUT_V22} is the alias every default uses (variant B). Another stacked engine fix may still move numbers:
  *   edit the rows in this file only (and regenerate the fixture); no decoder holds a layout number of its own.
@@ -428,8 +431,38 @@ export const LAYOUT_V22_VARIANT_B: LayoutTable = v22Row({
   },
 });
 
+/**
+ * Wrapper VERSION 19, VARIANT B BEFORE engine #299: engine discriminator 19, portfolio 10,603 B. This is what the
+ * default devnet wrapper (`PROGRAM_IDS_DEVNET_V22`, percolator-prog 81ed7fdf on engine 3ce4cbd1) writes: all 211 devnet
+ * portfolios at slot 524,250,725 carry discriminator 19 and are 10,603 B. Same as {@link LAYOUT_V22_VARIANT_B} except
+ * the engine body has no trailing 4 B `loss_provenance`, so the wrapper trailer starts 4 B earlier. Derived from source:
+ *
+ * - engine 3ce4cbd1 `src/v16.rs:37` `V16_LAYOUT_DISCRIMINATOR: u16 = 19`; `src/v16.rs:26019-26051`
+ *   `PortfolioAccountV16Account` ends with `resolved_payout_receipt` (`:26050`); `src/v16.rs:26059` asserts its size is
+ *   10,459; `tests/v22_kf_leg_remainders.rs:247-248` pins leg 217 B / portfolio 10,459 B.
+ * - engine c630fce4 (#299/#301) `src/v16.rs:26983` appends `loss_provenance: V16PodU32` last ("no earlier field offset
+ *   moves"), `:26992` asserts 10,463, `:39` discriminator 20. The leg, receipt, source-domain, health-cert and
+ *   close-progress structs are byte-identical between the two commits, so every offset below 10,475 equals variant B.
+ * - wrapper 81ed7fdf `src/v16_program.rs:693` `PORTFOLIO_ENGINE_ACCOUNT_LEN = HEADER_LEN (16) + PORTFOLIO_STATE_LEN`
+ *   (10,475 = matcher config), `:717-736` id / sequence / expiry trailer (+104 +8 +8 +8), `:754` asserts
+ *   `PORTFOLIO_ACCOUNT_LEN == 10603`.
+ *
+ * Receipt at 16 + 10,393 = 10,409 (10,409 + 66 = 10,475), matcher config at 10,475. Market geometry is the variant B one
+ * (devnet markets decode with it). {@link resolvePortfolioLayout} picks this row by discriminator; it is never chosen by
+ * VERSION alone.
+ */
+export const LAYOUT_V22_VARIANT_B_DISC19: LayoutTable = v22Row({
+  name: "v2.2 variant B pre-#299 (PROVISIONAL, engine disc 19: devnet 81ed7fdf / engine 3ce4cbd1)",
+  source: "percolator engine 3ce4cbd1 (src/v16.rs:37, :26019-26059) under percolator-prog 81ed7fdf (src/v16_program.rs:693-754)",
+  slotStride: 2661, engineSlotLen: 1637, portfolioLen: 10603, legStride: 217, receiptOff: 10409, engineDiscriminator: 19,
+  leg: {
+    ...LEG_V21_PREFIX, kfEpochSnap: 110, epochSnap: 118, lossWeight: 126, bSnap: 142, bRem: 158, bEpochSnap: 174, bStale: 182, stale: 183,
+    bandEpochSnap: 184, bandLiqPending: 192, rentSnap: 193, rentCarry: 209,
+  },
+});
+
 /** The named v2.2 rows. */
-export const LAYOUT_V22_ROWS = Object.freeze({ stageA: LAYOUT_V22_STAGE_A, variantB: LAYOUT_V22_VARIANT_B } as const);
+export const LAYOUT_V22_ROWS = Object.freeze({ stageA: LAYOUT_V22_STAGE_A, variantB: LAYOUT_V22_VARIANT_B, variantBDisc19: LAYOUT_V22_VARIANT_B_DISC19 } as const);
 
 /** The v2.2 layout every default uses: variant B (the launch candidate). Swap the alias to change the default. */
 export const LAYOUT_V22: LayoutTable = LAYOUT_V22_VARIANT_B;
@@ -439,6 +472,23 @@ export const LAYOUTS_BY_VERSION: ReadonlyMap<number, LayoutTable> = new Map<numb
   [LAYOUT_V21.version, LAYOUT_V21],
   [LAYOUT_V22.version, LAYOUT_V22],
 ]);
+
+/**
+ * Portfolio rows that share a wrapper VERSION with a {@link LAYOUTS_BY_VERSION} row but carry a different engine
+ * discriminator. {@link resolvePortfolioLayout} switches to one of these only when the buffer's discriminator matches
+ * it exactly; an unlisted discriminator is still refused with `DISCRIMINATOR_MISMATCH`. Keyed on the VERSION row.
+ */
+export const PORTFOLIO_DISCRIMINATOR_ROWS: ReadonlyMap<LayoutTable, readonly LayoutTable[]> = new Map<LayoutTable, readonly LayoutTable[]>([
+  [LAYOUT_V22_VARIANT_B, Object.freeze([LAYOUT_V22_VARIANT_B_DISC19])],
+]);
+
+/**
+ * Every portfolio row a default discovery should query (one `getProgramAccounts` per row: each has its own
+ * `dataSize`): the VERSION rows plus their discriminator siblings.
+ */
+export const PORTFOLIO_LAYOUTS: readonly LayoutTable[] = Object.freeze(
+  [...LAYOUTS_BY_VERSION.values()].flatMap((L) => [L, ...(PORTFOLIO_DISCRIMINATOR_ROWS.get(L) ?? [])]),
+);
 
 /** Wrapper account magic (`"PERCV16\0"` little-endian). */
 export const WRAPPER_ACCOUNT_MAGIC = 0x5045_5243_5631_3600n;
@@ -651,7 +701,7 @@ export interface PortfolioGuardOptions {
  * ```
  */
 export function resolvePortfolioLayout(data: Uint8Array, opts: PortfolioGuardOptions): LayoutTable {
-  const layout = resolveLayout(data, { parser: opts.parser, kind: ACCOUNT_KIND.Portfolio, versions: opts.versions, registry: opts.registry });
+  let layout = resolveLayout(data, { parser: opts.parser, kind: ACCOUNT_KIND.Portfolio, versions: opts.versions, registry: opts.registry });
   const g = layout.portfolio;
   if (data.length < g.provenanceDiscriminatorOff + 2) {
     throw new UnknownLayoutError("TOO_SHORT", opts.parser, `data too short (${data.length} < ${g.provenanceDiscriminatorOff + 2}) to carry the provenance header`, { version: layout.version, kind: ACCOUNT_KIND.Portfolio });
@@ -663,6 +713,11 @@ export function resolvePortfolioLayout(data: Uint8Array, opts: PortfolioGuardOpt
     throw new UnknownLayoutError("PROVENANCE_VERSION", opts.parser, `provenance header version ${provVersion} !== 1`, { version: layout.version, discriminator: disc, kind: ACCOUNT_KIND.Portfolio });
   }
   if (disc !== layout.engineDiscriminator) {
+    // Same VERSION, older/newer engine body: select the row by its exact discriminator (e.g. devnet disc 19).
+    const sibling = PORTFOLIO_DISCRIMINATOR_ROWS.get(layout)?.find((r) => r.engineDiscriminator === disc);
+    if (sibling !== undefined) layout = sibling;
+  }
+  if (disc !== layout.engineDiscriminator) {
     throw new UnknownLayoutError(
       "DISCRIMINATOR_MISMATCH",
       opts.parser,
@@ -670,8 +725,8 @@ export function resolvePortfolioLayout(data: Uint8Array, opts: PortfolioGuardOpt
       { version: layout.version, discriminator: disc, kind: ACCOUNT_KIND.Portfolio },
     );
   }
-  if (opts.strictLength === true && data.length !== g.accountLen) {
-    throw new UnknownLayoutError("BAD_LENGTH", opts.parser, `portfolio length ${data.length} !== ${g.accountLen} (VERSION ${layout.version})`, { version: layout.version, discriminator: disc, kind: ACCOUNT_KIND.Portfolio });
+  if (opts.strictLength === true && data.length !== layout.portfolio.accountLen) {
+    throw new UnknownLayoutError("BAD_LENGTH", opts.parser, `portfolio length ${data.length} !== ${layout.portfolio.accountLen} (VERSION ${layout.version}, discriminator ${disc})`, { version: layout.version, discriminator: disc, kind: ACCOUNT_KIND.Portfolio });
   }
   return layout;
 }

@@ -116,12 +116,19 @@ describe("portfolio guard + per-row geometry", () => {
     expect(code(() => resolvePortfolioLayout(stampPortfolio(new Uint8Array(LAYOUT_V22.portfolio.accountLen + 1), 19), { parser: "t", strictLength: true }))).toBe("BAD_LENGTH");
     expect(code(() => parsePortfolioV17(stampPortfolio(new Uint8Array(LAYOUT_V22.portfolio.accountLen), 20)))).toBe("UNKNOWN_VERSION");
   });
-  it("engine #299: a VERSION-19 portfolio at discriminator 19 (pre-#299, 10,603 B) is refused; disc 20 at 10,607 B is the layout", () => {
+  it("engine #299: disc 20 at 10,607 B is the default layout; disc 19 (pre-#299, devnet) selects its own 10,603 B row", () => {
     expect(LAYOUT_V22.engineDiscriminator).toBe(20);
     expect(LAYOUT_V22_ROWS.stageA.engineDiscriminator).toBe(19);
     const old = stampHeader(new Uint8Array(10_603), 2, 19, 19);
-    expect(code(() => parsePortfolioV17(old))).toBe("DISCRIMINATOR_MISMATCH");
+    expect(resolvePortfolioLayout(old, { parser: "t", strictLength: true })).toBe(LAYOUT_V22_ROWS.variantBDisc19);
+    expect(parsePortfolioV17(old).legs).toHaveLength(16);
+    // the disc-19 row is never the stage-A row (also disc 19): VERSION 19 + disc 19 means pre-#299 variant B
+    expect(resolvePortfolioLayout(old, { parser: "t" }).portfolio.legStride).toBe(217);
+    // disc 19 at the disc-20 length, and disc 20 at the disc-19 length, are both refused under strictLength
+    expect(code(() => resolvePortfolioLayout(stampHeader(new Uint8Array(10_607), 2, 19, 19), { parser: "t", strictLength: true }))).toBe("BAD_LENGTH");
     expect(code(() => resolvePortfolioLayout(stampHeader(new Uint8Array(10_603), 2, 19, 20), { parser: "t", strictLength: true }))).toBe("BAD_LENGTH");
+    // an unlisted discriminator on VERSION 19 is still a mismatch
+    expect(code(() => parsePortfolioV17(stampHeader(new Uint8Array(10_607), 2, 19, 21)))).toBe("DISCRIMINATOR_MISMATCH");
     const now = stampHeader(new Uint8Array(10_607), 2, 19, 20);
     expect(resolvePortfolioLayout(now, { parser: "t", strictLength: true }).portfolio.accountLen).toBe(10_607);
     // the wrapper trailer moved +4 with the engine tail; the resolved-payout receipt did not move
