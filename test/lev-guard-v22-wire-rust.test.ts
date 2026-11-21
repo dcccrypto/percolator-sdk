@@ -376,23 +376,27 @@ describe("tag 124 accounts vs Rust handler", { timeout: 60_000 }, () => {
     vaultLpPortfolio: lp, vaultLpState: vls, vaultLpExt: vle,
   };
 
-  const cases: { op: string; ix: ReturnType<typeof B.buildLevGuardInitIxV22>; payload: string; extra?: PublicKey[] }[] = [
-    { op: "Init", payload: "Init", ix: B.buildLevGuardInitIxV22(c, signer, 5n) },
-    { op: "SetRiskKey", payload: "SetRiskKey", ix: B.buildLevGuardSetRiskKeyIxV22(c, signer, holder) },
-    { op: "SetT0", payload: "SetT0", ix: B.buildLevGuardSetT0IxV22(c, signer, 7n) },
-    { op: "Report", payload: "Report", ix: B.buildLevGuardReportIxV22(c, signer, { jDumpBps: 1, mIndBps: 2, lCapX100: 3, nMultBps: 4 }) },
-    { op: "Tighten", payload: "Tighten", ix: B.buildLevGuardTightenIxV22(c, signer, { baseMint: mint, poolBaseVault: vault }) },
-    { op: "Tighten", payload: "Tighten", ix: B.buildLevGuardTightenIxV22(c, signer, { baseMint: mint, poolBaseVault: vault, holderTokenAccount: holder }) },
-    { op: "Poke", payload: "Poke", ix: B.buildLevGuardPokeIxV22(c, signer, { vaultLpPortfolio: lp }) },
-    { op: "Poke", payload: "Poke", ix: B.buildLevGuardPokeIxV22(c, signer, { vaultLpPortfolio: lp, sampleNav: true }) },
-    { op: "LpStop", payload: "LpStop", ix: B.buildLevGuardLpStopIxV22(c, signer, lp) },
-    { op: "LpStop", payload: "LpStop", ix: B.buildLevGuardLpStopIxV22(c, signer, lp, victims), extra: victims },
+  // `len` is the exact key count the handler reads for that call (see the account table above):
+  // Init 5, SetRiskKey/SetT0 4, Report 3, Tighten 6 (+1 with the optional holder [6]),
+  // Poke 4 or 6 ([4]+[5] together), LpStop 6 + one per opposing portfolio [6..].
+  const cases: { op: string; ix: ReturnType<typeof B.buildLevGuardInitIxV22>; payload: string; len: number; extra?: PublicKey[] }[] = [
+    { op: "Init", payload: "Init", len: 5, ix: B.buildLevGuardInitIxV22(c, signer, 5n) },
+    { op: "SetRiskKey", payload: "SetRiskKey", len: 4, ix: B.buildLevGuardSetRiskKeyIxV22(c, signer, holder) },
+    { op: "SetT0", payload: "SetT0", len: 4, ix: B.buildLevGuardSetT0IxV22(c, signer, 7n) },
+    { op: "Report", payload: "Report", len: 3, ix: B.buildLevGuardReportIxV22(c, signer, { jDumpBps: 1, mIndBps: 2, lCapX100: 3, nMultBps: 4 }) },
+    { op: "Tighten", payload: "Tighten", len: 6, ix: B.buildLevGuardTightenIxV22(c, signer, { baseMint: mint, poolBaseVault: vault }) },
+    { op: "Tighten", payload: "Tighten", len: 7, ix: B.buildLevGuardTightenIxV22(c, signer, { baseMint: mint, poolBaseVault: vault, holderTokenAccount: holder }) },
+    { op: "Poke", payload: "Poke", len: 4, ix: B.buildLevGuardPokeIxV22(c, signer, { vaultLpPortfolio: lp }) },
+    { op: "Poke", payload: "Poke", len: 6, ix: B.buildLevGuardPokeIxV22(c, signer, { vaultLpPortfolio: lp, sampleNav: true }) },
+    { op: "LpStop", payload: "LpStop", len: 6, ix: B.buildLevGuardLpStopIxV22(c, signer, lp) },
+    { op: "LpStop", payload: "LpStop", len: 6 + victims.length, ix: B.buildLevGuardLpStopIxV22(c, signer, lp, victims), extra: victims },
   ];
 
   for (const k of cases) {
     const t = RUST_ACCOUNTS[k.op];
-    it(`${k.op} (${t.handler}) with ${k.ix.keys.length} accounts: order, isSigner, isWritable`, () => {
+    it(`${k.op} (${t.handler}) with ${k.len} accounts: exact count, order, isSigner, isWritable`, () => {
       expect(k.ix.programId.equals(programId)).toBe(true);
+      expect(k.ix.keys.length, `${k.op} exact key count`).toBe(k.len);
       expect(rustDecode(k.ix.data).op).toBe(RUST_PAYLOAD[k.payload].op);
       const required = t.rows.filter((r) => !r.optional).length;
       const fixed = t.rows.filter((r) => r.role !== "opposing[0..]");
@@ -410,6 +414,33 @@ describe("tag 124 accounts vs Rust handler", { timeout: 60_000 }, () => {
       });
     });
   }
+
+  it("Tighten appends the optional holder as [6] (read-only, P:46470) only when given, and nothing else", () => {
+    const base = B.buildLevGuardTightenIxV22(c, signer, { baseMint: mint, poolBaseVault: vault });
+    const withHolder = B.buildLevGuardTightenIxV22(c, signer, { baseMint: mint, poolBaseVault: vault, holderTokenAccount: holder });
+    expect(base.keys.length).toBe(6);
+    expect(withHolder.keys.length).toBe(7);
+    expect(withHolder.keys[6].pubkey.equals(holder)).toBe(true);
+    expect(withHolder.keys[6].isSigner).toBe(false);
+    expect(withHolder.keys[6].isWritable).toBe(false);
+    // The first six metas are identical with and without the holder.
+    expect(withHolder.keys.slice(0, 6).map((m) => [m.pubkey.toBase58(), m.isSigner, m.isWritable]))
+      .toEqual(base.keys.map((m) => [m.pubkey.toBase58(), m.isSigner, m.isWritable]));
+  });
+
+  it("LpStop passes every opposing portfolio as [6..], writable, in order, for n = 0..8 (P:46901)", () => {
+    for (let n = 0; n <= 8; n++) {
+      const opp = Array.from({ length: n }, () => Keypair.generate().publicKey);
+      const ix = B.buildLevGuardLpStopIxV22(c, signer, lp, opp);
+      expect(ix.keys.length, `LpStop n=${n} exact key count`).toBe(6 + n);
+      opp.forEach((p, j) => {
+        const m = ix.keys[6 + j];
+        expect(m.pubkey.equals(p), `LpStop n=${n} opposing[${j}]`).toBe(true);
+        expect(m.isSigner, `LpStop n=${n} opposing[${j}] isSigner`).toBe(false);
+        expect(m.isWritable, `LpStop n=${n} opposing[${j}] isWritable`).toBe(true);
+      });
+    }
+  });
 
   it("Poke sends [4] and [5] together (the handler requires the ext whenever vault_lp_state is passed, P:46532)", () => {
     const plain = B.buildLevGuardPokeIxV22(c, signer, { vaultLpPortfolio: lp });
