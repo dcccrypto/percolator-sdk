@@ -10,6 +10,13 @@ import {
   ComputeBudgetProgram,
 } from "@solana/web3.js";
 import { parseErrorFromLogs } from "../abi/errors.js";
+import {
+  DEFAULT_CONFIRM_TIMEOUT_MS,
+  RpcDeadlineError,
+  SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS,
+  raceSignal,
+  startDeadline,
+} from "./deadline.js";
 
 /**
  * Rank of the three cluster confirmation levels the RPC reports in
@@ -112,6 +119,63 @@ export interface SimulateOrSendParams {
    * multiple of 1024 in [32768, 262144].
    */
   heapFrameBytes?: number;
+  /**
+   * Abort the whole call when this signal fires (e.g. the signal `RpcPool.call` hands to `fn`).
+   * Default: none.
+   */
+  signal?: AbortSignal;
+  /**
+   * Overall deadline for the whole call (blockhash, simulate or send, confirm, log fetch), in ms.
+   * Default: none. Before the send, passing it throws {@link RpcDeadlineError} (blockhash) or returns
+   * it as `err` (simulate). After the send, the result keeps the real signature and says the outcome is
+   * unknown, as for any other confirm failure.
+   */
+  timeoutMs?: number;
+  /**
+   * Deadline for the confirmation step alone, in ms. Default: {@link DEFAULT_CONFIRM_TIMEOUT_MS} (120 s).
+   * On a healthy RPC confirmation ends well before this (it confirms, or the blockhash expires after
+   * about 60-90 s). It only fires when the RPC stops serving `getBlockHeight` too, where web3.js would
+   * otherwise poll forever.
+   */
+  confirmTimeoutMs?: number;
+}
+
+const B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function encodeBase58(bytes: Uint8Array): string {
+  let n = 0n;
+  for (const b of bytes) n = (n << 8n) | BigInt(b);
+  let s = "";
+  while (n > 0n) {
+    s = B58_ALPHABET[Number(n % 58n)] + s;
+    n /= 58n;
+  }
+  for (const b of bytes) {
+    if (b === 0) s = "1" + s;
+    else break;
+  }
+  return s;
+}
+
+/**
+ * A view of `connection` for `confirmTransaction` whose `getSignatureStatus` never rejects.
+ *
+ * web3.js 1.99 `getTransactionConfirmationPromise` calls `this.getSignatureStatus(signature)` inside an
+ * async IIFE nobody awaits, so a failure of that one call (RPC timeout, `fetch failed`) is an unhandled
+ * rejection, which kills a Node process under the default `--unhandled-rejections=throw`. web3.js treats a
+ * `null` response as "no status yet" and keeps waiting on the subscription and the expiry check, so
+ * mapping a failure to `null` changes nothing else. Every other property goes to the real connection
+ * (reads and writes both), so web3.js's subscription state is shared, not copied.
+ */
+function withContainedStatusLookups(connection: Connection): Connection {
+  const contained = (...args: Parameters<Connection["getSignatureStatus"]>) =>
+    Promise.resolve()
+      .then(() => connection.getSignatureStatus(...args))
+      .catch(() => null);
+  return new Proxy(connection, {
+    get(target, prop, receiver) {
+      return prop === "getSignatureStatus" ? contained : Reflect.get(target, prop, receiver);
+    },
+  });
 }
 
 /**
@@ -133,6 +197,26 @@ const MAX_HEAP_FRAME_BYTES = 256 * 1024;
 export async function simulateOrSend(
   params: SimulateOrSendParams
 ): Promise<TxResult> {
+  const { signal, timeoutMs, confirmTimeoutMs = DEFAULT_CONFIRM_TIMEOUT_MS } = params;
+  if (typeof confirmTimeoutMs !== "number" || !Number.isFinite(confirmTimeoutMs) || confirmTimeoutMs <= 0) {
+    throw new Error(`confirmTimeoutMs must be a positive finite number of ms (got ${String(confirmTimeoutMs)})`);
+  }
+  const overall = startDeadline("simulateOrSend", { signal, timeoutMs });
+  try {
+    overall.signal?.throwIfAborted();
+    return await simulateOrSendInner(params, overall.signal, confirmTimeoutMs);
+  } finally {
+    overall.dispose();
+  }
+}
+
+async function simulateOrSendInner(
+  params: SimulateOrSendParams,
+  deadline: AbortSignal | undefined,
+  confirmTimeoutMs: number,
+): Promise<TxResult> {
+  /** Await an RPC call under the overall deadline (a no-op without one). */
+  const rpc = <T>(p: Promise<T>): Promise<T> => raceSignal(p, deadline);
   const {
     connection,
     ix,
@@ -201,14 +285,14 @@ export async function simulateOrSend(
   }
 
   tx.add(ix);
-  const latestBlockhash = await connection.getLatestBlockhash(effectiveCommitment);
+  const latestBlockhash = await rpc(connection.getLatestBlockhash(effectiveCommitment));
   tx.recentBlockhash = latestBlockhash.blockhash;
   tx.feePayer = signers[0].publicKey;
 
   if (simulate) {
     try {
       tx.sign(...signers);
-      const result = await connection.simulateTransaction(tx, signers);
+      const result = await rpc(connection.simulateTransaction(tx, signers));
       const logs = result.value.logs ?? [];
       let err: string | null = null;
       let hint: string | undefined;
@@ -252,9 +336,20 @@ export async function simulateOrSend(
   // signature was ever produced, so signature: "" is the correct result.
   let signature: string;
   try {
-    signature = await connection.sendTransaction(tx, signers, options);
+    signature = await rpc(connection.sendTransaction(tx, signers, options));
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
+    if (e instanceof RpcDeadlineError && tx.signature) {
+      // The deadline passed while the send was in flight: the node may still have received it.
+      // web3.js signs `tx` in place before sending, so its signature is the transaction id.
+      const sent = encodeBase58(tx.signature);
+      return {
+        signature: sent,
+        slot: 0,
+        err: `send status unknown (${message}) — the transaction may have reached the node; check signature ${sent} before retrying`,
+        logs: [],
+      };
+    }
     return {
       signature: "",
       slot: 0,
@@ -269,19 +364,35 @@ export async function simulateOrSend(
   const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
 
   try {
-    const confirmation = await connection.confirmTransaction(
-      {
-        signature,
-        blockhash: latestBlockhash.blockhash,
-        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-      },
-      effectiveCommitment
+    // Bound confirmation (the overall deadline, or confirmTimeoutMs, whichever is first) and hand web3.js
+    // the abortSignal so it stops its own polling too.
+    const confirmDeadline = startDeadline(
+      "simulateOrSend confirm",
+      { signal: deadline, timeoutMs: confirmTimeoutMs },
+      "confirmTimeoutMs",
     );
+    let confirmation: Awaited<ReturnType<Connection["confirmTransaction"]>>;
+    try {
+      confirmation = await raceSignal(
+        withContainedStatusLookups(connection).confirmTransaction(
+          {
+            signature,
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            abortSignal: confirmDeadline.signal,
+          },
+          effectiveCommitment,
+        ),
+        confirmDeadline.signal,
+      );
+    } finally {
+      confirmDeadline.dispose();
+    }
 
-    const txInfo = await connection.getTransaction(signature, {
+    const txInfo = await rpc(connection.getTransaction(signature, {
       commitment: txFinality,
       maxSupportedTransactionVersion: 1,
-    });
+    }));
 
     const logs = txInfo?.meta?.logMessages ?? [];
     let err: string | null = null;
@@ -315,20 +426,26 @@ export async function simulateOrSend(
     // reporting failure, and always return the real signature so the caller can verify
     // it themselves even if this fallback check also fails.
     const message = e instanceof Error ? e.message : String(e);
+    // The lookup gets its own short bound (confirmTimeoutMs capped at 30 s, and the overall deadline if
+    // any): it runs after confirm already failed, and a stalled RPC would otherwise hold it for minutes.
+    const lookup = startDeadline("simulateOrSend status lookup", {
+      signal: deadline,
+      timeoutMs: Math.min(SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS, confirmTimeoutMs),
+    });
     try {
-      const status = await connection.getSignatureStatus(signature, {
+      const status = await raceSignal(connection.getSignatureStatus(signature, {
         searchTransactionHistory: true,
-      });
+      }), lookup.signal);
       // Only treat the fallback lookup as authoritative when the observed level
       // actually satisfies the commitment the caller asked for. `status.value`
       // being non-null merely means the cluster has SEEN the transaction — at
       // "processed" it can still be dropped or rolled back, and reporting that
       // as a settled success would be the same premature-settlement bug #311 fixed.
       if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
-        const txInfo = await connection.getTransaction(signature, {
+        const txInfo = await raceSignal(connection.getTransaction(signature, {
           commitment: txFinality,
           maxSupportedTransactionVersion: 1,
-        });
+        }), lookup.signal);
         const logs = txInfo?.meta?.logMessages ?? [];
         let err: string | null = null;
         let hint: string | undefined;
@@ -369,6 +486,8 @@ export async function simulateOrSend(
     } catch {
       // Status lookup itself failed too — fall through to the ambiguous result below,
       // which still carries the real signature instead of discarding it.
+    } finally {
+      lookup.dispose();
     }
     return {
       signature,

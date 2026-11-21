@@ -355,11 +355,9 @@ describe("discoverMarkets: fallback tiers", () => {
   // SWALLOWED RPC ERROR (reported, NOT fixed in this PR — same class as indexer #286):
   // src/solana/discovery.ts:787-793 (`catch (memcmpErr)` only console.warn's) after
   // 765-770 (outer `catch (err)`). When every getProgramAccounts call rejects (RPC down /
-  // rejects gPA), discoverMarkets resolves to [] — indistinguishable from "no markets".
-  // The correct contract is to surface the failure. `it.fails` keeps the suite green while
-  // the bug stands; when it is fixed this test starts "passing" and vitest flags it so the
-  // `.fails` can be removed.
-  it.fails("BUG: RPC down for every query should reject, not resolve to []", async () => {
+  // rejects gPA), discoverMarkets used to resolve to [] — indistinguishable from "no markets".
+  // Fixed (J-20261121-SDK-FIX-HUNGRPCDEADLINE): it now rejects with DiscoveryFailedError.
+  it("RPC down for every query rejects, not resolves to []", async () => {
     const c = conn();
     c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
     await expect(discoverMarkets(c, programId)).rejects.toThrow(/RPC down/);
