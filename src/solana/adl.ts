@@ -41,6 +41,7 @@ import {
   Account,
   SlabLayout,
 } from "./slab.js";
+import { redactUrl } from "./redact-url.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -591,6 +592,9 @@ export interface AdlApiResult {
   rankings: AdlApiRanking[];
 }
 
+/** Max chars of an HTTP error body kept in a fetchAdlRankings error message. */
+const MAX_ERROR_BODY_CHARS = 200;
+
 /**
  * Fetch ADL rankings from the Percolator API.
  *
@@ -626,8 +630,10 @@ export async function fetchAdlRankings(
   if (!res.ok) {
     let body = "";
     try { body = await res.text(); } catch { /* ignore */ }
+    // Cap the body: a gateway may echo the request URL/headers (and so the key) on error.
+    if (body.length > MAX_ERROR_BODY_CHARS) body = `${body.slice(0, MAX_ERROR_BODY_CHARS)}…`;
     throw new Error(
-      `fetchAdlRankings: HTTP ${res.status} from ${url}${body ? ` — ${body}` : ""}`,
+      `fetchAdlRankings: HTTP ${res.status} from ${redactUrl(url)}${body ? ` — ${body}` : ""}`,
     );
   }
 
