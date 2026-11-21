@@ -428,7 +428,7 @@ describe("tag 124 accounts vs Rust handler", { timeout: 60_000 }, () => {
       .toEqual(base.keys.map((m) => [m.pubkey.toBase58(), m.isSigner, m.isWritable]));
   });
 
-  it("LpStop passes every opposing portfolio as [6..], writable, in order, for n = 0..8 (P:46901)", () => {
+  it("LpStop passes every opposing portfolio as [6..], writable, in order, for n = 0..8 (P:46880, expect_writable P:46901)", () => {
     for (let n = 0; n <= 8; n++) {
       const opp = Array.from({ length: n }, () => Keypair.generate().publicKey);
       const ix = B.buildLevGuardLpStopIxV22(c, signer, lp, opp);
