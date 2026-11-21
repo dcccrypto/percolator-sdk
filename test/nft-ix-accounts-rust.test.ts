@@ -14,10 +14,10 @@
  * Data  — Mint: tag + asset_index u16 LE, exactly 3 bytes (instruction.rs:214-221);
  *         Burn/SettleFunding/EmergencyBurn/Reconcile/Repair: tag only, trailing bytes rejected
  *         (instruction.rs:222-257).
- * Seeds — position_nft: state_v16.rs:34,130-145 ["position_nft", portfolio, market_id u64 LE];
+ * Seeds — position_nft: state_v16.rs:34,130-143 ["position_nft", portfolio, market_id u64 LE];
  *         mint_authority: state_v16.rs:37,148-150 ["mint_authority"];
  *         extra-account-metas: transfer_hook.rs:68,71-73 ["extra-account-metas", mint];
- *         nft_registry (under the WRAPPER id): cpi_v16.rs:60,71-76 ["nft_registry", market_group].
+ *         nft_registry (under the WRAPPER id): cpi_v16.rs:60,70-75 ["nft_registry", market_group].
  */
 import { describe, expect, it } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
@@ -59,7 +59,7 @@ const RUST_TAGS: Record<keyof typeof NFT_IX_TAG, [number, string]> = {
 // ── Account tables (processor.rs handlers) ───────────────────────────────────
 // MintPositionNft — process_mint_position_nft, processor.rs:298-316 (order), docs instruction.rs:16-34.
 const RUST_MINT: Row[] = [
-  r("owner", true, true, "processor.rs:305,333 is_signer; pays PositionNft PDA rent (processor.rs:459-460)"),
+  r("owner", true, true, "processor.rs:305,333 is_signer; pays rent: transfers processor.rs:479-482,710-713"),
   r("nft_pda", false, true, "processor.rs:306,338 is_writable"),
   r("nft_mint", true, true, "processor.rs:307,341 is_writable; 435 is_signer (fresh keypair)"),
   r("owner_ata", false, true, "processor.rs:308,344 is_writable"),
@@ -68,7 +68,7 @@ const RUST_MINT: Row[] = [
   r("token_program", false, false, "processor.rs:311,319 key == TOKEN_2022"),
   r("ata_program", false, false, "processor.rs:312,323 key == ATA program"),
   r("system_program", false, false, "processor.rs:313,327 key == system"),
-  r("extra_metas", false, true, "processor.rs:314; created by invoke_signed processor.rs:684-704"),
+  r("extra_metas", false, true, "processor.rs:314; funded + allocate/assign via invoke_signed processor.rs:710-724"),
   r("nft_registry", false, false, "processor.rs:315,415 validate_nft_registry; CPI new_readonly processor.rs:62"),
   r("percolator_prog", false, false, "processor.rs:316; CPI program_id processor.rs:58"),
 ];
@@ -178,7 +178,7 @@ describe("NFT PDAs vs state_v16.rs / transfer_hook.rs / cpi_v16.rs seeds", () =>
   const other = Keypair.generate().publicKey;
   const programs = [NFT_PROGRAM_ID, other];
 
-  it("deriveNftPda = ['position_nft', portfolio, market_id u64 LE] (state_v16.rs:130-145)", () => {
+  it("deriveNftPda = ['position_nft', portfolio, market_id u64 LE] (state_v16.rs:130-143)", () => {
     const portfolio = Keypair.generate().publicKey;
     for (const pid of programs) {
       for (const marketId of [0n, 1n, 0x0102030405060708n, 0xffff_ffff_ffff_ffffn]) {
@@ -211,7 +211,7 @@ describe("NFT PDAs vs state_v16.rs / transfer_hook.rs / cpi_v16.rs seeds", () =>
     }
   });
 
-  it("deriveNftRegistry = ['nft_registry', market_group] under the WRAPPER id (cpi_v16.rs:60,71-76)", () => {
+  it("deriveNftRegistry = ['nft_registry', market_group] under the WRAPPER id (cpi_v16.rs:60,70-75)", () => {
     const wrapper = Keypair.generate().publicKey;
     const group = Keypair.generate().publicKey;
     const want = PublicKey.findProgramAddressSync([enc.encode("nft_registry"), group.toBytes()], wrapper);
