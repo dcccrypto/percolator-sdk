@@ -1,0 +1,26 @@
+
+ RUN  v4.1.12 /Users/khubair/agent-work/wt/J-20261121-SDK-GATE-PR653
+
+ ❯ test/spl-token-lite-parity.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/spl-token-lite-parity.test.ts [ test/spl-token-lite-parity.test.ts ]
+Error: Cannot find module '../src/solana/spl-token-lite.js' imported from /Users/khubair/agent-work/wt/J-20261121-SDK-GATE-PR653/test/spl-token-lite-parity.test.ts
+ ❯ test/spl-token-lite-parity.test.ts:15:1
+     13| import { Keypair, PublicKey, TransactionInstruction } from "@solana/we…
+     14| import * as spl from "@solana/spl-token";
+     15| import * as lite from "../src/solana/spl-token-lite.js";
+       | ^
+     16| import { TOKEN_2022_PROGRAM_ID as TP_2022 } from "../src/solana/token-…
+     17| import { TOKEN_2022_PROGRAM_ID as STAKE_2022 } from "../src/solana/sta…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  23:48:55
+   Duration  7.34s (transform 296ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+
+base_exit=1

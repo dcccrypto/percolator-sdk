@@ -1,0 +1,10 @@
+
+ RUN  v4.1.12 /Users/khubair/agent-work/wt/J-20261121-SDK-GATE-PR653-head
+
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  23:49:20
+   Duration  15.35s (transform 1.40s, setup 0ms, import 5.51s, tests 6.66s, environment 17ms)
+
+head_exit=0

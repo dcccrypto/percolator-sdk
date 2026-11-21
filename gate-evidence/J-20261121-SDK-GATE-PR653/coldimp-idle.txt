@@ -1,0 +1,4 @@
+cond=idle runs=20 loadavg1=28.6-33.1
+| target | exports | import wall ms p50/p95 | import CPU ms p50/p95 | process wall ms p50/p95 | heap MB after gc p50/p95 | heap MB no-gc p50/p95 |
+| base 98b01a75 | 1659 | 6862.4 / 9798.6 | 578.4 / 648.6 | 9371.0 / 12491.6 | 15.8 / 15.9 | 19.4 / 19.6 |
+| head 776216b3 | 1659 | 3855.2 / 5888.6 | 310.5 / 357.4 | 6340.6 / 8859.3 | 13.5 / 13.5 | 17.1 / 17.2 |

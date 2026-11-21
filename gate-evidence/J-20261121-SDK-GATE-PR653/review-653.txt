@@ -1,0 +1,5 @@
+HEAD: 776216b3aa3c88e26f4074ff8dfab324f13022e3
+FINDING: nit | CHANGELOG.md:3 | The entry says spl-token is now a devDependency, but it doesn't tell downstream apps that were using `@solana/spl-token` through the SDK's install that they now need to add it as their own dependency. A one-line migration note would help.
+VERDICT: APPROVE
+
+Fresh claude-reviewer (Opus 5.5), read-only, J-20261121-SDK-GATE-PR653. Compared src/solana/spl-token-lite.ts line by line with node_modules/@solana/spl-token 0.4.14 (constants, state/account, instructions/associatedTokenAccount, errors). Program ids, ATA derivation (allowOwnerOffCurve default false, isOnCurve check, seeds), idempotent ix (6 keys, flags, data [1]), unpackAccount check order and field offsets 72/76/108/109/113/121/129/133, tlvData slice(166), and DataView byteOffset handling all match. No runtime or type spl-token import is left in non-test src/ or dist/. The dist export list is identical to base, and a dist rebuild is byte-identical. parity+ata tests 20/20 passed.
