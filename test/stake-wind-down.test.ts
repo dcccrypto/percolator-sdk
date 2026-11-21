@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Keypair, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import {
   STAKE_IX,
@@ -161,6 +162,13 @@ describe("planStakeWindDown", () => {
   const args = (marketData: Uint8Array) => ({
     stakeProgram: STAKE, wrapperProgram: W, caller: pk(), admin: pk(), pool: pk(), poolVault: pk(), vaultAuth: pk(),
     market: pk(), marketData, wrapperVault: pk(), poolDestToken: pk(), collateralMint: pk(), closePortfolioIxs: [] as TransactionInstruction[], riskMode: 0 as const,
+  });
+  it("pin: rejects a Token-2022 tokenProgram via the step builders (already enforced before the CloseSlab fix)", () => {
+    const a = args(synth({ mode: 1, vault: 10_000n, insurance: 5_000n, srcReserved: 0n, bL: 2_500n, sL: 0n, bS: 2_500n, sS: 0n }));
+    const t22 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+    expect(() => planStakeWindDown({ ...a, tokenProgram: t22 })).toThrow(/classic SPL Token program/);
+    expect(() => planStakeWindDown({ ...a, tokenProgram: TOKEN_PROGRAM_ID })).not.toThrow();
+    expect(() => planStakeWindDown(a)).not.toThrow();
   });
   it("orders (a) close portfolios → (b) tag 29 capacity → (c) tag 29 amount 0 → (d) tag 30 until tombstone", () => {
     const a = args(synth({ mode: 1, vault: 10_000n, insurance: 5_000n, srcReserved: 0n, bL: 2_500n, sL: 0n, bS: 2_500n, sS: 0n }));
