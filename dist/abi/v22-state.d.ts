@@ -209,7 +209,7 @@ export interface G9FeedAllowlistV22 {
  * @param table  Layout table (default {@link LAYOUT_V22}).
  * @returns The allowlist.
  * @throws {@link UnknownLayoutError} on a wrong header, short data, `count`/`pending_count` > 16, non-zero padding, a
- *   zero or duplicate listed key, or a non-zero unlisted slot (keys or owners).
+ *   zero listed/pending key or owner, a duplicate key, a non-zero unlisted slot, or `pending_slot == 0` xor `pending_count == 0`.
  */
 export declare function decodeG9FeedAllowlistV22(data: Uint8Array, table?: LayoutTable): G9FeedAllowlistV22;
 /** Decoded redemption request, both account lengths. */
