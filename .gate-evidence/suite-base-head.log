@@ -1,0 +1,3 @@
+[with-lock] yielding /tmp/agent-full-suite.lock to waiting merge gate(s) 17251,40949
+[with-lock] still yielding to merge gates 40949,70662 after 10 min
+with-lock exit 75

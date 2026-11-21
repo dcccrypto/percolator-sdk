@@ -1,0 +1,9 @@
+HEAD: 51364ec68a4afbda9ea3366ca18069c959529693
+FINDING: low | src/solana/discovery.ts:894 | discoverMarkets with no options now throws DiscoveryFailedError instead of returning [] when all RPC queries fail and no fallback answered; intentional, tested and JSDoc'd, but not in README/CHANGELOG.
+FINDING: low | src/runtime/tx.ts:347 | If the overall deadline fires while web3.js sendTransaction is still fetching its blockhash, signature is "" while web3.js may still sign and broadcast in the background; err says "send status unknown" (not misreported), but no signature to look up. Sign-then-sendRawTransaction would fix it (already a declined follow-up in the PR).
+FINDING: nit | src/runtime/tx.ts:339 | No deadline?.throwIfAborted() before connection.sendTransaction(...); a synchronous caller abort in that microtask window would still start a send.
+FINDING: nit | src/solana/discovery.ts:683 | isRateLimitError matches substring "429"; a timeoutMs containing 429 makes an RpcDeadlineError look rate-limited and sequential mode keeps retrying in the background after the caller is rejected (timers/log noise only).
+FINDING: nit | src/runtime/txv1.ts:818 | sendV1 raw-fetch path does not pass the deadline signal into fetchImpl; rejects on time via withRpcDeadline but the HTTP request stays in flight.
+VERDICT: APPROVE
+SCORE: 8/10
+REVIEWER: fresh isolated claude-reviewer (Claude Opus 5.5), read-only, J-20261121-SDK-GATE-PR650, 2026-11-21. Verified: Proxy this-binding vs web3.js 1.99, null status semantics, timer/listener disposal in finally, no unhandled late rejections, no-option pass-through except 120 s confirm cap, signature compatibility, tsc clean, hung-rpc 20/20 on head, dist contains new code.
