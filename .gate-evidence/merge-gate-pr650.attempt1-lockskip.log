@@ -1,0 +1,37 @@
+[gate] head-install: exit 0 in 38s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072/01-head-install.log
+[gate] lock-skip: 2026-11-21T20:50:13.924Z percolator-sdk#650 head 51364ec6 head-suite no skip: load 2.24/cpu >= 1.8; normal locked path
+[gate] lane percolator-sdk: load 2.24/cpu >= 2.0, waiting (max 15 min)
+2026-11-21T20:55:48.257Z [gate] head-suite: waited 6 min for agent-full-suite-percolator-sdk.lock; queue position 1; holder: merge-gate pid 65743 percolator-sdk#651 head-coverage since 2026-11-21T20:50:50.126Z
+[gate] lock wait for /tmp/agent-full-suite-percolator-sdk.lock (head-suite) exceeded 10 min (total lock waits over 10 min); skipping local suite and relying on CI
+[gate] lock wait 10 min credited back; total waited 10 min; deadline now 2026-11-21T21:59:25.580Z
+2026-11-21T21:00:21.943Z [gate] head-suite GIVE-UP-CI: waited 10 min for agent-full-suite-percolator-sdk.lock; queue position 1; holder: none (free; older gate ahead)
+[gate] lock-skip: 2026-11-21T21:00:21.943Z percolator-sdk#650 head 51364ec6 head-suite SKIP lock: waited 10 min; relying on CI (not a code failure)
+[gate] fail-before: exit 1 in 237s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072/02-fail-before.log
+[gate] pass-after: exit 0 in 60s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072/03-pass-after.log
+
+MERGE GATE FAIL  dcccrypto/percolator-sdk#650  head 51364ec68a4a  base feat/v22-sdk-growth  (2026-11-21T21:05:54.825Z)
++-----+----------------------------------------------+----------+
+| #   | Check                                        | Result   |
++-----+----------------------------------------------+----------+
+| 1   | Independent rerun (fresh worktree @ head)    | FAIL     |
+| 2   | New test fails before / passes after         | PASS     |
+| 3   | Full suite passes + coverage not down        | FAIL     |
+| 4   | Fresh AI review: no high/medium              | PASS     |
+| 5   | Live PR state (gh)                           | PASS     |
+| 6   | Merge logged with revert                     | BLOCKED  |
++-----+----------------------------------------------+----------+
+Evidence:
+  [1] FAIL: local head suite skipped and CI did not prove a full suite at 51364ec68a4a (suite job "build-and-test" missing at 51364ec68a4a; coverage required but no CI coverage job is configured for dcccrypto/percolator-sdk (ci.yml only triggers for PRs into main; no coverage job.)) || local head suite skipped after 608s lock wait; CI proof at exact head: none
+  [2] `npx -y pnpm@10 exec vitest run --maxWorkers=4 --testTimeout=60000 test/hung-rpc.test.ts` | before (src dist/index.js,dist/index.js.map,dist/runtime/deadline.d.ts,dist/runtime/index.d.ts,dist/runtime/tx.d.ts,dist/runtime/txv1.d.ts,dist/solana/discovery.d.ts,dist/solana/slab.d.ts,src/runtime/deadline.ts,src/runtime/index.ts,src/runtime/tx.ts,src/runtime/txv1.ts,src/solana/discovery.ts,src/solana/slab.ts @ base tip a321eefc33f6): exit 1, 0 passed/20 failed | after (head 51364ec68a4a): exit 0, 20 passed/0 failed | logs /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072/02-fail-before.log, /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072/03-pass-after.log
+  [3] FAIL: local suite/coverage skipped and CI did not prove them at 51364ec68a4a: suite job "build-and-test" missing at 51364ec68a4a; coverage required but no CI coverage job is configured for dcccrypto/percolator-sdk (ci.yml only triggers for PRs into main; no coverage job.) || local suite+coverage skipped after 608s lock wait; CI proof at exact head 51364ec68a4a: none
+  [4] /Users/khubair/agent-work/wt/J-20261121-SDK-GATE-PR650/.gate-evidence/review-pr650.txt | head 51364ec68a4afbda9ea3366ca18069c959529693 | verdict APPROVE | findings {"low":2,"nit":3}
+  [5] https://github.com/dcccrypto/percolator-sdk/pull/650 | head 51364ec68a4a (expected 51364ec68a4afbda9ea3366ca18069c959529693) | base feat/v22-sdk-growth@f0ee6d85bea0 (default main) | OPEN | MERGEABLE/CLEAN | CI: CodeRabbit=SUCCESS | +1092/-89 in 19 files | re-verified live at end of run
+  [6] gate did not pass: do not merge
+
+Merge command: NONE (gate FAILED, do not merge)
+
+Ledger line template (check 6; use only after a gate PASS and the merge):
+  - 2026-11-21T21:05Z MERGED dcccrypto/percolator-sdk#650 "fix(sdk): stalled RPC no longer hangs send+confirm forever or turns discovery into a silent []" into feat/v22-sdk-growth: head 51364ec68a4a -> merge <MERGE_SHA>. Gate PASS (/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072/result.json). Revert: git -C ~/agent-work/percolator-sdk fetch origin feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk switch -c revert-pr650 origin/feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk revert -m1 <MERGE_SHA> (then PR revert-pr650 into feat/v22-sdk-growth)
+
+Logs: /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072
+gate exit 1

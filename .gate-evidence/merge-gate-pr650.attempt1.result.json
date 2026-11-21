@@ -1,0 +1,138 @@
+{
+ "tool": "merge-gate",
+ "version": "1.0",
+ "verdict": "FAIL",
+ "repo": "dcccrypto/percolator-sdk",
+ "pr": 650,
+ "expect_head": "51364ec68a4afbda9ea3366ca18069c959529693",
+ "checks": {
+  "1": {
+   "result": "FAIL",
+   "evidence": "FAIL: local head suite skipped and CI did not prove a full suite at 51364ec68a4a (suite job \"build-and-test\" missing at 51364ec68a4a; coverage required but no CI coverage job is configured for dcccrypto/percolator-sdk (ci.yml only triggers for PRs into main; no coverage job.)) || local head suite skipped after 608s lock wait; CI proof at exact head: none"
+  },
+  "2": {
+   "result": "PASS",
+   "evidence": "`npx -y pnpm@10 exec vitest run --maxWorkers=4 --testTimeout=60000 test/hung-rpc.test.ts` | before (src dist/index.js,dist/index.js.map,dist/runtime/deadline.d.ts,dist/runtime/index.d.ts,dist/runtime/tx.d.ts,dist/runtime/txv1.d.ts,dist/solana/discovery.d.ts,dist/solana/slab.d.ts,src/runtime/deadline.ts,src/runtime/index.ts,src/runtime/tx.ts,src/runtime/txv1.ts,src/solana/discovery.ts,src/solana/slab.ts @ base tip a321eefc33f6): exit 1, 0 passed/20 failed | after (head 51364ec68a4a): exit 0, 20 passed/0 failed | logs /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072/02-fail-before.log, /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072/03-pass-after.log"
+  },
+  "3": {
+   "result": "FAIL",
+   "evidence": "FAIL: local suite/coverage skipped and CI did not prove them at 51364ec68a4a: suite job \"build-and-test\" missing at 51364ec68a4a; coverage required but no CI coverage job is configured for dcccrypto/percolator-sdk (ci.yml only triggers for PRs into main; no coverage job.) || local suite+coverage skipped after 608s lock wait; CI proof at exact head 51364ec68a4a: none"
+  },
+  "4": {
+   "result": "PASS",
+   "evidence": "/Users/khubair/agent-work/wt/J-20261121-SDK-GATE-PR650/.gate-evidence/review-pr650.txt | head 51364ec68a4afbda9ea3366ca18069c959529693 | verdict APPROVE | findings {\"low\":2,\"nit\":3}"
+  },
+  "5": {
+   "result": "PASS",
+   "evidence": "https://github.com/dcccrypto/percolator-sdk/pull/650 | head 51364ec68a4a (expected 51364ec68a4afbda9ea3366ca18069c959529693) | base feat/v22-sdk-growth@f0ee6d85bea0 (default main) | OPEN | MERGEABLE/CLEAN | CI: CodeRabbit=SUCCESS | +1092/-89 in 19 files | re-verified live at end of run"
+  },
+  "6": {
+   "result": "BLOCKED",
+   "evidence": "gate did not pass: do not merge"
+  }
+ },
+ "evidence": {
+  "pr": {
+   "url": "https://github.com/dcccrypto/percolator-sdk/pull/650",
+   "title": "fix(sdk): stalled RPC no longer hangs send+confirm forever or turns discovery into a silent []",
+   "head": "51364ec68a4afbda9ea3366ca18069c959529693",
+   "base": "feat/v22-sdk-growth",
+   "base_sha": "f0ee6d85bea0372f770c2d0526d9bb1bd9adb303",
+   "default_branch": "main",
+   "state": "OPEN",
+   "mergeable": "MERGEABLE",
+   "merge_state": "CLEAN",
+   "ci": [
+    {
+     "name": "CodeRabbit",
+     "status": "SUCCESS",
+     "conclusion": null
+    }
+   ],
+   "files": [
+    "dist/index.js",
+    "dist/index.js.map",
+    "dist/runtime/deadline.d.ts",
+    "dist/runtime/index.d.ts",
+    "dist/runtime/tx.d.ts",
+    "dist/runtime/txv1.d.ts",
+    "dist/solana/discovery.d.ts",
+    "dist/solana/slab.d.ts",
+    "src/runtime/deadline.ts",
+    "src/runtime/index.ts",
+    "src/runtime/tx.ts",
+    "src/runtime/txv1.ts",
+    "src/solana/discovery.ts",
+    "src/solana/slab.ts",
+    "test/discovery-api-fallback.test.ts",
+    "test/discovery-branches.test.ts",
+    "test/discovery-fallback-integration.test.ts",
+    "test/discovery-static-fallback.test.ts",
+    "test/hung-rpc.test.ts"
+   ]
+  },
+  "changed": {
+   "tests_or_docs_only": false,
+   "docs_only": false,
+   "src_files": [
+    "dist/index.js",
+    "dist/index.js.map",
+    "dist/runtime/deadline.d.ts",
+    "dist/runtime/index.d.ts",
+    "dist/runtime/tx.d.ts",
+    "dist/runtime/txv1.d.ts",
+    "dist/solana/discovery.d.ts",
+    "dist/solana/slab.d.ts",
+    "src/runtime/deadline.ts",
+    "src/runtime/index.ts",
+    "src/runtime/tx.ts",
+    "src/runtime/txv1.ts",
+    "src/solana/discovery.ts",
+    "src/solana/slab.ts"
+   ],
+   "test_files": [
+    "test/discovery-api-fallback.test.ts",
+    "test/discovery-branches.test.ts",
+    "test/discovery-fallback-integration.test.ts",
+    "test/discovery-static-fallback.test.ts",
+    "test/hung-rpc.test.ts"
+   ],
+   "doc_files": []
+  },
+  "worktrees": {
+   "head": "/Users/khubair/agent-work/percolator-sdk.gate-pr650-head-2026-11-21T20491757-81072",
+   "head_sha": "51364ec68a4afbda9ea3366ca18069c959529693",
+   "base_tip": "a321eefc33f63f01cca6e191ea9bc6d7612c6be2",
+   "merge_base": "f0ee6d85bea0372f770c2d0526d9bb1bd9adb303",
+   "behind_by": 1,
+   "merge_preview": "6f19d7c0b176196eab29d324fc084633a87b047f",
+   "logs": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072"
+  },
+  "repo_type": {
+   "kind": "vitest",
+   "pm": "pnpm",
+   "pnpm": "npx -y pnpm@10",
+   "prog": false,
+   "test_cmd": "npx -y pnpm@10 run test --maxWorkers=4 --testTimeout=60000",
+   "cov_cmd": "npx -y pnpm@10 exec vitest run --maxWorkers=4 --testTimeout=60000 --coverage.enabled=true --coverage.provider=v8 --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reportsDirectory=__COVDIR__",
+   "coverage_na": null
+  },
+  "coverage": {
+   "na": "NOT proven: suite job \"build-and-test\" missing at 51364ec68a4a; coverage required but no CI coverage job is configured for dcccrypto/percolator-sdk (ci.yml only triggers for PRs into main; no coverage job.)",
+   "ci_proof": {
+    "ok": false,
+    "suiteOk": false,
+    "covOk": false,
+    "pending": false,
+    "why": "suite job \"build-and-test\" missing at 51364ec68a4a; coverage required but no CI coverage job is configured for dcccrypto/percolator-sdk (ci.yml only triggers for PRs into main; no coverage job.)",
+    "good": [],
+    "waitedSecs": 2
+   }
+  }
+ },
+ "merge_cmd": null,
+ "ledger_template": "- 2026-11-21T21:05Z MERGED dcccrypto/percolator-sdk#650 \"fix(sdk): stalled RPC no longer hangs send+confirm forever or turns discovery into a silent []\" into feat/v22-sdk-growth: head 51364ec68a4a -> merge <MERGE_SHA>. Gate PASS (/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072/result.json). Revert: git -C ~/agent-work/percolator-sdk fetch origin feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk switch -c revert-pr650 origin/feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk revert -m1 <MERGE_SHA> (then PR revert-pr650 into feat/v22-sdk-growth)",
+ "revert_cmd": "git revert -m1 <MERGE_SHA>",
+ "logs": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr650-2026-11-21T20491757-81072",
+ "at": "2026-11-21T21:05:54.827Z"
+}

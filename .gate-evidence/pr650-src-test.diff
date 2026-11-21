@@ -1,0 +1,1120 @@
+diff --git a/src/runtime/deadline.ts b/src/runtime/deadline.ts
+new file mode 100644
+index 00000000..c3f35f44
+--- /dev/null
++++ b/src/runtime/deadline.ts
+@@ -0,0 +1,193 @@
++import { Connection, type ConnectionConfig } from "@solana/web3.js";
++
++/**
++ * Optional deadline for an SDK RPC flow.
++ *
++ * Both fields are optional. With neither set the flow behaves exactly as before (no SDK deadline).
++ * With either set, the flow rejects with an {@link RpcDeadlineError} once the deadline passes, and it
++ * starts no new RPC request after that point.
++ *
++ * The deadline bounds the caller, not the request already on the wire: web3.js 1.x gives no way to
++ * cancel an in-flight request from outside the `Connection`. To also cut the socket, build the
++ * `Connection` with {@link createTimeoutConnection}.
++ */
++export interface RpcDeadlineOptions {
++  /** Abort the flow when this signal fires (for example the signal `RpcPool.call` hands to `fn`). */
++  signal?: AbortSignal;
++  /** Overall budget for the flow, in ms. Must be a positive finite number. */
++  timeoutMs?: number;
++}
++
++/** Thrown when an SDK RPC flow passes its {@link RpcDeadlineOptions} deadline or its signal aborts. */
++export class RpcDeadlineError extends Error {
++  readonly label: string;
++  readonly reason: "timeout" | "aborted";
++  readonly timeoutMs?: number;
++
++  constructor(label: string, reason: "timeout" | "aborted", timeoutMs?: number, cause?: unknown) {
++    super(
++      reason === "timeout"
++        ? `${label}: RPC deadline of ${timeoutMs} ms passed`
++        : `${label}: aborted by the caller's signal`,
++    );
++    this.name = "RpcDeadlineError";
++    this.label = label;
++    this.reason = reason;
++    this.timeoutMs = timeoutMs;
++    if (cause !== undefined) Object.defineProperty(this, "cause", { value: cause, enumerable: false });
++  }
++}
++
++/**
++ * Default overall deadline for `simulateOrSend`'s confirmation step (`confirmTimeoutMs`), in ms.
++ *
++ * On a healthy RPC web3.js always ends confirmation by itself: it resolves, or it throws once the blockhash
++ * expires (about 60-90 s after `getLatestBlockhash`). This deadline only fires when the RPC stops serving
++ * `getBlockHeight` as well, the case in which web3.js would otherwise poll forever.
++ */
++export const DEFAULT_CONFIRM_TIMEOUT_MS = 120_000;
++
++/** Bound on `simulateOrSend`'s fallback `getSignatureStatus` lookup after a confirm failure, in ms. */
++export const SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS = 30_000;
++
++/** Default per-request timeout of {@link createTimeoutFetch} / {@link createTimeoutConnection}, in ms. */
++export const DEFAULT_RPC_REQUEST_TIMEOUT_MS = 30_000;
++
++function assertTimeoutMs(name: string, ms: number): void {
++  if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) {
++    throw new Error(`${name} must be a positive finite number of ms (got ${String(ms)})`);
++  }
++}
++
++/** @internal A live deadline: `signal` aborts with an {@link RpcDeadlineError}; call `dispose` when done. */
++export interface Deadline {
++  signal: AbortSignal | undefined;
++  dispose(): void;
++}
++
++/**
++ * @internal Combine a caller signal and/or a timeout into one signal whose reason is an RpcDeadlineError.
++ * Returns `signal: undefined` (and sets no timer) when neither is given.
++ */
++export function startDeadline(label: string, o: RpcDeadlineOptions | undefined, timeoutName = "timeoutMs"): Deadline {
++  const outer = o?.signal;
++  const ms = o?.timeoutMs;
++  if (outer == null && ms === undefined) return { signal: undefined, dispose() {} };
++  if (ms !== undefined) assertTimeoutMs(timeoutName, ms);
++
++  const controller = new AbortController();
++  let timer: ReturnType<typeof setTimeout> | undefined;
++  // An outer deadline that already carries an RpcDeadlineError (a parent timeout) is passed on as is,
++  // so the error says "timeout" rather than "aborted by the caller's signal".
++  const onOuterAbort = () =>
++    controller.abort(
++      outer?.reason instanceof RpcDeadlineError ? outer.reason : new RpcDeadlineError(label, "aborted", undefined, outer?.reason),
++    );
++  if (outer?.aborted) {
++    onOuterAbort();
++  } else {
++    outer?.addEventListener("abort", onOuterAbort, { once: true });
++    if (ms !== undefined) timer = setTimeout(() => controller.abort(new RpcDeadlineError(label, "timeout", ms)), ms);
++  }
++  return {
++    signal: controller.signal,
++    dispose() {
++      if (timer !== undefined) clearTimeout(timer);
++      outer?.removeEventListener("abort", onOuterAbort);
++    },
++  };
++}
++
++/**
++ * @internal Settle with `p`, or reject with `signal.reason` as soon as `signal` aborts. A rejection of `p`
++ * after the abort is handled here, so an abandoned request can never become an unhandled rejection.
++ */
++export function raceSignal<T>(p: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
++  if (!signal) return p;
++  if (signal.aborted) {
++    p.catch(() => {});
++    return Promise.reject(signal.reason);
++  }
++  return new Promise<T>((resolve, reject) => {
++    const onAbort = () => reject(signal.reason);
++    signal.addEventListener("abort", onAbort, { once: true });
++    p.then(
++      (v) => { signal.removeEventListener("abort", onAbort); resolve(v); },
++      (e) => { signal.removeEventListener("abort", onAbort); reject(e); },
++    );
++  });
++}
++
++/**
++ * @internal Run `fn` under the deadline in `o`. With no deadline this is exactly `fn(undefined)`. Otherwise
++ * `fn` gets the deadline signal (check it with `signal?.throwIfAborted()` before each new request) and the
++ * returned promise rejects with an {@link RpcDeadlineError} as soon as the deadline passes.
++ */
++export async function withRpcDeadline<T>(
++  label: string,
++  o: RpcDeadlineOptions | undefined,
++  fn: (signal: AbortSignal | undefined) => Promise<T>,
++): Promise<T> {
++  const d = startDeadline(label, o);
++  if (!d.signal) return fn(undefined);
++  try {
++    d.signal.throwIfAborted();
++    return await raceSignal((async () => fn(d.signal))(), d.signal);
++  } finally {
++    d.dispose();
++  }
++}
++
++type FetchLike = (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => Promise<Response>;
++
++/**
++ * Wrap `fetch` so each request (headers AND body) is aborted after `timeoutMs`.
++ *
++ * Node's built-in fetch only has undici's 300 s idle timers, which an RPC that trickles a byte every
++ * few minutes never trips; this bound is a wall-clock bound on the whole request.
++ */
++export function createTimeoutFetch(
++  timeoutMs: number = DEFAULT_RPC_REQUEST_TIMEOUT_MS,
++  baseFetch: FetchLike = (input, init) => fetch(input, init),
++): FetchLike {
++  assertTimeoutMs("timeoutMs", timeoutMs);
++  return async (input, init) => {
++    const controller = new AbortController();
++    const outer = init?.signal ?? undefined;
++    const onOuterAbort = () => controller.abort(outer?.reason);
++    if (outer?.aborted) controller.abort(outer.reason);
++    else outer?.addEventListener("abort", onOuterAbort, { once: true });
++    const timer = setTimeout(
++      () => controller.abort(new RpcDeadlineError("fetch", "timeout", timeoutMs)),
++      timeoutMs,
++    );
++    try {
++      const res = await baseFetch(input, { ...init, signal: controller.signal });
++      // Buffer the body inside the deadline: a response whose body stalls must time out too.
++      const body = await res.arrayBuffer();
++      const nullBody = res.status === 204 || res.status === 205 || res.status === 304;
++      return new Response(nullBody ? null : body, { status: res.status, statusText: res.statusText, headers: res.headers });
++    } finally {
++      clearTimeout(timer);
++      outer?.removeEventListener("abort", onOuterAbort);
++    }
++  };
++}
++
++/**
++ * Build a `Connection` whose every HTTP request is bounded by `requestTimeoutMs` (default 30 s).
++ *
++ * This bounds all RPC calls made through the connection, including the ones the SDK does not wrap and
++ * web3.js's own confirmation polling. A caller-supplied `config.fetch` is kept and wrapped.
++ *
++ * Without a `config.fetch`, requests go through the global `fetch`, which ignores `config.httpAgent`
++ * (and web3.js's own keep-alive agent). Pass a `fetch` that honours your agent if you need one.
++ */
++export function createTimeoutConnection(
++  endpoint: string,
++  config: ConnectionConfig & { requestTimeoutMs?: number } = {},
++): Connection {
++  const { requestTimeoutMs = DEFAULT_RPC_REQUEST_TIMEOUT_MS, fetch: baseFetch, ...rest } = config;
++  const bounded = createTimeoutFetch(requestTimeoutMs, baseFetch as FetchLike | undefined);
++  return new Connection(endpoint, { ...rest, fetch: bounded as unknown as ConnectionConfig["fetch"] });
++}
+diff --git a/src/runtime/index.ts b/src/runtime/index.ts
+index 29d64cb8..512adbda 100644
+--- a/src/runtime/index.ts
++++ b/src/runtime/index.ts
+@@ -1,3 +1,12 @@
+ export * from "./tx.js";
+ export * from "./lighthouse.js";
+ export * from "./txv1.js";
++export {
++  type RpcDeadlineOptions,
++  RpcDeadlineError,
++  DEFAULT_CONFIRM_TIMEOUT_MS,
++  SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS,
++  DEFAULT_RPC_REQUEST_TIMEOUT_MS,
++  createTimeoutFetch,
++  createTimeoutConnection,
++} from "./deadline.js";
+diff --git a/src/runtime/tx.ts b/src/runtime/tx.ts
+index 0105e8bd..480cdd5d 100644
+--- a/src/runtime/tx.ts
++++ b/src/runtime/tx.ts
+@@ -10,6 +10,13 @@ import {
+   ComputeBudgetProgram,
+ } from "@solana/web3.js";
+ import { parseErrorFromLogs } from "../abi/errors.js";
++import {
++  DEFAULT_CONFIRM_TIMEOUT_MS,
++  RpcDeadlineError,
++  SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS,
++  raceSignal,
++  startDeadline,
++} from "./deadline.js";
+ 
+ /**
+  * Rank of the three cluster confirmation levels the RPC reports in
+@@ -112,6 +119,63 @@ export interface SimulateOrSendParams {
+    * multiple of 1024 in [32768, 262144].
+    */
+   heapFrameBytes?: number;
++  /**
++   * Abort the whole call when this signal fires (e.g. the signal `RpcPool.call` hands to `fn`).
++   * Default: none.
++   */
++  signal?: AbortSignal;
++  /**
++   * Overall deadline for the whole call (blockhash, simulate or send, confirm, log fetch), in ms.
++   * Default: none. Before the send, passing it throws {@link RpcDeadlineError} (blockhash) or returns
++   * it as `err` (simulate). After the send, the result keeps the real signature and says the outcome is
++   * unknown, as for any other confirm failure.
++   */
++  timeoutMs?: number;
++  /**
++   * Deadline for the confirmation step alone, in ms. Default: {@link DEFAULT_CONFIRM_TIMEOUT_MS} (120 s).
++   * On a healthy RPC confirmation ends well before this (it confirms, or the blockhash expires after
++   * about 60-90 s). It only fires when the RPC stops serving `getBlockHeight` too, where web3.js would
++   * otherwise poll forever.
++   */
++  confirmTimeoutMs?: number;
++}
++
++const B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
++function encodeBase58(bytes: Uint8Array): string {
++  let n = 0n;
++  for (const b of bytes) n = (n << 8n) | BigInt(b);
++  let s = "";
++  while (n > 0n) {
++    s = B58_ALPHABET[Number(n % 58n)] + s;
++    n /= 58n;
++  }
++  for (const b of bytes) {
++    if (b === 0) s = "1" + s;
++    else break;
++  }
++  return s;
++}
++
++/**
++ * A view of `connection` for `confirmTransaction` whose `getSignatureStatus` never rejects.
++ *
++ * web3.js 1.99 `getTransactionConfirmationPromise` calls `this.getSignatureStatus(signature)` inside an
++ * async IIFE nobody awaits, so a failure of that one call (RPC timeout, `fetch failed`) is an unhandled
++ * rejection, which kills a Node process under the default `--unhandled-rejections=throw`. web3.js treats a
++ * `null` response as "no status yet" and keeps waiting on the subscription and the expiry check, so
++ * mapping a failure to `null` changes nothing else. Every other property goes to the real connection
++ * (reads and writes both), so web3.js's subscription state is shared, not copied.
++ */
++function withContainedStatusLookups(connection: Connection): Connection {
++  const contained = (...args: Parameters<Connection["getSignatureStatus"]>) =>
++    Promise.resolve()
++      .then(() => connection.getSignatureStatus(...args))
++      .catch(() => null);
++  return new Proxy(connection, {
++    get(target, prop, receiver) {
++      return prop === "getSignatureStatus" ? contained : Reflect.get(target, prop, receiver);
++    },
++  });
+ }
+ 
+ /**
+@@ -133,6 +197,26 @@ const MAX_HEAP_FRAME_BYTES = 256 * 1024;
+ export async function simulateOrSend(
+   params: SimulateOrSendParams
+ ): Promise<TxResult> {
++  const { signal, timeoutMs, confirmTimeoutMs = DEFAULT_CONFIRM_TIMEOUT_MS } = params;
++  if (typeof confirmTimeoutMs !== "number" || !Number.isFinite(confirmTimeoutMs) || confirmTimeoutMs <= 0) {
++    throw new Error(`confirmTimeoutMs must be a positive finite number of ms (got ${String(confirmTimeoutMs)})`);
++  }
++  const overall = startDeadline("simulateOrSend", { signal, timeoutMs });
++  try {
++    overall.signal?.throwIfAborted();
++    return await simulateOrSendInner(params, overall.signal, confirmTimeoutMs);
++  } finally {
++    overall.dispose();
++  }
++}
++
++async function simulateOrSendInner(
++  params: SimulateOrSendParams,
++  deadline: AbortSignal | undefined,
++  confirmTimeoutMs: number,
++): Promise<TxResult> {
++  /** Await an RPC call under the overall deadline (a no-op without one). */
++  const rpc = <T>(p: Promise<T>): Promise<T> => raceSignal(p, deadline);
+   const {
+     connection,
+     ix,
+@@ -201,14 +285,14 @@ export async function simulateOrSend(
+   }
+ 
+   tx.add(ix);
+-  const latestBlockhash = await connection.getLatestBlockhash(effectiveCommitment);
++  const latestBlockhash = await rpc(connection.getLatestBlockhash(effectiveCommitment));
+   tx.recentBlockhash = latestBlockhash.blockhash;
+   tx.feePayer = signers[0].publicKey;
+ 
+   if (simulate) {
+     try {
+       tx.sign(...signers);
+-      const result = await connection.simulateTransaction(tx, signers);
++      const result = await rpc(connection.simulateTransaction(tx, signers));
+       const logs = result.value.logs ?? [];
+       let err: string | null = null;
+       let hint: string | undefined;
+@@ -252,9 +336,25 @@ export async function simulateOrSend(
+   // signature was ever produced, so signature: "" is the correct result.
+   let signature: string;
+   try {
+-    signature = await connection.sendTransaction(tx, signers, options);
++    signature = await rpc(connection.sendTransaction(tx, signers, options));
+   } catch (e: unknown) {
+     const message = e instanceof Error ? e.message : String(e);
++    if (e instanceof RpcDeadlineError) {
++      // The deadline passed while web3.js's sendTransaction was still running. It keeps running in the
++      // background (it may still be fetching its blockhash, then sign and broadcast), so the outcome is
++      // unknown, not "never sent". web3.js signs `tx` in place; once it has, that is the likely
++      // transaction id (it can still re-sign on a duplicate-signature retry).
++      const sig = tx.signature ? encodeBase58(tx.signature) : "";
++      return {
++        signature: sig,
++        slot: 0,
++        err:
++          `send status unknown (${message}) — the transaction may still be sent and land; ` +
++          (sig ? `check signature ${sig}` : "check the payer's recent transactions") +
++          " before retrying",
++        logs: [],
++      };
++    }
+     return {
+       signature: "",
+       slot: 0,
+@@ -269,19 +369,36 @@ export async function simulateOrSend(
+   const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
+ 
+   try {
+-    const confirmation = await connection.confirmTransaction(
+-      {
+-        signature,
+-        blockhash: latestBlockhash.blockhash,
+-        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+-      },
+-      effectiveCommitment
++    // Bound confirmation (the overall deadline, or confirmTimeoutMs, whichever is first) and hand web3.js
++    // the abortSignal so it stops its own polling too.
++    const confirmDeadline = startDeadline(
++      "simulateOrSend confirm",
++      { signal: deadline, timeoutMs: confirmTimeoutMs },
++      "confirmTimeoutMs",
+     );
++    let confirmation: Awaited<ReturnType<Connection["confirmTransaction"]>>;
++    try {
++      confirmation = await raceSignal(
++        withContainedStatusLookups(connection).confirmTransaction(
++          {
++            signature,
++            blockhash: latestBlockhash.blockhash,
++            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
++            abortSignal: confirmDeadline.signal,
++          },
++          effectiveCommitment,
++        ),
++        confirmDeadline.signal,
++      );
++    } finally {
++      confirmDeadline.dispose();
++    }
+ 
+-    const txInfo = await connection.getTransaction(signature, {
++    deadline?.throwIfAborted();
++    const txInfo = await rpc(connection.getTransaction(signature, {
+       commitment: txFinality,
+       maxSupportedTransactionVersion: 1,
+-    });
++    }));
+ 
+     const logs = txInfo?.meta?.logMessages ?? [];
+     let err: string | null = null;
+@@ -315,20 +432,28 @@ export async function simulateOrSend(
+     // reporting failure, and always return the real signature so the caller can verify
+     // it themselves even if this fallback check also fails.
+     const message = e instanceof Error ? e.message : String(e);
++    // The lookup gets its own short bound (confirmTimeoutMs capped at 30 s, and the overall deadline if
++    // any): it runs after confirm already failed, and a stalled RPC would otherwise hold it for minutes.
++    const lookup = startDeadline("simulateOrSend status lookup", {
++      signal: deadline,
++      timeoutMs: Math.min(SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS, confirmTimeoutMs),
++    });
+     try {
+-      const status = await connection.getSignatureStatus(signature, {
++      lookup.signal?.throwIfAborted();
++      const status = await raceSignal(connection.getSignatureStatus(signature, {
+         searchTransactionHistory: true,
+-      });
++      }), lookup.signal);
+       // Only treat the fallback lookup as authoritative when the observed level
+       // actually satisfies the commitment the caller asked for. `status.value`
+       // being non-null merely means the cluster has SEEN the transaction — at
+       // "processed" it can still be dropped or rolled back, and reporting that
+       // as a settled success would be the same premature-settlement bug #311 fixed.
+       if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
+-        const txInfo = await connection.getTransaction(signature, {
++        lookup.signal?.throwIfAborted();
++        const txInfo = await raceSignal(connection.getTransaction(signature, {
+           commitment: txFinality,
+           maxSupportedTransactionVersion: 1,
+-        });
++        }), lookup.signal);
+         const logs = txInfo?.meta?.logMessages ?? [];
+         let err: string | null = null;
+         let hint: string | undefined;
+@@ -369,6 +494,8 @@ export async function simulateOrSend(
+     } catch {
+       // Status lookup itself failed too — fall through to the ambiguous result below,
+       // which still carries the real signature instead of discarding it.
++    } finally {
++      lookup.dispose();
+     }
+     return {
+       signature,
+diff --git a/src/runtime/txv1.ts b/src/runtime/txv1.ts
+index c2facc91..9e2a21b1 100644
+--- a/src/runtime/txv1.ts
++++ b/src/runtime/txv1.ts
+@@ -58,6 +58,7 @@ import {
+ } from "@solana/web3.js";
+ import { V17_WRAPPER_HEAP_FRAME_BYTES } from "./tx.js";
+ import { assertUintNumber } from "../validation.js";
++import { withRpcDeadline, type RpcDeadlineOptions } from "./deadline.js";
+ 
+ const U32_MAX = 0xffff_ffff;
+ 
+@@ -847,7 +848,9 @@ export async function simulateV1(connection: Connection, wire: Uint8Array, o: Ra
+  *
+  * @param connection - Connection; sent through `connection.sendRawTransaction` (its transport and send guards apply).
+  * @param wire - Serialized, fully signed v1 transaction.
+- * @param opts - `skipPreflight` / `maxRetries` plus raw RPC options.
++ * @param opts - `skipPreflight` / `maxRetries` plus raw RPC options, and an optional `signal` / `timeoutMs`
++ *   deadline (rejects with `RpcDeadlineError`; the send may still reach the node, so check the
++ *   signature from {@link v1TransactionSignature} before resending). Default: none.
+  * @returns Transaction signature.
+  * @throws On any JSON-RPC error. On the raw-fetch path (`fetchImpl`/`headers` given) errors are {@link V1RpcError}s and format
+  *   rejections satisfy {@link isTxV1FormatRejection}. On the default path (`connection.sendRawTransaction`) web3.js 1.x drops
+@@ -857,8 +860,16 @@ export async function simulateV1(connection: Connection, wire: Uint8Array, o: Ra
+ export async function sendV1(
+   connection: Connection,
+   wire: Uint8Array,
+-  opts: RawRpcOptions & { skipPreflight?: boolean; maxRetries?: number; preflightCommitment?: "processed" | "confirmed" | "finalized" } = {},
++  opts: SendV1Options = {},
+ ): Promise<string> {
++  return withRpcDeadline("sendV1", opts, () => sendV1Inner(connection, wire, opts));
++}
++
++/** Options for {@link sendV1}. */
++export type SendV1Options = RawRpcOptions &
++  RpcDeadlineOptions & { skipPreflight?: boolean; maxRetries?: number; preflightCommitment?: "processed" | "confirmed" | "finalized" };
++
++async function sendV1Inner(connection: Connection, wire: Uint8Array, opts: SendV1Options): Promise<string> {
+   if (opts.fetchImpl === undefined && opts.headers === undefined) {
+     // web3.js `sendRawTransaction` only base64-encodes the bytes (it never parses them), so it carries v1 fine and,
+     // unlike a raw fetch, goes through the Connection's own transport and any send guard (e.g. a dry-run override).
+diff --git a/src/solana/discovery.ts b/src/solana/discovery.ts
+index 45faae4e..405553f6 100644
+--- a/src/solana/discovery.ts
++++ b/src/solana/discovery.ts
+@@ -1,4 +1,4 @@
+-import { Connection, PublicKey } from "@solana/web3.js";
++import { Connection, PublicKey, type GetProgramAccountsConfig, type GetProgramAccountsResponse } from "@solana/web3.js";
+ import {
+   parseHeader,
+   parseConfig,
+@@ -27,6 +27,7 @@ import {
+ import { getStaticMarkets, type StaticMarketEntry } from "./static-markets.js";
+ import { type Network } from "../config/program-ids.js";
+ import { redactUrl } from "./redact-url.js";
++import { withRpcDeadline, type RpcDeadlineOptions } from "../runtime/deadline.js";
+ 
+ /** V1 bitmap offset within engine struct (updated for PERC-120/121/122 struct changes) */
+ const ENGINE_BITMAP_OFF = 656; // Updated for PERC-299 (608 + 24 emergency OI fields)
+@@ -452,7 +453,7 @@ export function parseEngineLight(
+ }
+ 
+ /** Options for `discoverMarkets`. */
+-export interface DiscoverMarketsOptions {
++export interface DiscoverMarketsOptions extends RpcDeadlineOptions {
+   /**
+    * Run tier queries sequentially with per-tier retry on HTTP 429 instead of
+    * firing all in parallel.  Reduces RPC rate-limit pressure at the cost of
+@@ -542,6 +543,19 @@ export interface DiscoverMarketsOptions {
+   network?: Network;
+ }
+ 
++/**
++ * Thrown by {@link discoverMarkets} when no discovery source answered at all: every RPC query failed
++ * and the REST API / static bundle fallbacks were not configured or failed too. An empty list is only
++ * returned when some source actually answered "no markets".
++ */
++export class DiscoveryFailedError extends Error {
++  constructor(message: string, cause?: unknown) {
++    super(message);
++    this.name = "DiscoveryFailedError";
++    if (cause !== undefined) Object.defineProperty(this, "cause", { value: cause, enumerable: false });
++  }
++}
++
+ /** Return true if the error looks like an HTTP 429 / rate-limit response. */
+ function isRateLimitError(err: unknown): boolean {
+   if (!err) return false;
+@@ -564,11 +578,26 @@ function withJitter(delayMs: number): number {
+  * Uses getProgramAccounts with dataSize filter + dataSlice to download only ~1400 bytes per slab.
+  *
+  * @param options.sequential - Run tier queries sequentially with 429 retry (PERC-1650).
++ * @param options.signal / options.timeoutMs - Optional deadline for the whole scan; rejects with
++ *   `RpcDeadlineError` when it passes. Default: none.
++ * @throws {DiscoveryFailedError} When every RPC query failed and no fallback (REST API, static
++ *   bundle) answered either. A dead RPC is an error, not an empty market list.
+  */
+ export async function discoverMarkets(
+   connection: Connection,
+   programId: PublicKey,
+   options: DiscoverMarketsOptions = {},
++): Promise<DiscoveredMarket[]> {
++  return withRpcDeadline("discoverMarkets", options, (signal) =>
++    discoverMarketsInner(connection, programId, options, signal),
++  );
++}
++
++async function discoverMarketsInner(
++  connection: Connection,
++  programId: PublicKey,
++  options: DiscoverMarketsOptions,
++  signal: AbortSignal | undefined,
+ ): Promise<DiscoveredMarket[]> {
+   const {
+     sequential = false,
+@@ -620,6 +649,22 @@ export async function discoverMarkets(
+   type RawEntry = { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number; dataSize: number };
+   let rawAccounts: RawEntry[] = [];
+ 
++  // Whether any discovery source answered (even with zero accounts), and the last RPC failure.
++  // If nothing answered, the scan failed and must not be reported as "no markets".
++  let rpcAnswered = false;
++  let lastRpcError: unknown;
++  const getProgramAccounts = async (config: GetProgramAccountsConfig): Promise<GetProgramAccountsResponse> => {
++    signal?.throwIfAborted();
++    try {
++      const res = await connection.getProgramAccounts(programId, config);
++      rpcAnswered = true;
++      return res;
++    } catch (err) {
++      lastRpcError = err;
++      throw err;
++    }
++  };
++
+   /**
+    * Fetch one tier with per-attempt 429 retry (sequential mode only).
+    * Returns an array of RawEntry on success, or an empty array after exhausting retries.
+@@ -629,7 +674,7 @@ export async function discoverMarkets(
+   ): Promise<RawEntry[]> {
+     for (let attempt = 0; attempt <= rateLimitBackoffMs.length; attempt++) {
+       try {
+-        const results = await connection.getProgramAccounts(programId, {
++        const results = await getProgramAccounts({
+           filters: [{ dataSize: tier.dataSize }],
+           dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
+         });
+@@ -677,7 +722,7 @@ export async function discoverMarkets(
+       for (let offset = 0; offset < tiersToQuery.length; offset += effectiveMaxParallelTiers) {
+         const chunk = tiersToQuery.slice(offset, offset + effectiveMaxParallelTiers);
+         const queries = chunk.map(tier =>
+-          connection.getProgramAccounts(programId, {
++          getProgramAccounts({
+             filters: [{ dataSize: tier.dataSize }],
+             dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
+           }).then(results =>
+@@ -710,7 +755,7 @@ export async function discoverMarkets(
+     // The memcmp bytes are derived in-code from V17_MAGIC_BYTES (the on-chain LE order) via
+     // base64 (web3.js >=1.87) so the filter cannot drift from / mis-order the magic constant.
+     try {
+-      const v17Results = await connection.getProgramAccounts(programId, {
++      const v17Results = await getProgramAccounts({
+         filters: [
+           {
+             memcmp: {
+@@ -735,7 +780,7 @@ export async function discoverMarkets(
+       console.warn("[discoverMarkets] dataSize filters returned 0 markets, falling back to memcmp");
+       // PR #183 / PR #166: fetch full account data (no dataSlice) so detectSlabLayout can
+       // identify the actual tier from account.data.length instead of hardcoding large/4096.
+-      const fallback = await connection.getProgramAccounts(programId, {
++      const fallback = await getProgramAccounts({
+         filters: [
+           {
+             memcmp: {
+@@ -758,7 +803,7 @@ export async function discoverMarkets(
+     );
+     try {
+       // PR #183 / PR #166: same full-data fetch as the empty-result fallback above.
+-      const fallback = await connection.getProgramAccounts(programId, {
++      const fallback = await getProgramAccounts({
+         filters: [
+           {
+             memcmp: {
+@@ -785,6 +830,8 @@ export async function discoverMarkets(
+   // GH#59 / PERC-8424: If getProgramAccounts returned nothing (public mainnet RPC
+   // rejects it) and an API base URL is configured, fall back to the REST API to
+   // discover slab addresses, then use getMarketsByAddress (getMultipleAccounts).
++  signal?.throwIfAborted();
++  let fallbackAnswered = false;
+   if (rawAccounts.length === 0 && options.apiBaseUrl) {
+     console.warn(
+       "[discoverMarkets] RPC discovery returned 0 markets, falling back to REST API",
+@@ -794,8 +841,9 @@ export async function discoverMarkets(
+         connection,
+         programId,
+         options.apiBaseUrl,
+-        { timeoutMs: options.apiTimeoutMs },
++        { timeoutMs: options.apiTimeoutMs, onChainOptions: { signal } },
+       );
++      fallbackAnswered = true;
+       if (apiResult.length > 0) {
+         return apiResult;
+       }
+@@ -815,6 +863,7 @@ export async function discoverMarkets(
+   // PERC-8435: Tier 3 — static bundle fallback.  If both getProgramAccounts and
+   // the REST API failed (or returned 0 results) and a network hint is provided,
+   // use the bundled static market list as a last-resort address directory.
++  signal?.throwIfAborted();
+   if (rawAccounts.length === 0 && options.network) {
+     const staticEntries = getStaticMarkets(options.network);
+     if (staticEntries.length > 0) {
+@@ -826,6 +875,7 @@ export async function discoverMarkets(
+           connection,
+           programId,
+           staticEntries,
++          { onChainOptions: { signal } },
+         );
+       } catch (staticErr) {
+         console.warn(
+@@ -841,6 +891,14 @@ export async function discoverMarkets(
+     }
+   }
+ 
++  if (!rpcAnswered && !fallbackAnswered) {
++    const why = lastRpcError instanceof Error ? lastRpcError.message : String(lastRpcError);
++    throw new DiscoveryFailedError(
++      `discoverMarkets: every RPC query failed and no fallback answered (last error: ${why})`,
++      lastRpcError,
++    );
++  }
++
+   const accounts = rawAccounts;
+ 
+   const markets: DiscoveredMarket[] = [];
+@@ -935,7 +993,7 @@ export async function discoverMarkets(
+ /**
+  * Options for `getMarketsByAddress`.
+  */
+-export interface GetMarketsByAddressOptions {
++export interface GetMarketsByAddressOptions extends RpcDeadlineOptions {
+   /**
+    * Maximum number of addresses per `getMultipleAccounts` RPC call.
+    * Solana limits a single call to 100 accounts; callers may lower this
+@@ -967,7 +1025,8 @@ export interface GetMarketsByAddressOptions {
+  * @param connection - Solana RPC connection
+  * @param programId - The Percolator program that owns these slabs
+  * @param addresses - Array of slab account public keys to fetch
+- * @param options   - Optional batching/delay configuration
++ * @param options   - Optional batching/delay configuration, and an optional `signal` / `timeoutMs`
++ *                    deadline for the whole fetch (rejects with `RpcDeadlineError`; default none)
+  * @returns Parsed markets for all valid slab accounts; invalid/missing accounts are silently skipped.
+  *
+  * @example
+@@ -993,6 +1052,18 @@ export async function getMarketsByAddress(
+   options: GetMarketsByAddressOptions = {},
+ ): Promise<DiscoveredMarket[]> {
+   if (addresses.length === 0) return [];
++  return withRpcDeadline("getMarketsByAddress", options, (signal) =>
++    getMarketsByAddressInner(connection, programId, addresses, options, signal),
++  );
++}
++
++async function getMarketsByAddressInner(
++  connection: Connection,
++  programId: PublicKey,
++  addresses: PublicKey[],
++  options: GetMarketsByAddressOptions,
++  signal: AbortSignal | undefined,
++): Promise<DiscoveredMarket[]> {
+ 
+   const {
+     batchSize = 100,
+@@ -1008,6 +1079,7 @@ export async function getMarketsByAddress(
+   for (let offset = 0; offset < addresses.length; offset += effectiveBatchSize) {
+     const batch = addresses.slice(offset, offset + effectiveBatchSize);
+ 
++    signal?.throwIfAborted();
+     const response = await connection.getMultipleAccountsInfo(batch);
+ 
+     for (let i = 0; i < batch.length; i++) {
+diff --git a/src/solana/slab.ts b/src/solana/slab.ts
+index c98927d4..a0e01ae7 100644
+--- a/src/solana/slab.ts
++++ b/src/solana/slab.ts
+@@ -1,6 +1,7 @@
+ import { Connection, PublicKey } from "@solana/web3.js";
+ import { ACCOUNT_KIND, LAYOUTS_BY_VERSION, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
+ import type { LayoutTable } from "../abi/layout.js";
++import { withRpcDeadline, type RpcDeadlineOptions } from "../runtime/deadline.js";
+ 
+ // =============================================================================
+ // Browser-compatible read helpers using DataView
+@@ -2462,12 +2463,19 @@ export interface Account {
+ // Fetch
+ // =============================================================================
+ 
++/**
++ * Fetch a slab account's data.
++ *
++ * @param deadline - Optional `signal` / `timeoutMs` for the read; rejects with `RpcDeadlineError`
++ *   when it passes. Default: none.
++ */
+ export async function fetchSlab(
+   connection: Connection,
+   slabPubkey: PublicKey,
+-  expectedOwner?: PublicKey
++  expectedOwner?: PublicKey,
++  deadline?: RpcDeadlineOptions,
+ ): Promise<Uint8Array> {
+-  const info = await connection.getAccountInfo(slabPubkey);
++  const info = await withRpcDeadline("fetchSlab", deadline, () => connection.getAccountInfo(slabPubkey));
+   if (!info) {
+     throw new Error(`Slab account not found: ${slabPubkey.toBase58()}`);
+   }
+diff --git a/test/discovery-api-fallback.test.ts b/test/discovery-api-fallback.test.ts
+index 1af2864a..e440590f 100644
+--- a/test/discovery-api-fallback.test.ts
++++ b/test/discovery-api-fallback.test.ts
+@@ -338,7 +338,7 @@ describe("discoverMarkets with apiBaseUrl fallback", () => {
+     expect(result).toEqual([]);
+   });
+ 
+-  it("returns empty array when RPC throws and memcmp also throws and API fails", async () => {
++  it("throws DiscoveryFailedError (not []) when RPC throws and memcmp also throws and API fails", async () => {
+     const mockConnection = {
+       getProgramAccounts: vi.fn().mockRejectedValue(new Error("429 Too Many Requests")),
+     } as unknown as Connection;
+@@ -346,12 +346,10 @@ describe("discoverMarkets with apiBaseUrl fallback", () => {
+     // Mock API also failing
+     mockFetch.mockRejectedValueOnce(new Error("Network error"));
+ 
+-    const result = await discoverMarkets(mockConnection, programId, {
++    await expect(discoverMarkets(mockConnection, programId, {
+       apiBaseUrl: "https://api.example.com",
+       maxTierQueries: 1,
+-    });
+-
+-    expect(result).toEqual([]);
++    })).rejects.toMatchObject({ name: "DiscoveryFailedError", message: expect.stringMatching(/429/) });
+   });
+ 
+   it("respects apiTimeoutMs option", async () => {
+diff --git a/test/discovery-branches.test.ts b/test/discovery-branches.test.ts
+index d885a986..1831af35 100644
+--- a/test/discovery-branches.test.ts
++++ b/test/discovery-branches.test.ts
+@@ -355,11 +355,9 @@ describe("discoverMarkets: fallback tiers", () => {
+   // SWALLOWED RPC ERROR (reported, NOT fixed in this PR — same class as indexer #286):
+   // src/solana/discovery.ts:787-793 (`catch (memcmpErr)` only console.warn's) after
+   // 765-770 (outer `catch (err)`). When every getProgramAccounts call rejects (RPC down /
+-  // rejects gPA), discoverMarkets resolves to [] — indistinguishable from "no markets".
+-  // The correct contract is to surface the failure. `it.fails` keeps the suite green while
+-  // the bug stands; when it is fixed this test starts "passing" and vitest flags it so the
+-  // `.fails` can be removed.
+-  it.fails("BUG: RPC down for every query should reject, not resolve to []", async () => {
++  // rejects gPA), discoverMarkets used to resolve to [] — indistinguishable from "no markets".
++  // Fixed (J-20261121-SDK-FIX-HUNGRPCDEADLINE): it now rejects with DiscoveryFailedError.
++  it("RPC down for every query rejects, not resolves to []", async () => {
+     const c = conn();
+     c.getProgramAccounts.mockRejectedValue(new Error("RPC down: 503"));
+     await expect(discoverMarkets(c, programId)).rejects.toThrow(/RPC down/);
+diff --git a/test/discovery-fallback-integration.test.ts b/test/discovery-fallback-integration.test.ts
+index 1fa955e8..9a0a3431 100644
+--- a/test/discovery-fallback-integration.test.ts
++++ b/test/discovery-fallback-integration.test.ts
+@@ -444,13 +444,12 @@ describe("All 3 tiers fail — graceful empty result", () => {
+ 
+     mockFetch.mockRejectedValueOnce(new Error("DNS failure"));
+ 
+-    const result = await discoverMarkets(mockConnection, PROGRAM_ID, {
++    // Nothing answered, so the scan is an error, not an empty market list.
++    await expect(discoverMarkets(mockConnection, PROGRAM_ID, {
+       apiBaseUrl: "https://api.example.com",
+       network: "mainnet",
+       maxTierQueries: 1,
+-    });
+-
+-    expect(result).toEqual([]);
++    })).rejects.toMatchObject({ name: "DiscoveryFailedError" });
+   });
+ 
+   it("all tiers disabled: no apiBaseUrl, no network — returns empty from RPC failure", async () => {
+@@ -522,16 +521,16 @@ describe("Helius 429 responses — mocked retry paths", () => {
+       }),
+     } as unknown as Connection;
+ 
+-    const result = await discoverMarkets(mockConnection, PROGRAM_ID, {
++    // Every query failed (no source answered), so the scan rejects instead of returning [].
++    await expect(discoverMarkets(mockConnection, PROGRAM_ID, {
+       sequential: true,
+       interTierDelayMs: 0,
+       rateLimitBackoffMs: [0, 0], // 2 retries
+       maxTierQueries: 1,
+-    });
++    })).rejects.toMatchObject({ name: "DiscoveryFailedError" });
+ 
+     // Should have been called 1 initial + 2 retries = 3 for first tier, then memcmp fallback
+     expect(callCount).toBeGreaterThanOrEqual(3);
+-    expect(result).toEqual([]);
+   });
+ 
+   it("sequential mode does NOT retry non-429 errors", async () => {
+diff --git a/test/discovery-static-fallback.test.ts b/test/discovery-static-fallback.test.ts
+index 2806b4fa..a74ed9f5 100644
+--- a/test/discovery-static-fallback.test.ts
++++ b/test/discovery-static-fallback.test.ts
+@@ -310,7 +310,7 @@ describe("discoverMarkets with tier-3 static fallback", () => {
+     expect(result).toEqual([]);
+   });
+ 
+-  it("returns empty when all 3 tiers fail", async () => {
++  it("throws DiscoveryFailedError (not []) when all 3 tiers fail", async () => {
+     registerStaticMarkets("mainnet", [
+       { slabAddress: fakePubkey(1).toBase58() },
+     ]);
+@@ -324,13 +324,11 @@ describe("discoverMarkets with tier-3 static fallback", () => {
+     // API fails
+     mockFetch.mockRejectedValueOnce(new Error("Network error"));
+ 
+-    const result = await discoverMarkets(mockConnection, programId, {
++    await expect(discoverMarkets(mockConnection, programId, {
+       apiBaseUrl: "https://api.example.com",
+       network: "mainnet",
+       maxTierQueries: 1,
+-    });
+-
+-    expect(result).toEqual([]);
++    })).rejects.toMatchObject({ name: "DiscoveryFailedError" });
+   });
+ 
+   it("skips tier 3 when static bundle is empty for the network", async () => {
+diff --git a/test/hung-rpc.test.ts b/test/hung-rpc.test.ts
+new file mode 100644
+index 00000000..f2a39a6b
+--- /dev/null
++++ b/test/hung-rpc.test.ts
+@@ -0,0 +1,226 @@
++// Regression tests for J-20261121-SDK-REPORT-HUNGRPCSTALL (~/agent-worker/reports/sdk-hung-rpc-stall-20261120.md).
++// Each case points an SDK flow at a local RPC (127.0.0.1 only) that accepts the TCP connection and then never
++// answers, or answers only part of the flow, and asserts that the flow SETTLES (resolves or rejects) shortly after
++// the deadline the caller asked for. Before the fix the SDK flows took no deadline, so every case was still pending.
++import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
++import http from "node:http";
++import type { AddressInfo, Socket } from "node:net";
++import { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
++import { discoverMarkets, getMarketsByAddress } from "../src/solana/discovery.js";
++import { fetchSlab } from "../src/solana/slab.js";
++import { simulateOrSend } from "../src/runtime/tx.js";
++import { sendV1 } from "../src/runtime/txv1.js";
++// Namespace import so the file still loads on a base without the new exports (the "fail before" run).
++import * as runtime from "../src/runtime/index.js";
++
++/** The deadline each flow is given. */
++const DEADLINE_MS = 300;
++/** How long the test waits before calling the flow hung. */
++const HUNG_AFTER_MS = 3_000;
++const TEST_TIMEOUT_MS = 8_000;
++const HUNG = Symbol("hung");
++
++/** Resolves to HUNG if `p` has neither resolved nor rejected after `ms`. */
++async function settleWithin<T>(p: Promise<T>, ms = HUNG_AFTER_MS): Promise<T | Error | typeof HUNG> {
++  let t: ReturnType<typeof setTimeout> | undefined;
++  const cap = new Promise<typeof HUNG>((r) => { t = setTimeout(() => r(HUNG), ms); });
++  try {
++    return await Promise.race([p.then((v) => v, (e) => (e instanceof Error ? e : new Error(String(e)))), cap]);
++  } finally {
++    clearTimeout(t);
++  }
++}
++
++// --- fake RPC --------------------------------------------------------------------------------------
++// /accept/...  : never writes a byte.
++// /headers/... : 200 + headers + the first body bytes, then stalls.
++// /frozen/...  : answers getLatestBlockhash + sendTransaction, holds getSignatureStatuses and getBlockHeight.
++// /error/...   : answers every request at once with a JSON-RPC error (a dead-but-responsive RPC).
++const held = new Set<Socket>();
++let server: http.Server;
++let base = "";
++let h = 0;
++const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
++const b58 = (buf: Uint8Array) => { let n = 0n; for (const b of buf) n = (n << 8n) | BigInt(b); let s = ""; while (n > 0n) { s = B58[Number(n % 58n)] + s; n /= 58n; } for (const b of buf) { if (b) break; s = "1" + s; } return s; };
++
++beforeAll(async () => {
++  server = http.createServer((req, res) => {
++    let body = "";
++    req.on("data", (c) => (body += c));
++    req.on("end", () => {
++      const mode = (req.url ?? "/").split("/")[1];
++      const msg = JSON.parse(body);
++      const reply = (result: unknown) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result })); };
++      if (mode === "error") {
++        res.setHeader("content-type", "application/json");
++        return res.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: { code: -32010, message: "stub: method rejected" } }));
++      }
++      if (mode === "frozen") {
++        if (msg.method === "getLatestBlockhash") return reply({ context: { slot: 1 }, value: { blockhash: b58(new Uint8Array(32).fill(++h % 250 + 1)), lastValidBlockHeight: 1_000 } });
++        if (msg.method === "sendTransaction") return reply(b58(Buffer.from(msg.params[0], "base64").subarray(1, 65)));
++      }
++      held.add(req.socket);
++      if (mode === "headers") { res.writeHead(200, { "content-type": "application/json" }); res.write('{"jsonrpc":"2.0","id":'); }
++      // never end the response
++    });
++  });
++  server.keepAliveTimeout = 0; server.requestTimeout = 0; server.headersTimeout = 0;
++  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
++  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
++});
++afterAll(async () => {
++  for (const s of held) s.destroy();
++  server.closeAllConnections();
++  await new Promise((r) => server.close(r));
++});
++
++const PID = new PublicKey("FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD");
++const SLAB = new PublicKey("11111111111111111111111111111112");
++const payer = Keypair.fromSeed(new Uint8Array(32).fill(1));
++const ix = () => new TransactionInstruction({ programId: PID, keys: [{ pubkey: payer.publicKey, isSigner: true, isWritable: true }], data: Buffer.from([0]) });
++const dl = { timeoutMs: DEADLINE_MS };
++
++type Flow = { name: string; run: (c: Connection) => Promise<unknown> };
++const FLOWS: Flow[] = [
++  { name: "discoverMarkets", run: (c) => discoverMarkets(c, PID, dl) },
++  { name: "getMarketsByAddress", run: (c) => getMarketsByAddress(c, PID, [SLAB], dl) },
++  { name: "fetchSlab (slab/portfolio read)", run: (c) => fetchSlab(c, SLAB, PID, dl) },
++  { name: "simulateOrSend simulate:true (quote)", run: (c) => simulateOrSend({ connection: c, ix: ix(), signers: [payer], simulate: true, ...dl }) },
++  { name: "simulateOrSend simulate:false (send+confirm)", run: (c) => simulateOrSend({ connection: c, ix: ix(), signers: [payer], simulate: false, ...dl }) },
++  {
++    name: "sendV1 (raw send)",
++    run: async (c) => {
++      // The blockhash is built locally: the stalled RPC would never answer getLatestBlockhash.
++      const tx = new Transaction({ feePayer: payer.publicKey, recentBlockhash: b58(new Uint8Array(32).fill(7)) })
++        .add(SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: payer.publicKey, lamports: 1 }));
++      tx.sign(payer);
++      return sendV1(c, tx.serialize(), dl);
++    },
++  },
++];
++
++const CASES = (["accept", "headers"] as const).flatMap((mode) => FLOWS.map((f) => ({ ...f, mode })));
++
++describe("RPC that stalls: every flow settles soon after its deadline", () => {
++  it.concurrent.each(CASES)("$mode: $name", async ({ run, name, mode }) => {
++    const c = new Connection(`${base}/${mode}/${encodeURIComponent(name)}`, "confirmed");
++    const t0 = Date.now();
++    const out = await settleWithin(run(c));
++    expect(out, `${name} still pending after ${HUNG_AFTER_MS} ms against a ${mode}-stalled RPC`).not.toBe(HUNG);
++    expect(Date.now() - t0).toBeLessThan(HUNG_AFTER_MS);
++  }, TEST_TIMEOUT_MS);
++
++  it.concurrent("frozen: simulateOrSend simulate:false settles when getSignatureStatuses and getBlockHeight hang (confirm deadline)", async () => {
++    const c = new Connection(`${base}/frozen/send-confirm-deadline`, "confirmed");
++    const out = await settleWithin(simulateOrSend({ connection: c, ix: ix(), signers: [payer], simulate: false, confirmTimeoutMs: DEADLINE_MS }));
++    expect(out, "send+confirm still pending with a frozen RPC").not.toBe(HUNG);
++    // The send reached the node, so the result must carry the real signature and say the outcome is unknown.
++    const r = out as { signature: string; err: string | null };
++    expect(r.signature).toMatch(/^[1-9A-HJ-NP-Za-km-z]{43,88}$/);
++    expect(r.err).toMatch(/confirmation status unknown/);
++  }, TEST_TIMEOUT_MS);
++
++  it.concurrent("frozen: simulateOrSend simulate:false settles under an overall timeoutMs", async () => {
++    const c = new Connection(`${base}/frozen/send-overall-deadline`, "confirmed");
++    // A roomier deadline than the other cases so that, even on a loaded runner, it passes after the send
++    // (blockhash and send are answered at once) and the post-send path is what gets exercised.
++    const out = await settleWithin(simulateOrSend({ connection: c, ix: ix(), signers: [payer], simulate: false, timeoutMs: 2_000 }), 5_000);
++    expect(out, "send+confirm still pending with a frozen RPC").not.toBe(HUNG);
++    const r = out as { signature: string; err: string | null };
++    expect(r.signature).toMatch(/^[1-9A-HJ-NP-Za-km-z]{43,88}$/);
++    expect(r.err).toMatch(/confirmation status unknown/);
++  }, TEST_TIMEOUT_MS);
++
++  it.concurrent("a caller AbortSignal ends a stalled read", async () => {
++    const c = new Connection(`${base}/accept/abort-signal`, "confirmed");
++    const ac = new AbortController();
++    setTimeout(() => ac.abort(), DEADLINE_MS);
++    const out = await settleWithin(fetchSlab(c, SLAB, PID, { signal: ac.signal }));
++    expect(out).toBeInstanceOf(Error);
++    expect((out as Error).name).toBe("RpcDeadlineError");
++  }, TEST_TIMEOUT_MS);
++
++  it.concurrent("createTimeoutConnection bounds every call, even ones the SDK does not wrap", async () => {
++    const c = runtime.createTimeoutConnection(`${base}/headers/bounded-connection`, { requestTimeoutMs: DEADLINE_MS, commitment: "confirmed" });
++    const out = await settleWithin(c.getSlot());
++    expect(out).toBeInstanceOf(Error);
++  }, TEST_TIMEOUT_MS);
++});
++
++describe("discoverMarkets: a scan in which every RPC query failed is an error, not []", () => {
++  it("throws DiscoveryFailedError when the RPC rejects every query and there is no fallback", async () => {
++    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
++    try {
++      const c = new Connection(`${base}/error/discover`, "confirmed");
++      const out = await settleWithin(discoverMarkets(c, PID));
++      expect(out).toBeInstanceOf(Error);
++      expect((out as Error).name).toBe("DiscoveryFailedError");
++    } finally {
++      warn.mockRestore();
++    }
++  }, TEST_TIMEOUT_MS);
++});
++
++describe("simulateOrSend confirm: default deadline and web3.js's stray getSignatureStatus", () => {
++  // A timed-out fake-timer case must not leave fake timers on for the next case.
++  afterEach(() => { vi.useRealTimers(); });
++  const blockhash = "GHtXQBpHnMXhoLGsryeDY7i6bGqTC2LGqS11Kf3rKmFS";
++  function mockConn(confirmTransaction: (this: Connection, ...args: unknown[]) => Promise<unknown>, getSignatureStatus = vi.fn().mockResolvedValue({ context: { slot: 0 }, value: null })) {
++    return {
++      getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash, lastValidBlockHeight: 100 }),
++      sendTransaction: vi.fn().mockResolvedValue("fakeSig123"),
++      confirmTransaction: vi.fn(confirmTransaction),
++      getTransaction: vi.fn().mockResolvedValue(null),
++      getSignatureStatus,
++    } as unknown as Connection;
++  }
++
++  it("aborts a confirm that never ends after the default confirm deadline", async () => {
++    vi.useFakeTimers();
++    try {
++      // A confirm that only ends when its abortSignal fires (web3.js's behaviour when getBlockHeight is frozen).
++      const conn = mockConn(function (strategy: unknown) {
++        const s = (strategy as { abortSignal?: AbortSignal }).abortSignal;
++        return new Promise((_, reject) => s?.addEventListener("abort", () => reject(s.reason)));
++      });
++      const p = simulateOrSend({ connection: conn, ix: ix(), signers: [payer], simulate: false });
++      await vi.advanceTimersByTimeAsync(120_000 + 1);
++      const r = await p;
++      expect(r.signature).toBe("fakeSig123");
++      expect(r.err).toMatch(/confirmation status unknown/);
++      expect(runtime.DEFAULT_CONFIRM_TIMEOUT_MS).toBe(120_000);
++    } finally {
++      vi.useRealTimers();
++    }
++  });
++
++  it("a deadline during sendTransaction reports the send as unknown, never as not sent", async () => {
++    const conn = mockConn(() => Promise.resolve({ context: { slot: 1 }, value: { err: null } }));
++    // web3.js's sendTransaction stalled before signing (e.g. on its own blockhash fetch).
++    (conn as unknown as { sendTransaction: unknown }).sendTransaction = vi.fn(() => new Promise(() => {}));
++    const r = await simulateOrSend({ connection: conn, ix: ix(), signers: [payer], simulate: false, timeoutMs: 50 });
++    expect(r.err).toMatch(/send status unknown/);
++    expect(r.err).toMatch(/may still be sent/);
++  });
++
++  it("contains a failing getSignatureStatus that confirmTransaction starts and never awaits", async () => {
++    const unhandled: unknown[] = [];
++    const onUnhandled = (e: unknown) => unhandled.push(e);
++    process.on("unhandledRejection", onUnhandled);
++    try {
++      // web3.js 1.99 getTransactionConfirmationPromise: `(async () => { await this.getSignatureStatus(sig) ... })()`.
++      const status = vi.fn().mockRejectedValue(new Error("fetch failed"));
++      const conn = mockConn(function (this: Connection, strategy: unknown) {
++        void (async () => { await this.getSignatureStatus((strategy as { signature: string }).signature); })();
++        return Promise.resolve({ context: { slot: 1 }, value: { err: null } });
++      }, status);
++      const r = await simulateOrSend({ connection: conn, ix: ix(), signers: [payer], simulate: false });
++      expect(r.err).toBeNull();
++      await new Promise((res) => setTimeout(res, 50));
++      expect(status).toHaveBeenCalled();
++      expect(unhandled).toEqual([]);
++    } finally {
++      process.off("unhandledRejection", onUnhandled);
++    }
++  });
++});
