@@ -129,6 +129,7 @@ export interface CloseSlabAttemptArgs {
      * design, so its slab rent is permanently unrecoverable. The planner throws.
      */
     hasLpVault: boolean;
+    /** Classic SPL Token program only (default); anything else (e.g. Token-2022) throws. */
     tokenProgram?: PublicKey;
     /**
      * prog#587 (#644): every asset's creator-fee pot, as read by `readCreatorFeeClaimStateV22`. CloseSlab re-books a pot

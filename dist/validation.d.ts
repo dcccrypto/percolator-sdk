@@ -71,3 +71,16 @@ export declare function validateU64(value: string, field: string): bigint;
  * Validate a u16 value.
  */
 export declare function validateU16(value: string, field: string): number;
+/**
+ * Guard for a JS `number` that is forwarded to an unsigned wire field: it must be a safe integer in `0..=max`.
+ * Refuses NaN, fractions, negatives and values above 2^53-1 instead of letting the encoder wrap or truncate them.
+ *
+ * @param name  Field name for the error message.
+ * @param v     Value to check.
+ * @param max   Inclusive upper bound (default `Number.MAX_SAFE_INTEGER`).
+ * @returns `v`, unchanged.
+ * @throws If `v` is not a safe integer within `0..=max`.
+ * @example
+ * assertUintNumber("lamports", 2_039_280); // 2039280
+ */
+export declare function assertUintNumber(name: string, v: number, max?: number): number;
