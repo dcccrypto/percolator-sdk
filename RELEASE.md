@@ -1,6 +1,7 @@
 # @percolator/sdk v1.0.0-beta.1 — Release Notes
 
 **Release date:** 2026-04-04
+**Package name:** these notes predate the rename. The package is now `@percolatorct/sdk` (see `package.json`); the install lines and code below use that name.
 **Status:** Release-ready. Awaiting Helius API key + mainnet market deployment before npm publish.
 **License:** Apache-2.0
 
@@ -17,11 +18,11 @@ This is the first public beta release. The SDK is functionally complete, securit
 ## Installation
 
 ```bash
-pnpm add @percolator/sdk
+pnpm add @percolatorct/sdk
 # or
-npm install @percolator/sdk
+npm install @percolatorct/sdk
 # or
-yarn add @percolator/sdk
+yarn add @percolatorct/sdk
 ```
 
 **Peer dependency:** `@solana/web3.js ^1.95`
@@ -143,7 +144,11 @@ import {
   fetchAdlRankedPositions,
   RpcPool,
   withRetry,
-} from "@percolator/sdk";
+} from "@percolatorct/sdk";
+import { Connection, type PublicKey } from "@solana/web3.js";
+
+declare const slabPubkey: PublicKey; // a market slab
+const connection = new Connection("https://mainnet.helius-rpc.com/?api-key=YOUR_KEY");
 
 // Connect with RPC pool for reliability
 const pool = new RpcPool({
@@ -154,13 +159,17 @@ const pool = new RpcPool({
 });
 
 // Discover all Percolator markets (3-tier fallback)
-const markets = await discoverMarkets(connection, {
+const markets = await discoverMarkets(connection, getProgramId("mainnet"), {
   network: "mainnet",
   apiBaseUrl: "https://percolatorlaunch.com/api",
 });
 
 // Parse accounts from a market slab
+const slabData = new Uint8Array((await connection.getAccountInfo(slabPubkey))!.data);
 const accounts = parseAllAccounts(slabData);
+
+// Retry any flaky call
+const slot = await withRetry(() => connection.getSlot(), { maxRetries: 3 });
 
 // Check ADL status
 const rankings = await fetchAdlRankedPositions(connection, slabPubkey);

@@ -1,4 +1,4 @@
-# @percolator/sdk
+# @percolatorct/sdk
 
 TypeScript SDK for building clients, bots, and UIs on top of the [Percolator](https://github.com/dcccrypto/percolator) perpetual futures protocol on Solana.
 
@@ -19,8 +19,14 @@ A matcher trade (TradeCpi) is refused with Custom(9) when the signed max fee is 
 matcher's fee, or above the market maximum. Read the inputs and sign the helper's value:
 
 ```ts
-import { readTradeFeeInputsV22, computeTradeFeeBpsToSignV22, encodeTradeCpi } from "@percolatorct/sdk";
+import { Connection, clusterApiUrl, type PublicKey } from "@solana/web3.js";
+import { readTradeFeeInputsV22, computeTradeFeeBpsToSignV22, encodeTradeCpi, type TradeCpiArgs } from "@percolatorct/sdk";
 
+declare const marketPk: PublicKey;      // the v2.2 market
+declare const matcherCtxPk: PublicKey;  // the LP's matcher context account
+declare const tradeArgs: Omit<TradeCpiArgs, "feeBps">; // portfolio ids, epochs, asset, size, limit
+
+const connection = new Connection(clusterApiUrl("devnet"));
 const [market, ctx] = await connection.getMultipleAccountsInfo([marketPk, matcherCtxPk]);
 const { feeBps } = computeTradeFeeBpsToSignV22(readTradeFeeInputsV22(market!.data, 0, ctx!.data));
 // v2.2 devnet markets: base 30 + matcher up to 100 + margin 5 = 135 (max 700)
@@ -33,9 +39,13 @@ Anyone can permanently resolve a market whose price has been stale for `permissi
 (18,000 slots, about 72 minutes, on the v2.2 markets). Check first, then send; only the fee payer signs:
 
 ```ts
-import { Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { Connection, clusterApiUrl, Transaction, sendAndConfirmTransaction, type Keypair, type PublicKey } from "@solana/web3.js";
 import { getProgramId, staleResolveStatusV22, buildResolveStalePermissionlessIxV22 } from "@percolatorct/sdk";
 
+declare const marketPk: PublicKey; // the stale v2.2 market
+declare const payer: Keypair;      // fee payer, the only signer
+
+const connection = new Connection(clusterApiUrl("devnet"));
 const slot = BigInt(await connection.getSlot());
 const info = await connection.getAccountInfo(marketPk);
 const status = staleResolveStatusV22(info!.data, slot); // refusalCode: 21 resolved, 19 behind, 27 not matured
@@ -56,9 +66,27 @@ and builds it (`[budget 1.4M CU, refresh LP observing all assets, refresh trader
 market or fewer than 3 positions returns the trade alone):
 
 ```ts
+import { Connection, clusterApiUrl, TransactionMessage, VersionedTransaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { getProgramId, buildMultiAssetTradeIxsV22, refineMultiAssetTradePlanV22, parseErrorFromLogs } from "@percolatorct/sdk";
+
+declare const wallet: PublicKey;                  // the trader (fee payer and crank signer)
+declare const market: PublicKey;                  // the multi-asset market
+declare const takerPortfolio: PublicKey, lpPortfolio: PublicKey;
+declare const tradeIx: TransactionInstruction;    // your TradeCpi / TradeNoCpi instruction
+
+const connection = new Connection(clusterApiUrl("devnet"));
+const programId = getProgramId("devnet");
+const [marketAcc, takerAcc, lpAcc] = await connection.getMultipleAccountsInfo([market, takerPortfolio, lpPortfolio]);
+const [marketData, takerData, lpData] = [marketAcc!.data, takerAcc!.data, lpAcc!.data].map((d) => new Uint8Array(d));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function toTx(ixs: TransactionInstruction[]): Promise<VersionedTransaction> {
+  const { blockhash } = await connection.getLatestBlockhash();
+  return new VersionedTransaction(new TransactionMessage({ payerKey: wallet, recentBlockhash: blockhash, instructions: ixs }).compileToV0Message());
+}
+
 let plan = buildMultiAssetTradeIxsV22({ programId, market, marketData, cranker: wallet, takerPortfolio, takerData, lpPortfolio, lpData, tradeIx });
 for (let n = 0; n < 8; n++) {
-  const sim = await connection.simulateTransaction(toTx(plan.instructions), { sigVerify: false });
+  const sim = await connection.simulateTransaction(await toTx(plan.instructions), { sigVerify: false });
   if (!sim.value.err) break;
   const next = refineMultiAssetTradePlanV22(plan, sim.value.err); // drops a refresh refused 22, appends one on 19
   if (next.action === "fail") throw new Error(parseErrorFromLogs(sim.value.logs ?? [], { context: { action: "trade", healthCheckStale: true } })?.hint);
@@ -76,10 +104,13 @@ For an open, pass `stalePeers` (other positioned portfolios that are stale on th
 wrapper table and report `program: "unknown"`; pass `programIds` for fresh deployments. `context: { action:
 "trade" }` or `{ action: "withdraw", openLegs }` gives the precise line for wrapper 9 and 19.
 
-## 8.0.0 relaunch targets
+## 8.0.0 relaunch targets (historical)
 
-- **Wrapper:** percolator-prog P1 + P3 head `58e379f1` (engine `35ddd692`) at the fresh devnet
-  id `ETDLAdi…`. The SDK covers P1 tag 93 and errors 66–71, and P3 tags 94–102, errors 72–88,
+> The 8.0.0 devnet ids are now `PROGRAM_IDS_DEVNET_V1` (v1 / close-only). The current devnet
+> wrapper is `getProgramId("devnet")` (= `PROGRAM_IDS_DEVNET_V22.percolator`).
+
+- **Wrapper:** percolator-prog P1 + P3 head `58e379f1` (engine `35ddd692`) at the 8.0.0 devnet
+  wrapper (`PROGRAM_IDS_DEVNET_V1.percolator`). The SDK covers P1 tag 93 and errors 66–71, and P3 tags 94–102, errors 72–88,
   the vault-LP decoders and the bound-vault Earn tails.
 - **Stake:** percolator-stake F-9 head `d13b5a9` plus the fresh-ID bump. The SDK covers tags 29
   `RecoverTerminalInsurance` and 30 `AdminCloseSlab`, errors 29–32, and `planStakeWindDown`.
@@ -103,7 +134,7 @@ present in 2.0.0-rc.0 has been removed. PERC-628 shared-vault encoders
 Slab parsers retain V12_1 / V12_15 / V12_17 layout descriptors for backward-compatible
 reads of older deployments. V12_19 layout descriptor is added for fresh v12.19 slabs.
 
-[![npm](https://img.shields.io/npm/v/@percolator/sdk?color=14F195)](https://www.npmjs.com/package/@percolator/sdk)
+[![npm](https://img.shields.io/npm/v/@percolatorct/sdk?color=14F195)](https://www.npmjs.com/package/@percolatorct/sdk)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 ---
@@ -111,9 +142,9 @@ reads of older deployments. V12_19 layout descriptor is added for fresh v12.19 s
 ## Installation
 
 ```bash
-pnpm add @percolator/sdk
+pnpm add @percolatorct/sdk
 # or
-npm install @percolator/sdk
+npm install @percolatorct/sdk
 ```
 
 **Peer dependency:** `@solana/web3.js ^1.95`
@@ -123,36 +154,36 @@ npm install @percolator/sdk
 ## Quick Start
 
 ```typescript
+import { Connection, clusterApiUrl, type PublicKey } from "@solana/web3.js";
 import {
   getProgramId,
   deriveVaultAuthority,
-  encodeInitUser,
-  encodeDepositCollateral,
-  encodeTradeNoCpi,
-  parseHeader,
-  parseConfig,
-  parseAllAccounts,
-  detectSlabLayout,
+  parseWrapperConfigV17,
+  parsePortfolioV17,
+  decodeMarketFundingV22,
   computeMarkPnl,
   computeLiqPrice,
-  simulateOrSend,
-} from "@percolator/sdk";
+} from "@percolatorct/sdk";
 
-// Get program ID (defaults to devnet)
+declare const marketPk: PublicKey;    // a v2.2 market
+declare const portfolioPk: PublicKey; // a trader portfolio on that market
+
+const connection = new Connection(clusterApiUrl("devnet"));
+
+// Program ID: getProgramId("devnet") === PROGRAM_IDS_DEVNET_V22.percolator
 const programId = getProgramId("devnet");
 
 // Derive vault authority PDA
-const [vaultAuth, bump] = deriveVaultAuthority(programId, slabPubkey);
+const [vaultAuth, bump] = deriveVaultAuthority(programId, marketPk);
 
-// Read and parse on-chain slab account
-const slabInfo = await connection.getAccountInfo(slabPubkey);
-const slabData = new Uint8Array(slabInfo!.data);
-const header = parseHeader(slabData);
-const layout = detectSlabLayout(slabData.length);
-const config = parseConfig(slabData, layout!);
-const accounts = parseAllAccounts(slabData);
+// Read and decode the v2.2 market and a portfolio
+const marketData = new Uint8Array((await connection.getAccountInfo(marketPk))!.data);
+const wrapperConfig = parseWrapperConfigV17(marketData);
+const funding = decodeMarketFundingV22(marketData);
+const portfolio = parsePortfolioV17(new Uint8Array((await connection.getAccountInfo(portfolioPk))!.data));
 
-// Compute PnL for a position
+// Compute PnL and liquidation price for a position (all e6 / bigint)
+const positionSize = 1_000_000n, entryPrice = 100_000_000n, oraclePrice = 105_000_000n, capital = 10_000_000n;
 const pnl = computeMarkPnl(positionSize, entryPrice, oraclePrice);
 const liqPrice = computeLiqPrice(entryPrice, capital, positionSize, 500n);
 ```
@@ -166,97 +197,60 @@ const liqPrice = computeLiqPrice(entryPrice, capital, positionSize, 500n);
 Type-safe instruction builders matching the on-chain Rust layout byte-for-byte:
 
 ```typescript
-import { buildInitMarketIxData, buildTradeNoCpiIxData, IX_TAG } from "@percolator/sdk";
+import { encodeTradeNoCpi, IX_TAG } from "@percolatorct/sdk";
 
-// Build InitMarket instruction data (256 bytes)
-const data = buildInitMarketIxData({
-  admin: adminPubkey,
-  collateralMint: mintPubkey,
-  indexFeedId: pythFeedId,
-  maxStaleSecs: 60n,
-  confFilterBps: 250,
-  invert: false,
-  unitScale: 1_000_000_000, // lamports per unit
-  riskParams: { /* ... */ },
+// TradeNoCpi (tag 6): a direct trade between two portfolios
+const tradeData = encodeTradeNoCpi({
+  accountAPortfolioId: 1n, accountAPositionEpoch: 0n, // live-read from each portfolio (CAS)
+  accountBPortfolioId: 2n, accountBPositionEpoch: 0n,
+  assetIndex: 0, marketId: 1n,
+  sizeQ: 1_000_000n,       // positive = A long, negative = A short
+  execPrice: 100_000_000n, // e6
+  feeBps: 135n,            // sign computeTradeFeeBpsToSignV22(...).feeBps
+  backingFeeCapBps: 0,
 });
+console.log(tradeData[0] === IX_TAG.TradeNoCpi); // true
 
-// Build trade instruction
-const tradeData = buildTradeNoCpiIxData({
-  userIdx: 0,
-  lpIdx: 0,
-  requestedSize: 1_000_000n, // positive = long, negative = short
-  maxSlippage: 50,           // bps
-});
+// InitMarket on v2.2: encodeInitMarketV22(args, trailer) takes the full risk-parameter set;
+// see test/v22-vector-inputs.ts for a complete example.
 ```
 
-**Supported instructions:** `InitMarket`, `InitUser`, `InitLP`, `DepositCollateral`, `WithdrawCollateral`, `KeeperCrank`, `TradeNoCpi`, `TradeCpi`, `LiquidateAtOracle`, `CloseAccount`, `TopUpInsurance`, `SetRiskThreshold`, `UpdateAdmin`, `UpdateConfig`, `SetMaintenanceFee`, `PushOraclePrice`, `ResolveMarket`, `SetOiImbalanceHardBlock`, `SetOracleAuthority`, and more.
+**Supported instructions (v17 / v2.2 wire):** `InitMarket` (`encodeInitMarketV22`), `InitUser`, `DepositCollateral`, `WithdrawCollateral`, `TradeNoCpi`, `TradeCpi`, `BatchTradeCpi`, `PermissionlessCrank`, `CloseAccount`, `TopUpInsurance`, `ResolveMarket`, `UpdateAssetAuthority`, `CreateLpVault` (`encodeCreateLpVaultV17`), and more.
+
+Some v12 encoders are still exported only as removed-instruction stubs that throw when called (for example `encodeInitLP`, `encodeKeeperCrank` (use `encodePermissionlessCrank`), `encodeLiquidateAtOracle`, `encodeSetRiskThreshold`, `encodeUpdateAdmin`, `encodeUpdateConfig`, `encodeSetMaintenanceFee`, the v12-format `encodeCreateLpVault`).
 
 ### Admin Instructions
 
-#### SetOiImbalanceHardBlock (tag=71)
+`SetOiImbalanceHardBlock` (v12 tag 71) and `SetOracleAuthority` are not instructions on the
+v17 / v2.2 wrapper. `encodeSetOiImbalanceHardBlock` is kept only as a removed-instruction stub and throws if
+called; there is no v2.2 equivalent.
 
-Prevents new trades from pushing the long/short OI skew above a configurable threshold.
-When triggered, the on-chain error `OiImbalanceHardBlock` (code 59) is returned.
+#### Per-asset oracle authority (UpdateAssetAuthority, tag 65)
 
-```typescript
-import {
-  encodeSetOiImbalanceHardBlock,
-  ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK,
-  buildAccountMetas,
-  buildIx,
-  simulateOrSend,
-} from "@percolator/sdk";
-
-// threshold_bps = 0         → hard block disabled (default)
-// threshold_bps = 5_000     → block trades that push skew above 50%
-// threshold_bps = 8_000     → block trades that push skew above 80%
-// threshold_bps = 10_000    → lock dominant side once any OI exists
-
-const data = encodeSetOiImbalanceHardBlock({ thresholdBps: 8_000 });
-const keys = buildAccountMetas(ACCOUNTS_SET_OI_IMBALANCE_HARD_BLOCK, [
-  adminPublicKey,  // [signer]
-  slabPublicKey,   // [writable]
-]);
-const ix = buildIx({ programId, keys, data });
-
-const result = await simulateOrSend({ connection, ix, signers: [admin], simulate: true });
-console.log("signature:", result.signature);
-```
-
-#### SetOracleAuthority (tag=16)
-
-Delegates the `PushOraclePrice` right to a specific keypair (e.g. a crank bot).
-Pass `PublicKey.default` (all zeros) to revoke — the program then falls back to Pyth/Chainlink.
+Delegates the oracle-push right for one asset to a specific key (e.g. a crank bot):
 
 ```typescript
-import { PublicKey } from "@solana/web3.js";
-import {
-  encodeSetOracleAuthority,
-  ACCOUNTS_SET_ORACLE_AUTHORITY,
-  buildAccountMetas,
-  buildIx,
-  simulateOrSend,
-} from "@percolator/sdk";
+import { Keypair } from "@solana/web3.js";
+import { encodeUpdateAssetAuthority, ASSET_AUTH_KIND } from "@percolatorct/sdk";
 
-// Delegate to a crank bot
-const data = encodeSetOracleAuthority({ newAuthority: crankBot.publicKey });
-const keys = buildAccountMetas(ACCOUNTS_SET_ORACLE_AUTHORITY, [
-  adminPublicKey,  // [signer, writable]
-  slabPublicKey,   // [writable]
-]);
-const ix = buildIx({ programId, keys, data });
+const crankBot = Keypair.generate();
+const currentEpoch = 0n; // live-read this asset's authority_epoch (CAS: pass the current value, not +1)
 
-await simulateOrSend({ connection, ix, signers: [admin], simulate: true });
-
-// Revoke — fall back to Pyth/Chainlink
-const revokeData = encodeSetOracleAuthority({ newAuthority: PublicKey.default });
+const data = encodeUpdateAssetAuthority({
+  assetIndex: 0,
+  marketId: 1n,
+  kind: ASSET_AUTH_KIND.Oracle,   // 4
+  newPubkey: crankBot.publicKey,
+  authorityEpoch: currentEpoch,
+});
 ```
 
-See [`examples/admin-instructions.ts`](examples/admin-instructions.ts) for full end-to-end examples.
+The signer must be the asset's `asset_admin` or the current holder of that authority.
 
 ### Account Deserialization
 
-Parse the on-chain slab account into typed TypeScript objects:
+Parse a v12.x slab account into typed TypeScript objects (these parsers recognise v12 slab sizes only;
+for a v2.2 market use `parseWrapperConfigV17` / `parsePortfolioV17` as in the Quick Start):
 
 ```typescript
 import {
@@ -264,7 +258,9 @@ import {
   parseConfig,
   parseAllAccounts,
   detectSlabLayout,
-} from "@percolator/sdk";
+} from "@percolatorct/sdk";
+
+declare const accountInfo: { data: Buffer }; // await connection.getAccountInfo(slabPk)
 
 const slabData = new Uint8Array(accountInfo.data);
 const header = parseHeader(slabData);
@@ -293,7 +289,13 @@ import {
   deriveVaultAuthority,
   deriveLpPda,
   deriveInsuranceLpMint,
-} from "@percolator/sdk";
+  getProgramId,
+} from "@percolatorct/sdk";
+import type { PublicKey } from "@solana/web3.js";
+
+declare const slab: PublicKey; // the market account
+const programId = getProgramId("devnet");
+const lpIndex = 0;
 
 const [vaultAuth, bump] = deriveVaultAuthority(programId, slab);
 const [lpPda, lpBump] = deriveLpPda(programId, slab, lpIndex);
@@ -308,15 +310,21 @@ Perpetual math utilities (all BigInt, no floating-point):
 import {
   computeMarkPnl,
   computeLiqPrice,
-  computeEntryPrice,
-  computeEffectiveLeverage,
-} from "@percolator/sdk";
+  computeEstimatedEntryPrice,
+  computeMaxLeverage,
+} from "@percolatorct/sdk";
+
+const positionSize = 1_000_000n, entryPriceE6 = 100_000_000n, oraclePriceE6 = 105_000_000n, capital = 10_000_000n;
 
 // Mark-to-market PnL (v2.2 engine linear floor, quote units)
 const pnl = computeMarkPnl(positionSize, entryPriceE6, oraclePriceE6);
 
 // Liquidation price given capital and maintenance margin
 const liqPrice = computeLiqPrice(entryPriceE6, capital, positionSize, 500n);
+
+// Fee-adjusted fill estimate, and max leverage from initial margin bps
+const estEntry = computeEstimatedEntryPrice(oraclePriceE6, 30n, "long");
+const maxLev = computeMaxLeverage(1_000n); // 10
 
 // All values use e6 format: 1 USD = 1_000_000
 ```
@@ -326,8 +334,9 @@ const liqPrice = computeLiqPrice(entryPriceE6, capital, positionSize, 500n);
 Automatic oracle discovery and ranking for any Solana token:
 
 ```typescript
-import { resolvePrice } from "@percolator/sdk";
+import { resolvePrice } from "@percolatorct/sdk";
 
+const tokenMint = "So11111111111111111111111111111111111111112"; // any SPL mint (base58)
 const result = await resolvePrice(tokenMint);
 // result.bestSource — highest-confidence price source
 // result.allSources — all discovered sources ranked by liquidity
@@ -340,7 +349,7 @@ Supports **Pyth**, **DexScreener** (Raydium, Orca, Meteora), and **Jupiter** pri
 Network-aware program ID resolution:
 
 ```typescript
-import { getProgramId, getMatcherProgramId } from "@percolator/sdk";
+import { getProgramId, getMatcherProgramId } from "@percolatorct/sdk";
 
 // Defaults to devnet
 const programId = getProgramId();
@@ -358,8 +367,11 @@ ADL (Auto-Deleveraging) reduces the most-profitable opposing positions when the 
 #### Checking if ADL is triggered
 
 ```typescript
-import { isAdlTriggered } from "@percolator/sdk";
+import { Connection, clusterApiUrl, type PublicKey } from "@solana/web3.js";
+import { isAdlTriggered } from "@percolatorct/sdk";
 
+declare const slabKey: PublicKey; // a v12.x slab (this check reads v12 slab layouts only)
+const connection = new Connection(clusterApiUrl("devnet"));
 const accountInfo = await connection.getAccountInfo(slabKey);
 if (isAdlTriggered(accountInfo!.data)) {
   console.log("Insurance fund depleted — ADL is active");
@@ -369,8 +381,11 @@ if (isAdlTriggered(accountInfo!.data)) {
 #### Ranking positions for ADL
 
 ```typescript
-import { fetchAdlRankedPositions } from "@percolator/sdk";
+import { Connection, clusterApiUrl, type PublicKey } from "@solana/web3.js";
+import { fetchAdlRankedPositions } from "@percolatorct/sdk";
 
+declare const slabKey: PublicKey; // a v12.x slab
+const connection = new Connection(clusterApiUrl("devnet"));
 const { ranked, longs, shorts, isTriggered } = await fetchAdlRankedPositions(
   connection,
   slabKey,
@@ -384,9 +399,11 @@ const { ranked, longs, shorts, isTriggered } = await fetchAdlRankedPositions(
 #### Decoding on-chain ADL events
 
 ```typescript
-import { parseAdlEvent } from "@percolator/sdk";
+import { Connection, clusterApiUrl } from "@solana/web3.js";
+import { parseAdlEvent } from "@percolatorct/sdk";
 
-// After sending / confirming an ExecuteAdl transaction:
+declare const sig: string; // signature of a confirmed v12.x ExecuteAdl transaction
+const connection = new Connection(clusterApiUrl("devnet"));
 const tx = await connection.getTransaction(sig, { commitment: "confirmed" });
 const event = parseAdlEvent(tx?.meta?.logMessages ?? []);
 // event.tag          — 0xAD1E_0001 (2904424449)
@@ -398,8 +415,9 @@ const event = parseAdlEvent(tx?.meta?.logMessages ?? []);
 #### Fetching ADL rankings via HTTP API
 
 ```typescript
-import { fetchAdlRankings } from "@percolator/sdk";
+import { fetchAdlRankings } from "@percolatorct/sdk";
 
+declare const slabAddress: string; // market slab (base58)
 const result = await fetchAdlRankings(
   "https://percolatorlaunch.com/api",
   slabAddress,
@@ -417,7 +435,7 @@ const result = await fetchAdlRankings(
 // result.insuranceUtilizationBps  — insurance utilization in basis points (0–10000)
 // result.rankings                 — AdlApiRanking[] sorted by rank (1 = first to deleverage)
 //   .rank             — rank (1 = highest PnL%, deleveraged first)
-//   .idx              — slab account index (pass as targetIdx to buildAdlInstruction)
+//   .idx              — slab account index (ExecuteAdl building is not supported on v17 / v2.2)
 //   .pnlAbs           — absolute PnL in lamports (decimal string)
 //   .capital          — capital at entry in lamports (decimal string)
 //   .pnlPctMillionths — pnl * 1_000_000 / capital (decimal string)
@@ -440,8 +458,15 @@ const result = await fetchAdlRankings(
 Build, simulate, and send transactions with error parsing:
 
 ```typescript
-import { buildIx, simulateOrSend } from "@percolator/sdk";
+import { Connection, clusterApiUrl, type AccountMeta, type Keypair } from "@solana/web3.js";
+import { buildIx, simulateOrSend, getProgramId } from "@percolatorct/sdk";
 
+declare const accountMetas: AccountMeta[]; // e.g. from buildAccountMetas(ACCOUNTS_*, ...)
+declare const ixData: Uint8Array;          // from an encode* function
+declare const payer: Keypair;
+
+const connection = new Connection(clusterApiUrl("devnet"));
+const programId = getProgramId("devnet");
 const ix = buildIx({ programId, keys: accountMetas, data: ixData });
 
 const result = await simulateOrSend({
@@ -467,7 +492,9 @@ import {
   validateBps,
   validateI128,
   validateIndex,
-} from "@percolator/sdk";
+} from "@percolatorct/sdk";
+
+const slabAddress = "So11111111111111111111111111111111111111112"; // any base58 key
 
 // Validates a public key string (throws ValidationError on invalid input)
 const slabKey = validatePublicKey(slabAddress, "slab");
@@ -489,7 +516,10 @@ program IDs and RPC endpoints are used. Production deployments always set `NETWO
 explicitly via Railway env vars.
 
 ```typescript
-import { getProgramId, discoverMarkets } from "@percolator/sdk";
+import { Connection, clusterApiUrl } from "@solana/web3.js";
+import { getProgramId, discoverMarkets } from "@percolatorct/sdk";
+
+const connection = new Connection(clusterApiUrl("devnet"));
 
 // Devnet (default — safe fallback)
 const programId = getProgramId("devnet");
@@ -498,8 +528,8 @@ const programId = getProgramId("devnet");
 // NETWORK=mainnet
 const mainnetProgramId = getProgramId("mainnet");
 
-// Market discovery — uses network from NETWORK env by default
-const markets = await discoverMarkets(connection);
+// Market discovery — pass the program id of the network the connection points at
+const markets = await discoverMarkets(connection, programId);
 ```
 
 ### Program Addresses
@@ -510,8 +540,8 @@ const markets = await discoverMarkets(connection);
 | Matcher | Mainnet | `DHP6DtwXP1yJsz8YzfoeigRFPB979gzmumkmCxDLSkUX` |
 | Stake | Mainnet | `DC5fovFQD5SZYsetwvEqd4Wi4PFY1Yfnc669VMe6oa7F` |
 | NFT | Mainnet | `FqhKJT9gtScjrmfUuRMjeg7cXNpif1fqsy5Jh65tJmTS` |
-| Percolator | Devnet | `FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD` |
-| Matcher | Devnet | `GTRgyTDfrMvBubALAqtHuQwT8tbGyXid7svXZKtWfC9k` |
+| Percolator | Devnet | `getProgramId("devnet")` = `PROGRAM_IDS_DEVNET_V22.percolator` (`6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM`) |
+| Matcher | Devnet | `getMatcherProgramId("devnet")` = `PROGRAM_IDS_DEVNET_V22.matcher` (`AsHvEJ8zNctKmdeS57H5E4w6nkTLi3bPVpd6ZCLc2ayN`) |
 
 > Use `PROGRAM_ID` / `MATCHER_PROGRAM_ID` env vars to override for local test validators.
 
@@ -525,7 +555,11 @@ failover, and health probing. Use `RpcPool` for mainnet reliability.
 ### RpcPool — Multi-endpoint with failover/round-robin
 
 ```typescript
-import { RpcPool } from "@percolator/sdk";
+import { RpcPool, discoverMarkets, getProgramId } from "@percolatorct/sdk";
+import type { PublicKey } from "@solana/web3.js";
+
+declare const pubkey: PublicKey; // any account
+const programId = getProgramId("mainnet");
 
 const pool = new RpcPool({
   endpoints: [
@@ -560,7 +594,7 @@ console.log(`${pool.healthyCount}/${pool.size} endpoints healthy`);
 ### Standalone retry wrapper
 
 ```typescript
-import { withRetry } from "@percolator/sdk";
+import { withRetry } from "@percolatorct/sdk";
 import { Connection } from "@solana/web3.js";
 
 const conn = new Connection("https://api.mainnet-beta.solana.com");
@@ -573,7 +607,9 @@ const slot = await withRetry(
 ### RPC health probes
 
 ```typescript
-import { checkRpcHealth } from "@percolator/sdk";
+import { checkRpcHealth, RpcPool } from "@percolatorct/sdk";
+
+const pool = new RpcPool({ endpoints: [{ url: "https://api.mainnet-beta.solana.com" }] });
 
 const health = await checkRpcHealth("https://api.mainnet-beta.solana.com", 5000);
 console.log(`${health.endpoint}: ${health.healthy ? "UP" : "DOWN"} — ${health.latencyMs}ms, slot ${health.slot}`);
@@ -594,16 +630,20 @@ For production use a [Helius](https://helius.dev) paid-tier key. On the free tie
 pass `sequential: true` to serialize requests with exponential backoff:
 
 ```typescript
-import { discoverMarkets } from "@percolator/sdk";
+import { Connection } from "@solana/web3.js";
+import { discoverMarkets, getProgramId } from "@percolatorct/sdk";
+
+const connection = new Connection("https://mainnet.helius-rpc.com/?api-key=KEY");
+const programId = getProgramId("mainnet");
 
 // Helius paid tier — parallel (default, fast)
-const markets = await discoverMarkets(connection, { maxParallelTiers: 6 });
+const markets = await discoverMarkets(connection, programId, { maxParallelTiers: 6 });
 
 // Free-tier or public RPC — sequential with 429 backoff
-const marketsSafe = await discoverMarkets(connection, { sequential: true });
+const marketsSafe = await discoverMarkets(connection, programId, { sequential: true });
 
 // Custom concurrency
-const marketsCustom = await discoverMarkets(connection, { maxParallelTiers: 3 });
+const marketsCustom = await discoverMarkets(connection, programId, { maxParallelTiers: 3 });
 ```
 
 > **Note:** Public mainnet-beta RPC (`api.mainnet-beta.solana.com`) rejects
@@ -628,7 +668,7 @@ All tiers verify data on-chain via `getMultipleAccounts` (works on all RPCs).
 Pass both `apiBaseUrl` and `network` to enable all three tiers:
 
 ```typescript
-import { discoverMarkets, getProgramId } from "@percolator/sdk";
+import { discoverMarkets, getProgramId } from "@percolatorct/sdk";
 import { Connection } from "@solana/web3.js";
 
 const connection = new Connection("https://api.mainnet-beta.solana.com");
@@ -644,7 +684,7 @@ Skip `getProgramAccounts` entirely — query the REST API for slab addresses,
 then fetch full on-chain data:
 
 ```typescript
-import { discoverMarketsViaApi, getProgramId } from "@percolator/sdk";
+import { discoverMarketsViaApi, getProgramId } from "@percolatorct/sdk";
 import { Connection } from "@solana/web3.js";
 
 const connection = new Connection("https://api.mainnet-beta.solana.com");
@@ -665,7 +705,7 @@ import {
   discoverMarketsViaStaticBundle,
   getStaticMarkets,
   getProgramId,
-} from "@percolator/sdk";
+} from "@percolatorct/sdk";
 import { Connection } from "@solana/web3.js";
 
 const connection = new Connection("https://api.mainnet-beta.solana.com");
@@ -682,7 +722,7 @@ const markets = await discoverMarketsViaStaticBundle(
 The static bundle can be augmented before calling `discoverMarkets()`:
 
 ```typescript
-import { registerStaticMarkets, discoverMarkets, getProgramId } from "@percolator/sdk";
+import { registerStaticMarkets, discoverMarkets, getProgramId } from "@percolatorct/sdk";
 import { Connection } from "@solana/web3.js";
 
 // Register known slab addresses before discovery
@@ -704,7 +744,7 @@ If you already know your market slab addresses (e.g. from an indexer or
 hardcoded list), fetch them directly:
 
 ```typescript
-import { getMarketsByAddress, getProgramId } from "@percolator/sdk";
+import { getMarketsByAddress, getProgramId } from "@percolatorct/sdk";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 const connection = new Connection("https://api.mainnet-beta.solana.com");
@@ -720,7 +760,7 @@ const markets = await getMarketsByAddress(
 ## Architecture
 
 ```
-@percolator/sdk
+@percolatorct/sdk
 ├── abi/                 # Binary encoding/decoding matching on-chain layout
 │   ├── instructions.ts  # Instruction data builders (all 72 instructions)
 │   ├── accounts.ts      # Account struct deserialization
@@ -804,8 +844,11 @@ npm publish --access public
 
 | Program | Address |
 |---------|---------|
-| Percolator | `FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD` |
-| Matcher | `4HcGCsyjAqnFua5ccuXyt8KRRQzKFbGTJkVChpS7Yfzy` |
+| Percolator | `getProgramId("devnet")` = `PROGRAM_IDS_DEVNET_V22.percolator` |
+| Matcher | `getMatcherProgramId("devnet")` = `PROGRAM_IDS_DEVNET_V22.matcher` |
+
+The full v2.2 devnet set (wrapper, matcher, stake/vault, nft) is `PROGRAM_IDS_DEVNET_V22`; the 8.x
+close-only set is `PROGRAM_IDS_DEVNET_V1`.
 
 ---
 
