@@ -1,7 +1,7 @@
 /**
  * Regression test: formatResult printed compute units with the host default locale
- * (`unitsConsumed.toLocaleString()` with no locale, in both the error and success branches). The
- * locale). The rest of the SDK pins "en-US" (errors.ts:889, growth-v19.ts:1397). In LANG=de_DE the line
+ * (`unitsConsumed.toLocaleString()` with no locale, in both the error and success branches).
+ * The rest of the SDK pins "en-US" (errors.ts:889, growth-v19.ts:1397). In LANG=de_DE the line
  * reads "Compute Units: 1.234.567" (looks like 1.2 CU) and in hi_IN "12,34,567".
  *
  * The ICU default locale is fixed at process start, so this test stands in for a de-DE host by
