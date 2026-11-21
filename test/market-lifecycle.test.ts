@@ -64,7 +64,7 @@ describe("CloseSlab retirement plan", () => {
 
   it("rejects a Token-2022 tokenProgram (TransferFee mints would mis-account the vault); classic is fine", () => {
     const t22 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
-    expect(() => planCloseSlabAttempt({ ...base, tokenProgram: t22 })).toThrow(/not the classic SPL Token program/);
+    expect(() => planCloseSlabAttempt({ ...base, tokenProgram: t22 })).toThrow(/classic SPL Token program/);
     expect(() => planCloseSlabAttempt({ ...base, tokenProgram: TOKEN_PROGRAM_ID })).not.toThrow();
   });
 
@@ -169,7 +169,7 @@ describe("planCloseSlabAttempt creator-fee legs", () => {
   it("uses an explicit classic tokenProgram and rejects any other program", () => {
     const ixs = planCloseSlabAttempt({ ...base, tokenProgram: TOKEN_PROGRAM_ID });
     expect(ixs[0].keys.some((k) => k.pubkey.equals(TOKEN_PROGRAM_ID))).toBe(true);
-    expect(() => planCloseSlabAttempt({ ...base, tokenProgram: pk() })).toThrow(/not the classic SPL Token program/);
+    expect(() => planCloseSlabAttempt({ ...base, tokenProgram: pk() })).toThrow(/classic SPL Token program/);
   });
 
   it("ignores insuranceRecredit with amount 0 and omits the ledger key when absent", () => {

@@ -29,7 +29,7 @@ import type { AccountSpec } from "../abi/accounts.js";
 import type { CreatorFeeClaimRouteV22 } from "../abi/creator-fee-payee-v22.js";
 import { buildClaimCreatorFeeToPayeeIxsV22 } from "./creator-fee-payee-v22.js";
 import { deriveVaultAuthority } from "./pda.js";
-import { assertClassicTokenProgram } from "./token-program.js";
+import { assertClassicTokenProgram } from "./stake.js";
 import { parsePortfolioV17, V17_HEADER_LEN, V17_KIND_OFF } from "./slab.js";
 
 // ============================================================================
@@ -247,7 +247,7 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
     );
   }
   const tokenProgram = a.tokenProgram ?? TOKEN_PROGRAM_ID;
-  assertClassicTokenProgram("planCloseSlabAttempt", tokenProgram);
+  assertClassicTokenProgram(tokenProgram);
   const [vaultAuthority] = deriveVaultAuthority(a.programId, a.market);
   const ixs: TransactionInstruction[] = [];
   if (a.protocolFee && a.protocolFee.owed > 0n) {
