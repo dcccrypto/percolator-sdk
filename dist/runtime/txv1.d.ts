@@ -1,4 +1,5 @@
 import { Connection, PublicKey, Keypair, TransactionInstruction } from "@solana/web3.js";
+import { type RpcDeadlineOptions } from "./deadline.js";
 /** First byte of every v1 transaction (SIMD-0385: `129`). */
 export declare const TX_V1_VERSION_BYTE = 129;
 /** Maximum serialized v1 transaction size (SIMD-0296). */
@@ -320,18 +321,22 @@ export declare function simulateV1(connection: Connection, wire: Uint8Array, o?:
  *
  * @param connection - Connection; sent through `connection.sendRawTransaction` (its transport and send guards apply).
  * @param wire - Serialized, fully signed v1 transaction.
- * @param opts - `skipPreflight` / `maxRetries` plus raw RPC options.
+ * @param opts - `skipPreflight` / `maxRetries` plus raw RPC options, and an optional `signal` / `timeoutMs`
+ *   deadline (rejects with `RpcDeadlineError`; the send may still reach the node, so check the
+ *   signature from {@link v1TransactionSignature} before resending). Default: none.
  * @returns Transaction signature.
  * @throws On any JSON-RPC error. On the raw-fetch path (`fetchImpl`/`headers` given) errors are {@link V1RpcError}s and format
  *   rejections satisfy {@link isTxV1FormatRejection}. On the default path (`connection.sendRawTransaction`) web3.js 1.x drops
  *   the node's error code, so it is recorded from the Connection's transport and rethrown as a {@link V1RpcError}. A guard
  *   refusal or a network failure is rethrown unchanged and is never a format rejection.
  */
-export declare function sendV1(connection: Connection, wire: Uint8Array, opts?: RawRpcOptions & {
+export declare function sendV1(connection: Connection, wire: Uint8Array, opts?: SendV1Options): Promise<string>;
+/** Options for {@link sendV1}. */
+export type SendV1Options = RawRpcOptions & RpcDeadlineOptions & {
     skipPreflight?: boolean;
     maxRetries?: number;
     preflightCommitment?: "processed" | "confirmed" | "finalized";
-}): Promise<string>;
+};
 /** Structural subset of a wallet-adapter `Adapter`. */
 export interface WalletVersionInfo {
     /** `null`/`undefined` = legacy only (wallet-adapter convention). */
