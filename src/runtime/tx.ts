@@ -395,7 +395,7 @@ export function formatResult(result: TxResult, jsonMode: boolean): string {
       lines.push(`Hint: ${result.hint}`);
     }
     if (result.unitsConsumed !== undefined) {
-      lines.push(`Compute Units: ${result.unitsConsumed.toLocaleString()}`);
+      lines.push(`Compute Units: ${result.unitsConsumed.toLocaleString("en-US")}`);
     }
     if (result.logs.length > 0) {
       lines.push("Logs:");
@@ -405,7 +405,7 @@ export function formatResult(result: TxResult, jsonMode: boolean): string {
     lines.push(`Signature: ${result.signature}`);
     lines.push(`Slot: ${result.slot}`);
     if (result.unitsConsumed !== undefined) {
-      lines.push(`Compute Units: ${result.unitsConsumed.toLocaleString()}`);
+      lines.push(`Compute Units: ${result.unitsConsumed.toLocaleString("en-US")}`);
     }
     if (result.signature !== "(simulated)") {
       lines.push(`Explorer: https://explorer.solana.com/tx/${result.signature}`);

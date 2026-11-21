@@ -17502,7 +17502,7 @@ function formatResult(result, jsonMode) {
       lines.push(`Hint: ${result.hint}`);
     }
     if (result.unitsConsumed !== void 0) {
-      lines.push(`Compute Units: ${result.unitsConsumed.toLocaleString()}`);
+      lines.push(`Compute Units: ${result.unitsConsumed.toLocaleString("en-US")}`);
     }
     if (result.logs.length > 0) {
       lines.push("Logs:");
@@ -17512,7 +17512,7 @@ function formatResult(result, jsonMode) {
     lines.push(`Signature: ${result.signature}`);
     lines.push(`Slot: ${result.slot}`);
     if (result.unitsConsumed !== void 0) {
-      lines.push(`Compute Units: ${result.unitsConsumed.toLocaleString()}`);
+      lines.push(`Compute Units: ${result.unitsConsumed.toLocaleString("en-US")}`);
     }
     if (result.signature !== "(simulated)") {
       lines.push(`Explorer: https://explorer.solana.com/tx/${result.signature}`);
