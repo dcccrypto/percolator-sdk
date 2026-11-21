@@ -5,7 +5,7 @@ import {
   SYSVAR_RENT_PUBKEY,
   SystemProgram,
 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID } from "../solana/spl-token-lite.js";
 
 /**
  * Account spec for building instruction account metas.

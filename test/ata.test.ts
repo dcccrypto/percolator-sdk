@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+// The SDK throws its own copies of spl-token's error classes (same `name`); see spl-token-lite.ts.
 import {
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
   TokenOwnerOffCurveError,
   TokenInvalidAccountOwnerError,
   TokenAccountNotFoundError,
-} from "@solana/spl-token";
+} from "../src/solana/spl-token-lite.js";
 import { getAta, getAtaSync, fetchTokenAccount } from "../src/solana/ata.js";
 import { TOKEN_2022_PROGRAM_ID } from "../src/solana/token-program.js";
 

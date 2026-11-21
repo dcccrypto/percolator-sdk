@@ -6,7 +6,7 @@
  * @module creator-fee-payee-v22-builders
  */
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction } from "./spl-token-lite.js";
 import { buildAccountMetas } from "../abi/accounts.js";
 import { encodeWithdrawCreatorFee } from "../abi/instructions.js";
 import {
