@@ -1,3 +1,9 @@
+## 9.0.0-candidate: no runtime @solana/spl-token (cold import about half the cost)
+
+- **Changed:** the SDK no longer imports `@solana/spl-token` at runtime; it is now a devDependency. The six helpers the SDK used (`TOKEN_PROGRAM_ID`, `TOKEN_2022_PROGRAM_ID`, `ASSOCIATED_TOKEN_PROGRAM_ID`, `getAssociatedTokenAddress[Sync]`, `createAssociatedTokenAccountIdempotentInstruction`, `getAccount`) are ported in `src/solana/spl-token-lite.ts`. Public exports, ATA addresses, instruction bytes and `fetchTokenAccount` results are unchanged.
+- **Behaviour note:** errors thrown by `getAta`, `getAtaSync` and `fetchTokenAccount` are SDK-local classes with the same `name` and message as spl-token's (`TokenOwnerOffCurveError`, `TokenAccountNotFoundError`, `TokenInvalidAccountOwnerError`, `TokenInvalidAccountSizeError`, `TokenInvalidAccountError`). `err instanceof` spl-token's classes is now false; check `err.name` instead.
+- **Tests:** `test/spl-token-lite-parity.test.ts` checks each helper byte for byte against `@solana/spl-token@0.4.14` on fixed and seeded random inputs, and guards that neither `src/` nor `dist/` (JS and .d.ts) imports it.
+
 ## 9.0.0-candidate: computeMarkPnl matches the v2.2 engine linear floor - BREAKING (units)
 
 - **Fixed (BREAKING):** `computeMarkPnl(size, entry, oracle)` returned the coin-margined inverse `diff*|q|/oracle` (coin units). The v2.2 engine settles price PnL linearly (percolator `v16.rs:16412` + `:29481`): `floor(|q| * dP / 1e6)` in quote units, no division by oracle. 81% of the grid mismatched (3,200 distinct price/size points x 7 lot_exp values = 22,400 rows; no sign flips; worst gap about 1.1e6x at oracle 1e12). Now returns the engine value, flooring toward -infinity. Callers that converted coin units (`computePnlPercent` inputs, app display) must use the quote-unit result. `computeLiqPrice` was already linear.

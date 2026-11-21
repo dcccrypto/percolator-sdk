@@ -305,6 +305,17 @@ describe("spl-token-lite: no runtime spl-token import left", () => {
   it("dist/index.js does not import @solana/spl-token and package.json lists it only as a devDependency", () => {
     const dist = fs.readFileSync(path.join(root, "dist", "index.js"), "utf8");
     expect(dist).not.toMatch(/["']@solana\/spl-token["']/);
+    // Types too: a .d.ts that imports spl-token would break consumers now that it is a devDependency.
+    const dts: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith(".d.ts") && /["']@solana\/spl-token["']/.test(fs.readFileSync(p, "utf8"))) dts.push(p);
+      }
+    };
+    walk(path.join(root, "dist"));
+    expect(dts).toEqual([]);
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     expect(pkg.dependencies?.["@solana/spl-token"]).toBeUndefined();
     expect(pkg.devDependencies?.["@solana/spl-token"]).toBeDefined();
