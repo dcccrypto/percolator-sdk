@@ -314,7 +314,9 @@ describe("tag 124 payload layout vs Rust, 2,000 fuzz cases per op", { timeout: 6
       expect(d.report.join()).toBe(rep.join()); // report[0..4] = j, m, l, n (P:46322-46325)
       expect(hex(rustEncode(d))).toBe(hex(b));
     }
-    expect(accepted).toBeGreaterThan(FUZZ_N / 2);
+    // Every even case is valid by construction; the odd cases must hit the refusal path at least once.
+    expect(accepted).toBeGreaterThanOrEqual(FUZZ_N / 2);
+    expect(accepted).toBeLessThan(FUZZ_N);
     // Boundaries of report_ok.
     expect(() => G.encodeLevGuardReportV22({ jDumpBps: 10_000, mIndBps: 10_000, lCapX100: 0xffff, nMultBps: 10_000 })).not.toThrow();
     expect(() => G.encodeLevGuardReportV22({ jDumpBps: 10_001, mIndBps: 0, lCapX100: 0, nMultBps: 0 })).toThrow();
