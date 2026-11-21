@@ -1,0 +1,101 @@
+{
+ "tool": "merge-gate",
+ "version": "1.0",
+ "verdict": "FAIL",
+ "repo": "dcccrypto/percolator-sdk",
+ "pr": 649,
+ "expect_head": "d5955bd0a3ebd58aaef5106c0fb719b071abd008",
+ "checks": {
+  "1": {
+   "result": "FAIL",
+   "evidence": "FAIL: local head suite skipped and CI did not prove a full suite at d5955bd0a3eb (suite job \"build-and-test\" missing at d5955bd0a3eb; coverage required but no CI coverage job is configured for dcccrypto/percolator-sdk (ci.yml only triggers for PRs into main; no coverage job.)) || local head suite skipped after 608s lock wait; CI proof at exact head: none"
+  },
+  "2": {
+   "result": "N/A",
+   "evidence": "tests-only PR: no non-test source changed (test/lev-guard-v22-wire-rust.test.ts)"
+  },
+  "3": {
+   "result": "FAIL",
+   "evidence": "FAIL: local suite/coverage skipped and CI did not prove them at d5955bd0a3eb: suite job \"build-and-test\" missing at d5955bd0a3eb; coverage required but no CI coverage job is configured for dcccrypto/percolator-sdk (ci.yml only triggers for PRs into main; no coverage job.) || local suite+coverage skipped after 608s lock wait; CI proof at exact head d5955bd0a3eb: none"
+  },
+  "4": {
+   "result": "FAIL",
+   "evidence": "FAIL: 1 high/medium/critical finding(s); missing explicit VERDICT: APPROVE; verdict REQUEST_CHANGES || /Users/khubair/agent-work/wt/J-20261121-SDK-GATE-PR648-649/.gate-evidence/review-pr649.txt | head d5955bd0a3ebd58aaef5106c0fb719b071abd008 | verdict REQUEST_CHANGES | findings {\"medium\":1,\"low\":2,\"nit\":4}"
+  },
+  "5": {
+   "result": "PASS",
+   "evidence": "https://github.com/dcccrypto/percolator-sdk/pull/649 | head d5955bd0a3eb (expected d5955bd0a3ebd58aaef5106c0fb719b071abd008) | base feat/v22-sdk-growth@f0ee6d85bea0 (default main) | OPEN | MERGEABLE/CLEAN | CI: CodeRabbit=SUCCESS | +451/-0 in 1 files | re-verified live at end of run"
+  },
+  "6": {
+   "result": "BLOCKED",
+   "evidence": "gate did not pass: do not merge"
+  }
+ },
+ "evidence": {
+  "pr": {
+   "url": "https://github.com/dcccrypto/percolator-sdk/pull/649",
+   "title": "test(v22 sdk): pin every lev-guard ix (tag 124) to the Rust decode and handler, 2,000 fuzz per op, 0 mismatches",
+   "head": "d5955bd0a3ebd58aaef5106c0fb719b071abd008",
+   "base": "feat/v22-sdk-growth",
+   "base_sha": "f0ee6d85bea0372f770c2d0526d9bb1bd9adb303",
+   "default_branch": "main",
+   "state": "OPEN",
+   "mergeable": "MERGEABLE",
+   "merge_state": "CLEAN",
+   "ci": [
+    {
+     "name": "CodeRabbit",
+     "status": "SUCCESS",
+     "conclusion": null
+    }
+   ],
+   "files": [
+    "test/lev-guard-v22-wire-rust.test.ts"
+   ]
+  },
+  "changed": {
+   "tests_or_docs_only": true,
+   "docs_only": false,
+   "src_files": [],
+   "test_files": [
+    "test/lev-guard-v22-wire-rust.test.ts"
+   ],
+   "doc_files": []
+  },
+  "worktrees": {
+   "head": "/Users/khubair/agent-work/percolator-sdk.gate-pr649-head-2026-11-21T20160351-25486",
+   "head_sha": "d5955bd0a3ebd58aaef5106c0fb719b071abd008",
+   "base_tip": "f0ee6d85bea0372f770c2d0526d9bb1bd9adb303",
+   "merge_base": "f0ee6d85bea0372f770c2d0526d9bb1bd9adb303",
+   "behind_by": 0,
+   "merge_preview": null,
+   "logs": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr649-2026-11-21T20160351-25486"
+  },
+  "repo_type": {
+   "kind": "vitest",
+   "pm": "pnpm",
+   "pnpm": "npx -y pnpm@10",
+   "prog": false,
+   "test_cmd": "npx -y pnpm@10 run test --maxWorkers=4 --testTimeout=60000",
+   "cov_cmd": "npx -y pnpm@10 exec vitest run --maxWorkers=4 --testTimeout=60000 --coverage.enabled=true --coverage.provider=v8 --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reportsDirectory=__COVDIR__",
+   "coverage_na": null
+  },
+  "coverage": {
+   "na": "NOT proven: suite job \"build-and-test\" missing at d5955bd0a3eb; coverage required but no CI coverage job is configured for dcccrypto/percolator-sdk (ci.yml only triggers for PRs into main; no coverage job.)",
+   "ci_proof": {
+    "ok": false,
+    "suiteOk": false,
+    "covOk": false,
+    "pending": false,
+    "why": "suite job \"build-and-test\" missing at d5955bd0a3eb; coverage required but no CI coverage job is configured for dcccrypto/percolator-sdk (ci.yml only triggers for PRs into main; no coverage job.)",
+    "good": [],
+    "waitedSecs": 2
+   }
+  }
+ },
+ "merge_cmd": null,
+ "ledger_template": "- 2026-11-21T20:36Z MERGED dcccrypto/percolator-sdk#649 \"test(v22 sdk): pin every lev-guard ix (tag 124) to the Rust decode and handler, 2,000 fuzz per op, 0 mismatches\" into feat/v22-sdk-growth: head d5955bd0a3eb -> merge <MERGE_SHA>. Gate PASS (/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr649-2026-11-21T20160351-25486/result.json). Revert: git -C ~/agent-work/percolator-sdk fetch origin feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk switch -c revert-pr649 origin/feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk revert -m1 <MERGE_SHA> (then PR revert-pr649 into feat/v22-sdk-growth)",
+ "revert_cmd": "git revert -m1 <MERGE_SHA>",
+ "logs": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr649-2026-11-21T20160351-25486",
+ "at": "2026-11-21T20:36:21.963Z"
+}
