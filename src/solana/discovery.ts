@@ -841,7 +841,7 @@ async function discoverMarketsInner(
         connection,
         programId,
         options.apiBaseUrl,
-        { timeoutMs: options.apiTimeoutMs },
+        { timeoutMs: options.apiTimeoutMs, onChainOptions: { signal } },
       );
       fallbackAnswered = true;
       if (apiResult.length > 0) {
@@ -875,6 +875,7 @@ async function discoverMarketsInner(
           connection,
           programId,
           staticEntries,
+          { onChainOptions: { signal } },
         );
       } catch (staticErr) {
         console.warn(

@@ -69,6 +69,9 @@ export declare function createTimeoutFetch(timeoutMs?: number, baseFetch?: Fetch
  *
  * This bounds all RPC calls made through the connection, including the ones the SDK does not wrap and
  * web3.js's own confirmation polling. A caller-supplied `config.fetch` is kept and wrapped.
+ *
+ * Without a `config.fetch`, requests go through the global `fetch`, which ignores `config.httpAgent`
+ * (and web3.js's own keep-alive agent). Pass a `fetch` that honours your agent if you need one.
  */
 export declare function createTimeoutConnection(endpoint: string, config?: ConnectionConfig & {
     requestTimeoutMs?: number;

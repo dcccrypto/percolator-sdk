@@ -339,14 +339,19 @@ async function simulateOrSendInner(
     signature = await rpc(connection.sendTransaction(tx, signers, options));
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
-    if (e instanceof RpcDeadlineError && tx.signature) {
-      // The deadline passed while the send was in flight: the node may still have received it.
-      // web3.js signs `tx` in place before sending, so its signature is the transaction id.
-      const sent = encodeBase58(tx.signature);
+    if (e instanceof RpcDeadlineError) {
+      // The deadline passed while web3.js's sendTransaction was still running. It keeps running in the
+      // background (it may still be fetching its blockhash, then sign and broadcast), so the outcome is
+      // unknown, not "never sent". web3.js signs `tx` in place; once it has, that is the likely
+      // transaction id (it can still re-sign on a duplicate-signature retry).
+      const sig = tx.signature ? encodeBase58(tx.signature) : "";
       return {
-        signature: sent,
+        signature: sig,
         slot: 0,
-        err: `send status unknown (${message}) — the transaction may have reached the node; check signature ${sent} before retrying`,
+        err:
+          `send status unknown (${message}) — the transaction may still be sent and land; ` +
+          (sig ? `check signature ${sig}` : "check the payer's recent transactions") +
+          " before retrying",
         logs: [],
       };
     }
@@ -389,6 +394,7 @@ async function simulateOrSendInner(
       confirmDeadline.dispose();
     }
 
+    deadline?.throwIfAborted();
     const txInfo = await rpc(connection.getTransaction(signature, {
       commitment: txFinality,
       maxSupportedTransactionVersion: 1,
@@ -433,6 +439,7 @@ async function simulateOrSendInner(
       timeoutMs: Math.min(SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS, confirmTimeoutMs),
     });
     try {
+      lookup.signal?.throwIfAborted();
       const status = await raceSignal(connection.getSignatureStatus(signature, {
         searchTransactionHistory: true,
       }), lookup.signal);
@@ -442,6 +449,7 @@ async function simulateOrSendInner(
       // "processed" it can still be dropped or rolled back, and reporting that
       // as a settled success would be the same premature-settlement bug #311 fixed.
       if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
+        lookup.signal?.throwIfAborted();
         const txInfo = await raceSignal(connection.getTransaction(signature, {
           commitment: txFinality,
           maxSupportedTransactionVersion: 1,

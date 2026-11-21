@@ -77,7 +77,12 @@ export function startDeadline(label: string, o: RpcDeadlineOptions | undefined, 
 
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const onOuterAbort = () => controller.abort(new RpcDeadlineError(label, "aborted", undefined, outer?.reason));
+  // An outer deadline that already carries an RpcDeadlineError (a parent timeout) is passed on as is,
+  // so the error says "timeout" rather than "aborted by the caller's signal".
+  const onOuterAbort = () =>
+    controller.abort(
+      outer?.reason instanceof RpcDeadlineError ? outer.reason : new RpcDeadlineError(label, "aborted", undefined, outer?.reason),
+    );
   if (outer?.aborted) {
     onOuterAbort();
   } else {
@@ -160,7 +165,8 @@ export function createTimeoutFetch(
       const res = await baseFetch(input, { ...init, signal: controller.signal });
       // Buffer the body inside the deadline: a response whose body stalls must time out too.
       const body = await res.arrayBuffer();
-      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+      const nullBody = res.status === 204 || res.status === 205 || res.status === 304;
+      return new Response(nullBody ? null : body, { status: res.status, statusText: res.statusText, headers: res.headers });
     } finally {
       clearTimeout(timer);
       outer?.removeEventListener("abort", onOuterAbort);
@@ -173,6 +179,9 @@ export function createTimeoutFetch(
  *
  * This bounds all RPC calls made through the connection, including the ones the SDK does not wrap and
  * web3.js's own confirmation polling. A caller-supplied `config.fetch` is kept and wrapped.
+ *
+ * Without a `config.fetch`, requests go through the global `fetch`, which ignores `config.httpAgent`
+ * (and web3.js's own keep-alive agent). Pass a `fetch` that honours your agent if you need one.
  */
 export function createTimeoutConnection(
   endpoint: string,

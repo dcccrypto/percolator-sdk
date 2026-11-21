@@ -9797,7 +9797,9 @@ function startDeadline(label, o, timeoutName = "timeoutMs") {
   if (ms !== void 0) assertTimeoutMs(timeoutName, ms);
   const controller = new AbortController();
   let timer;
-  const onOuterAbort = () => controller.abort(new RpcDeadlineError(label, "aborted", void 0, outer?.reason));
+  const onOuterAbort = () => controller.abort(
+    outer?.reason instanceof RpcDeadlineError ? outer.reason : new RpcDeadlineError(label, "aborted", void 0, outer?.reason)
+  );
   if (outer?.aborted) {
     onOuterAbort();
   } else {
@@ -9859,7 +9861,8 @@ function createTimeoutFetch(timeoutMs = DEFAULT_RPC_REQUEST_TIMEOUT_MS, baseFetc
     try {
       const res = await baseFetch(input, { ...init, signal: controller.signal });
       const body = await res.arrayBuffer();
-      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+      const nullBody = res.status === 204 || res.status === 205 || res.status === 304;
+      return new Response(nullBody ? null : body, { status: res.status, statusText: res.statusText, headers: res.headers });
     } finally {
       clearTimeout(timer);
       outer?.removeEventListener("abort", onOuterAbort);
@@ -14745,7 +14748,7 @@ async function discoverMarketsInner(connection, programId, options, signal) {
         connection,
         programId,
         options.apiBaseUrl,
-        { timeoutMs: options.apiTimeoutMs }
+        { timeoutMs: options.apiTimeoutMs, onChainOptions: { signal } }
       );
       fallbackAnswered = true;
       if (apiResult.length > 0) {
@@ -14772,7 +14775,8 @@ async function discoverMarketsInner(connection, programId, options, signal) {
         return await discoverMarketsViaStaticBundle(
           connection,
           programId,
-          staticEntries
+          staticEntries,
+          { onChainOptions: { signal } }
         );
       } catch (staticErr) {
         console.warn(
@@ -17591,12 +17595,12 @@ async function simulateOrSendInner(params, deadline, confirmTimeoutMs) {
     signature = await rpc(connection.sendTransaction(tx, signers, options));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    if (e instanceof RpcDeadlineError && tx.signature) {
-      const sent = encodeBase58(tx.signature);
+    if (e instanceof RpcDeadlineError) {
+      const sig = tx.signature ? encodeBase58(tx.signature) : "";
       return {
-        signature: sent,
+        signature: sig,
         slot: 0,
-        err: `send status unknown (${message}) \u2014 the transaction may have reached the node; check signature ${sent} before retrying`,
+        err: `send status unknown (${message}) \u2014 the transaction may still be sent and land; ` + (sig ? `check signature ${sig}` : "check the payer's recent transactions") + " before retrying",
         logs: []
       };
     }
@@ -17631,6 +17635,7 @@ async function simulateOrSendInner(params, deadline, confirmTimeoutMs) {
     } finally {
       confirmDeadline.dispose();
     }
+    deadline?.throwIfAborted();
     const txInfo = await rpc(connection.getTransaction(signature, {
       commitment: txFinality,
       maxSupportedTransactionVersion: 1
@@ -17661,10 +17666,12 @@ async function simulateOrSendInner(params, deadline, confirmTimeoutMs) {
       timeoutMs: Math.min(SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS, confirmTimeoutMs)
     });
     try {
+      lookup.signal?.throwIfAborted();
       const status = await raceSignal(connection.getSignatureStatus(signature, {
         searchTransactionHistory: true
       }), lookup.signal);
       if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
+        lookup.signal?.throwIfAborted();
         const txInfo = await raceSignal(connection.getTransaction(signature, {
           commitment: txFinality,
           maxSupportedTransactionVersion: 1

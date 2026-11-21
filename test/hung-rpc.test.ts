@@ -194,6 +194,15 @@ describe("simulateOrSend confirm: default deadline and web3.js's stray getSignat
     }
   });
 
+  it("a deadline during sendTransaction reports the send as unknown, never as not sent", async () => {
+    const conn = mockConn(() => Promise.resolve({ context: { slot: 1 }, value: { err: null } }));
+    // web3.js's sendTransaction stalled before signing (e.g. on its own blockhash fetch).
+    (conn as unknown as { sendTransaction: unknown }).sendTransaction = vi.fn(() => new Promise(() => {}));
+    const r = await simulateOrSend({ connection: conn, ix: ix(), signers: [payer], simulate: false, timeoutMs: 50 });
+    expect(r.err).toMatch(/send status unknown/);
+    expect(r.err).toMatch(/may still be sent/);
+  });
+
   it("contains a failing getSignatureStatus that confirmTransaction starts and never awaits", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (e: unknown) => unhandled.push(e);
