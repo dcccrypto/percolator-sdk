@@ -8635,17 +8635,15 @@ function decodeG9FeedAllowlistV22(data, table = LAYOUT_V22) {
   }
   const pendingSlot = new DataView(data.buffer, data.byteOffset + b + 8, 8).getBigUint64(0, true);
   const base = b + 16;
-  const arr = (idx, n, listed, name) => {
+  const arr = (idx, n, distinct, name) => {
     const out = [];
     const seen = /* @__PURE__ */ new Set();
     for (let i = 0; i < cap; i++) {
       const k = data.subarray(base + 32 * (idx * cap + i), base + 32 * (idx * cap + i + 1));
       if (i < n) {
-        if (listed) {
-          const h = Buffer.from(k).toString("hex");
-          if (isZero(k) || seen.has(h)) throw bad(parser, `listed ${name} ${i} is zero or duplicated`, ACCOUNT_KIND.G9FeedAllowlist);
-          seen.add(h);
-        }
+        const h = Buffer.from(k).toString("hex");
+        if (isZero(k) || distinct && seen.has(h)) throw bad(parser, `listed ${name} ${i} is zero or duplicated`, ACCOUNT_KIND.G9FeedAllowlist);
+        seen.add(h);
         out.push(new PublicKey12(k));
       } else if (!isZero(k)) {
         throw bad(parser, `unlisted ${name} slot ${i} is not zero`, ACCOUNT_KIND.G9FeedAllowlist);
@@ -8653,17 +8651,12 @@ function decodeG9FeedAllowlistV22(data, table = LAYOUT_V22) {
     }
     return out;
   };
-  return {
-    count,
-    version,
-    bump,
-    keys: arr(0, count, true, "key"),
-    owners: arr(1, count, false, "owner"),
-    pendingCount,
-    pendingSlot,
-    pendingKeys: arr(2, pendingCount, false, "pending key"),
-    pendingOwners: arr(3, pendingCount, false, "pending owner")
-  };
+  const keys = arr(0, count, true, "key");
+  const owners = arr(1, count, false, "owner");
+  const pendingKeys = arr(2, pendingCount, true, "pending key");
+  const pendingOwners = arr(3, pendingCount, false, "pending owner");
+  if (pendingSlot === 0n !== (pendingCount === 0)) throw bad(parser, "pending slot and pending count disagree", ACCOUNT_KIND.G9FeedAllowlist);
+  return { count, version, bump, keys, owners, pendingCount, pendingSlot, pendingKeys, pendingOwners };
 }
 function decodeLpRedemptionV22(data, table = LAYOUT_V22) {
   const parser = "decodeLpRedemptionV22";

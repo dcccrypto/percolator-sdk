@@ -311,7 +311,7 @@ export interface G9FeedAllowlistV22 {
  * @param table  Layout table (default {@link LAYOUT_V22}).
  * @returns The allowlist.
  * @throws {@link UnknownLayoutError} on a wrong header, short data, `count`/`pending_count` > 16, non-zero padding, a
- *   zero or duplicate listed key, or a non-zero unlisted slot (keys or owners).
+ *   zero listed/pending key or owner, a duplicate key, a non-zero unlisted slot, or `pending_slot == 0` xor `pending_count == 0`.
  */
 export function decodeG9FeedAllowlistV22(data: Uint8Array, table: LayoutTable = LAYOUT_V22): G9FeedAllowlistV22 {
   const parser = "decodeG9FeedAllowlistV22";
@@ -326,17 +326,17 @@ export function decodeG9FeedAllowlistV22(data: Uint8Array, table: LayoutTable = 
   }
   const pendingSlot = new DataView(data.buffer, data.byteOffset + b + 8, 8).getBigUint64(0, true);
   const base = b + 16;
-  const arr = (idx: number, n: number, listed: boolean, name: string): PublicKey[] => {
+  // validate_g9_feed_allowlist (v16_program.rs:7790): listed keys AND owners are non-zero, keys are distinct
+  // (owners may repeat), unlisted slots are zero, in both the live and the pending arrays.
+  const arr = (idx: number, n: number, distinct: boolean, name: string): PublicKey[] => {
     const out: PublicKey[] = [];
     const seen = new Set<string>();
     for (let i = 0; i < cap; i++) {
       const k = data.subarray(base + 32 * (idx * cap + i), base + 32 * (idx * cap + i + 1));
       if (i < n) {
-        if (listed) {
-          const h = Buffer.from(k).toString("hex");
-          if (isZero(k) || seen.has(h)) throw bad(parser, `listed ${name} ${i} is zero or duplicated`, ACCOUNT_KIND.G9FeedAllowlist);
-          seen.add(h);
-        }
+        const h = Buffer.from(k).toString("hex");
+        if (isZero(k) || (distinct && seen.has(h))) throw bad(parser, `listed ${name} ${i} is zero or duplicated`, ACCOUNT_KIND.G9FeedAllowlist);
+        seen.add(h);
         out.push(new PublicKey(k));
       } else if (!isZero(k)) {
         throw bad(parser, `unlisted ${name} slot ${i} is not zero`, ACCOUNT_KIND.G9FeedAllowlist);
@@ -344,14 +344,13 @@ export function decodeG9FeedAllowlistV22(data: Uint8Array, table: LayoutTable = 
     }
     return out;
   };
-  return {
-    count, version, bump,
-    keys: arr(0, count, true, "key"),
-    owners: arr(1, count, false, "owner"),
-    pendingCount, pendingSlot,
-    pendingKeys: arr(2, pendingCount, false, "pending key"),
-    pendingOwners: arr(3, pendingCount, false, "pending owner"),
-  };
+  const keys = arr(0, count, true, "key");
+  const owners = arr(1, count, false, "owner");
+  const pendingKeys = arr(2, pendingCount, true, "pending key");
+  const pendingOwners = arr(3, pendingCount, false, "pending owner");
+  // a proposal exists iff it has a slot (an empty proposal is a cancel, never stored)
+  if ((pendingSlot === 0n) !== (pendingCount === 0)) throw bad(parser, "pending slot and pending count disagree", ACCOUNT_KIND.G9FeedAllowlist);
+  return { count, version, bump, keys, owners, pendingCount, pendingSlot, pendingKeys, pendingOwners };
 }
 
 // ============================================================================
