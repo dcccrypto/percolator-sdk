@@ -49,7 +49,7 @@ const RUST_PAYLOAD: Record<string, PayloadRow> = {
   Report: { op: RUST_OP.REPORT, name: "OP_REPORT", len: 10, fields: [
     { name: "j_dump_bps", off: 2, width: 2, kind: "u16le" }, { name: "m_ind_bps", off: 4, width: 2, kind: "u16le" },
     { name: "l_cap_x100", off: 6, width: 2, kind: "u16le" }, { name: "n_mult_bps", off: 8, width: 2, kind: "u16le" }],
-    rust: "L:909 op; P:10933-10937 4x `read_u16` (P:12192 u16::from_le_bytes) into report[0..4], mapped at P:46321-46324; P:10958" },
+    rust: "L:909 op; P:10933-10937 4x `read_u16` (P:12192 u16::from_le_bytes) into report[0..4], mapped at P:46322-46325; P:10958" },
   Tighten: { op: RUST_OP.TIGHTEN, name: "OP_TIGHTEN", len: 2, fields: [], rust: "L:910 op; P:10938 no payload; P:10958" },
   Poke: { op: RUST_OP.POKE, name: "OP_POKE", len: 2, fields: [], rust: "L:911 op; P:10938 no payload; P:10958" },
   LpStop: { op: RUST_OP.LP_STOP, name: "OP_LP_STOP", len: 2, fields: [], rust: "L:912 op; P:10938 no payload; P:10958" },
@@ -238,7 +238,7 @@ describe("tag 124 constants vs Rust", { timeout: 60_000 }, () => {
     }
   });
 
-  it("the other PDAs the builders pass match their Rust seeds (P:7162, P:7866, P:50389)", () => {
+  it("the other PDAs the builders pass match their Rust seeds (P:7023, P:7162, P:50389)", () => {
     const programId = Keypair.generate().publicKey;
     const market = Keypair.generate().publicKey;
     const f = (seeds: Buffer[], p = programId): PublicKey => PublicKey.findProgramAddressSync(seeds, p)[0];
@@ -311,7 +311,7 @@ describe("tag 124 payload layout vs Rust, 2,000 fuzz cases per op", { timeout: 6
       row.fields.forEach((f, k) => expect(readField(b, f)).toBe(BigInt(rep[k])));
       const d = rustDecode(b);
       expect(d.op).toBe(RUST_OP.REPORT);
-      expect(d.report.join()).toBe(rep.join()); // report[0..4] = j, m, l, n (P:46321-46324)
+      expect(d.report.join()).toBe(rep.join()); // report[0..4] = j, m, l, n (P:46322-46325)
       expect(hex(rustEncode(d))).toBe(hex(b));
     }
     expect(accepted).toBeGreaterThan(FUZZ_N / 2);
