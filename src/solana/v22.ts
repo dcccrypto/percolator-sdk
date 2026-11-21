@@ -58,6 +58,7 @@ import type { LayoutTable } from "../abi/layout.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveVaultAuthority } from "./pda.js";
 import { buildWithdrawJuniorTrancheIxP3, deriveProgramDataAddressP3, deriveVaultLpStateP3, withBoundVaultLpTailP3 } from "./p3-vault-lp.js";
 import { V17_WRAPPER_HEAP_FRAME_BYTES } from "../runtime/tx.js";
+import { assertUintNumber } from "../validation.js";
 import { NAV_FLOW_COMPUTE_UNITS_V22, withNavFlowTailV22 } from "./v22-nav-flow.js";
 import { TX_LEGACY_MAX_BYTES, TX_V1_MAX_BYTES, computeBudgetInstructions, measureTxBytes } from "../runtime/txv1.js";
 import type { BudgetParams, TxFormat } from "../runtime/txv1.js";
@@ -864,6 +865,7 @@ export function buildLaunchBundleV22(i: LaunchBundleInputV22): LaunchBundlePlanV
  * ```
  */
 export function buildCreateLpPortfolioIxV22(payer: PublicKey, portfolio: PublicKey, lamports: number, programId: PublicKey, layout: LayoutTable = LAYOUT_V22): TransactionInstruction {
+  assertUintNumber("lamports", lamports);
   return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
 }
 
@@ -884,6 +886,7 @@ export function buildCreateLpPortfolioIxV22(payer: PublicKey, portfolio: PublicK
  * ```
  */
 export function buildCreatePortfolioAccountIxV22(payer: PublicKey, portfolio: PublicKey, lamports: number, programId: PublicKey, layout: LayoutTable = LAYOUT_V22): TransactionInstruction {
+  assertUintNumber("lamports", lamports);
   return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
 }
 

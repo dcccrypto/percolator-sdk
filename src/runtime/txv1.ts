@@ -57,6 +57,9 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import { V17_WRAPPER_HEAP_FRAME_BYTES } from "./tx.js";
+import { assertUintNumber } from "../validation.js";
+
+const U32_MAX = 0xffff_ffff;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -454,6 +457,9 @@ export function v1ConfigFromBudget(b: BudgetParams): V1Config {
 
 /** Legacy / v0 ComputeBudget prelude equivalent to a budget. */
 export function computeBudgetInstructions(b: BudgetParams): TransactionInstruction[] {
+  assertUintNumber("computeUnitLimit", b.computeUnitLimit, U32_MAX);
+  if (b.heapBytes !== undefined) assertUintNumber("heapBytes", b.heapBytes, U32_MAX);
+  if (b.priorityMicroLamportsPerCu !== undefined) assertUintNumber("priorityMicroLamportsPerCu", b.priorityMicroLamportsPerCu);
   const out: TransactionInstruction[] = [];
   if (b.heapBytes) out.push(ComputeBudgetProgram.requestHeapFrame({ bytes: b.heapBytes }));
   out.push(ComputeBudgetProgram.setComputeUnitLimit({ units: b.computeUnitLimit }));
