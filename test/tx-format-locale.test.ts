@@ -1,6 +1,6 @@
 /**
- * Regression test:
- * host's default locale (src/runtime/tx.ts:398 and :408, `unitsConsumed.toLocaleString()` with no
+ * Regression test: formatResult printed compute units with the host default locale
+ * (`unitsConsumed.toLocaleString()` with no locale, in both the error and success branches). The
  * locale). The rest of the SDK pins "en-US" (errors.ts:889, growth-v19.ts:1397). In LANG=de_DE the line
  * reads "Compute Units: 1.234.567" (looks like 1.2 CU) and in hi_IN "12,34,567".
  *
@@ -26,13 +26,13 @@ function asGermanHost() {
 }
 
 describe("formatResult compute units do not depend on host locale", () => {
-  it("error branch (tx.ts:398) prints 1,234,567 on a de-DE host", () => {
+  it("error branch prints 1,234,567 on a de-DE host", () => {
     asGermanHost();
     const text = formatResult({ signature: "", slot: 0, err: "x", logs: [], unitsConsumed: 1234567 }, false);
     expect(text).toContain("Compute Units: 1,234,567");
   });
 
-  it("success branch (tx.ts:408) prints 1,234,567 on a de-DE host", () => {
+  it("success branch prints 1,234,567 on a de-DE host", () => {
     asGermanHost();
     const text = formatResult(
       { signature: "(simulated)", slot: 3, err: null, logs: [], unitsConsumed: 1234567 },
