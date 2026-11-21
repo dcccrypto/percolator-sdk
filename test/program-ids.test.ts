@@ -127,14 +127,14 @@ describe("getMatcherProgramId", () => {
 // 5TnritLt...) fails loudly instead of silently passing.
 // ===========================================================================
 describe("v17 fresh devnet triple (2026-07-17)", () => {
-  it("getProgramId('devnet') resolves to the fresh wrapper DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj", () => {
+  it("getProgramId('devnet') resolves to the v2.2 wrapper 5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe", () => {
     const pk = getProgramId("devnet");
-    expect(pk.toBase58()).toBe("DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj");
+    expect(pk.toBase58()).toBe("5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe");
   });
 
-  it("PROGRAM_IDS.devnet.percolator is the fresh wrapper (cutover default)", () => {
+  it("PROGRAM_IDS.devnet.percolator is the v2.2 11-06 wrapper (cutover default)", () => {
     expect(PROGRAM_IDS.devnet.percolator).toBe(
-      "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
+      "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
     );
   });
 

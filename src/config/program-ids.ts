@@ -24,11 +24,11 @@ export function safeEnv(key: string): string | undefined {
 
 export const PROGRAM_IDS = {
   devnet: {
-    // v17 deployed devnet programs — fresh triple, deployed + upgraded 2026-07-17,
-    // hash-verified on-chain. Supersedes the 2026-06-26 wrapper (69VUZ7a2...), which
-    // remains live on devnet with ~152 existing markets but is no longer the SDK default.
-    percolator: "DhSkE7uTb8HBUYYWF1xkxMYBGtLYJEoDq1tfBD7SnHcj",
-    matcher: "4seJWjv3R5qfXY8R5ntuPHWsoqcVvaxvfFSnU2AnGMhT",
+    // v2.2 fresh-address set, deployed 2026-11-06 (ops ledger deployments.md).
+    // Verified executable on devnet 2026-11-21 via getAccountInfo / solana program show.
+    // Historical v17 IDs remain on PROGRAM_IDS_V17 below (still live, not the default).
+    percolator: "5NGgnU2j315Ci2tso8VJDEthaVExuiKG3tn4xnur28xe",
+    matcher: "DfTxJUT5BbERs1tR33dP82kaUJ1NLymRxXErXAYXcDam",
   },
   mainnet: {
     percolator: "ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv",
