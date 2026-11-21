@@ -280,3 +280,27 @@ describe("decodeLpRedemptionV22 / redemptionDataSizesV22", () => {
     expect(redemptionDataSizesV22(LAYOUT_V22_STAGE_A)).toEqual([112, 128]);
   });
 });
+
+describe("G9 allowlist: Rust validate_g9_feed_allowlist (v16_program.rs:7790-7815) parity", () => {
+  const setPending = (x: Uint8Array, n: number, slotVal: bigint) => {
+    x[19] = n; new DataView(x.buffer).setBigUint64(16 + 8, slotVal, true);
+  };
+  const refused = (m: (x: Uint8Array) => void) => expect(() => decodeG9FeedAllowlistV22(g9(m))).toThrow(UnknownLayoutError);
+  it("refuses a zero pinned owner on a listed entry (`os[..n].contains(zero)`)", () => refused((x) => x.fill(0, slot(1, 1), slot(1, 1) + 32)));
+  it("refuses a zero pending key / pending owner among the pending entries", () => {
+    refused((x) => { setPending(x, 1, 5n); x.fill(0x41, slot(0, 3), slot(0, 3) + 32); });
+    refused((x) => { setPending(x, 1, 5n); x.fill(0x31, slot(0, 2), slot(0, 2) + 32); });
+  });
+  it("refuses duplicate pending keys", () => refused((x) => {
+    setPending(x, 2, 5n);
+    x.fill(0x31, slot(0, 2), slot(0, 2) + 32); x.fill(0x31, slot(1, 2), slot(1, 2) + 32);
+    x.fill(0x41, slot(0, 3), slot(0, 3) + 32); x.fill(0x42, slot(1, 3), slot(1, 3) + 32);
+  }));
+  it("refuses a non-zero unlisted pending slot", () => refused((x) => { setPending(x, 0, 0n); x[slot(0, 2)] = 1; }));
+  it("refuses pending_count > 0 with pending_slot == 0, and pending_slot != 0 with pending_count == 0", () => {
+    refused((x) => {
+      setPending(x, 1, 0n); x.fill(0x31, slot(0, 2), slot(0, 2) + 32); x.fill(0x41, slot(0, 3), slot(0, 3) + 32);
+    });
+    refused((x) => setPending(x, 0, 9n));
+  });
+});
