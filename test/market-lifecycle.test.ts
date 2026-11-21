@@ -62,6 +62,12 @@ describe("CloseSlab retirement plan", () => {
   const fee = { authority: pk(), destToken: pk(), authorityEpoch: 0n, owed: 9_720_000n };
   const base = { programId: W, market, vaultToken, closer, closerDestToken, closeAuthorityEpoch: 2n, hasLpVault: false };
 
+  it("rejects a Token-2022 tokenProgram (TransferFee mints would mis-account the vault); classic is fine", () => {
+    const t22 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+    expect(() => planCloseSlabAttempt({ ...base, tokenProgram: t22 })).toThrow(/not the classic SPL Token program/);
+    expect(() => planCloseSlabAttempt({ ...base, tokenProgram: TOKEN_PROGRAM_ID })).not.toThrow();
+  });
+
   it("orders 84 (amount 0) → 41 (re-credited amount) → 13 in one attempt", () => {
     const ledger = pk();
     const ixs = planCloseSlabAttempt({ ...base, protocolFee: fee, insuranceRecredit: { authority: pk(), destToken: pk(), amount: 123n, ledger } });
@@ -160,11 +166,10 @@ describe("planCloseSlabAttempt creator-fee legs", () => {
     expect(Buffer.from(partial[partial.length - 2].data).equals(Buffer.from(full[full.length - 2].data))).toBe(false);
   });
 
-  it("honours a custom tokenProgram", () => {
-    const tp = pk();
-    const ixs = planCloseSlabAttempt({ ...base, tokenProgram: tp });
-    expect(ixs[0].keys.some((k) => k.pubkey.equals(tp))).toBe(true);
-    expect(ixs[0].keys.some((k) => k.pubkey.equals(TOKEN_PROGRAM_ID))).toBe(false);
+  it("uses an explicit classic tokenProgram and rejects any other program", () => {
+    const ixs = planCloseSlabAttempt({ ...base, tokenProgram: TOKEN_PROGRAM_ID });
+    expect(ixs[0].keys.some((k) => k.pubkey.equals(TOKEN_PROGRAM_ID))).toBe(true);
+    expect(() => planCloseSlabAttempt({ ...base, tokenProgram: pk() })).toThrow(/not the classic SPL Token program/);
   });
 
   it("ignores insuranceRecredit with amount 0 and omits the ledger key when absent", () => {

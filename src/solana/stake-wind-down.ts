@@ -31,6 +31,7 @@ import {
 } from "./stake.js";
 import type { AdminCloseSlabAccounts, RecoverTerminalInsuranceAccounts } from "./stake.js";
 import { deriveVaultAuthority } from "./pda.js";
+import { assertClassicTokenProgram } from "./token-program.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { deriveInsuranceUnitsV22 } from "../abi/v22-wire.js";
 import { resolveMarketGeometry } from "../abi/layout.js";
@@ -314,6 +315,7 @@ export function planStakeWindDown(a: StakeWindDownArgs): StakeWindDownStep[] {
   const cap = decodeTerminalInsuranceCapacity(a.marketData, 0);
   if (!cap.resolved) throw new Error(`planStakeWindDown: market mode ${cap.mode} is not Resolved (1)`);
   const tokenProgram = a.tokenProgram ?? TOKEN_PROGRAM_ID;
+  assertClassicTokenProgram("planStakeWindDown", tokenProgram);
   const [wrapperVaultAuthority] = deriveVaultAuthority(a.wrapperProgram, a.market);
   const riskMode = a.riskMode as number | undefined;
   if (riskMode !== 0 && riskMode !== 1 && riskMode !== 2) {

@@ -51,3 +51,16 @@ export function isToken2022(tokenProgramId: PublicKey): boolean {
 export function isStandardToken(tokenProgramId: PublicKey): boolean {
   return tokenProgramId.equals(TOKEN_PROGRAM_ID);
 }
+
+/**
+ * Throws unless `tokenProgram` is the classic SPL Token program. The close /
+ * wind-down planners move vault balances with plain `Transfer`, which a
+ * Token-2022 mint (e.g. with a TransferFee extension) would short-change.
+ */
+export function assertClassicTokenProgram(fn: string, tokenProgram: PublicKey): void {
+  if (!tokenProgram.equals(TOKEN_PROGRAM_ID)) {
+    throw new Error(
+      `${fn}: tokenProgram ${tokenProgram.toBase58()} is not the classic SPL Token program (${TOKEN_PROGRAM_ID.toBase58()}); Token-2022 mints (e.g. TransferFee) are not supported here and would mis-account the vault.`,
+    );
+  }
+}
