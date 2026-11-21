@@ -4117,8 +4117,8 @@ export function encodeBatchTradeNoCpi(args: BatchTradeNoCpiArgs): Uint8Array {
  * ```ts
  * const data = encodeBatchTradeCpi({
  *   legs: [{ assetIndex: 0, marketId: 1n, sizeQ: 1_000_000n, feeBps: 30n, limitPrice: 51_000_000_000n }],
- *   maxSlippageAtoms: maxSlippageAtoms, // the total adverse slippage you accept (quote atoms); 0n = none, not unlimited
- *   maxFeeAtoms: maxFeeAtoms,           // the total fee you accept (quote atoms); 0n = no fee, not unlimited
+ *   maxSlippageAtoms,                   // caller-chosen: the total adverse slippage you accept (quote atoms); 0n = none, not unlimited
+ *   maxFeeAtoms,                        // caller-chosen: the total fee you accept (quote atoms); 0n = no fee, not unlimited
  *   accountAPortfolioId: a.portfolioId,
  *   accountAPositionEpoch: a.legs[0].epochSnap,
  *   accountBPortfolioId: b.portfolioId,

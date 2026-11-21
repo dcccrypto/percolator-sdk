@@ -215,11 +215,13 @@ console.log(tradeData[0] === IX_TAG.TradeNoCpi); // true
 // see test/v22-vector-inputs.ts for a complete example.
 ```
 
-**Supported instructions:** `InitMarket`, `InitUser`, `InitLP`, `DepositCollateral`, `WithdrawCollateral`, `KeeperCrank`, `TradeNoCpi`, `TradeCpi`, `LiquidateAtOracle`, `CloseAccount`, `TopUpInsurance`, `SetRiskThreshold`, `UpdateAdmin`, `UpdateConfig`, `SetMaintenanceFee`, `PushOraclePrice`, `ResolveMarket`, `UpdateAssetAuthority`, and more.
+**Supported instructions (v17 / v2.2 wire):** `InitMarket` (`encodeInitMarketV22`), `InitUser`, `DepositCollateral`, `WithdrawCollateral`, `TradeNoCpi`, `TradeCpi`, `BatchTradeCpi`, `PermissionlessCrank`, `CloseAccount`, `TopUpInsurance`, `ResolveMarket`, `UpdateAssetAuthority`, `CreateLpVault` (`encodeCreateLpVaultV17`), and more.
+
+Some v12 encoders are still exported only as removed-instruction stubs that throw when called (for example `encodeInitLP`, `encodeKeeperCrank` (use `encodePermissionlessCrank`), `encodeLiquidateAtOracle`, `encodeSetRiskThreshold`, `encodeUpdateAdmin`, `encodeUpdateConfig`, `encodeSetMaintenanceFee`, the v12-format `encodeCreateLpVault`).
 
 ### Admin Instructions
 
-`SetOiImbalanceHardBlock` (v12 tag 71) and `SetOracleAuthority` (v12 tag 16) are not instructions on the
+`SetOiImbalanceHardBlock` (v12 tag 71) and `SetOracleAuthority` are not instructions on the
 v17 / v2.2 wrapper. `encodeSetOiImbalanceHardBlock` is kept only as a removed-instruction stub and throws if
 called; there is no v2.2 equivalent.
 
@@ -368,7 +370,7 @@ ADL (Auto-Deleveraging) reduces the most-profitable opposing positions when the 
 import { Connection, clusterApiUrl, type PublicKey } from "@solana/web3.js";
 import { isAdlTriggered } from "@percolatorct/sdk";
 
-declare const slabKey: PublicKey; // a v12.x slab (v2.2 market sizes are not recognised and return false)
+declare const slabKey: PublicKey; // a v12.x slab (this check reads v12 slab layouts only)
 const connection = new Connection(clusterApiUrl("devnet"));
 const accountInfo = await connection.getAccountInfo(slabKey);
 if (isAdlTriggered(accountInfo!.data)) {

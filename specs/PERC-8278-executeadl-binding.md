@@ -94,8 +94,8 @@ const signatureMatches: BuildAdlInstruction = null! as typeof buildAdlInstructio
 
 ### 4.3 Backup oracle support (NOT YET IMPLEMENTED)
 When `is_hyperp == false`, the on-chain handler reads `accounts[4..]` for backup oracles.
-Current `buildAdlInstruction` only passes 4 accounts. Non-hyperp market ADL will succeed
-only if `oracle` (accounts[3]) is sufficient for price resolution.
+(Historical, v12.) The v12 `buildAdlInstruction` only passed 4 accounts, so non-hyperp market ADL
+succeeded only if `oracle` (accounts[3]) was sufficient. In v17 / v2.2 the function always throws.
 
 **Future work (done as a parameter, unused by the stub):** `buildAdlInstruction` now takes `backupOracles?: PublicKey[]`.  
 This is a follow-on task; all devnet markets are currently hyperp mode.
