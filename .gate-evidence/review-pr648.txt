@@ -1,0 +1,6 @@
+Fresh isolated claude-reviewer review of dcccrypto/percolator-sdk#648 (read-only; Rust read via gh api at percolator-nft ba73df72; reviewer mutation check 3/3 caught; file run 14/14 pass)
+HEAD: b7f8a87a5657b1acdfa0b1567d4e86f6c603ca4b
+FINDING: nit | test/nft-ix-accounts-rust.test.ts:166-168 | "table sizes" test compares literal RUST_* tables to literal numbers only; real SDK length check already at line 159.
+FINDING: nit | test/nft-ix-accounts-rust.test.ts:214-219 | deriveNftRegistry check compares address but not bump, and only for a random wrapper id.
+FINDING: nit | test/nft-ix-accounts-rust.test.ts:13 | header overstates: tag 4 ExecuteTransferHook is routed by 8-byte discriminator in unpack, not a 1-byte tag (constant pin is still correct).
+VERDICT: APPROVE

@@ -1,0 +1,96 @@
+# PR #649 mutation evidence (worktree at head d5955bd0a3ebd58aaef5106c0fb719b071abd008, 2026-11-21T19:11:17Z)
+## unmutated head
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+
+## MUTATION: encodeLevGuardReportV22 swaps j_dump_bps and m_ind_bps field order
+ src/abi/lev-guard-v22.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-    encU16(r.jDumpBps), encU16(r.mIndBps), encU16(r.lCapX100), encU16(r.nMultBps),
++    encU16(r.mIndBps), encU16(r.jDumpBps), encU16(r.lCapX100), encU16(r.nMultBps),
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/lev-guard-v22-wire-rust.test.ts > tag 124 payload layout vs Rust, 2,000 fuzz cases per op > Report: [124, 2, j u16, m u16, l u16, n u16] LE (len 10); SDK accepts exactly what report_ok accepts (L:105)
+ Test Files  1 failed (1)
+      Tests  1 failed | 23 passed (24)
+## reverted
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+
+## MUTATION: LEV_GUARD_OP_V22.SetT0 6 -> 7
+ src/abi/lev-guard-v22.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-  SetT0: 6,
++  SetT0: 7,
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/lev-guard-v22-wire-rust.test.ts > tag 124 constants vs Rust > tag, op bytes and seed match P:669, L:907-913, L:893
+ FAIL  test/lev-guard-v22-wire-rust.test.ts > tag 124 payload layout vs Rust, 2,000 fuzz cases per op > SetT0: [124, 6, t0 u64 LE] (len 10); SDK refuses 0 exactly as the handler does (P:46304)
+ FAIL  test/lev-guard-v22-wire-rust.test.ts > tag 124 accounts vs Rust handler > SetT0 (handle_lev_guard OP_SET_T0 P:46291) with 4 accounts: order, isSigner, isWritable
+ Test Files  1 failed (1)
+      Tests  3 failed | 21 passed (24)
+## reverted
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+
+## MUTATION: ACCOUNTS_LEV_GUARD_REPORT_V22 riskKey signer true -> false
+ src/abi/lev-guard-v22.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-  { name: "riskKey", signer: true, writable: false },
++  { name: "riskKey", signer: false, writable: false },
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/lev-guard-v22-wire-rust.test.ts > tag 124 accounts vs Rust handler > Report (handle_lev_guard OP_REPORT P:46311) with 3 accounts: order, isSigner, isWritable
+ FAIL  test/lev-guard-v22-wire-rust.test.ts > tag 124 accounts vs Rust handler > the SDK's AccountSpec lists equal the transcribed table (non-optional rows)
+ Test Files  1 failed (1)
+      Tests  2 failed | 22 passed (24)
+## reverted
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+
+## MUTATION: encodeLevGuardReportV22 drops the j_dump_bps <= 10000 bound (Rust report_ok rejects)
+ src/abi/lev-guard-v22.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-  u16In("jDumpBps", r.jDumpBps, LEV_REPORT_BPS_MAX_V22);
++  u16In("jDumpBps", r.jDumpBps);
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/lev-guard-v22-wire-rust.test.ts > tag 124 payload layout vs Rust, 2,000 fuzz cases per op > Report: [124, 2, j u16, m u16, l u16, n u16] LE (len 10); SDK accepts exactly what report_ok accepts (L:105)
+ Test Files  1 failed (1)
+      Tests  1 failed | 23 passed (24)
+## reverted
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+
+## MUTATION: LEV_GUARD_SEEDS_V22.depthSource seed depth_src -> depth_source
+ src/abi/lev-guard-v22.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-  depthSource: "depth_src",
++  depthSource: "depth_source",
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/lev-guard-v22-wire-rust.test.ts > tag 124 constants vs Rust > tag, op bytes and seed match P:669, L:907-913, L:893
+ Test Files  1 failed (1)
+      Tests  1 failed | 23 passed (24)
+## reverted
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+
+## REVIEWER-FINDING CHECK (medium, test:397-400): builders drop optional accounts
+-  if (o.holderTokenAccount) keys.push(r(o.holderTokenAccount));
++  // MUT: holder dropped
+-  for (const p of opposing) keys.push(w(p));
++  for (const p of opposing.slice(1)) keys.push(w(p));
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/lev-guard-v22-wire-rust.test.ts > tag 124 accounts vs Rust handler > LpStop (lev_guard_lp_stop P:46804 (dispatch P:17222-17229)) with 8 accounts: order, isSigner, isWritable
+ Test Files  1 failed (1)
+      Tests  1 failed | 23 passed (24)
+=> combined mutation: LpStop case FAILED (caught); see the split runs below
+
+## SPLIT A: Tighten builder drops optional holder [6] only
+-  if (o.holderTokenAccount) keys.push(r(o.holderTokenAccount));
++  // MUT: holder dropped
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+
+## SPLIT B: LpStop builder drops the LAST opposing portfolio only
+-  for (const p of opposing) keys.push(w(p));
++  for (const p of opposing.slice(0, -1)) keys.push(w(p));
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+## reverted

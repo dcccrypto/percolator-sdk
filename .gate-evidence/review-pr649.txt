@@ -1,0 +1,11 @@
+Fresh isolated claude-reviewer review of dcccrypto/percolator-sdk#649 (read-only; Rust read from local percolator-prog at 4a5065f5; file run 24/24 pass).
+Medium finding independently re-confirmed by the gate agent: see pr649-mutation.txt "SPLIT A" / "SPLIT B" (both mutations survive, 24/24 pass).
+HEAD: d5955bd0a3ebd58aaef5106c0fb719b071abd008
+FINDING: medium | test/lev-guard-v22-wire-rust.test.ts:397-400 | Account tests never assert an exact key count; upper bound skipped when k.extra set. A builder dropping the optional Tighten holder [6] or the last opposing LpStop portfolio still passes. Fix: assert k.ix.keys.length === expectedLen per case (7 for Tighten+holder, 6+victims.length for LpStop).
+FINDING: low | test/lev-guard-v22-wire-rust.test.ts:254-339 | ~31 s for this file alone (per-iteration expect calls); consider one expect per op or lower FUZZ_N.
+FINDING: low | test/lev-guard-v22-wire-rust.test.ts:333-339 | For Tighten/Poke/LpStop the 2,000 fuzz cases only exercise the hand-port's trailing-byte rejection, not the SDK; claim overstated.
+FINDING: nit | test/lev-guard-v22-wire-rust.test.ts:178 | single global RNG seed; per-test inputs depend on run order, -t repro may differ.
+FINDING: nit | test/lev-guard-v22-wire-rust.test.ts:242 | unseeded Keypair.generate() keys contradict deterministic description.
+FINDING: nit | test/lev-guard-v22-wire-rust.test.ts:288 | null branch inside SetRiskKey loop is dead (covered at line 296).
+FINDING: nit | test/lev-guard-v22-wire-rust.test.ts:78 | programData key check only on upgrade-authority path (P:46258-46259), not creator path; flags still correct.
+VERDICT: REQUEST_CHANGES

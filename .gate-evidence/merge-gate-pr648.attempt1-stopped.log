@@ -1,0 +1,5 @@
+[gate] head-install: exit 0 in 78s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr648-2026-11-21T19215263-25589/01-head-install.log
+[gate] lock-skip: 2026-11-21T19:23:27.047Z percolator-sdk#648 head b7f8a87a head-suite no skip: load 3.41/cpu >= 1.8; normal locked path
+[gate] lane percolator-sdk: load 3.41/cpu >= 2.0, waiting (max 15 min)
+[gate] lock wait 2 min credited back; total waited 2 min; deadline now 2026-11-21T20:24:09.416Z
+[gate] head-suite: exit 0 in 481s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr648-2026-11-21T19215263-25589/02-head-suite.log

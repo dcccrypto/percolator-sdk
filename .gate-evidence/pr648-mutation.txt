@@ -1,0 +1,57 @@
+# PR #648 mutation evidence (worktree at head b7f8a87a5657b1acdfa0b1567d4e86f6c603ca4b, 2026-11-21T19:06:48Z)
+## unmutated head
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+
+## MUTATION: encodeNftMint writes asset_index big-endian (byte-swapped u16)
+ src/abi/nft.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-  buf.set(assetIndexBuf, 1);
++  buf.set(assetIndexBuf.slice().reverse(), 1);
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/nft-ix-accounts-rust.test.ts > NFT instruction payloads vs NftInstruction::unpack (instruction.rs:197-260) > MintPositionNft = [0, asset_index u16 LE], exactly 3 bytes (instruction.rs:214-221)
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 passed (14)
+## reverted
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+
+## MUTATION: ACCOUNTS_NFT_MINT slot 1 (PositionNft PDA) writable -> readonly
+ src/abi/nft.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-  "sw", "w", "sw", "w", "w", "r", "r", "r", "r", "w", "r", "r",
++  "sw", "r", "sw", "w", "w", "r", "r", "r", "r", "w", "r", "r",
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/nft-ix-accounts-rust.test.ts > NFT account lists vs processor.rs handlers > MintPositionNft: same account count and signer/writable flag per index
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 passed (14)
+## reverted
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+
+## MUTATION: position_nft PDA seed string changed to position-nft
+ src/abi/nft.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-      [TEXT.encode("position_nft"), portfolioBytes, seedMarket],
++      [TEXT.encode("position-nft"), portfolioBytes, seedMarket],
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/nft-ix-accounts-rust.test.ts > NFT PDAs vs state_v16.rs / transfer_hook.rs / cpi_v16.rs seeds > deriveNftPda = ['position_nft', portfolio, market_id u64 LE] (state_v16.rs:130-143)
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 passed (14)
+## reverted
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+
+## MUTATION: NFT_IX_TAG.ReconcileBurnedNft 7 -> 8
+ src/abi/nft.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-  ReconcileBurnedNft: 7,
++  ReconcileBurnedNft: 8,
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/nft-ix-accounts-rust.test.ts > NFT instruction tags vs percolator-nft src/instruction.rs > SDK NFT_IX_TAG has exactly the Rust tags, value for value
+ FAIL  test/nft-ix-accounts-rust.test.ts > NFT instruction payloads vs NftInstruction::unpack (instruction.rs:197-260) > tag-only instructions are exactly one byte (rest.is_empty(), instruction.rs:222-251)
+ Test Files  1 failed (1)
+      Tests  2 failed | 12 passed (14)
+## reverted
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
