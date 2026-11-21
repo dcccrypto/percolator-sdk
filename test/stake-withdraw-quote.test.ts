@@ -46,7 +46,7 @@ describe("quoteStakeWithdrawNowV5", () => {
     expect(one.maxLpNow > 0n).toBe(true);
     expect(collateralForLpV5(one.maxLpNow, pool.totalLpSupply, 10_960_000n + 5_480_000n)! >= 1n).toBe(true);
   });
-  it("FGSFL devnet 2026-10-20: a stale units snapshot (60M) after a -30M loss over-quotes; clamping to the live free reading (30M = Σ domain withdraw capacity) matches what the program paid", () => {
+  it("FGSFL devnet 2026-10-20: a stale units snapshot (60M) after a -30M loss over-quotes; pricing at the live free reading (30M = Σ domain withdraw capacity) matches what the program paid", () => {
     const p = { totalDeposited: 20_000_000n, totalWithdrawn: 0n, totalFlushed: 10_000_000n, totalReturned: 0n, totalFeesEarned: 960_000n, realizedJuniorLoss: 0n, totalLpSupply: 20_000_000n };
     const u = { unitsStake: 10_000_000n, unitsTotal: 60_000_000n };
     const stale = quoteStakeWithdrawNowV5(p, u, 60_000_000n, 10_960_000n, 19_999_000n)!;
