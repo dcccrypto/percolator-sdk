@@ -1,0 +1,109 @@
+{
+ "tool": "merge-gate",
+ "version": "1.0",
+ "verdict": "PASS",
+ "repo": "dcccrypto/percolator-sdk",
+ "pr": 648,
+ "expect_head": "b7f8a87a5657b1acdfa0b1567d4e86f6c603ca4b",
+ "checks": {
+  "1": {
+   "result": "PASS",
+   "evidence": "fresh worktree /Users/khubair/agent-work/percolator-sdk.gate-pr648-head-2026-11-21T19344989-48477 @ b7f8a87a5657 (not the author's) | `npx -y pnpm@10 run test --maxWorkers=4 --testTimeout=60000` exit 0 in 530s | 3547 passed / 0 failed / 2 skipped (vitest summary) | log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr648-2026-11-21T19344989-48477/03-head-suite.log"
+  },
+  "2": {
+   "result": "N/A",
+   "evidence": "tests-only PR: no non-test source changed (test/nft-ix-accounts-rust.test.ts)"
+  },
+  "3": {
+   "result": "PASS",
+   "evidence": "head suite exit 0: 3547 passed / 0 failed | lines 98.41% (base f0ee6d85bea0) -> 98.41% (head) = +0pt; branches 92.75% -> 92.75% [vitest v8 json-summary total]"
+  },
+  "4": {
+   "result": "PASS",
+   "evidence": "/Users/khubair/agent-work/wt/J-20261121-SDK-GATE-PR648-649/.gate-evidence/review-pr648.txt | head b7f8a87a5657b1acdfa0b1567d4e86f6c603ca4b | verdict APPROVE | findings {\"nit\":3}"
+  },
+  "5": {
+   "result": "PASS",
+   "evidence": "https://github.com/dcccrypto/percolator-sdk/pull/648 | head b7f8a87a5657 (expected b7f8a87a5657b1acdfa0b1567d4e86f6c603ca4b) | base feat/v22-sdk-growth@f0ee6d85bea0 (default main) | OPEN | MERGEABLE/CLEAN | CI: CodeRabbit=SUCCESS | +224/-0 in 1 files | re-verified live at end of run"
+  },
+  "6": {
+   "result": "TODO",
+   "evidence": "after merging, get MERGE_SHA with: gh pr view 648 -R dcccrypto/percolator-sdk --json mergeCommit --jq .mergeCommit.oid ; then append the ledger line below (revert = git revert -m1 <MERGE_SHA>)"
+  }
+ },
+ "evidence": {
+  "pr": {
+   "url": "https://github.com/dcccrypto/percolator-sdk/pull/648",
+   "title": "test(nft): pin NFT ix tags, payloads, account flags and PDA seeds against percolator-nft Rust (0 mismatches)",
+   "head": "b7f8a87a5657b1acdfa0b1567d4e86f6c603ca4b",
+   "base": "feat/v22-sdk-growth",
+   "base_sha": "f0ee6d85bea0372f770c2d0526d9bb1bd9adb303",
+   "default_branch": "main",
+   "state": "OPEN",
+   "mergeable": "MERGEABLE",
+   "merge_state": "CLEAN",
+   "ci": [
+    {
+     "name": "CodeRabbit",
+     "status": "SUCCESS",
+     "conclusion": null
+    }
+   ],
+   "files": [
+    "test/nft-ix-accounts-rust.test.ts"
+   ]
+  },
+  "changed": {
+   "tests_or_docs_only": true,
+   "docs_only": false,
+   "src_files": [],
+   "test_files": [
+    "test/nft-ix-accounts-rust.test.ts"
+   ],
+   "doc_files": []
+  },
+  "worktrees": {
+   "head": "/Users/khubair/agent-work/percolator-sdk.gate-pr648-head-2026-11-21T19344989-48477",
+   "head_sha": "b7f8a87a5657b1acdfa0b1567d4e86f6c603ca4b",
+   "base_tip": "f0ee6d85bea0372f770c2d0526d9bb1bd9adb303",
+   "merge_base": "f0ee6d85bea0372f770c2d0526d9bb1bd9adb303",
+   "behind_by": 0,
+   "merge_preview": null,
+   "logs": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr648-2026-11-21T19344989-48477"
+  },
+  "repo_type": {
+   "kind": "vitest",
+   "pm": "pnpm",
+   "pnpm": "npx -y pnpm@10",
+   "prog": false,
+   "test_cmd": "npx -y pnpm@10 run test --maxWorkers=4 --testTimeout=60000",
+   "cov_cmd": "npx -y pnpm@10 exec vitest run --maxWorkers=4 --testTimeout=60000 --coverage.enabled=true --coverage.provider=v8 --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reportsDirectory=__COVDIR__",
+   "coverage_na": null
+  },
+  "coverage": {
+   "base": {
+    "lines": 98.41,
+    "branches": 92.75,
+    "funcs": 99.17,
+    "source": "vitest v8 json-summary total",
+    "exit": 0,
+    "log": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr648-2026-11-21T19344989-48477/06-base-coverage.log"
+   },
+   "head": {
+    "lines": 98.41,
+    "branches": 92.75,
+    "funcs": 99.17,
+    "source": "vitest v8 json-summary total",
+    "exit": 0,
+    "log": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr648-2026-11-21T19344989-48477/04-head-coverage.log"
+   },
+   "base_sha": "f0ee6d85bea0372f770c2d0526d9bb1bd9adb303",
+   "note": null
+  }
+ },
+ "merge_cmd": "gh pr merge 648 -R dcccrypto/percolator-sdk --merge --match-head-commit b7f8a87a5657b1acdfa0b1567d4e86f6c603ca4b",
+ "ledger_template": "- 2026-11-21T20:12Z MERGED dcccrypto/percolator-sdk#648 \"test(nft): pin NFT ix tags, payloads, account flags and PDA seeds against percolator-nft Rust (0 mismatches)\" into feat/v22-sdk-growth: head b7f8a87a5657 -> merge <MERGE_SHA>. Gate PASS (/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr648-2026-11-21T19344989-48477/result.json). Revert: git -C ~/agent-work/percolator-sdk fetch origin feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk switch -c revert-pr648 origin/feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk revert -m1 <MERGE_SHA> (then PR revert-pr648 into feat/v22-sdk-growth)",
+ "revert_cmd": "git revert -m1 <MERGE_SHA>",
+ "logs": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr648-2026-11-21T19344989-48477",
+ "at": "2026-11-21T20:12:24.704Z"
+}
