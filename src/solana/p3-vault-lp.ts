@@ -49,6 +49,7 @@ import { VAULT_LP_EXT_SEED_P2B } from "../abi/p2b-earn.js";
 import type { SetVaultLpRiskArgsP3, VaultLpSetMatcherArgsP3 } from "../abi/p3.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveMatcherDelegate, deriveNftRegistry, deriveVaultAuthority } from "./pda.js";
 import { V17_HEADER_LEN } from "./slab.js";
+import { assertUintNumber } from "../validation.js";
 import { LAYOUT_V21, LAYOUT_V22, portfolioFilterForLayout, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
 import type { LayoutTable } from "../abi/layout.js";
 
@@ -490,6 +491,7 @@ export function buildCreateVaultLpMatcherCtxIxP3(
   payer: PublicKey, matcherCtx: PublicKey, lamports: number,
   matcherProgram: PublicKey = new PublicKey(CANONICAL_VAULT_LP_MATCHER_PROGRAM_DEVNET_P3),
 ): TransactionInstruction {
+  assertUintNumber("lamports", lamports);
   return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: matcherCtx, lamports, space: VAULT_LP_MATCHER_CTX_LEN_P3, programId: matcherProgram });
 }
 

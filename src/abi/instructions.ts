@@ -2867,7 +2867,7 @@ export function encodeMatcherReturn(args: {
   rejected: boolean;
   backingFeeCapBps: number;
 }): Uint8Array {
-  if (args.backingFeeCapBps < 0 || args.backingFeeCapBps > 10_000) {
+  if (!Number.isInteger(args.backingFeeCapBps) || args.backingFeeCapBps < 0 || args.backingFeeCapBps > 10_000) {
     throw new Error(`encodeMatcherReturn: backingFeeCapBps must be 0..=10000, got ${args.backingFeeCapBps}`);
   }
   const flags =
