@@ -107,6 +107,10 @@ function engineLpSharesForDeposit(amount: bigint, totalShares: bigint, nav: bigi
  * The SDK contract ("null when the program would refuse: nav 0 with shares, or 0 shares") is this
  * composed result. Not modelled (they are separate gates on the NAV itself, not share pricing):
  * the :32456 `nav * LP_VAULT_MAX_PRICE_COLLAPSE < total` refusal and the target-pot impairment gate.
+ * `nav` here is the caller's input: tag 75 passes `entry NAV + lp_vault_harvestable_fee_atoms`
+ * (:32445, #411), which the SDK fn takes as given (documented on `navAtoms`). Also outside this
+ * fn's domain: amount > u64::MAX (the wire amount is a u64, refused by `amount_to_u64` before
+ * pricing) and the u64 cap on the MINTED count (modelled in progSharesMinted below).
  */
 function progDepositShares(amount: bigint, totalShares: bigint, nav: bigint): Ref {
   if (amount === 0n) return { err: "LpVaultZeroAmount" };
@@ -527,7 +531,9 @@ describe("entryVsExitP2b vs lp_atoms_for_redemption on the entry and exit NAVs",
 
 afterAll(() => {
   const rows = [...table.entries()].map(([fn, r]) => ({ fn, boundary: r.boundary, random: r.random, cases: r.cases, mismatches: r.mismatches.length }));
-  // eslint-disable-next-line no-console
-  console.log(`\nfn x cases (SDK vs transcribed Rust)\n${rows.map((r) => `| ${r.fn} | ${r.boundary} | ${r.random} | ${r.cases} | ${r.mismatches} |`).join("\n")}`);
-  for (const [fn, r] of table) for (const m of r.mismatches.slice(0, process.env.DIFF_ALL ? undefined : 5)) console.log(`MISMATCH ${fn}: ${m.input} sdk=${m.sdk} rust=${m.rust}`);
+  // process.stdout (not console) so the table also prints when every test passes.
+  const out = [`\nfn x cases (SDK vs transcribed Rust) | boundary | random | cases | mismatches`];
+  for (const r of rows) out.push(`| ${r.fn} | ${r.boundary} | ${r.random} | ${r.cases} | ${r.mismatches} |`);
+  for (const [fn, r] of table) for (const m of r.mismatches.slice(0, process.env.DIFF_ALL ? undefined : 5)) out.push(`MISMATCH ${fn}: ${m.input} sdk=${m.sdk} rust=${m.rust}`);
+  process.stdout.write(`${out.join("\n")}\n`);
 });

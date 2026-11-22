@@ -763,7 +763,9 @@ export function nonboundVaultPricingP2b(own: NonboundPotP2b, sibling: NonboundPo
  * Engine `lp_shares_for_deposit`: `floor(amount * totalShares / nav)`; 1:1 with no shares.
  * @param amount       Deposit atoms.
  * @param totalShares  Shares outstanding.
- * @param navAtoms     ENTRY NAV ({@link NonboundVaultPricingP2b.entryNavAtoms}).
+ * @param navAtoms     ENTRY NAV ({@link NonboundVaultPricingP2b.entryNavAtoms}) PLUS the vault's
+ *                     harvestable LP fees: tag 75 prices on `nav + lp_vault_harvestable_fee_atoms`
+ *                     (#411). `entryNavAtoms` alone over-quotes shares while fees await tag 78.
  * @returns Shares minted (null when the program would refuse: amount 0, nav 0 with shares, or 0 shares).
  * @example
  * ```ts
