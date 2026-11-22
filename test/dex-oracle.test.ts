@@ -305,7 +305,7 @@ assertThrows(
     solPriceE6,
   );
   // Independently verified against Jupiter Price API v3 ($0.298347) and
-  // DexScreener ($0.2994) at fetch time — within 0.5% of both. The pre-fix
+  // DexScreener ($0.2994) at fetch time — within 1% of both. The pre-fix
   // formula (no decimals, no SOL conversion) computed $3.84 for this same
   // snapshot — a ~1186% error.
   assert(
