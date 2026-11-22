@@ -120,7 +120,8 @@ const LIGHTHOUSE_BENIGN_LINE = new RegExp(
  *
  * Detects:
  * - `custom program error: 0x1900` (Lighthouse multi-assert AssertionFailed)
- * - References to the Lighthouse program ID in error text
+ * - References to the Lighthouse program ID in error text (not counting
+ *   invoke/consumed/success lines of a Lighthouse ix that completed)
  * - `"Custom": 6400` in JSON-encoded InstructionError
  * - Any code (LIGHTHOUSE_ERROR_CODES or other) when the
  *   failing program is Lighthouse (identified by program ID in logs)
