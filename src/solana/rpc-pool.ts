@@ -417,6 +417,16 @@ interface EndpointState {
    * time-based auto-recovery logic in `selectEndpoint`.
    */
   unhealthySince?: number;
+  /**
+   * Start-order stamps for health writes. Every `call()` attempt and every
+   * `healthCheck()` probe takes `++opSeq` before it awaits. A late success only
+   * resets health if no failure that started after it has been recorded
+   * (`seq > lastBadSeq`), and a late bad probe only marks the endpoint down if no
+   * success that started after it has been recorded (`seq > lastOkSeq`).
+   */
+  opSeq: number;
+  lastOkSeq: number;
+  lastBadSeq: number;
 }
 
 /**
@@ -495,6 +505,9 @@ export class RpcPool {
         failures: 0,
         healthy: true,
         lastLatencyMs: -1,
+        opSeq: 0,
+        lastOkSeq: 0,
+        lastBadSeq: 0,
       };
     });
   }
@@ -550,20 +563,26 @@ export class RpcPool {
 
       const timeout = rejectAfter<T>(this.requestTimeoutMs, `RPC request timed out after ${this.requestTimeoutMs}ms (${ep.label})`);
       const ac = new AbortController();
+      const seq = ++ep.opSeq;
       try {
         const result = await Promise.race([
           fn(ep.connection, ac.signal),
           timeout.promise,
         ]);
 
-        // Success — reset failure count
-        ep.failures = 0;
-        ep.healthy = true;
-        ep.unhealthySince = undefined;
+        // Success — reset failure count, unless a failure that started after this
+        // attempt has already been recorded (a stale success must not revive it).
+        if (seq > ep.lastBadSeq) {
+          ep.failures = 0;
+          ep.healthy = true;
+          ep.unhealthySince = undefined;
+          ep.lastOkSeq = Math.max(ep.lastOkSeq, seq);
+        }
         return result;
       } catch (err) {
         lastError = err;
         ep.failures++;
+        ep.lastBadSeq = Math.max(ep.lastBadSeq, seq);
         if (err instanceof RpcTimeoutError) {
           // The attempt is abandoned: tell it to stop (best effort).
           ac.abort(err);
@@ -671,16 +690,24 @@ export class RpcPool {
   async healthCheck(timeoutMs: number = 5_000): Promise<RpcHealthResult[]> {
     const results = await Promise.all(
       this.endpoints.map(async (ep) => {
+        const seq = ++ep.opSeq;
         const result = await checkRpcHealth(ep.config.url, timeoutMs);
         ep.lastLatencyMs = result.latencyMs;
-        ep.healthy = result.healthy;
+        // Skip the health write if a call() outcome that started after this
+        // probe has already been recorded: the probe's answer is older.
         if (result.healthy) {
-          ep.failures = 0;
-          ep.unhealthySince = undefined;
-        } else {
+          if (seq > ep.lastBadSeq) {
+            ep.healthy = true;
+            ep.failures = 0;
+            ep.unhealthySince = undefined;
+            ep.lastOkSeq = Math.max(ep.lastOkSeq, seq);
+          }
+        } else if (seq > ep.lastOkSeq) {
+          ep.healthy = false;
           // Start the recovery clock, otherwise selectEndpoint's time-based
           // recovery never restores an endpoint that healthCheck marked down.
           ep.unhealthySince = ep.unhealthySince ?? Date.now();
+          ep.lastBadSeq = Math.max(ep.lastBadSeq, seq);
         }
         return result;
       }),
