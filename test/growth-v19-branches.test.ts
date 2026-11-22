@@ -100,6 +100,7 @@ describe("depthRateLimited saturates the doubling at u64", () => {
     const r = depthRateLimited(true, base, 20_000n, 0, U64_MAX + 100n, true, 20_000n, 1_000n);
     expect(r.lastGoodE6).toBe(U64_MAX);
     expect(r.lastGoodSlot).toBe(20_000n);
+    expect(r.riseSlot64).toBe(312);
   });
 });
 
@@ -145,7 +146,7 @@ describe("validateTierConfig messages", () => {
     expect(noSym.issues[0]!.message).toContain("5,000 tokens");
     const frac = validateTierConfig({ lLaunchX100: 550, lTierX100: 2_000, thresholdsUsd: [5_000, 20_000, 100_000], leverageX100: [525, 1_050, 2_000] });
     const msgs = frac.issues.map((x) => x.message).join(" | ");
-    expect(msgs).toContain("Tier 1 leverage");
+    expect(msgs).toContain("Tier 1 leverage cannot be below the launch leverage of 5.5x.");
   });
 });
 
@@ -165,13 +166,13 @@ describe("G8 caps: null / zero / hlock fail-closed", () => {
     expect(growthMatcherCapsG8({ ...off, hlockActive: false, maxPositionAbsQ: 0n })).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
     const ov = growthMatcherCapsG8({ ...off, cM: 1n << 127n, lambdaBps: 1, posScale: 1n, hlockActive: false });
     expect(ov.liquidityNotionalE6).toBe(0n);
-    expect(ov.inventoryCapQ > 0n).toBe(true);
+    expect(ov.inventoryCapQ).toBe(GROWTH_MAX_POSITION_ABS_Q);
   });
   it("on the clamp with a cap depth: hlock zeroes; zero price zeroes; liquidity is min(capital, depth*4)", () => {
     expect(growthMatcherCapsG8({ ...clampBase, hlockActive: true })).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
     expect(growthMatcherCapsG8({ ...clampBase, priceE6: 0n, hlockActive: false })).toEqual({ inventoryCapQ: 0n, liquidityNotionalE6: 0n });
     const c = growthMatcherCapsG8({ ...clampBase, hlockActive: false });
-    expect(c.inventoryCapQ > 0n).toBe(true);
+    expect(c).toEqual({ inventoryCapQ: 1_000_000_000n, liquidityNotionalE6: 4_000_000_000n });
     const ovf = growthMatcherCapsG8({ ...clampBase, cM: 1n << 127n, lambdaBps: 1, posScale: 1n, capDepth: 1n << 126n, hlockActive: false });
     expect(ovf.liquidityNotionalE6).toBe(0n);
   });
@@ -189,7 +190,7 @@ describe("volatility + lambda helpers", () => {
     expect(volUpdateX100(0xffff_ffff, true, 0xffff_ffffn)).toBe(0xffff_ffff);
   });
   it("sigmaHBps saturates at u64; lVolX100 saturates need and clamps to u16", () => {
-    expect(sigmaHBps(0xffff_ffff, 1n << 62n)).toBeLessThanOrEqual(U64_MAX);
+    expect(sigmaHBps(0xffff_ffff, 1n << 62n)).toBe(14_073_748_833_895n);
     expect(sigmaHBps(0xffff_ffff, 1n << 120n)).toBe(U64_MAX);
     expect(sigmaHBps(100, 4n)).toBe(2n);
     expect(lVolX100(0n, 0n, 0n)).toBe(0xffff);
@@ -271,10 +272,11 @@ describe("quoteMaxLeverage / previewGrowthOpenFee money-path guards", () => {
   it("previewGrowthOpenFee: a short open and a flip charge the fee only on the OPENING share of the fill", () => {
     const nCap = nCapQ(1_000_000_000n, 10_000, 1_000_000n) as bigint;
     const shortOpen = previewGrowthOpenFee(base, 0n, -(nCap * 9n) / 10n, 30n);
-    expect(shortOpen.utilFeeBps).toBeGreaterThan(0);
+    expect(shortOpen.utilFeeBps).toBe(400);
     const flip = previewGrowthOpenFee({ ...base, ...lpAt(0n) }, (nCap * 9n) / 10n, -((nCap * 9n) / 10n) * 2n, 30n);
     const fullOpen = previewGrowthOpenFee(base, 0n, -(nCap * 9n) / 10n, 30n);
-    expect(flip.utilFeeBps).toBeLessThanOrEqual(fullOpen.utilFeeBps);
+    expect(fullOpen.utilFeeBps).toBe(400);
+    expect(flip.utilFeeBps).toBe(200); // fee scaled by opening/fill = 1/2
   });
 });
 
