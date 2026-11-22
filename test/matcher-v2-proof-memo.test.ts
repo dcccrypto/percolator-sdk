@@ -63,7 +63,8 @@ describe("deriveProof memo: differential vs uncached derivation", () => {
     } finally {
       spy.mockRestore();
     }
-  });
+    // ~1.2k real PDA searches: 12-18 s on a loaded host, over vitest's 5 s default.
+  }, 120_000);
 });
 
 describe("deriveProof memo: derivation count", () => {
