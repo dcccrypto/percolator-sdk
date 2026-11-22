@@ -11,7 +11,7 @@ export * from "./adl.js";
 export * from "./backing-bucket.js";
 export * from "./rpc-pool.js";
 // Explicit re-export resolves the TS2308 ambiguity: both token-program.js and
-// stake.js (which re-exports from @solana/spl-token) export TOKEN_2022_PROGRAM_ID.
+// stake.js export TOKEN_2022_PROGRAM_ID (both now re-export the one instance in spl-token-lite.ts).
 // The named export below takes precedence over both wildcards, pinning the
 // canonical v17 SDK definition from token-program.js.
 export { TOKEN_2022_PROGRAM_ID } from "./token-program.js";

@@ -20,7 +20,7 @@
  * @module stake-wind-down
  */
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID } from "./spl-token-lite.js";
 import { ACCOUNTS_WITHDRAW_PROTOCOL_FEE, buildAccountMetas } from "../abi/accounts.js";
 import { encodeWithdrawProtocolFee } from "../abi/instructions.js";
 import {
@@ -31,7 +31,7 @@ import {
 } from "./stake.js";
 import type { AdminCloseSlabAccounts, RecoverTerminalInsuranceAccounts } from "./stake.js";
 import { deriveVaultAuthority } from "./pda.js";
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { getAssociatedTokenAddressSync } from "./spl-token-lite.js";
 import { deriveInsuranceUnitsV22 } from "../abi/v22-wire.js";
 import { resolveMarketGeometry } from "../abi/layout.js";
 

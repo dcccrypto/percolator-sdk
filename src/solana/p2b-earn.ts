@@ -14,7 +14,7 @@
  */
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import type { AccountMeta, Connection } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID } from "./spl-token-lite.js";
 import { buildAccountMetas } from "../abi/accounts.js";
 import { encodeExecuteRedemption } from "../abi/instructions.js";
 import {

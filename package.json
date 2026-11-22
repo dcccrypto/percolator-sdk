@@ -31,10 +31,10 @@
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",
-    "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.99.0"
   },
   "devDependencies": {
+    "@solana/spl-token": "^0.4.14",
     "@types/node": "^20.17.10",
     "@vitest/coverage-v8": "4.1.12",
     "dotenv": "^17.4.1",

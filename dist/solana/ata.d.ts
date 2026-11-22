@@ -1,5 +1,5 @@
 import { Connection, PublicKey } from "@solana/web3.js";
-import { Account } from "@solana/spl-token";
+import type { Account } from "./spl-token-lite.js";
 /**
  * Get the associated token address for an owner and mint.
  * Supports both standard SPL Token and Token2022 via optional tokenProgramId.

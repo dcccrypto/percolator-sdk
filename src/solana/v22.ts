@@ -10,7 +10,7 @@
  */
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import type { AccountMeta } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "./spl-token-lite.js";
 import { ACCOUNTS_LP_VAULT_DEPOSIT, buildAccountMetas } from "../abi/accounts.js";
 import { encodeDepositToLpVault, encodeLpVaultCrankFees } from "../abi/instructions.js";
 import { parseErrorFromLogs } from "../abi/errors.js";

@@ -16,7 +16,7 @@
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import type { Connection } from "@solana/web3.js";
 import type { AccountMeta } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "./spl-token-lite.js";
 import { buildAccountMetas, ACCOUNTS_CLAIM_RESOLVED_PAYOUT_TOPUP } from "../abi/accounts.js";
 import type { AccountSpec } from "../abi/accounts.js";
 import { encodeExecuteRedemption, encodePermissionlessCrank } from "../abi/instructions.js";
