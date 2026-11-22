@@ -200,37 +200,52 @@ describe("ata.ts vs spl-token: ATA derivation on 1,000 seeded (owner, mint) pair
   const N = 1000;
   const pairs = Array.from({ length: N }, () => [walletKey(), randKey()] as const);
 
+  // spl's reference address per (program, pair); computed once and reused (derivation is the cost here).
+  const refCache = new Map<string, string[]>();
+  const ref = (label: string, program: PublicKey) => {
+    let r = refCache.get(label);
+    if (!r) {
+      r = pairs.map(([owner, mint]) => hex(spl.getAssociatedTokenAddressSync(mint, owner, false, program))!);
+      refCache.set(label, r);
+    }
+    return r;
+  };
+
   for (const [label, program] of PROGRAMS) {
     it(`${label}: getAtaSync(owner, mint) == spl.getAssociatedTokenAddressSync(mint, owner) for ${N} pairs`, () => {
-      let n = 0;
-      for (const [owner, mint] of pairs) {
-        const ours = getAtaSync(owner, mint, false, program);
-        const theirs = spl.getAssociatedTokenAddressSync(mint, owner, false, program);
-        expect(hex(ours)).toBe(hex(theirs));
-        n++;
+      const theirs = ref(label, program);
+      expect(theirs).toHaveLength(N);
+      for (let i = 0; i < N; i++) {
+        const [owner, mint] = pairs[i];
+        expect(hex(getAtaSync(owner, mint, false, program))).toBe(theirs[i]);
       }
-      expect(n).toBe(N);
     });
 
-    it(`${label}: async getAta == spl.getAssociatedTokenAddress for ${N} pairs`, async () => {
-      for (const [owner, mint] of pairs) {
-        const ours = await getAta(owner, mint, false, program);
-        const theirs = await spl.getAssociatedTokenAddress(mint, owner, false, program);
-        expect(hex(ours)).toBe(hex(theirs));
+    it(`${label}: async getAta == spl for the same ${N} pairs`, async () => {
+      const theirs = ref(label, program);
+      for (let i = 0; i < N; i++) {
+        const [owner, mint] = pairs[i];
+        expect(hex(await getAta(owner, mint, false, program))).toBe(theirs[i]);
       }
+      // spl's async form agrees with its sync form (spot check; spl vs spl).
+      const [o, m] = pairs[0];
+      expect(hex(await spl.getAssociatedTokenAddress(m, o, false, program))).toBe(theirs[0]);
     });
   }
 
   it("default program is TOKEN on both sides (getAtaSync(owner, mint) with no program)", () => {
-    for (const [owner, mint] of pairs.slice(0, 100)) {
-      expect(hex(getAtaSync(owner, mint))).toBe(hex(spl.getAssociatedTokenAddressSync(mint, owner)));
+    const theirs = ref("TOKEN", TOKEN);
+    for (let i = 0; i < 100; i++) {
+      const [owner, mint] = pairs[i];
+      expect(hex(getAtaSync(owner, mint))).toBe(theirs[i]);
+      expect(hex(spl.getAssociatedTokenAddressSync(mint, owner))).toBe(theirs[i]);
     }
   });
 
   it("TOKEN and TOKEN_2022 ATAs differ for every pair (program id is in the seeds)", () => {
-    for (const [owner, mint] of pairs.slice(0, 100)) {
-      expect(hex(getAtaSync(owner, mint, false, TOKEN))).not.toBe(hex(getAtaSync(owner, mint, false, T22)));
-    }
+    const a = ref("TOKEN", TOKEN);
+    const b = ref("TOKEN_2022", T22);
+    for (let i = 0; i < N; i++) expect(a[i]).not.toBe(b[i]);
   });
 });
 
