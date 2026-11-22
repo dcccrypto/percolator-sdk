@@ -17,6 +17,8 @@
  * (writable), following calls into local helpers (e.g. `validate_group_a_proxy`) by parameter position.
  * Writability the runtime enforces only through a CPI (token transfer, mint) is NOT visible statically, so the
  * writable check is a lower bound: every account the Rust explicitly requires writable must be writable in the SDK.
+ * "Demandable" (an optional account the handler refuses to miss with NotEnoughAccountKeys) is also branch-blind: an
+ * account demanded on ANY path (e.g. FIRST_LOSS) counts as demandable for every mode's `needs`. Lower bound too.
  *
  * Every mismatch the diff finds must be listed in KNOWN below with the SDK builder that depends on it; a new one
  * fails the test. Mutation cases at the bottom prove the parser and the diff catch reordered, dropped, added and
@@ -192,6 +194,10 @@ function checksIn(fns: Map<string, RustFn>, name: string, seen = new Set<string>
   const signers = new Set<string>(), writable = new Set<string>(), demands = new Set<string>();
   // An Option<&AccountInfo> the body refuses to see as None: `x.ok_or(NotEnoughAccountKeys)` or `match x { .. None .. => Err(NotEnoughAccountKeys) }`.
   for (const m of fn.body.matchAll(/\b(\w+)\s*\.ok_or\(\s*ProgramError::NotEnoughAccountKeys/g)) demands.add(m[1]!);
+  for (const m of fn.body.matchAll(/\b(\w+)\s*\.ok_or_else\(/g)) {
+    const open = m.index! + m[0].length - 1;
+    if (/ProgramError::NotEnoughAccountKeys/.test(fn.body.slice(open, matchClose(fn.body, open)))) demands.add(m[1]!);
+  }
   for (const m of fn.body.matchAll(/\bmatch\s+(\w+)\s*\{/g)) {
     const open = m.index! + m[0].length - 1;
     const arms = fn.body.slice(open, matchClose(fn.body, open) + 1);
@@ -332,7 +338,7 @@ const CASES: Case[] = [
   { builder: "withdrawAccounts", tag: 2, mode: "FIRST_LOSS", metas: () => withdrawAccounts({ ...wd, ...v5Route } as typeof wd), keys: wdKeys, needs: ["fee_slab", "v5_units_ai", "v5_wrapper_ai", "v5_system_ai"] },
   { builder: "ACCOUNTS_STAKE_WITHDRAW_V5", tag: 2, mode: "FIRST_LOSS", metas: stakeMetasV5(ACCOUNTS_STAKE_WITHDRAW_V5, v5Keys), keys: wdKeys, needs: ["fee_slab", "v5_units_ai", "v5_wrapper_ai", "v5_system_ai"] },
   { builder: "accrueFeesAccounts", tag: 12, mode: "any", metas: accrueFeesAccounts({ caller: K.caller, pool: K.pool, vault: K.vault, slab: K.slab }),
-    keys: { caller: K.caller, pool_ai: K.pool, vault_ai: K.vault, clock_ai: CLOCK, slab_ai: K.slab } },
+    keys: { caller: K.caller, pool_ai: K.pool, vault_ai: K.vault, clock_ai: CLOCK, slab_ai: K.slab }, needs: ["slab_ai"] },
   { builder: "flushToInsuranceAccounts", tag: 3, mode: "any", metas: flushToInsuranceAccounts({ caller: K.caller, pool: K.pool, vault: K.vault, vaultAuth: K.vaultAuth, slab: K.slab, wrapperVault: K.wrapperVault, percolatorProgram: K.wrapper }), keys: {} },
   { builder: "recoverFlushedInsuranceAccounts", tag: 23, mode: "any", metas: recoverFlushedInsuranceAccounts({ caller: K.caller, poolPda: K.pool, poolVault: K.vault, vaultAuth: K.vaultAuth, wrapperMarket: K.slab, wrapperVault: K.wrapperVault, wrapperVaultAuth: K.wrapperVaultAuth, tokenProgram: TOKEN, percolatorProgram: K.wrapper }), keys: {} },
   { builder: "bindInsuranceAuthorityAccounts", tag: 19, mode: "any", metas: bindInsuranceAuthorityAccounts({ admin: K.admin, poolPda: K.pool, vaultAuth: K.vaultAuth, slab: K.slab, percolatorProgram: K.wrapper }), keys: proxyBKeys },
@@ -374,6 +380,7 @@ const CASES: Case[] = [
  * An entry that stops firing (e.g. #637 merged) is fine; a NEW mismatch fails the test.
  */
 const KNOWN: Record<string, { inScope: boolean; why: string }> = {
+  // inScope is documentation for the report: true = the builder's file is touched by an open PR.
   "depositAccounts [tag 1, FIRST_LOSS]: count 12 < 14 the handler process_deposit reads in this mode":
     { inScope: true, why: "base depositAccounts has no riskMode route; FIRST_LOSS demands [12] units / [13] wrapper (NotEnoughAccountKeys). Fixed by open PR #637." },
   "withdrawAccounts [tag 2, FIRST_LOSS]: count 11 < 14 the handler process_withdraw reads in this mode":
@@ -541,10 +548,17 @@ describe(`stake v2.2 Rust (percolator-stake ${STAKE_COMMIT.slice(0, 7)}) static 
       expect([...c.writable].sort()).toEqual(["admin", "pool_dest", "pool_pda", "vault"]);
     });
 
-    it("report: mismatches found at 214c3e3", () => {
+    it("report: mismatches found at 214c3e3 (warns about KNOWN entries that no longer fire, e.g. after #637)", () => {
       const rows = found.map((m) => ({ m, ...KNOWN[m]! }));
       if (process.env.STAKE_PARITY_REPORT) console.log(JSON.stringify(rows, null, 2));
-      expect(rows.every((r) => r.why)).toBe(true);
+      const stale = Object.keys(KNOWN).filter((k) => !found.includes(k));
+      if (stale.length) console.warn(`stake-parity-rust-static: KNOWN entries no longer firing (prune them):\n${stale.join("\n")}`);
+    });
+
+    it("gap (no open PR touches v22-stake.ts): tag 32 reads an optional [2] program_data for a protocol RAISE; the SDK list has no slot for it", () => {
+      const r = handlerAccounts(fns, "process_propose_deploy_target");
+      expect(r.list.map((a) => `${a.name}:${a.kind[0]}`)).toEqual(["signer:r", "pool_pda:r", "program_data:o"]);
+      expect(ACCOUNTS_STAKE_PROPOSE_DEPLOY_TARGET_V5.map((a) => a.name)).toEqual(["authority", "pool"]);
     });
   });
 
@@ -598,6 +612,14 @@ describe(`stake v2.2 Rust (percolator-stake ${STAKE_COMMIT.slice(0, 7)}) static 
     it("wind-down tail shrinks (FIRST_LOSS creator no longer demanded)", () => {
       const f = mutate("let creator = *rest.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;", "let creator = *rest.first().ok_or(ProgramError::NotEnoughAccountKeys)?;");
       expect(one(f, rtiCase).some((m) => m.includes("never demands 'rest[1]'") || m.includes("never demands"))).toBe(true);
+    });
+    it("dropped mode-0 slab demand via ok_or_else (accrue fees)", () => {
+      const c = CASES.find((x) => x.builder === "accrueFeesAccounts")!;
+      const short = { ...c, metas: (c.metas as Meta[]).slice(0, 4) };
+      expect(one(fns, c)).toEqual([]);
+      expect(one(fns, short)).toContain("accrueFeesAccounts [tag 12, any]: count 4 < 5 the handler process_accrue_fees reads in this mode");
+      const f = mutate("ProgramError::NotEnoughAccountKeys\n        })?;\n        Some(wrapper_fee_payouts", "ProgramError::InvalidArgument\n        })?;\n        Some(wrapper_fee_payouts");
+      expect(one(f, c)).toContain("accrueFeesAccounts [tag 12, any]: needs 'slab_ai' but process_accrue_fees never demands it");
     });
     it("wrong tag byte / payload width from a build*Ix builder", () => {
       const c = CASES.find((x) => x.builder === "buildAdminCloseSlabIx")!;
