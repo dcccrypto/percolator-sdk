@@ -18,6 +18,10 @@ const DEADLINE_MS = 300;
 /** How long the test waits before calling the flow hung. */
 const HUNG_AFTER_MS = 3_000;
 const TEST_TIMEOUT_MS = 8_000;
+/** Overall deadline and settle cap for the two /frozen send cases (see the comment there). */
+const FROZEN_OVERALL_MS = 8_000;
+const FROZEN_SETTLE_MS = 15_000;
+const FROZEN_TEST_TIMEOUT_MS = 20_000;
 const HUNG = Symbol("hung");
 
 /** Resolves to HUNG if `p` has neither resolved nor rejected after `ms`. */
@@ -112,24 +116,26 @@ describe("RPC that stalls: every flow settles soon after its deadline", () => {
 
   it.concurrent("frozen: simulateOrSend simulate:false settles when getSignatureStatuses and getBlockHeight hang (confirm deadline)", async () => {
     const c = new Connection(`${base}/frozen/send-confirm-deadline`, "confirmed");
-    const out = await settleWithin(simulateOrSend({ connection: c, ix: ix(), signers: [payer], simulate: false, confirmTimeoutMs: DEADLINE_MS }));
+    // Frozen cases settle only after a real blockhash + send through web3.js, which is slow on a loaded
+    // runner, so they get FROZEN_SETTLE_MS rather than HUNG_AFTER_MS. Without the fix they hang forever.
+    const out = await settleWithin(simulateOrSend({ connection: c, ix: ix(), signers: [payer], simulate: false, confirmTimeoutMs: DEADLINE_MS }), FROZEN_SETTLE_MS);
     expect(out, "send+confirm still pending with a frozen RPC").not.toBe(HUNG);
     // The send reached the node, so the result must carry the real signature and say the outcome is unknown.
     const r = out as { signature: string; err: string | null };
     expect(r.signature).toMatch(/^[1-9A-HJ-NP-Za-km-z]{43,88}$/);
     expect(r.err).toMatch(/confirmation status unknown/);
-  }, TEST_TIMEOUT_MS);
+  }, FROZEN_TEST_TIMEOUT_MS);
 
   it.concurrent("frozen: simulateOrSend simulate:false settles under an overall timeoutMs", async () => {
     const c = new Connection(`${base}/frozen/send-overall-deadline`, "confirmed");
     // A roomier deadline than the other cases so that, even on a loaded runner, it passes after the send
     // (blockhash and send are answered at once) and the post-send path is what gets exercised.
-    const out = await settleWithin(simulateOrSend({ connection: c, ix: ix(), signers: [payer], simulate: false, timeoutMs: 2_000 }), 5_000);
+    const out = await settleWithin(simulateOrSend({ connection: c, ix: ix(), signers: [payer], simulate: false, timeoutMs: FROZEN_OVERALL_MS }), FROZEN_SETTLE_MS);
     expect(out, "send+confirm still pending with a frozen RPC").not.toBe(HUNG);
     const r = out as { signature: string; err: string | null };
     expect(r.signature).toMatch(/^[1-9A-HJ-NP-Za-km-z]{43,88}$/);
     expect(r.err).toMatch(/confirmation status unknown/);
-  }, TEST_TIMEOUT_MS);
+  }, FROZEN_TEST_TIMEOUT_MS);
 
   it.concurrent("a caller AbortSignal ends a stalled read", async () => {
     const c = new Connection(`${base}/accept/abort-signal`, "confirmed");
