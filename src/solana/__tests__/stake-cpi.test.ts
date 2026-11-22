@@ -755,6 +755,9 @@ describe('fee-split CPI proxies (stake tags 25-28)', () => {
 //   InitPool  accounts  src/instruction.rs:83-95,   parsed src/processor.rs:576-586
 //   Deposit   accounts  src/instruction.rs:117-131 (+[11] :132), parsed src/processor.rs:889-901
 //   Withdraw  accounts  src/instruction.rs:162-175 (+[10] :176), parsed src/processor.rs:1407-1420
+//             withdraw[0] is pinned read-only: instruction.rs:163 says [signer, writable], but only
+//             the v5 FIRST_LOSS refresh (14 accounts, processor.rs:1600-1608) needs it writable;
+//             the legacy <=11-account list checks only is_signer (processor.rs:1426).
 //   amount    u64 LE    src/instruction.rs:874 (Deposit), :915 (Withdraw)
 //   stake_pool    seeds src/state.rs:1796  [b"stake_pool", slab]         (signs: src/processor.rs:713)
 //   vault_auth    seeds src/state.rs:1802  [b"vault_auth", pool]         (signs: src/processor.rs:761)
@@ -863,7 +866,7 @@ describe('Stake amount encoding — u64 LE at the edges (instruction.rs:874, :91
 
     it(`${name} refuses 2^64 and -1 instead of wrapping mod 2^64`, () => {
       expect(() => encode(1n << 64n)).toThrow(/u64Le: value exceeds u64 max/);
-      expect(() => encode(U64_MAX + 1n)).toThrow(/u64Le: value exceeds u64 max/);
+      expect(() => encode(2 ** 53)).toThrow(/exceeds Number.MAX_SAFE_INTEGER/);
       expect(() => encode(-1n)).toThrow(/u64Le: value must be non-negative, got -1/);
       expect(() => encode(-1)).toThrow(/u64Le: value must be non-negative, got -1/);
     });
