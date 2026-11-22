@@ -23,6 +23,8 @@
  *     then: rest.len() == 6 + 2 + TIER_CONFIG_WIRE_LEN + 1 => SetAssetRiskLimitsV22Tiers,
  *           rest.len() == 6 || rest.len() == 8              => SetAssetRiskLimitsV19,
  *           else                                            => base SetAssetRiskLimits
+ *     the 8-byte V19 form must carry a non-zero util-fee dial (:10702), and after the match
+ *     `if !rest.is_empty() { return Err(InvalidInstructionData) }` (:10971).
  *   readers :12205.. all `from_le_bytes`, `InvalidInstructionData` when short.
  *
  *   encode arm :11749
@@ -61,6 +63,10 @@
  * The VERSION 19 sizes (MARKET_GROUP_OFF, MARKET_GROUP_LEN, MARKET_ASSET_SLOT_LEN, ASSET_RISK_LIMITS_OFF) come from
  * test/fixtures/v22-parity.json `layout`, which scripts/v22-parity/sdk_v22_parity.rs prints from those very Rust
  * constants (`c::MARKET_GROUP_OFF, c::MARKET_GROUP_LEN, c::MARKET_ASSET_SLOT_LEN, ..., c::ASSET_RISK_LIMITS_OFF`).
+ * That fixture was printed at prog f7a54350 (= rc23 2b5dce8a + #571) on engine 2f05df8c, not at bc657392: the prog
+ * diff 2b5dce8a..bc657392 does not touch MARKET_GROUP_*, MARKET_ASSET_SLOT_LEN, ASSET_ORACLE_WRAPPER_LEN or
+ * ASSET_RISK_LIMITS_*; the engine `size_of` values were not recomputed here (no cargo).
+ * The VERSION 18 rows (592 / 758 / 2325) are a regression pin of the frozen v2.1 numbers, not a Rust differential.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -136,8 +142,19 @@ function rustDecode93(data: Uint8Array): Rust93 {
     matcher_ext_mode: rest.length === 0 ? 0 : u8(),
     max_requested_fee_bps: rest.length === 0 ? 0 : u16(),
   };
-  const variant = rest.length === RUST.V22_TRAILER_LEN ? "SetAssetRiskLimitsV22Tiers"
-    : rest.length === 6 || rest.length === 8 ? "SetAssetRiskLimitsV19" : "SetAssetRiskLimits";
+  let variant: Rust93["variant"] = "SetAssetRiskLimits";
+  if (rest.length === RUST.V22_TRAILER_LEN) {
+    // u32 lambda, u16 kink, u16 util fee, read_tier_config (18 B; its own checks are out of scope here), u8 tier.
+    u32(); u16(); u16(); take(18); u8();
+    variant = "SetAssetRiskLimitsV22Tiers";
+  } else if (rest.length === 6 || rest.length === 8) {
+    u32(); u16();
+    // :10702 "the 8-byte form must carry a non-zero dial (0 = the 6-byte form)"
+    if (rest.length !== 0 && u16() === 0) throw new Error("InvalidInstructionData");
+    variant = "SetAssetRiskLimitsV19";
+  }
+  // :10971 `Instruction::decode`: `if !rest.is_empty() { return Err(InvalidInstructionData) }`
+  if (rest.length !== 0) throw new Error("InvalidInstructionData");
   return { variant, ...base };
 }
 
@@ -271,12 +288,16 @@ describe("tag 93 wire bytes vs the Rust decode/encode arms", () => {
     // fee != 0 with ext 0 still writes the 0 ext byte first (Rust: `matcher_ext_mode != 0 || fee != 0`).
     expect(hex(encodeSetAssetRiskLimitsP1({ ...base, maxRequestedFeeBps: 1 }).subarray(41))).toBe("000100");
     // Port sanity: the trailer is measured AFTER ext + fee are read, so 44+6 / 44+8 route to V19 and 44+27 to
-    // V22Tiers, while 47 B (41+6) is still the base form (ext + fee eat 3, 3 left over).
+    // V22Tiers; 47 B (41+6) leaves 3 bytes unread and is refused (:10971); the 8-byte form needs a non-zero dial.
     const pad = (n: number): Uint8Array => { const b = new Uint8Array(n); b.set(encodeSetAssetRiskLimitsP1(base)); return b; };
-    expect(rustDecode93(pad(47)).variant).toBe("SetAssetRiskLimits");
+    expect(() => rustDecode93(pad(47))).toThrow("InvalidInstructionData");
+    expect(() => rustDecode93(pad(41 + 1))).not.toThrow(); // ext byte 0 then nothing left: base form
     expect(rustDecode93(pad(44 + 6)).variant).toBe("SetAssetRiskLimitsV19");
-    expect(rustDecode93(pad(44 + 8)).variant).toBe("SetAssetRiskLimitsV19");
+    expect(() => rustDecode93(pad(44 + 8))).toThrow("InvalidInstructionData"); // dial 0 in the 8-byte form
+    const v19dial = pad(44 + 8); v19dial[51] = 1;
+    expect(rustDecode93(v19dial).variant).toBe("SetAssetRiskLimitsV19");
     expect(rustDecode93(pad(44 + 27)).variant).toBe("SetAssetRiskLimitsV22Tiers");
+    expect(() => rustDecode93(pad(44 + 28))).toThrow("InvalidInstructionData");
     expect(() => rustDecode93(encodeSetAssetRiskLimitsP1(base).subarray(0, 40))).toThrow("InvalidInstructionData");
   });
 });
