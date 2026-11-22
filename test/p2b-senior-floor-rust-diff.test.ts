@@ -164,7 +164,7 @@ function seededAtoms(n: number, seed: bigint): bigint[] {
   const r = splitmix64(seed);
   const out: bigint[] = [];
   for (let i = 0; i < n; i++) {
-    // log-uniform width 1..128 bits so every exponent (and saturation) is exercised.
+    // uniform bit width 1..128 (roughly log-uniform in magnitude) so every exponent (and saturation) is exercised.
     const width = Number(r() % 128n) + 1;
     const raw = (r() << 64n) | r();
     out.push(raw & ((1n << BigInt(width)) - 1n));
@@ -201,6 +201,11 @@ function boundaryAtoms(): bigint[] {
 // ---------------------------------------------------------------------------
 type Mismatch = { input: string; sdk: string; rust: string };
 
+/** Fails with the count and the first 20 rows of the mismatch table (keeps a broken run readable). */
+function expectNoMismatch(m: Mismatch[]): void {
+  expect(m.length, `${m.length} mismatches, first 20: ${JSON.stringify(m.slice(0, 20))}`).toBe(0);
+}
+
 // ~0.2-1.6 s per case alone; 30 s headroom so a loaded full-suite run cannot time it out.
 describe("Q2 senior floor code vs Rust vault_lp_v18 @ bc657392", { timeout: 30_000 }, () => {
   it("(1) decode: every one of the 65,536 codes matches senior_floor_decode", () => {
@@ -210,7 +215,7 @@ describe("Q2 senior floor code vs Rust vault_lp_v18 @ bc657392", { timeout: 30_0
       const rust = rustDecode(code);
       if (sdk !== rust) mismatches.push({ input: String(code), sdk: String(sdk), rust: String(rust) });
     }
-    expect(mismatches).toEqual([]);
+    expectNoMismatch(mismatches);
     // spot anchors from the Rust unit test / doc comment
     expect(seniorFloorDecodeP2b(0)).toBe(0n);
     expect(seniorFloorDecodeP2b(1023)).toBe(1023n);
@@ -248,7 +253,7 @@ describe("Q2 senior floor code vs Rust vault_lp_v18 @ bc657392", { timeout: 30_0
         saturated++;
       }
     }
-    expect(mismatches).toEqual([]);
+    expectNoMismatch(mismatches);
     expect(ceilChecked).toBeGreaterThan(10_000);
     expect(saturated).toBeGreaterThan(0);
     // anchors from the Rust unit test
@@ -270,7 +275,7 @@ describe("Q2 senior floor code vs Rust vault_lp_v18 @ bc657392", { timeout: 30_0
       const rust = rustEncode(rustDecode(code));
       if (sdk !== rust || rust !== code) mismatches.push({ input: String(code), sdk: String(sdk), rust: String(rust) });
     }
-    expect(mismatches).toEqual([]);
+    expectNoMismatch(mismatches);
   });
 
   it("(3) record bytes built from the AssetRiskLimitsV17 layout decode at record off 42 and slot off 650", () => {
@@ -318,7 +323,7 @@ describe("Q2 senior floor code vs Rust vault_lp_v18 @ bc657392", { timeout: 30_0
       }
       if (fromSlotOff !== rustFloor) mismatches.push({ input: `slot@650 code=${code}`, sdk: String(fromSlotOff), rust: String(rustFloor) });
     }
-    expect(mismatches).toEqual([]);
+    expectNoMismatch(mismatches);
     for (const len of [0, 63, 65, 1024]) expect(() => decodeSeniorFloorRecordP2b(new Uint8Array(len))).toThrow();
   });
 
@@ -346,7 +351,7 @@ describe("Q2 senior floor code vs Rust vault_lp_v18 @ bc657392", { timeout: 30_0
         if (eq < t && !sdk) mismatches.push({ input: `T=${t} eq=${eq}`, sdk: "open", rust: "halt (eq < true T)" });
       }
     }
-    expect(mismatches).toEqual([]);
+    expectNoMismatch(mismatches);
     // Rust unit-test anchors.
     expect(seniorCapitalHaltP2b(99n, 100n)).toBe(true);
     expect(seniorCapitalHaltP2b(100n, 100n)).toBe(false);
