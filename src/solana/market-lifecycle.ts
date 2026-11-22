@@ -198,6 +198,15 @@ export interface CloseSlabAttemptArgs {
   creatorFees?: readonly CloseSlabCreatorFeeLegV22[];
   /** prog #651: the payee grace is over (`readCreatorFeeClaimStateV22(data, i, nowSlot).payeeGraceOver`). Default false. */
   payeeGraceOver?: boolean;
+  /**
+   * The unbudgeted insurance pool that backs the fee legs, as CloseSlab computes it:
+   * `insurance − source_insurance_credit_reserved_total − insurance_domain_budget_remaining_total − rent_unrouted`
+   * (saturating). When it is `0n`, CloseSlab no longer refuses for owed fees (`min(outstanding, pool) > 0` is false), but
+   * tag 84 (transfer 0 → EngineLockActive) and tag 90 (no surplus) both refuse, and in the same transaction they would
+   * sink the close. So at `0n` the planner adds no tag 84 / tag 90 and does not throw for an AdminSigned pot.
+   * Omit to keep the previous behaviour (every owed leg planned).
+   */
+  feeBackingAtoms?: bigint;
 }
 
 /** One asset's creator-fee leg for {@link planCloseSlabAttempt}. */
@@ -234,7 +243,7 @@ export interface CloseSlabCreatorFeeLegV22 {
  *
  * @returns Ordered instructions (CloseSlab last).
  * @throws If `hasLpVault` is true (not retirable), a creator-fee leg is owed under a LIVE asset_admin (only that key can
- *   claim it), a payee leg lacks `payee` / `vaultMint`, or a claim amount is non-positive or above `owed`.
+ *   claim it; not thrown when `feeBackingAtoms` is 0n), `feeBackingAtoms` is negative, a payee leg lacks `payee` / `vaultMint`, or a claim amount is non-positive or above `owed`.
  * @example
  * ```ts
  * const ixs = planCloseSlabAttempt({ programId, market, vaultToken, closer, closerDestToken, closeAuthorityEpoch,
@@ -253,9 +262,14 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
   } catch (e) {
     throw new Error(`planCloseSlabAttempt: ${(e as Error).message}`);
   }
+  if (a.feeBackingAtoms !== undefined && a.feeBackingAtoms < 0n) {
+    throw new Error(`planCloseSlabAttempt: feeBackingAtoms must be >= 0 (got ${a.feeBackingAtoms})`);
+  }
+  // Nothing backs the fee legs: CloseSlab will not refuse for them, and any tag 84 / tag 90 would fail and sink the tx.
+  const feesUnbacked = a.feeBackingAtoms === 0n;
   const [vaultAuthority] = deriveVaultAuthority(a.programId, a.market);
   const ixs: TransactionInstruction[] = [];
-  if (a.protocolFee && a.protocolFee.owed > 0n) {
+  if (a.protocolFee && a.protocolFee.owed > 0n && !feesUnbacked) {
     ixs.push(new TransactionInstruction({
       programId: a.programId,
       keys: buildAccountMetas(ACCOUNTS_WITHDRAW_PROTOCOL_FEE, {
@@ -276,7 +290,7 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
       data: Buffer.from(encodeWithdrawInsurance({ amount: a.insuranceRecredit.amount })),
     }));
   }
-  for (const leg of a.creatorFees ?? []) {
+  for (const leg of feesUnbacked ? [] : a.creatorFees ?? []) {
     if (leg.owed <= 0n || leg.route === "Refused") continue;
     // prog #651: after the grace this CloseSlab re-books the payee pot itself; a tag 90 that cannot land would sink the tx.
     if (leg.route === "Payee" && a.payeeGraceOver) continue;

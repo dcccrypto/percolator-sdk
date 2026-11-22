@@ -3,13 +3,14 @@
  *
  * CloseSlab refuses for owed fees only while they are still backed by the unbudgeted insurance pool:
  *   close_refused_for_fees(outstanding, pool) = min(outstanding, pool) > 0      (:14084)
- *   pool = insurance − source_reserved − budget_remaining_total − rent_unrouted (:26199-26217)
- * so with pool == 0 a Resolved, empty market closes with fees still "owed" (the comment at :26196 says the
+ *   pool = insurance − source_reserved − budget_remaining_total − rent_unrouted (:26205-26218)
+ * so with pool == 0 a Resolved, empty market closes with fees still "owed" (the comment at :26204 says the
  * unbacked remainder "must not wedge the close forever").
  *
  * But the fee claims themselves refuse at pool == 0:
- *   tag 84: protocol_fee_withdraw_amount → transfer = min(requested, pool, vault) == 0 → EngineLockActive (:24159 → fn body)
+ *   tag 84: protocol_fee_withdraw_amount → transfer = min(requested, pool, vault) == 0 → EngineLockActive (:48489)
  *   tag 90: amount > 0 (:24397) and withdraw_insurance_surplus_not_atomic(amount) needs surplus ≥ amount
+ *           (engine percolator src/v16.rs:11584 → LockActive)
  * The planner puts 84/90 in the SAME transaction as tag 13, so one failing claim sinks the close: the app's
  * "retire market" button always fails although the program would retire the market. The AdminSigned
  * throw is likewise wrong at pool == 0 (CloseSlab does not refuse 71 there).
