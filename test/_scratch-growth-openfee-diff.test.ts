@@ -132,6 +132,7 @@ function rsNCapForInput(i: QuoteMaxLeverageInput): bigint {
 type Route = "trade" | "batch";
 /** What the wrapper CHARGES (bps on the whole fill) for one TradeCpi / BatchTradeCpi leg. `refused` = batch 99. */
 let gated = 0;
+let nonFlipMismatch = 0;
 function rsCharged(i: QuoteMaxLeverageInput, takerBefore: bigint, size: bigint, route: Route): { bps: number; exec: bigint; refused: boolean; gated?: boolean } {
   const g = i.growth;
   if (g === null || !i.assetBound) return { bps: 0, exec: size, refused: false };
@@ -193,6 +194,7 @@ function diff(name: string, i: QuoteMaxLeverageInput, takerBefore: bigint, size:
     return p.batchAllowed ? { name: `${name} [batch refused, SDK batchAllowed]`, sdk: p.utilFeeBps, rust: r.bps, sdkAtoms: 0n, rustAtoms: 0n, dir: "preview<charged" } : null;
   }
   if (p.utilFeeBps === r.bps) return null;
+  if (!(route === "trade" && rsFlips(takerBefore, takerBefore + size))) nonFlipMismatch++;
   return {
     name, sdk: p.utilFeeBps, rust: r.bps,
     sdkAtoms: utilAtoms(abs(size), i.priceE6, base, p.utilFeeBps), rustAtoms: utilAtoms(abs(r.exec), i.priceE6, base, r.bps),
@@ -324,6 +326,7 @@ describe("previewGrowthOpenFee vs wrapper charge (TradeCpi / BatchTradeCpi)", ()
     }
     const under = mismatches.filter((m) => m.dir === "preview<charged");
     const maxUnder = under.reduce((a, m) => (m.rust - m.sdk > a.rust - a.sdk ? m : a), under[0] ?? null as unknown as Mismatch);
+    log(`mismatches that are NOT a TradeCpi flip: ${nonFlipMismatch}`);
     log(`excluded (wrapper clips / gate refuses: users after > G8 N_cap): ${gated}`);
     log(`TOTAL end-to-end mismatches: ${mismatches.length} (preview<charged ${under.length}, preview>charged ${mismatches.length - under.length})`);
     for (const [k, e] of by) log(`  ${k}: ${e.n} (under ${e.under}, over ${e.over}); e.g. ${e.ex.name}: sdk ${e.ex.sdk} bps/${e.ex.sdkAtoms} atoms vs rust ${e.ex.rust} bps/${e.ex.rustAtoms} atoms`);
