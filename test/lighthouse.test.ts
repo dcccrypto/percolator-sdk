@@ -143,7 +143,7 @@ describe("isLighthouseFailureInLogs", () => {
 
   it("detects explicit Lighthouse failed line", () => {
     const logs = [
-      `Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed: custom program error: 0x1790`,
+      `Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed: custom program error: 0x1771`,
     ];
     expect(isLighthouseFailureInLogs(logs)).toBe(true);
   });
@@ -328,13 +328,13 @@ describe("parseErrorFromLogs — error code extraction", () => {
     expect(result!.code).toBe(0x1900);
   });
 
-  it("extracts 0x1790 error code", () => {
+  it("extracts 0x1771 error code", () => {
     const logs = [
-      `Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed: custom program error: 0x1790`,
+      `Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed: custom program error: 0x1771`,
     ];
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
-    expect(result!.code).toBe(0x1790);
+    expect(result!.code).toBe(0x1771);
   });
 
   it("resolves Percolator error 0x10 to EngineProvenanceMismatch (v17 code 16)", () => {
