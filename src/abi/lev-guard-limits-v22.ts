@@ -14,6 +14,9 @@
  *  6. size: `|LP after| > |LP before|` and `|LP after| > n_eff` -> `size`;
  *  7. short (taker after < 0): users' short notional `> longs·min(1, MMR/m) + β·C_m/m` -> `short_dump_cap`.
  * Each is a separate refusal, so the limit in force is the tightest of all of them.
+ *
+ * D12 fail-tight (#620, `95e4345d`; checked against `bc657392`): on a non-devnet build the overlay reads an unproven guard's
+ * authorities as live (`perm_for_gate`); pass `permProofRequired: true` for such a build.
  */
 import type { LevAgeBandV22, LevGuardV22 } from "./lev-guard-v22.js";
 import { levAgeBandIsYoungV22, levAgeBandV22, levReportAgeV22, levW1RoundLiveV22, LEV_AGE_NO_OPEN_SLOTS_V22 } from "./lev-guard-v22.js";
@@ -25,6 +28,8 @@ const U16_MAX = 0xffff;
 
 /** `growth_v19::GROWTH_FLAG_LEV_GUARD`: growth `flags` bit 2, set by tag 124 op 0 INIT. */
 export const GROWTH_FLAG_LEV_GUARD_V22 = 0x04;
+/** `lev_guard_v22::GUARD_FLAG_PERM_PROVEN`: guard `flags` bit 2, set once op 3 TIGHTEN has read the mint authorities (D12). */
+export const LEV_GUARD_FLAG_PERM_PROVEN_V22 = 0x04;
 
 // ── constants (lev_guard_v22.rs) ────────────────────────────────────────────────────────────
 export const LEV_SLOTS_PER_HOUR = 9_000n;
@@ -297,6 +302,12 @@ export interface LevGuardOpenInputV22 {
   /** The LP's effective signed position BEFORE the fill (Q). */
   lpEffQ: bigint;
   posScale?: bigint;
+  /**
+   * The program build has `LEV_GUARD_PERM_PROOF_REQUIRED` (every non-`devnet` build). D12 fail-tight (`perm_for_gate`): a guard
+   * whose authorities op 3 never proved (flags bit 2 clear) then reads BOTH authorities live, so `l_cap 1` / `n_mult 0` (the
+   * L_floor / N_floor clamp) apply. Default `false`: the devnet build, which reads the stored bits.
+   */
+  permProofRequired?: boolean;
 }
 
 export type LevGuardBlockV22 = "guard-missing" | "age-under-6h";
@@ -359,7 +370,9 @@ export function levGuardOpenLimitsV22(i: LevGuardOpenInputV22): LevGuardOpenLimi
   const frozenN = tripNow ? i.nCapQ : g.frozenNQ;
   const frozen = levFrozenV22(pb, now);
   const mOracle = levMOracleOnV22(pb, now);
-  const ov = levMergeOverlayV22(band, g, now);
+  // perm_for_gate(LEV_GUARD_PERM_PROOF_REQUIRED): unproven authorities read live on a proof-required build.
+  const unproven = i.permProofRequired === true && (g.flags & LEV_GUARD_FLAG_PERM_PROVEN_V22) === 0;
+  const ov = levMergeOverlayV22(band, unproven ? { ...g, mintAuthLive: true, freezeAuthLive: true } : g, now);
   let sigmaLev: bigint | null = null;
   if (i.volHasData) {
     const [p, t] = levBurstUpdateV22(g.burstVarPeakX100, g.burstPeakSlot, i.volVarX100, now);
