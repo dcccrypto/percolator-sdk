@@ -67,12 +67,14 @@ describe("previewGrowthOpenFee: N_cap is the wrapper's G8 N_cap", () => {
   it("depth cap binds: preview equals the charge, and a fee-owing open is not batch-allowed", () => {
     const i = inp(rec({ lambda: 10_000, kink: 5_000, depthUsd: 10_000n }));
     const nCap = quoteMaxLeverage(i, "long").nCapQ!;
-    expect(nCap).toBeLessThan(100_000n * M); // the depth cap, not C_m, is the binding capacity
+    // tier 0, rc23 κ_eff = min(κ, kappa_cap_bps(5)) = 253 bps: floor($10k * 253 / 1e4) = 253e6 Q at P = 1 (C_m's 1e11 does not bind)
+    expect(nCap).toBe(253_000_000n);
     const j = { ...i, oiEffLongQ: (nCap * 8_000n) / 10_000n };
     const size = nCap / 50n + 1n;
     const p = previewGrowthOpenFee(j, 0n, size, 30n);
-    expect(p.utilFeeBps).toBe(charged(j, 0n, size));
-    expect(p.utilFeeBps).toBeGreaterThan(0);
+    // ceil(500 * (207_460_001e4 - 5_000 * 253e6) / (253e6 * 5_000)) = ceil(320.000004) = 321 (growth-1 N_cap 1e11 gives 0)
+    expect(p.utilFeeBps).toBe(321);
+    expect(charged(j, 0n, size)).toBe(321);
     expect(p.batchAllowed).toBe(false);
   });
   it("without v22 input (growth-1) the preview is unchanged", () => {
