@@ -13,7 +13,8 @@
  * The Rust literals below are copies. When those repos are checked out next to this one
  * (`~/agent-work/percolator-prog`, `~/agent-work/percolator-stake`, or PERCOLATOR_PROG_DIR /
  * PERCOLATOR_STAKE_DIR), the last block re-reads each line at the pinned SHA with `git show`
- * and checks the copy. CI (no sibling repos) skips that block; the literal checks still run.
+ * and checks the copy (expected text is built from `RUST`, so a drifted literal fails). CI (no
+ * sibling repos) skips that block; the literal checks still run.
  */
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -161,6 +162,7 @@ function repoAt(envVar: string, name: string, sha: string): string | null {
     execFileSync("git", ["-C", dir, "cat-file", "-e", `${sha}^{commit}`], { stdio: "ignore" });
     return dir;
   } catch {
+    console.warn(`${dir} exists but lacks ${sha}; fetch it to run the live Rust re-read`);
     return null;
   }
 }
@@ -179,16 +181,19 @@ function rustLine(dir: string, sha: string, file: string, line: number): string 
   return lines[line - 1] ?? "";
 }
 
+/** Rust integer literal for a JS number: 6480000 -> "6_480_000". */
+const rs = (n: number) => n.toLocaleString("en-US").replace(/,/g, "_");
+
 const PROG_DIR = repoAt("PERCOLATOR_PROG_DIR", "percolator-prog", PROG_SHA);
 const STAKE_DIR = repoAt("PERCOLATOR_STAKE_DIR", "percolator-stake", STAKE_SHA);
 
 describe.skipIf(!PROG_DIR)(`live: percolator-prog @ ${PROG_SHA.slice(0, 8)}`, () => {
   const F = "src/v16_program.rs";
   it.each([
-    [911, "pub const MAX_PERMISSIONLESS_RESOLVE_STALE_SLOTS: u64 = 6_480_000;"],
-    [926, "pub const MIN_PERMISSIONLESS_RESOLVE_STALE_SLOTS: u64 = 9_000;"],
-    [1134, "pub const MAX_LP_REDEMPTION_COOLDOWN_SLOTS: u64 = 78_840_000;"],
-    [1144, "pub const MIN_BOUND_VAULT_REDEMPTION_COOLDOWN_SLOTS: u64 = 150;"],
+    [911, `pub const MAX_PERMISSIONLESS_RESOLVE_STALE_SLOTS: u64 = ${rs(RUST.MAX_PERMISSIONLESS_RESOLVE_STALE_SLOTS)};`],
+    [926, `pub const MIN_PERMISSIONLESS_RESOLVE_STALE_SLOTS: u64 = ${rs(RUST.MIN_PERMISSIONLESS_RESOLVE_STALE_SLOTS)};`],
+    [1134, `pub const MAX_LP_REDEMPTION_COOLDOWN_SLOTS: u64 = ${rs(RUST.MAX_LP_REDEMPTION_COOLDOWN_SLOTS)};`],
+    [1144, `pub const MIN_BOUND_VAULT_REDEMPTION_COOLDOWN_SLOTS: u64 = ${rs(RUST.MIN_BOUND_VAULT_REDEMPTION_COOLDOWN_SLOTS)};`],
     [10458, "38 => Self::ConfigurePermissionlessResolve {"],
     [29247, "if stale_slots < constants::MIN_PERMISSIONLESS_RESOLVE_STALE_SLOTS"],
     [29248, "|| stale_slots > constants::MAX_PERMISSIONLESS_RESOLVE_STALE_SLOTS"],
@@ -202,15 +207,15 @@ describe.skipIf(!PROG_DIR)(`live: percolator-prog @ ${PROG_SHA.slice(0, 8)}`, ()
 
 describe.skipIf(!STAKE_DIR)(`live: percolator-stake @ ${STAKE_SHA.slice(0, 8)}`, () => {
   it.each([
-    ["src/processor.rs", 96, "const MAX_COOLDOWN_SLOTS: u64 = 78_840_000;"],
+    ["src/processor.rs", 96, `const MAX_COOLDOWN_SLOTS: u64 = ${rs(RUST.STAKE_MAX_COOLDOWN_SLOTS)};`],
     ["src/processor.rs", 155, "if cooldown_slots == 0 {"],
     ["src/processor.rs", 159, "if cooldown_slots > MAX_COOLDOWN_SLOTS {"],
     ["src/processor.rs", 554, "state::RISK_MODE_FEE_ONLY => self.deploy_target_bps == 0,"],
     ["src/processor.rs", 555, "_ => false,"],
     ["src/processor.rs", 631, "validate_cooldown_slots(cooldown_slots)?;"],
-    ["src/state.rs", 304, "pub const RISK_MODE_LEGACY: u8 = 0;"],
-    ["src/state.rs", 305, "pub const RISK_MODE_FIRST_LOSS: u8 = 1;"],
-    ["src/state.rs", 306, "pub const RISK_MODE_FEE_ONLY: u8 = 2;"],
+    ["src/state.rs", 304, `pub const RISK_MODE_LEGACY: u8 = ${RUST.RISK_MODE_LEGACY};`],
+    ["src/state.rs", 305, `pub const RISK_MODE_FIRST_LOSS: u8 = ${RUST.RISK_MODE_FIRST_LOSS};`],
+    ["src/state.rs", 306, `pub const RISK_MODE_FEE_ONLY: u8 = ${RUST.RISK_MODE_FEE_ONLY};`],
   ])("%s:%i is %s", (file, line, text) => {
     expect(rustLine(STAKE_DIR!, STAKE_SHA, file, line).trim()).toBe(text);
   });
