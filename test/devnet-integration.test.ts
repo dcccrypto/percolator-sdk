@@ -38,6 +38,7 @@ import {
   PERCOLATOR_ERRORS,
   getProgramId,
 } from "../src/index.js";
+import { devnetUnavailableReason, loadSharedMarkets } from "./helpers/devnet-shared.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -114,11 +115,14 @@ beforeAll(async () => {
 
   // Discover markets once; all subsequent tests reuse the cached results.
   try {
-    discoveredMarkets = await discoverMarkets(devnetConnection, DEVNET_PROGRAM_ID, {
-      sequential: true,        // be polite to public RPC — no parallel bursts
-      interTierDelayMs: 500,   // 500 ms between tier queries
-      rateLimitBackoffMs: [2_000, 5_000],
-    });
+    // Discovery ran once in test/devnet-global-setup.ts; here: one bounded batch read.
+    const why = devnetUnavailableReason();
+    if (why) {
+      rpcReachable = false;
+      console.warn(`[PERC-8365] SKIPPING RPC-dependent cases: ${why}`);
+      return;
+    }
+    discoveredMarkets = await loadSharedMarkets(devnetConnection, DEVNET_PROGRAM_ID);
     discoveredSlabs = discoveredMarkets.map(m => m.slabAddress);
     console.log(
       `[PERC-8365] beforeAll: discovered ${discoveredSlabs.length} devnet market(s)`

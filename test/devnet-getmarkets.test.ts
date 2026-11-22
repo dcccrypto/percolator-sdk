@@ -36,6 +36,7 @@ import {
   PERCOLATOR_ERRORS,
   getProgramId,
 } from "../src/index.js";
+import { devnetUnavailableReason, loadSharedMarkets } from "./helpers/devnet-shared.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -100,11 +101,13 @@ beforeAll(async () => {
 
   // Discover addresses via discoverMarkets (used as setup — the real test is getMarketsByAddress)
   try {
-    const markets = await discoverMarkets(connection, DEVNET_PROGRAM_ID, {
-      sequential: true,
-      interTierDelayMs: 500,
-      rateLimitBackoffMs: [2_000, 5_000],
-    });
+    const why = devnetUnavailableReason();
+    if (why) {
+      rpcReachable = false;
+      console.warn(`[PERC-8410] SKIPPING RPC-dependent cases: ${why}`);
+      return;
+    }
+    const markets = await loadSharedMarkets(connection, DEVNET_PROGRAM_ID);
     discoveredMarkets = markets;
     discoveredAddresses = markets.map((m) => m.slabAddress);
     console.log(

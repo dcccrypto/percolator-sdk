@@ -94,6 +94,7 @@ import {
   type Account,
   type RiskParams,
 } from "../src/index.js";
+import { devnetUnavailableReason, loadSharedMarkets, withDeadline } from "./helpers/devnet-shared.js";
 
 // ---------------------------------------------------------------------------
 // Config: devnet vs mainnet
@@ -165,12 +166,23 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
 
     // Discover markets once for all suites
     try {
-      discoveredMarkets = await discoverMarkets(connection, PROGRAM_ID);
+      if (!IS_MAINNET) {
+        // devnet: discovery ran once in test/devnet-global-setup.ts
+        const why = devnetUnavailableReason();
+        if (why) {
+          rpcReachable = false;
+          console.warn(`SKIPPING RPC-dependent cases: ${why}`);
+          return;
+        }
+        discoveredMarkets = await loadSharedMarkets(connection, PROGRAM_ID);
+      } else {
+        discoveredMarkets = await withDeadline(discoverMarkets(connection, PROGRAM_ID), 50_000, "discoverMarkets");
+      }
       discoveredAddresses = discoveredMarkets.map((m) => m.slabAddress);
 
       if (discoveredAddresses.length > 0) {
         // Fetch first slab raw data for parsing tests
-        const ai = await connection.getAccountInfo(discoveredAddresses[0]);
+        const ai = await withDeadline(connection.getAccountInfo(discoveredAddresses[0]), 10_000, "getAccountInfo");
         slabData = ai?.data ? new Uint8Array(ai.data) : null;
       }
     } catch (e) {
