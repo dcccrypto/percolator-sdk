@@ -114,12 +114,14 @@ describe.each(FILES)("vendor/bigint-buffer/dist/%s.js vs reference", (file) => {
   });
 
   // Differential: the reference throws RangeError; the vendor code returns bytes. Fails today -> it.fails.
-  it.fails.each(OUT_OF_RANGE)("width %i, %s: toBufferLE throws RangeError like the reference", (w, _l, v) => {
+  it.each(OUT_OF_RANGE)("width %i, %s: the reference throws RangeError", (w, _l, v) => {
     expect(() => refLE(v, w)).toThrow(RangeError);
+    expect(() => refBE(v, w)).toThrow(RangeError);
+  });
+  it.fails.each(OUT_OF_RANGE)("width %i, %s: toBufferLE throws RangeError like the reference", (w, _l, v) => {
     expect(() => bb.toBufferLE(v, w)).toThrow(RangeError);
   });
   it.fails.each(OUT_OF_RANGE)("width %i, %s: toBufferBE throws RangeError like the reference", (w, _l, v) => {
-    expect(() => refBE(v, w)).toThrow(RangeError);
     expect(() => bb.toBufferBE(v, w)).toThrow(RangeError);
   });
 
@@ -152,7 +154,9 @@ describe("@solana/buffer-layout-utils u64 (the only importer) inherits it", () =
 });
 
 describe("no live SDK path reaches bigint-buffer", () => {
-  const BANNED = /from\s+["'](?:@solana\/spl-token|@solana\/buffer-layout-utils|bigint-buffer)["']|require\(\s*["'](?:@solana\/spl-token|@solana\/buffer-layout-utils|bigint-buffer)["']\s*\)/;
+  // Any `from "x"`, side-effect `import "x"`, `import("x")` or `require("x")`, including subpaths.
+  const BANNED =
+    /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["'](?:@solana\/spl-token|@solana\/buffer-layout-utils|bigint-buffer)(?:\/[^"']*)?["']/;
 
   function walk(dir: string, out: string[] = []): string[] {
     for (const name of readdirSync(dir)) {
@@ -178,9 +182,12 @@ describe("no live SDK path reaches bigint-buffer", () => {
     expect(hits).toEqual([]);
   });
 
-  it("the shipped dist/index.js does not import them either", () => {
+  it("the shipped dist/index.js neither imports them nor inlines the vendor encoder", () => {
     const p = join(ROOT, "dist/index.js");
-    if (!existsSync(p)) return;
-    expect(BANNED.test(readFileSync(p, "utf8"))).toBe(false);
+    expect(existsSync(p), "dist/index.js is tracked in git").toBe(true);
+    const js = readFileSync(p, "utf8");
+    expect(BANNED.test(js)).toBe(false);
+    // tsup could bundle a dev dependency inline instead of leaving an import.
+    expect(js).not.toContain("padStart(width * 2");
   });
 });
