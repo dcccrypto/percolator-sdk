@@ -11,7 +11,7 @@
  * **Problem:** Lighthouse doesn't understand Percolator's slab accounts. When a slab
  * (e.g., ESa89R5 with 323,312 bytes) is passed as a TradeCpi account, Lighthouse injects
  * an assertion like `StateInvalidAddress` that expects `data_len == 0` (uninitialised).
- * The slab IS initialised, so the assertion fails with error 0x1900 (Lighthouse multi-assert AssertionFailed
+ * The slab IS initialised, so a multi-assert instruction fails with error 0x1900 (Lighthouse multi-assert AssertionFailed
  * = 6400 decimal). This causes the transaction to revert even though the Percolator program
  * logic is correct.
  *
