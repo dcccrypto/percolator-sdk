@@ -63,6 +63,24 @@ describe("RpcPool health under concurrent calls", () => {
     expect(statusOf(p, "A").healthy).toBe(true);
   });
 
+  it("a bad probe that lands before a newer success does not keep the endpoint down", async () => {
+    const p = pool();
+    const probeA = deferred<Response>();
+    vi.stubGlobal("fetch", (url: string) => (String(url).startsWith(A) ? probeA.promise : okSlot()));
+    const probe = p.healthCheck(10_000);
+    // A call starts on A after the probe started, and is still in flight...
+    const call = deferred<string>();
+    const inFlight = p.call(() => call.promise, { idempotent: true });
+    // ...the older probe lands first and marks A down...
+    probeA.resolve(new Response("bad gateway", { status: 502 }));
+    await probe;
+    expect(statusOf(p, "A").healthy).toBe(false);
+    // ...then the newer success lands: it is newer than the probe, so A is back.
+    call.resolve("ok");
+    await inFlight;
+    expect(statusOf(p, "A")).toMatchObject({ healthy: true, failures: 0 });
+  });
+
   it("a healthy probe issued before newer failures does not bring a dead endpoint back", async () => {
     const p = pool();
     const probeA = deferred<Response>();
@@ -76,19 +94,18 @@ describe("RpcPool health under concurrent calls", () => {
     expect(statusOf(p, "A").failures).toBe(3);
   });
 
-  it("a stale success does not wipe a newer failure count below the threshold", async () => {
+  it("slow successes in flight keep resetting the count between occasional fast failures (no false down)", async () => {
     const p = pool();
-    const slow = deferred<string>();
-    const inFlight = p.call(() => slow.promise, { idempotent: true });
-    await p.call(failOnA, { idempotent: true });
-    await p.call(failOnA, { idempotent: true });
-    slow.resolve("late");
-    await inFlight;
-    // Serial order is success, fail, fail: two consecutive failures.
-    expect(statusOf(p, "A").failures).toBe(2);
-    // One more newer failure still marks A down.
-    await p.call(failOnA, { idempotent: true });
-    expect(statusOf(p, "A").healthy).toBe(false);
+    const slow = Array.from({ length: 4 }, () => deferred<string>());
+    const inFlight = slow.map((d) => p.call(() => d.promise, { idempotent: true }));
+    // Each fast failure on A is followed by an older (still in-flight) success landing.
+    for (let i = 0; i < 4; i++) {
+      await p.call(failOnA, { idempotent: true });
+      slow[i].resolve("ok");
+      await inFlight[i];
+    }
+    // Never 3 failures in a row as they landed, so A stays in rotation (same as base).
+    expect(statusOf(p, "A")).toMatchObject({ healthy: true, failures: 0 });
   });
 
   it("a success issued after the failures still restores the endpoint", async () => {

@@ -419,14 +419,17 @@ interface EndpointState {
   unhealthySince?: number;
   /**
    * Start-order stamps for health writes. Every `call()` attempt and every
-   * `healthCheck()` probe takes `++opSeq` before it awaits. A late success only
-   * resets health if no failure that started after it has been recorded
-   * (`seq > lastBadSeq`), and a late bad probe only marks the endpoint down if no
-   * success that started after it has been recorded (`seq > lastOkSeq`).
+   * `healthCheck()` probe takes `++opSeq` before it awaits. A late success cannot
+   * revive an endpoint that a newer attempt or probe marked down (`seq > downSeq`),
+   * and a late bad probe cannot mark it down if a success that started after the
+   * probe has been recorded (`seq > lastOkSeq`). Recovery paths leave these alone:
+   * later attempts always get a higher `seq`, so recovery is never blocked.
    */
   opSeq: number;
+  /** `seq` of the attempt or probe that last took the endpoint from healthy to unhealthy. */
+  downSeq: number;
+  /** Highest `seq` of a success that was applied. */
   lastOkSeq: number;
-  lastBadSeq: number;
 }
 
 /**
@@ -506,8 +509,8 @@ export class RpcPool {
         healthy: true,
         lastLatencyMs: -1,
         opSeq: 0,
+        downSeq: 0,
         lastOkSeq: 0,
-        lastBadSeq: 0,
       };
     });
   }
@@ -570,9 +573,9 @@ export class RpcPool {
           timeout.promise,
         ]);
 
-        // Success — reset failure count, unless a failure that started after this
-        // attempt has already been recorded (a stale success must not revive it).
-        if (seq > ep.lastBadSeq) {
+        // Success — reset failure count, unless the endpoint was marked down after
+        // this attempt started (a stale success must not revive it).
+        if (ep.healthy || seq > ep.downSeq) {
           ep.failures = 0;
           ep.healthy = true;
           ep.unhealthySince = undefined;
@@ -582,13 +585,13 @@ export class RpcPool {
       } catch (err) {
         lastError = err;
         ep.failures++;
-        ep.lastBadSeq = Math.max(ep.lastBadSeq, seq);
         if (err instanceof RpcTimeoutError) {
           // The attempt is abandoned: tell it to stop (best effort).
           ac.abort(err);
         }
 
         if (ep.failures >= RpcPool.UNHEALTHY_THRESHOLD) {
+          if (ep.healthy) ep.downSeq = seq;
           ep.healthy = false;
           ep.unhealthySince = ep.unhealthySince ?? Date.now();
           if (this.verbose) {
@@ -693,21 +696,22 @@ export class RpcPool {
         const seq = ++ep.opSeq;
         const result = await checkRpcHealth(ep.config.url, timeoutMs);
         ep.lastLatencyMs = result.latencyMs;
-        // Skip the health write if a call() outcome that started after this
-        // probe has already been recorded: the probe's answer is older.
+        // Skip the health write if it would undo a newer recorded state: a healthy
+        // answer cannot revive an endpoint marked down after the probe started, and
+        // an unhealthy answer cannot override a success that started after it.
         if (result.healthy) {
-          if (seq > ep.lastBadSeq) {
+          if (ep.healthy || seq > ep.downSeq) {
             ep.healthy = true;
             ep.failures = 0;
             ep.unhealthySince = undefined;
             ep.lastOkSeq = Math.max(ep.lastOkSeq, seq);
           }
         } else if (seq > ep.lastOkSeq) {
+          if (ep.healthy) ep.downSeq = seq;
           ep.healthy = false;
           // Start the recovery clock, otherwise selectEndpoint's time-based
           // recovery never restores an endpoint that healthCheck marked down.
           ep.unhealthySince = ep.unhealthySince ?? Date.now();
-          ep.lastBadSeq = Math.max(ep.lastBadSeq, seq);
         }
         return result;
       }),
