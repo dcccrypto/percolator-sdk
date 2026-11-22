@@ -162,7 +162,8 @@ export interface CloseSlabAttemptArgs {
   closeAuthorityEpoch: bigint;
   /**
    * Protocol leg (tag 84, amount 0 = all). Include whenever
-   * protocol_fee_accrued − protocol_fee_withdrawn > 0 (tag 84 refuses when nothing is owed).
+   * protocol_fee_accrued − protocol_fee_withdrawn > 0 (tag 84 refuses when nothing is owed). The planner skips it when
+   * {@link CloseSlabAttemptArgs.feeBackingAtoms} is 0n (tag 84 would refuse and the fee no longer blocks CloseSlab).
    * On P1, CloseSlab only retires if the protocol fee was claimed between attempts.
    */
   protocolFee?: { authority: PublicKey; destToken: PublicKey; authorityEpoch: bigint; owed: bigint };

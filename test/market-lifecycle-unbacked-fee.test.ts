@@ -10,7 +10,8 @@
  * But the fee claims themselves refuse at pool == 0:
  *   tag 84: protocol_fee_withdraw_amount → transfer = min(requested, pool, vault) == 0 → EngineLockActive (:48489)
  *   tag 90: amount > 0 (:24397) and withdraw_insurance_surplus_not_atomic(amount) needs surplus ≥ amount
- *           (engine percolator src/v16.rs:11584 → LockActive)
+ *           (engine percolator ebd4636d src/v16.rs:12218-12233: surplus also excludes rent_unrouted, so it equals
+ *           CloseSlab's pool; amount > surplus → LockActive)
  * The planner puts 84/90 in the SAME transaction as tag 13, so one failing claim sinks the close: the app's
  * "retire market" button always fails although the program would retire the market. The AdminSigned
  * throw is likewise wrong at pool == 0 (CloseSlab does not refuse 71 there).
