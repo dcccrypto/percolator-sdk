@@ -221,6 +221,7 @@ describe(`redactUrl seeded fuzz (${N} URLs, seed ${SEED})`, () => {
     const failures: string[] = [];
     const perShape = new Map<string, number>();
     let generated = 0;
+    let leakCount = 0;
     while (generated < N) {
       const shape = PROVIDERS[Math.floor(r() * PROVIDERS.length)];
       const { secret, kind } = makeSecret(r, shape.slot === "named" ? 8 : 20);
@@ -232,12 +233,14 @@ describe(`redactUrl seeded fuzz (${N} URLs, seed ${SEED})`, () => {
       generated++;
       perShape.set(shape.provider, (perShape.get(shape.provider) ?? 0) + 1);
       if (out === "[unparseable-url]") continue; // fixed placeholder: nothing echoed
-      if (leaks(out, secret) && failures.length < 20) {
-        failures.push(`${shape.provider} [${kind}/${enc}] ${url} -> ${out}`);
+      if (leaks(out, secret)) {
+        leakCount++;
+        if (failures.length < 20) failures.push(`${shape.provider} [${kind}/${enc}] ${url} -> ${out}`);
       }
     }
     expect(generated).toBe(N);
     expect(perShape.size).toBe(PROVIDERS.length);
-    expect(failures, `seed=${SEED}\n${failures.join("\n")}`).toEqual([]);
-  });
+    expect(failures, `seed=${SEED}, ${leakCount} leaks (first 20 below)\n${failures.join("\n")}`).toEqual([]);
+    expect(leakCount).toBe(0);
+  }, 60_000); // ~1 s idle; generous budget for a loaded CI/Mac mini
 });
