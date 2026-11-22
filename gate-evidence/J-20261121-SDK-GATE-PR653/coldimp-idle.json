@@ -1,0 +1,512 @@
+{
+ "cond": "idle",
+ "runs": 20,
+ "node": "v25.6.1",
+ "cpus": 14,
+ "loadavg1": {
+  "min": 28.6123046875,
+  "max": 33.1201171875
+ },
+ "summary": {
+  "base 98b01a75": {
+   "n": 20,
+   "exports": 1659,
+   "importMs": {
+    "p50": 6862.439959,
+    "p95": 9798.551542
+   },
+   "importCpuMs": {
+    "p50": 578.444,
+    "p95": 648.593
+   },
+   "wallMs": {
+    "p50": 9370.978499999997,
+    "p95": 12491.564125000034
+   },
+   "heapMBgc": {
+    "p50": 15.849861145019531,
+    "p95": 15.854194641113281
+   },
+   "heapMBnoGc": {
+    "p50": 19.38654327392578,
+    "p95": 19.553955078125
+   },
+   "rssMB": {
+    "p50": 85.984375
+   }
+  },
+  "head 776216b3": {
+   "n": 20,
+   "exports": 1659,
+   "importMs": {
+    "p50": 3855.184083,
+    "p95": 5888.625000000001
+   },
+   "importCpuMs": {
+    "p50": 310.478,
+    "p95": 357.386
+   },
+   "wallMs": {
+    "p50": 6340.601874999993,
+    "p95": 8859.305458000003
+   },
+   "heapMBgc": {
+    "p50": 13.456939697265625,
+    "p95": 13.460945129394531
+   },
+   "heapMBnoGc": {
+    "p50": 17.10376739501953,
+    "p95": 17.16063690185547
+   },
+   "rssMB": {
+    "p50": 75.09375
+   }
+  }
+ },
+ "samples": {
+  "base 98b01a75": [
+   {
+    "wallMs": 11224.779375,
+    "importMs": 7153.160791999999,
+    "importCpuMs": 645.641,
+    "procUptimeMs": 9818.563125,
+    "exports": 1659,
+    "heapUsedNoGc": 20502864,
+    "heapUsedGc": 16619616,
+    "rss": 90210304,
+    "cit": null
+   },
+   {
+    "wallMs": 9347.870166,
+    "importMs": 6862.439959,
+    "importCpuMs": 500.337,
+    "procUptimeMs": 8677.728292,
+    "exports": 1659,
+    "heapUsedNoGc": 20238536,
+    "heapUsedGc": 16625160,
+    "rss": 90341376,
+    "cit": null
+   },
+   {
+    "wallMs": 14614.2745,
+    "importMs": 11332.262208,
+    "importCpuMs": 635.45,
+    "procUptimeMs": 13871.292834,
+    "exports": 1659,
+    "heapUsedNoGc": 20242560,
+    "heapUsedGc": 16615096,
+    "rss": 89735168,
+    "cit": null
+   },
+   {
+    "wallMs": 10998.177791999995,
+    "importMs": 8099.21175,
+    "importCpuMs": 580.633,
+    "procUptimeMs": 10476.50625,
+    "exports": 1659,
+    "heapUsedNoGc": 20290112,
+    "heapUsedGc": 16621384,
+    "rss": 90341376,
+    "cit": null
+   },
+   {
+    "wallMs": 9370.978499999997,
+    "importMs": 6565.048666999999,
+    "importCpuMs": 465.362,
+    "procUptimeMs": 8865.689958,
+    "exports": 1659,
+    "heapUsedNoGc": 20318376,
+    "heapUsedGc": 16622448,
+    "rss": 90324992,
+    "cit": null
+   },
+   {
+    "wallMs": 11437.902208999993,
+    "importMs": 8271.630875,
+    "importCpuMs": 573.952,
+    "procUptimeMs": 10736.418666000001,
+    "exports": 1659,
+    "heapUsedNoGc": 20328264,
+    "heapUsedGc": 16621224,
+    "rss": 90537984,
+    "cit": null
+   },
+   {
+    "wallMs": 12113.559790999992,
+    "importMs": 8770.167875000001,
+    "importCpuMs": 578.444,
+    "procUptimeMs": 11368.370875,
+    "exports": 1659,
+    "heapUsedNoGc": 20503808,
+    "heapUsedGc": 16618968,
+    "rss": 90161152,
+    "cit": null
+   },
+   {
+    "wallMs": 9834.334875,
+    "importMs": 6552.505417,
+    "importCpuMs": 457.383,
+    "procUptimeMs": 9071.630958,
+    "exports": 1659,
+    "heapUsedNoGc": 20394016,
+    "heapUsedGc": 16621800,
+    "rss": 89800704,
+    "cit": null
+   },
+   {
+    "wallMs": 10737.310957999987,
+    "importMs": 7884.391875,
+    "importCpuMs": 554.595,
+    "procUptimeMs": 9986.541958,
+    "exports": 1659,
+    "heapUsedNoGc": 20500720,
+    "heapUsedGc": 16616792,
+    "rss": 89964544,
+    "cit": null
+   },
+   {
+    "wallMs": 8252.613000000012,
+    "importMs": 5637.678916999999,
+    "importCpuMs": 536.844,
+    "procUptimeMs": 7574.179792,
+    "exports": 1659,
+    "heapUsedNoGc": 20399056,
+    "heapUsedGc": 16621344,
+    "rss": 90013696,
+    "cit": null
+   },
+   {
+    "wallMs": 8050.9519169999985,
+    "importMs": 6224.814084000001,
+    "importCpuMs": 490.967,
+    "procUptimeMs": 7776.740542,
+    "exports": 1659,
+    "heapUsedNoGc": 20280904,
+    "heapUsedGc": 16616216,
+    "rss": 89931776,
+    "cit": null
+   },
+   {
+    "wallMs": 9329.28237499998,
+    "importMs": 6696.075416000001,
+    "importCpuMs": 511.754,
+    "procUptimeMs": 8881.125792,
+    "exports": 1659,
+    "heapUsedNoGc": 20243288,
+    "heapUsedGc": 16619784,
+    "rss": 90505216,
+    "cit": null
+   },
+   {
+    "wallMs": 9067.165957999998,
+    "importMs": 6872.637333000001,
+    "importCpuMs": 590.805,
+    "procUptimeMs": 8679.984166,
+    "exports": 1659,
+    "heapUsedNoGc": 20384112,
+    "heapUsedGc": 16613376,
+    "rss": 90030080,
+    "cit": null
+   },
+   {
+    "wallMs": 10604.021042000008,
+    "importMs": 8009.301375000001,
+    "importCpuMs": 596.128,
+    "procUptimeMs": 10189.727041999999,
+    "exports": 1659,
+    "heapUsedNoGc": 20497704,
+    "heapUsedGc": 16615176,
+    "rss": 89767936,
+    "cit": null
+   },
+   {
+    "wallMs": 9095.134624999977,
+    "importMs": 6544.070083999999,
+    "importCpuMs": 648.593,
+    "procUptimeMs": 8653.140959,
+    "exports": 1659,
+    "heapUsedNoGc": 16699672,
+    "heapUsedGc": 16601880,
+    "rss": 90128384,
+    "cit": null
+   },
+   {
+    "wallMs": 8159.1208329999645,
+    "importMs": 6013.103166999999,
+    "importCpuMs": 523.218,
+    "procUptimeMs": 7866.749458,
+    "exports": 1659,
+    "heapUsedNoGc": 20558440,
+    "heapUsedGc": 16620360,
+    "rss": 90488832,
+    "cit": null
+   },
+   {
+    "wallMs": 9076.195540999994,
+    "importMs": 6714.414333000001,
+    "importCpuMs": 622.699,
+    "procUptimeMs": 8446.106,
+    "exports": 1659,
+    "heapUsedNoGc": 20299992,
+    "heapUsedGc": 16624328,
+    "rss": 90324992,
+    "cit": null
+   },
+   {
+    "wallMs": 9119.816749999998,
+    "importMs": 6819.804250000001,
+    "importCpuMs": 609.41,
+    "procUptimeMs": 8791.531208,
+    "exports": 1659,
+    "heapUsedNoGc": 20360544,
+    "heapUsedGc": 16621368,
+    "rss": 89899008,
+    "cit": null
+   },
+   {
+    "wallMs": 12491.564125000034,
+    "importMs": 9798.551542,
+    "importCpuMs": 669.614,
+    "procUptimeMs": 11805.78125,
+    "exports": 1659,
+    "heapUsedNoGc": 20327176,
+    "heapUsedGc": 16618816,
+    "rss": 90259456,
+    "cit": null
+   },
+   {
+    "wallMs": 9772.07474999997,
+    "importMs": 7707.248042000001,
+    "importCpuMs": 610.762,
+    "procUptimeMs": 9161.732750000001,
+    "exports": 1659,
+    "heapUsedNoGc": 20503800,
+    "heapUsedGc": 16619992,
+    "rss": 90357760,
+    "cit": null
+   }
+  ],
+  "head 776216b3": [
+   {
+    "wallMs": 7249.900999999998,
+    "importMs": 3922.78825,
+    "importCpuMs": 300.583,
+    "procUptimeMs": 6594.138541,
+    "exports": 1659,
+    "heapUsedNoGc": 17906720,
+    "heapUsedGc": 14107856,
+    "rss": 78413824,
+    "cit": null
+   },
+   {
+    "wallMs": 8074.962041999996,
+    "importMs": 6067.849417,
+    "importCpuMs": 377.307,
+    "procUptimeMs": 7348.401208,
+    "exports": 1659,
+    "heapUsedNoGc": 17994232,
+    "heapUsedGc": 14114656,
+    "rss": 79183872,
+    "cit": null
+   },
+   {
+    "wallMs": 6668.690583999996,
+    "importMs": 3924.0485410000006,
+    "importCpuMs": 305.998,
+    "procUptimeMs": 6084.7849590000005,
+    "exports": 1659,
+    "heapUsedNoGc": 17921024,
+    "heapUsedGc": 14117176,
+    "rss": 78741504,
+    "cit": null
+   },
+   {
+    "wallMs": 6088.646375000011,
+    "importMs": 4077.039417,
+    "importCpuMs": 264.991,
+    "procUptimeMs": 5572.4445,
+    "exports": 1659,
+    "heapUsedNoGc": 17988944,
+    "heapUsedGc": 14110920,
+    "rss": 78807040,
+    "cit": null
+   },
+   {
+    "wallMs": 7153.236749999996,
+    "importMs": 4370.174334,
+    "importCpuMs": 301.61,
+    "procUptimeMs": 6677.857999999999,
+    "exports": 1659,
+    "heapUsedNoGc": 17993936,
+    "heapUsedGc": 14110624,
+    "rss": 79167488,
+    "cit": null
+   },
+   {
+    "wallMs": 8859.305458000003,
+    "importMs": 5402.922834000001,
+    "importCpuMs": 311.2,
+    "procUptimeMs": 8136.353334,
+    "exports": 1659,
+    "heapUsedNoGc": 17958048,
+    "heapUsedGc": 14108984,
+    "rss": 79052800,
+    "cit": null
+   },
+   {
+    "wallMs": 8958.24429099998,
+    "importMs": 5888.625000000001,
+    "importCpuMs": 327.097,
+    "procUptimeMs": 8869.996458,
+    "exports": 1659,
+    "heapUsedNoGc": 17919656,
+    "heapUsedGc": 14109952,
+    "rss": 78430208,
+    "cit": null
+   },
+   {
+    "wallMs": 6625.9558330000145,
+    "importMs": 4100.657625000001,
+    "importCpuMs": 299.926,
+    "procUptimeMs": 5958.147540999999,
+    "exports": 1659,
+    "heapUsedNoGc": 17938560,
+    "heapUsedGc": 14110312,
+    "rss": 78888960,
+    "cit": null
+   },
+   {
+    "wallMs": 6470.758749999979,
+    "importMs": 4122.523708000001,
+    "importCpuMs": 291.112,
+    "procUptimeMs": 6282.851,
+    "exports": 1659,
+    "heapUsedNoGc": 17937720,
+    "heapUsedGc": 14110440,
+    "rss": 78741504,
+    "cit": null
+   },
+   {
+    "wallMs": 5481.734499999991,
+    "importMs": 3273.8769169999996,
+    "importCpuMs": 310.478,
+    "procUptimeMs": 5075.1761670000005,
+    "exports": 1659,
+    "heapUsedNoGc": 17994864,
+    "heapUsedGc": 14110392,
+    "rss": 79020032,
+    "cit": null
+   },
+   {
+    "wallMs": 6445.287708000018,
+    "importMs": 3731.104875,
+    "importCpuMs": 309.118,
+    "procUptimeMs": 6130.492458,
+    "exports": 1659,
+    "heapUsedNoGc": 17924200,
+    "heapUsedGc": 14111664,
+    "rss": 78790656,
+    "cit": null
+   },
+   {
+    "wallMs": 6064.396332999982,
+    "importMs": 3487.1649159999997,
+    "importCpuMs": 312.889,
+    "procUptimeMs": 5490.464709,
+    "exports": 1659,
+    "heapUsedNoGc": 17934600,
+    "heapUsedGc": 14110008,
+    "rss": 78462976,
+    "cit": null
+   },
+   {
+    "wallMs": 6229.247166999994,
+    "importMs": 3854.3242920000002,
+    "importCpuMs": 308.996,
+    "procUptimeMs": 5713.578874999999,
+    "exports": 1659,
+    "heapUsedNoGc": 17918128,
+    "heapUsedGc": 14111680,
+    "rss": 78741504,
+    "cit": null
+   },
+   {
+    "wallMs": 6374.595124999993,
+    "importMs": 3737.4481250000003,
+    "importCpuMs": 320.244,
+    "procUptimeMs": 5826.075000000001,
+    "exports": 1659,
+    "heapUsedNoGc": 17919984,
+    "heapUsedGc": 14110744,
+    "rss": 78659584,
+    "cit": null
+   },
+   {
+    "wallMs": 4985.178791000013,
+    "importMs": 3063.7339169999996,
+    "importCpuMs": 306.444,
+    "procUptimeMs": 4652.426167,
+    "exports": 1659,
+    "heapUsedNoGc": 17935184,
+    "heapUsedGc": 14110912,
+    "rss": 78495744,
+    "cit": null
+   },
+   {
+    "wallMs": 5497.552250000008,
+    "importMs": 3664.0464580000003,
+    "importCpuMs": 320.315,
+    "procUptimeMs": 5148.720666,
+    "exports": 1659,
+    "heapUsedNoGc": 17921800,
+    "heapUsedGc": 14109960,
+    "rss": 78561280,
+    "cit": null
+   },
+   {
+    "wallMs": 5674.762916000036,
+    "importMs": 3532.151041,
+    "importCpuMs": 357.386,
+    "procUptimeMs": 5171.9465,
+    "exports": 1659,
+    "heapUsedNoGc": 17921600,
+    "heapUsedGc": 14110816,
+    "rss": 78594048,
+    "cit": null
+   },
+   {
+    "wallMs": 6340.601874999993,
+    "importMs": 3855.184083,
+    "importCpuMs": 346.011,
+    "procUptimeMs": 5637.641041,
+    "exports": 1659,
+    "heapUsedNoGc": 17938016,
+    "heapUsedGc": 14113272,
+    "rss": 78774272,
+    "cit": null
+   },
+   {
+    "wallMs": 6016.060583000013,
+    "importMs": 3582.700084,
+    "importCpuMs": 317.393,
+    "procUptimeMs": 5484.812917,
+    "exports": 1659,
+    "heapUsedNoGc": 17991000,
+    "heapUsedGc": 14108184,
+    "rss": 78757888,
+    "cit": null
+   },
+   {
+    "wallMs": 5881.238333999994,
+    "importMs": 3892.922958,
+    "importCpuMs": 348.817,
+    "procUptimeMs": 5446.10275,
+    "exports": 1659,
+    "heapUsedNoGc": 17917072,
+    "heapUsedGc": 14114824,
+    "rss": 78659584,
+    "cit": null
+   }
+  ]
+ }
+}
