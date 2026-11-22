@@ -155,7 +155,7 @@ const SDK_ALIASES: Record<string, string> = {
  * IX_TAG entries that are NOT a live v2.2 instruction under that name: v12.x / pre-v17 names kept for API
  * compatibility. Their encoders throw via `removedInstruction(...)` (checked below by source scan), so no byte
  * is ever produced. 45 of these 65 sit on a tag the program now gives to a DIFFERENT instruction (e.g. MintPositionNft
- * 64 = ForceCloseAbandonedAsset); the source scan is what makes that safe.
+ * 64 = ForceCloseAbandonedAsset); the source scan proves no IX_TAG.<legacy> reference reaches the wire.
  */
 const IX_TAG_LEGACY = new Set([
   "InitLP", "LiquidateAtOracle", "SetRiskThreshold", "UpdateAdmin", "LpVaultDeposit", "LpVaultWithdraw",
