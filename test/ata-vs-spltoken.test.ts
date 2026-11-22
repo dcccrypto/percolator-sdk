@@ -109,7 +109,7 @@ async function diffFetch(info: AccountInfo<Buffer> | null, programId?: PublicKey
     programId ? fetchTokenAccount(a.c, address, programId) : fetchTokenAccount(a.c, address),
   );
   const theirs = await runAsync(() => spl.getAccount(b.c, address, undefined, programId));
-  // Same RPC call (address + commitment).
+  // Same RPC call: same address; commitment stays undefined on both (fetchTokenAccount has no commitment arg).
   expect(a.calls.length).toBe(1);
   expect(hex(a.calls[0][0] as PublicKey)).toBe(hex(b.calls[0][0] as PublicKey));
   expect(a.calls[0][1]).toBe(b.calls[0][1]);
@@ -384,7 +384,8 @@ describe("ata.ts vs spl-token: Token-2022 accounts with extensions (data > 165 b
 
   it("ATA-style account with only ImmutableOwner (what the ATA program creates for a Token-2022 mint)", async () => {
     const { ours } = await diffFetch(info(T22, t22Account({}, [[E.ImmutableOwner, Buffer.alloc(0)]])), T22);
-    expect("ok" in ours && spl.getImmutableOwner(ours.ok as spl.Account)).not.toBeNull();
+    if (!("ok" in ours)) throw new Error("expected decode");
+    expect(spl.getImmutableOwner(ours.ok as spl.Account)).not.toBeNull();
   });
 
   it("seven account extensions + frozen + delegated + close authority: every field and every extension decoder agree", async () => {
@@ -416,8 +417,10 @@ describe("ata.ts vs spl-token: Token-2022 accounts with extensions (data > 165 b
   });
 
   it("account-type byte only (166 bytes, empty TLV) and trailing zero padding", async () => {
-    await diffFetch(info(T22, t22Account({}, [])), T22);
-    await diffFetch(info(T22, Buffer.concat([t22Account({}, [[E.ImmutableOwner, Buffer.alloc(0)]]), Buffer.alloc(12)])), T22);
+    const empty = await diffFetch(info(T22, t22Account({}, [])), T22);
+    expect("ok" in empty.ours && empty.ours.ok.tlvData.length).toBe(0);
+    const padded = await diffFetch(info(T22, Buffer.concat([t22Account({}, [[E.ImmutableOwner, Buffer.alloc(0)]]), Buffer.alloc(12)])), T22);
+    expect("ok" in padded.ours && padded.ours.ok.tlvData.length).toBe(4 + 12);
   });
 
   it("account-type byte = Mint (1) or Uninitialized (0) throws the same error", async () => {
@@ -461,6 +464,7 @@ describe("ata.ts vs spl-token: error paths", { timeout: 60_000 }, () => {
     }
   });
 
+  // Parity covers lite.unpackAccount(null); this pins the fetchTokenAccount wrapper path to spl.getAccount.
   it("missing account (getAccountInfo -> null) throws the same error", async () => {
     const { ours } = await diffFetch(null, TOKEN);
     expect(ours).toEqual({ err: { cls: "TokenAccountNotFoundError", name: "TokenAccountNotFoundError", message: "" } });
