@@ -1,3 +1,9 @@
+## 9.0.0-candidate: previewGrowthOpenFee prices on the wrapper's G8 N_cap (it under-quoted the utilisation fee)
+
+- **Fixed:** with `v22` input, `previewGrowthOpenFee` priced the utilisation fee on growth-1 `nCapQ(C_m, stored λ)`. The wrapper prices it on the G8 N_cap (`growth_clip_n_cap_view`: λ_eff = min(stored λ, λ_depth) and the κ depth cap). That N_cap is never larger, so the preview was at or below the charge: 11 bps charged vs 4 previewed (stored λ 3x on a tier-0 market), and 321 vs 0 with a binding depth cap. A 0 preview also reported `batchAllowed: true` for a leg the wrapper refuses (99). The preview now uses the same N_cap as `quoteMaxLeverage`. Without `v22` input nothing changes.
+- **Fixed:** `utilisationFeeBps` returns null (Rust `None`) at a 100% kink with users OI above N_cap. It used to throw `RangeError: Division by zero`, e.g. when previewing a flip on a kink-100% market.
+- **Tests:** `test/growth-open-fee-vs-prog.test.ts` (prog bc657392 `v16_program.rs:47900`, `:48075-48103`, `growth_v19.rs:693`).
+
 ## 9.0.0-candidate: p2b alloc split and G6 cushion fns fail closed like vault_lp_v18.rs - BREAKING (types)
 
 - **Fixed:** on inputs the program refuses, four ports returned a value. `vaultLpAllocSplitP2b` now returns null when `dEven + dOdd` or `moved * dSmall` overflows u128 (Rust `checked_add` / `mul_div_floor`). With both dials on and a bps above 10,000, `cushionSplitP2b` returns null (it used to return a negative senior leg) and `cushionLockedP2b` returns null when the target is above 10,000. `creatorFeeVestedP2b` returns false (fail closed) for a target above 10,000 when the cushion is on.
