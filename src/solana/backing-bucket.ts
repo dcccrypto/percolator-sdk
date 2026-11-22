@@ -70,7 +70,7 @@
  * to the engine-slot start both shift +16 (947 -> 963, 1044 -> 1060).
  */
 
-import { resolveMarketGeometry } from "../abi/layout.js";
+import { resolveMarketGeometry, UnknownLayoutError, ACCOUNT_KIND } from "../abi/layout.js";
 
 // ---------------------------------------------------------------------------
 // Little-endian readers (module-local, matching slab.ts's private helpers)
@@ -328,7 +328,7 @@ export interface ParseBackingBucketsOptions {
  * @param data - Raw bytes of the v17 market group account.
  * @param opts - See {@link ParseBackingBucketsOptions}.
  * @returns The whole-market snapshot, including the resolved `nowSlot` used for the predicate.
- * @throws If the buffer is too short, or is not a v17 market account (bad magic/version/kind).
+ * @throws {@link UnknownLayoutError} `TOO_SHORT` if truncated (fewer asset slots than `max_market_slots`, which the program rejects). Also throws if the buffer is too short, or is not a v17 market account (bad magic/version/kind).
  *
  * @example
  * ```ts
@@ -366,7 +366,17 @@ export function parseBackingBucketsV17(
   const nowSlot = chainSlot > headerCurrentSlot ? chainSlot : headerCurrentSlot;
 
   const physicalAssetSlots = geom.slotCount;
-  const addressableAssetSlots = Math.min(maxMarketSlots, physicalAssetSlots);
+  // The program (`market_view_mut`) rejects configured > capacity, and a short read must never
+  // yield a silent partial list (a keeper would send nothing and a lapsed domain stays bricked).
+  if (maxMarketSlots > physicalAssetSlots) {
+    throw new UnknownLayoutError(
+      "TOO_SHORT",
+      "parseBackingBucketsV17",
+      `buffer holds ${physicalAssetSlots} asset slot(s) but max_market_slots is ${maxMarketSlots}: truncated read (short RPC read / dataSlice)`,
+      { version: geom.layout.version, kind: ACCOUNT_KIND.Market },
+    );
+  }
+  const addressableAssetSlots = maxMarketSlots;
   const addressableDomainCount = addressableAssetSlots * 2;
 
   const ctx: BackingBucketExpiryContext = { mode, nowSlot, addressableDomainCount };
@@ -378,7 +388,9 @@ export function parseBackingBucketsV17(
       const bucketOff =
         engineBase +
         (side === "long" ? L.engineSlot.backingLong : L.engineSlot.backingShort);
-      if (bucketOff + V17_BACKING_BUCKET_LEN > data.length) break;
+      if (bucketOff + V17_BACKING_BUCKET_LEN > data.length) {
+        throw new UnknownLayoutError("TOO_SHORT", "parseBackingBucketsV17", `bucket at ${bucketOff} runs past the ${data.length}-byte buffer`, { version: L.version, kind: ACCOUNT_KIND.Market });
+      }
 
       const domain = assetIndex * 2 + (side === "short" ? 1 : 0);
       const status = readU8At(dv, bucketOff + BB_STATUS);
