@@ -269,4 +269,30 @@ describe("parsePositionNftAccount: new == old on 5,000 seeded buffers", () => {
     expect(firstDiff(a, { ...rest, version })).toMatch(/keys/);
     expect(firstDiff(a, { ...parsePositionNftAccount(d), mintedAt: 1n })).toMatch(/mintedAt/);
   });
+
+  it("the fast PublicKey path is actually in use (the load-time self-check did not fall back)", () => {
+    // If the self-check ever fell back to `new PublicKey(subarray)`, the corpus test above would compare the
+    // old parser with itself and pass silently. bn.js `_initArray` is what that constructor path calls.
+    const proto = (PublicKey.default as unknown as { _bn: object })._bn.constructor.prototype as {
+      _initArray: (...args: unknown[]) => unknown;
+    };
+    const orig = proto._initArray;
+    let calls = 0;
+    proto._initArray = function (this: unknown, ...args: unknown[]) {
+      calls++;
+      return orig.apply(this, args);
+    };
+    try {
+      const d = new Uint8Array(POSITION_NFT_STATE_LEN).fill(0x5a);
+      new DataView(d.buffer).setBigUint64(0, POSITION_NFT_MAGIC, true);
+      d[8] = 3;
+      new PublicKey(d.subarray(10, 42));
+      expect(calls).toBe(1); // the spy sees the constructor path
+      calls = 0;
+      parsePositionNftAccount(d);
+      expect(calls).toBe(0); // five keys decoded without it
+    } finally {
+      proto._initArray = orig;
+    }
+  });
 });

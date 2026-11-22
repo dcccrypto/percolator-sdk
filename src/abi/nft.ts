@@ -525,7 +525,8 @@ function readI128FromView(view: DataView, offset: number): bigint {
 // constructor. test/nft-parse-identity.test.ts deep-equals the old and new parser on 5,000 buffers.
 
 type BnCtor = new (n: null) => { words: number[] | null; length: number };
-const BN_CTOR = (PublicKey.default as unknown as { _bn: { constructor: BnCtor } })._bn.constructor;
+/** The BN class web3.js itself uses; read inside the self-check so a partial web3.js mock cannot break import. */
+let BN_CTOR: BnCtor;
 
 function pubkeyAtFast(data: Uint8Array, start: number): PublicKey {
   // Same algorithm as bn.js `_initArray(bytes, 10, "be")` for a 32-byte input: 11 words of 26 bits.
@@ -560,6 +561,7 @@ function pubkeyAtSlow(data: Uint8Array, start: number): PublicKey {
 
 function fastPubkeyMatchesConstructor(): boolean {
   try {
+    BN_CTOR = (PublicKey.default as unknown as { _bn: { constructor: BnCtor } })._bn.constructor;
     const patterns: Uint8Array[] = [new Uint8Array(32), new Uint8Array(32).fill(0xff)];
     for (let s = 1; s <= 6; s++) {
       const p = new Uint8Array(32);
