@@ -47,7 +47,8 @@ describe("deriveProof memo: differential vs uncached derivation", () => {
         expect(ix.programId.equals(a.matcherProgramId)).toBe(true);
         expect(ix.keys).toEqual(matcherConfigureOwnerProofAccounts(a.lpOwner, a.matcherCtx));
       }
-      // Distinct-by-bytes inputs are far above the cache size, so eviction definitely ran.
+      // Distinct input objects (560 distinct by bytes for this seed) exceed the cache size;
+      // the miss assert below is what proves eviction ran.
       expect(refs.size).toBeGreaterThan(BUMP_MEMO_MAX + 20);
       // Eviction check: the oldest entry was dropped, so rebuilding it re-derives (a miss)...
       const oldest = seen[0];
