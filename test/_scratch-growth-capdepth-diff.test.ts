@@ -13,7 +13,8 @@
  * `tw_min_e6.unwrap_or(u64::MAX)` (usable, cap) <-> TS `twMinE6 !== null && twMinE6 < m ? twMinE6 : m`. The port below keeps the Rust shape
  * (Option as `{some}` / `null`, u64 range asserted) so both encodings are exercised independently.
  */
-import { describe, expect, it } from "vitest";
+import { writeFileSync } from "node:fs";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   capDepthE6,
   effectiveDepthE6,
@@ -157,6 +158,11 @@ const H = R_DEPTH_MAX_AGE_SLOTS;
 const E = R_DEPTH_STICKY_EPOCH_SLOTS;
 
 describe("growth-v19 cap depth vs prog bc657392 (scratch differential)", () => {
+  const log: string[] = [];
+  afterAll(() => {
+    const out = process.env.CAPDEPTH_DIFF_OUT;
+    if (out) writeFileSync(out, JSON.stringify({ log, calls: counts, mismatches: mismatches.length, tsLooser: mismatches.filter((m) => m.tsLooser).length, first: mismatches.slice(0, 5).map((m) => ({ ...m, args: m.args.map(String), ts: String(m.ts), rust: String(m.rust) })) }, null, 1));
+  });
   it("constants match the Rust", () => {
     expect(DEPTH_MAX_AGE_SLOTS).toBe(R_DEPTH_MAX_AGE_SLOTS);
     expect(DEPTH_SOURCE_MASK).toBe(R_DEPTH_SOURCE_MASK);
@@ -205,8 +211,7 @@ describe("growth-v19 cap depth vs prog bc657392 (scratch differential)", () => {
       }
     }
     expect(n).toBeGreaterThan(100_000);
-    // eslint-disable-next-line no-console
-    console.log(`[capdepth-diff grid] states=${n} calls=${JSON.stringify(counts)} mismatches=${mismatches.length}`);
+    log.push(`[capdepth-diff grid] states=${n} calls=${JSON.stringify(counts)} mismatches=${mismatches.length}`);
     expect(mismatches.slice(0, 5)).toEqual([]);
   }, 300_000);
 
@@ -250,8 +255,7 @@ describe("growth-v19 cap depth vs prog bc657392 (scratch differential)", () => {
       n++;
     }
     expect(n).toBe(50_000);
-    // eslint-disable-next-line no-console
-    console.log(`[capdepth-diff random] cases=${n} calls=${JSON.stringify(counts)} newMismatches=${mismatches.length - before} tsLooser=${mismatches.filter((m) => m.tsLooser).length}`);
+    log.push(`[capdepth-diff random] cases=${n} calls=${JSON.stringify(counts)} newMismatches=${mismatches.length - before} tsLooser=${mismatches.filter((m) => m.tsLooser).length}`);
     expect(mismatches.slice(0, 5)).toEqual([]);
   }, 300_000);
 
