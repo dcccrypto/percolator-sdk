@@ -764,13 +764,15 @@ export function nonboundVaultPricingP2b(own: NonboundPotP2b, sibling: NonboundPo
  * @param amount       Deposit atoms.
  * @param totalShares  Shares outstanding.
  * @param navAtoms     ENTRY NAV ({@link NonboundVaultPricingP2b.entryNavAtoms}).
- * @returns Shares minted (null when the program would refuse: nav 0 with shares, or 0 shares).
+ * @returns Shares minted (null when the program would refuse: amount 0, nav 0 with shares, or 0 shares).
  * @example
  * ```ts
  * lpSharesForDepositP2b(1_000n, 10_000n, 10_000n); // 1000n
  * ```
  */
 export function lpSharesForDepositP2b(amount: bigint, totalShares: bigint, navAtoms: bigint): bigint | null {
+  // Tag 75 refuses amount 0 before pricing (LpVaultZeroAmount), genesis included.
+  if (amount === 0n) return null;
   if (totalShares === 0n) return amount;
   if (navAtoms === 0n) return null;
   const s = (amount * totalShares) / navAtoms;
