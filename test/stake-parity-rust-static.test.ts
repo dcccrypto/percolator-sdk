@@ -27,13 +27,13 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Keypair, PublicKey, SystemProgram, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "../src/solana/spl-token-lite.js";
 import {
   STAKE_IX, initPoolAccounts, depositAccounts, depositJuniorAccounts, withdrawAccounts, accrueFeesAccounts,
   flushToInsuranceAccounts, bindInsuranceAuthorityAccounts, rotateInsuranceAccounts, burnAssetAdminAccounts,
   recoverFlushedInsuranceAccounts, adminResolveMarketCpiAccounts, stakeGroupAProxyAccounts, stakeGroupBProxyAccounts,
   recoverTerminalInsuranceAccounts, adminCloseSlabAccounts,
 } from "../src/solana/stake.js";
+import { buildRecoverTerminalInsuranceIx, buildAdminCloseSlabIx } from "../src/solana/stake-wind-down.js";
 import {
   STAKE_IX_V5, ACCOUNTS_STAKE_DEPOSIT_V5, ACCOUNTS_STAKE_WITHDRAW_V5, ACCOUNTS_STAKE_SYNC_V5,
   ACCOUNTS_STAKE_PROPOSE_DEPLOY_TARGET_V5, ACCOUNTS_STAKE_COMMIT_DEPLOY_TARGET_V5, stakeMetasV5,
@@ -262,11 +262,17 @@ export type Case = {
   keys: Record<string, PublicKey>;
   /** Optional/tail Rust accounts this mode needs (beyond the required prefix). */
   needs?: string[];
+  /** Instruction data the builder emits (build*Ix): tag byte and payload width are checked against `unpack`. */
+  data?: Uint8Array;
 };
 
-export function diffCase(r: RustAccounts, c: Case): string[] {
+export function diffCase(r: RustAccounts, c: Case, lens?: number[]): string[] {
   const out: string[] = [];
   const tagStr = `${c.builder} [tag ${c.tag}, ${c.mode}]`;
+  if (c.data) {
+    if (c.data[0] !== c.tag) out.push(`${tagStr}: data tag byte ${c.data[0]} != ${c.tag}`);
+    if (lens && !lens.includes(c.data.length - 1)) out.push(`${tagStr}: payload ${c.data.length - 1} bytes, unpack takes ${lens.join("/")}`);
+  }
   let metas: Meta[];
   try { metas = typeof c.metas === "function" ? c.metas() : c.metas; } catch (e) { return [`${tagStr}: builder throws (${(e as Error).message.slice(0, 80)})`]; }
   const required = r.list.filter((a) => a.kind === "required").length;
@@ -296,6 +302,8 @@ const K = {
   userAta: pk(), userLp: pk(), deposit: pk(), units: pk(), caller: pk(), wrapperVault: pk(), wrapperVaultAuth: pk(),
   newTarget: pk(), creator: pk(), stray: pk(), poolDest: pk(),
 };
+// Classic SPL Token (defined here, not imported, so the test runs on bases before and after the spl-token-lite move).
+const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const TOKEN = TOKEN_PROGRAM_ID, SYS = SystemProgram.programId, CLOCK = SYSVAR_CLOCK_PUBKEY, RENT = SYSVAR_RENT_PUBKEY;
 const dep = { user: K.user, pool: K.pool, userCollateralAta: K.userAta, vault: K.vault, lpMint: K.lpMint, userLpAta: K.userLp, vaultAuth: K.vaultAuth, depositPda: K.deposit, slab: K.slab };
 const wd = { user: K.user, pool: K.pool, userLpAta: K.userLp, lpMint: K.lpMint, vault: K.vault, userCollateralAta: K.userAta, vaultAuth: K.vaultAuth, depositPda: K.deposit, slab: K.slab };
@@ -342,6 +350,16 @@ const CASES: Case[] = [
   { builder: "recoverTerminalInsuranceAccounts", tag: 29, mode: "FIRST_LOSS", metas: recoverTerminalInsuranceAccounts({ ...rti, riskMode: 1, insuranceUnits: K.units, creatorToken: K.creator, stray: K.stray }),
     keys: { ...rtiKeys, "rest[0]": K.units, "rest[1]": K.creator, "rest[2]": K.stray }, needs: ["rest[0]", "rest[1]"] },
   { builder: "recoverTerminalInsuranceAccounts", tag: 29, mode: "FEE_ONLY", metas: recoverTerminalInsuranceAccounts({ ...rti, riskMode: 2, creatorToken: K.creator }), keys: { ...rtiKeys, "rest[0]": K.creator } },
+  ...(() => {
+    const ix = buildRecoverTerminalInsuranceIx({ ...rti, stakeProgram: K.pool, riskMode: 1, insuranceUnits: K.units, creatorToken: K.creator }, 5n);
+    return [{ builder: "buildRecoverTerminalInsuranceIx", tag: 29, mode: "FIRST_LOSS", metas: ix.keys, data: new Uint8Array(ix.data),
+      keys: { ...rtiKeys, "rest[0]": K.units, "rest[1]": K.creator }, needs: ["rest[0]", "rest[1]"] } as Case];
+  })(),
+  ...(() => {
+    const ix = buildAdminCloseSlabIx({ stakeProgram: K.pool, admin: K.admin, pool: K.pool, market: K.slab, wrapperVault: K.wrapperVault, wrapperVaultAuthority: K.wrapperVaultAuth, poolDestToken: K.poolDest, collateralMint: K.collMint, poolVault: K.vault, wrapperProgram: K.wrapper });
+    return [{ builder: "buildAdminCloseSlabIx", tag: 30, mode: "any", metas: ix.keys, data: new Uint8Array(ix.data),
+      keys: { admin: K.admin, market: K.slab, pool_dest: K.poolDest, mint: K.collMint, vault: K.vault, percolator_program: K.wrapper } } as Case];
+  })(),
   { builder: "adminCloseSlabAccounts", tag: 30, mode: "any", metas: adminCloseSlabAccounts({ admin: K.admin, pool: K.pool, market: K.slab, wrapperVault: K.wrapperVault, wrapperVaultAuthority: K.wrapperVaultAuth, poolDestToken: K.poolDest, collateralMint: K.collMint, poolVault: K.vault, wrapperProgram: K.wrapper }),
     keys: { admin: K.admin, pool_pda: K.pool, market: K.slab, wrapper_vault: K.wrapperVault, wrapper_vault_auth: K.wrapperVaultAuth, pool_dest: K.poolDest, token_program: TOKEN, mint: K.collMint, vault: K.vault, percolator_program: K.wrapper } },
   { builder: "ACCOUNTS_STAKE_SYNC_V5", tag: 31, mode: "FIRST_LOSS", metas: stakeMetasV5(ACCOUNTS_STAKE_SYNC_V5, { caller: K.caller, pool: K.pool, vault: K.vault, vaultAuthority: K.vaultAuth, market: K.slab, wrapperVault: K.wrapperVault, wrapperVaultAuthority: K.wrapperVaultAuth, insuranceUnits: K.units, wrapperProgram: K.wrapper }),
@@ -393,7 +411,7 @@ function runDiff(f: Map<string, RustFn>, cases: Case[]): string[] {
   for (const c of cases) {
     const { handler } = variantsToHandler(c.tag);
     if (handler.startsWith("Deprecated:")) continue;
-    out.push(...diffCase(handlerAccounts(f, handler), c));
+    out.push(...diffCase(handlerAccounts(f, handler), c, unpack.get(c.tag)!.lens));
   }
   return out;
 }
@@ -580,6 +598,13 @@ describe(`stake v2.2 Rust (percolator-stake ${STAKE_COMMIT.slice(0, 7)}) static 
     it("wind-down tail shrinks (FIRST_LOSS creator no longer demanded)", () => {
       const f = mutate("let creator = *rest.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;", "let creator = *rest.first().ok_or(ProgramError::NotEnoughAccountKeys)?;");
       expect(one(f, rtiCase).some((m) => m.includes("never demands 'rest[1]'") || m.includes("never demands"))).toBe(true);
+    });
+    it("wrong tag byte / payload width from a build*Ix builder", () => {
+      const c = CASES.find((x) => x.builder === "buildAdminCloseSlabIx")!;
+      const r = handlerAccounts(fns, "process_admin_close_slab");
+      expect(diffCase(r, c, [0])).toEqual([]);
+      expect(diffCase(r, { ...c, data: Uint8Array.from([29]) }, [0])).toContain("buildAdminCloseSlabIx [tag 30, any]: data tag byte 29 != 30");
+      expect(diffCase(r, { ...c, data: Uint8Array.from([30, 0]) }, [0])).toContain("buildAdminCloseSlabIx [tag 30, any]: payload 1 bytes, unpack takes 0");
     });
     it("renumbered tag (SyncInsuranceDeployment 31 -> 34) is caught by the tag diff", () => {
       const u = parseUnpack(instructionRs.replace("            31 => {\n                if !rest.is_empty()", "            34 => {\n                if !rest.is_empty()"));
