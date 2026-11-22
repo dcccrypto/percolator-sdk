@@ -2,7 +2,9 @@
  * Error contract of src/solana/spl-token-lite.ts vs the real @solana/spl-token (follow-up to #653).
  *
  * Since #653 the SDK's public token helpers (`fetchTokenAccount`, `getAta`, `getAtaSync`) throw the
- * shim's own error classes, not spl-token's. This file pins what that means for a caller:
+ * shim's own error classes, not spl-token's. So does every SDK builder that derives an ATA through the
+ * shim's `getAssociatedTokenAddressSync` with an off-curve owner (v22.ts, p3-vault-lp.ts,
+ * stake-wind-down.ts, abi/v22-stake.ts). This file pins what that means for a caller:
  *
  * - `.name`, `.message`, `String(err)` and `err instanceof Error` are identical to spl-token's.
  * - `err instanceof (spl-token's) TokenAccountNotFoundError` etc. is FALSE for SDK-thrown errors.
@@ -13,7 +15,7 @@
  *
  * The consumer-pattern block copies the error checks that exist in the v2.2 consumers
  * (launch feat/v22-app 983ac59a, keeper feat/v22-keeper-growth 825708f0, indexer feat/v22-indexer
- * 454b239c). It shows which of them still match.
+ * 454b239c, which has no spl-token error checks). It shows which of them still match.
  */
 import { describe, it, expect } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
@@ -154,12 +156,17 @@ describe("consumer error checks (copied from the v2.2 consumers) against SDK-thr
     expect(isMissing(await caught(spl.getAccount(conn(null), ADDR)))).toBe(true);
   });
 
-  it("launch app/lib/errorMessages.ts:580-586 `rawMsg.includes(name)` matches when rawMsg is String(err)", async () => {
+  it("launch app/lib/errorMessages.ts:580-586 `rawMsg.includes(name)` behaves the same for SDK and spl-token errors", async () => {
+    // launch app/lib/error-text.ts:10 `errorText(e)` returns `e.message`, which is "" for both, so via
+    // useDeposit.ts:348 the branch never matched, before or after #653. Via String(err) it matches for both.
+    const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
     for (const c of CASES) {
-      const sdkRaw = String(await caught(c.sdk));
-      const realRaw = String(await caught(c.real));
-      expect(sdkRaw.includes(c.name)).toBe(realRaw.includes(c.name));
-      expect(sdkRaw.includes(c.name)).toBe(true);
+      const sdkErr = await caught(c.sdk);
+      const realErr = await caught(c.real);
+      expect(errorText(sdkErr).includes(c.name)).toBe(false);
+      expect(errorText(realErr).includes(c.name)).toBe(false);
+      expect(String(sdkErr).includes(c.name)).toBe(true);
+      expect(String(realErr).includes(c.name)).toBe(true);
     }
   });
 
