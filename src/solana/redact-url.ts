@@ -7,15 +7,20 @@
 /** Placeholder returned when a URL cannot be parsed: never echo the raw string. */
 const REDACTED_URL_PLACEHOLDER = "[unparseable-url]";
 
-/** An opaque secret-looking token: 20+ chars of a URL-safe alphabet (API keys, JWT segments, base58/hex tokens). */
-const OPAQUE_TOKEN = /^[A-Za-z0-9_\-.~%]{20,}$/;
+/**
+ * An opaque secret-looking token: any path segment or query value of 20+ chars (API keys, JWT
+ * segments, base58/base64/hex tokens). No alphabet filter: base64 `+/=` and sub-delims like
+ * `( ) $ & , ; : @` used to slip through (test/redact-url-providers.test.ts).
+ */
+const looksOpaque = (s: string): boolean => s.length >= 20;
 
 /**
  * Redact credentials from a URL so it is safe for logging / `status()` output (#350).
  *
  * - `username` / `password` (userinfo) are removed.
- * - Query parameters whose name looks like a credential (`api-key`, `token`, `secret`, `key`,
- *   `password`, ...) are replaced with `***`, as are query values that look like opaque tokens.
+ * - Query parameters whose name looks like a credential (`api-key`, `x-api-key`, `auth`, `dkey`,
+ *   `token`, `secret`, `key`, `password`, ...) are replaced with `***`, as are query values that
+ *   look like opaque tokens.
  * - Path segments that look like opaque tokens (Alchemy `/v2/<key>`, QuickNode `/<key>/`, Helius
  *   `/<key>`) are replaced with `***`.
  * - The fragment is dropped.
@@ -37,15 +42,15 @@ export function redactUrl(raw: string): string {
     u.username = "";
     u.password = "";
     u.hash = "";
-    const sensitive = /^(api[-_]?key|access[-_]?token|auth[-_]?token|token|secret|key|password|bearer|credential|jwt)$/i;
+    const sensitive = /^((x[-_]?)?api[-_]?key|access[-_]?token|auth([-_]?token)?|dkey|token|secret|key|password|bearer|credential|jwt)$/i;
     for (const [k, v] of [...u.searchParams.entries()]) {
-      if (sensitive.test(k) || OPAQUE_TOKEN.test(v)) {
+      if (sensitive.test(k) || looksOpaque(v)) {
         u.searchParams.set(k, "***");
       }
     }
     u.pathname = u.pathname
       .split("/")
-      .map((seg) => (OPAQUE_TOKEN.test(seg) ? "***" : seg))
+      .map((seg) => (looksOpaque(seg) ? "***" : seg))
       .join("/");
     return u.toString();
   } catch {
