@@ -27,16 +27,17 @@ describe("plus2PctDepthE6 vs prog", () => {
     for (const e of [0n, 1n, 2n, 1n << 32n, 1n << 52n, 1n << 63n, U64_MAX]) expect(set.has(e.toString())).toBe(true);
   });
   // R in 0..1e6 against the exact definition m(R) = min{m : 51 m^2 >= 50 R^2}, answer R - m.
-  // Why not all 1,000,001 values: each plus2PctDepthE6 call is several BigInt ops (~7 s for the full range under CI load), so the
+  // Why not all 1,000,001 values: each plus2PctDepthE6 call is several BigInt ops (~7 s for the full range on a loaded dev box), so the
   // exhaustive loop was a load-sensitive case. The checked set is instead:
   //   (a) every R in 0..4096 (all small/degenerate cases),
   //   (b) every R within 2 of a power of two up to 2^19 (bit-width transitions of isqrt),
   //   (c) EVERY R whose position on the boundary is tight: m(R) = ceil(R*sqrt(50/51)), and the SUT can only disagree with the
   //       definition where x = R*sqrt(50/51) is within rounding reach of an integer (where ceil flips, i.e. where 51 m^2 - 50 R^2
   //       or 50 R^2 - 51 (m-1)^2 is small). We scan all 1e6 R with a cheap float (stepping 1 at a time near a boundary, skipping ahead provably-safely elsewhere) and take every R with frac(x) < 1e-3 or > 1-1e-3
-  //       (float error ~1e-9 so no true boundary is missed),
+  //       (float error ~1e-10 so no true boundary is missed),
   //   (d) a seeded (mulberry32, seed 0x51a50) sample of 5,000 further R.
   // Reference is plain Number arithmetic: 51 m^2 <= 5.1e13 < 2^53, so every product/compare is exact, and it shares no code with the SUT.
+  // Accepted cost: a bug wrong at only a couple of arbitrary non-boundary R could slip past the sample (the old loop would catch it).
   // Mismatches are collected in the loop and asserted once.
   it("R in 0..1e6 (boundary-exhaustive + seeded sample) equals the exact definition r - (smallest m with 51 m^2 >= 50 r^2)", () => {
     const MAXR = 1_000_000;
@@ -44,9 +45,9 @@ describe("plus2PctDepthE6 vs prog", () => {
     const set = new Set<number>();
     for (let r = 0; r <= 4096; r++) set.add(r);
     for (let k = 0; k <= 19; k++) for (let d = -2; d <= 2; d++) { const r = 2 ** k + d; if (r >= 0 && r <= MAXR) set.add(r); }
-    // u(R) = frac(R*c) falls by D = 1 - c ~ 0.01005 per step (mod 1). A boundary R has u < 1e-3 or u > 1 - 1e-3, and u > 1 - 1e-3 is only
-    // reachable from u in (0.009, 0.011). So while u > 0.03 we can jump floor((u - 0.02) / 0.0101) steps without skipping any hit
-    // (u falls by at most 0.01006 per step, so it stays > 0.02), and step singly inside u <= 0.03. u is recomputed from R each time.
+    // u(R) = frac(R*c) falls by D = 1 - c ~ 0.009852 per step (mod 1). A boundary R has u < 1e-3 or u > 1 - 1e-3, and u > 1 - 1e-3 is only
+    // reachable from u in about (0.0088, 0.0099]. So while u > 0.03 we can jump floor((u - 0.02) / 0.0101) steps without skipping any hit
+    // (u falls by exactly 0.009852 < 0.0101 per step, so it stays > 0.02), and step singly inside u <= 0.03. u is recomputed from R each time.
     let boundary = 0;
     for (let r = 0; r <= MAXR; ) {
       const x = r * c;
@@ -72,7 +73,7 @@ describe("plus2PctDepthE6 vs prog", () => {
       if (got !== BigInt(r - m)) mismatches.push(`R=${r}: got ${got}, want ${r - m}`);
     }
     expect(boundary).toBeGreaterThan(500); // the boundary scan really contributed
-    expect(set.size).toBeGreaterThan(5_000);
+    expect(set.size).toBeGreaterThan(10_000);
     expect(mismatches).toEqual([]);
   });
   it("rejects out-of-range input", () => {
