@@ -22,7 +22,7 @@
  */
 
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from './spl-token-lite.js';
 /**
  * @deprecated #352: the stake program accepts ONLY the classic SPL Token program
  * (percolator-stake `verify_token_program`, processor.rs:17). Re-exported for source

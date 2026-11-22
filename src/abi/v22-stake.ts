@@ -16,7 +16,7 @@
  */
 import { PublicKey, SYSVAR_CLOCK_PUBKEY, SystemProgram } from "@solana/web3.js";
 import type { AccountMeta } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "../solana/spl-token-lite.js";
 import { concatBytes, encU16, encU64, encU8 } from "./encode.js";
 import type { ErrorInfo } from "./errors.js";
 import { STAKE_FLOOR_FLAGS_RESERVED_INDEX } from "./stake-dead-lp.js";
