@@ -1,3 +1,9 @@
+## 9.0.0-candidate: p2b alloc split and G6 cushion fns fail closed like vault_lp_v18.rs - BREAKING (types)
+
+- **Fixed:** on inputs the program refuses, four ports returned a value. `vaultLpAllocSplitP2b` now returns null when `dEven + dOdd` or `moved * dSmall` overflows u128 (Rust `checked_add` / `mul_div_floor`). With both dials on and a bps above 10,000, `cushionSplitP2b` returns null (it used to return a negative senior leg) and `cushionLockedP2b` returns null when the target is above 10,000. `creatorFeeVestedP2b` returns false (fail closed) for a target above 10,000 when the cushion is on.
+- **Changed (BREAKING types):** `cushionSplitP2b` returns `[bigint, bigint] | null` and `cushionLockedP2b` returns `bigint | null`. Valid dials (0..10,000, which the program's validator enforces) give the same values as before.
+- **Tests:** `test/p2b-alloc-cushion-rust-diff.test.ts` diffs all 11 alloc/cushion fns against a quoted BigInt port of prog `vault_lp_v18.rs` (bc657392) on boundary rows plus 10,000 seeded cases each. 0 mismatches.
+
 ## 9.0.0-candidate: redactUrl no longer leaks base64 / sub-delim keys or auth, x-api-key, dkey values
 
 - **Fixed:** `redactUrl` (used in RpcPool status/healthCheck, checkRpcHealth, discoverMarketsViaApi and fetchAdlRankings errors) masked only 20+ char values of `[A-Za-z0-9_-.~%]`. A key containing `+ / = ( ) $ & , ; : @`, or a short key under `auth`, `x-api-key` or dRPC's `dkey`, came back unchanged (1506 of 10,000 seeded provider URLs leaked). Any 20+ char path segment or query value is now masked, and those three names are credential names.
