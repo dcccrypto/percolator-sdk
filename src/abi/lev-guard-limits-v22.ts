@@ -305,7 +305,8 @@ export interface LevGuardOpenInputV22 {
   /**
    * The program build has `LEV_GUARD_PERM_PROOF_REQUIRED` (every non-`devnet` build). D12 fail-tight (`perm_for_gate`): a guard
    * whose authorities op 3 never proved (flags bit 2 clear) then reads BOTH authorities live, so `l_cap 1` / `n_mult 0` (the
-   * L_floor / N_floor clamp) apply. Default `false`: the devnet build, which reads the stored bits.
+   * L_floor / N_floor clamp) apply. Default `false`: the devnet build, which reads the stored bits. A caller quoting a
+   * non-devnet build MUST pass `true`, or the limits are looser than the program's.
    */
   permProofRequired?: boolean;
 }

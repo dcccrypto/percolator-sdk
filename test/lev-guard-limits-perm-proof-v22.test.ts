@@ -4,7 +4,8 @@
  * overlay with `gd.perm_for_gate(true)` (src/v16_program.rs:46209), which reads a guard whose mint/freeze authorities were
  * never proven by op 3 (flags bit 2 `GUARD_FLAG_PERM_PROVEN` clear) as BOTH authorities live (src/lev_guard_v22.rs:1021-1028):
  * `l_cap 1` (lifted to L_floor) and `n_mult 0` (lifted to N_floor). The SDK read the stored bits only, so it quoted the full
- * limits and admitted opens the program refuses. Found by a seeded differential (20,000 scenarios, 60 SDK-ok / program-refuse).
+ * limits and admitted opens the program refuses. Found by a seeded differential (20,000 scenarios on the proof-required build: 88 verdicts
+ * differed, 60 of them SDK-ok / program-refuse).
  */
 import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
