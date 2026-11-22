@@ -1,3 +1,9 @@
+## 9.0.0-candidate: redactUrl no longer leaks base64 / sub-delim keys or auth, x-api-key, dkey values
+
+- **Fixed:** `redactUrl` (used in RpcPool status/healthCheck, checkRpcHealth, discoverMarketsViaApi and fetchAdlRankings errors) masked only 20+ char values of `[A-Za-z0-9_-.~%]`. A key containing `+ / = ( ) $ & , ; : @`, or a short key under `auth`, `x-api-key` or dRPC's `dkey`, came back unchanged (1506 of 10,000 seeded provider URLs leaked). Any 20+ char path segment or query value is now masked, and those three names are credential names.
+- **Behaviour note:** long readable values with punctuation (e.g. a 20+ char `?redirect=` URL) are now shown as `***` in diagnostics.
+- **Tests:** `test/redact-url-providers.test.ts` covers 20 documented provider URL shapes (fake keys) and a seeded 10k-URL fuzz test (replay with `REDACT_URL_FUZZ_SEED`).
+
 ## 9.0.0-candidate: no runtime @solana/spl-token (cold import about half the cost)
 
 - **Changed:** the SDK no longer imports `@solana/spl-token` at runtime; it is now a devDependency. The six helpers the SDK used (`TOKEN_PROGRAM_ID`, `TOKEN_2022_PROGRAM_ID`, `ASSOCIATED_TOKEN_PROGRAM_ID`, `getAssociatedTokenAddress[Sync]`, `createAssociatedTokenAccountIdempotentInstruction`, `getAccount`) are ported in `src/solana/spl-token-lite.ts`. Public exports, ATA addresses, instruction bytes and `fetchTokenAccount` results are unchanged.
