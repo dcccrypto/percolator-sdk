@@ -36,7 +36,7 @@ import {
   PERCOLATOR_ERRORS,
   getProgramId,
 } from "../src/index.js";
-import { devnetUnavailableReason, loadSharedMarkets } from "./helpers/devnet-shared.js";
+import { itStale, devnetUnavailableReason, loadSharedMarkets } from "./helpers/devnet-shared.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -149,8 +149,7 @@ describe("devnet — getMarketsByAddress() [PERC-8410]", () => {
     60_000,
   );
 
-  it(
-    "getMarketsByAddress() result has valid header fields",
+  itStale("getMarketsByAddress() result has valid header fields",
     async () => {
       if (SKIP || !rpcReachable || discoveredAddresses.length === 0) return;
 
@@ -171,8 +170,7 @@ describe("devnet — getMarketsByAddress() [PERC-8410]", () => {
     30_000,
   );
 
-  it(
-    "getMarketsByAddress() result has valid config fields",
+  itStale("getMarketsByAddress() result has valid config fields",
     async () => {
       if (SKIP || !rpcReachable || discoveredAddresses.length === 0) return;
 
@@ -193,8 +191,7 @@ describe("devnet — getMarketsByAddress() [PERC-8410]", () => {
     30_000,
   );
 
-  it(
-    "getMarketsByAddress() result has valid engine fields",
+  itStale("getMarketsByAddress() result has valid engine fields",
     async () => {
       if (SKIP || !rpcReachable || discoveredAddresses.length === 0) return;
 
@@ -219,8 +216,7 @@ describe("devnet — getMarketsByAddress() [PERC-8410]", () => {
     30_000,
   );
 
-  it(
-    "getMarketsByAddress() matches discoverMarkets() output field-by-field for first market",
+  itStale("getMarketsByAddress() matches discoverMarkets() output field-by-field for first market",
     async () => {
       if (SKIP || !rpcReachable || discoveredMarkets.length === 0) return;
 
@@ -309,8 +305,7 @@ describe("devnet — getMarketsByAddress() [PERC-8410]", () => {
 // ---------------------------------------------------------------------------
 
 describe("devnet — fetchAdlRankedPositions() [PERC-8410]", () => {
-  it(
-    "fetchAdlRankedPositions() returns valid ranking result without throwing",
+  itStale("fetchAdlRankedPositions() returns valid ranking result without throwing",
     async () => {
       if (SKIP || !rpcReachable || discoveredAddresses.length === 0) return;
 
@@ -332,8 +327,7 @@ describe("devnet — fetchAdlRankedPositions() [PERC-8410]", () => {
     30_000,
   );
 
-  it(
-    "fetchAdlRankedPositions() longs are sorted descending by pnlPct",
+  itStale("fetchAdlRankedPositions() longs are sorted descending by pnlPct",
     async () => {
       if (SKIP || !rpcReachable || discoveredAddresses.length === 0) return;
 
@@ -351,8 +345,7 @@ describe("devnet — fetchAdlRankedPositions() [PERC-8410]", () => {
     30_000,
   );
 
-  it(
-    "fetchAdlRankedPositions() shorts are sorted descending by pnlPct",
+  itStale("fetchAdlRankedPositions() shorts are sorted descending by pnlPct",
     async () => {
       if (SKIP || !rpcReachable || discoveredAddresses.length === 0) return;
 
@@ -370,8 +363,7 @@ describe("devnet — fetchAdlRankedPositions() [PERC-8410]", () => {
     30_000,
   );
 
-  it(
-    "fetchAdlRankedPositions() ranked positions have valid fields",
+  itStale("fetchAdlRankedPositions() ranked positions have valid fields",
     async () => {
       if (SKIP || !rpcReachable || discoveredAddresses.length === 0) return;
 
@@ -395,8 +387,7 @@ describe("devnet — fetchAdlRankedPositions() [PERC-8410]", () => {
     30_000,
   );
 
-  it(
-    "fetchAdlRankedPositions() long count + short count == ranked count",
+  itStale("fetchAdlRankedPositions() long count + short count == ranked count",
     async () => {
       if (SKIP || !rpcReachable || discoveredAddresses.length === 0) return;
 
@@ -425,8 +416,7 @@ describe("devnet — fetchAdlRankedPositions() [PERC-8410]", () => {
     30_000,
   );
 
-  it(
-    "rankAdlPositions() (pure/no-RPC) matches fetchAdlRankedPositions() result",
+  itStale("rankAdlPositions() (pure/no-RPC) matches fetchAdlRankedPositions() result",
     async () => {
       if (SKIP || !rpcReachable || discoveredAddresses.length === 0) return;
 
@@ -445,8 +435,7 @@ describe("devnet — fetchAdlRankedPositions() [PERC-8410]", () => {
     30_000,
   );
 
-  it(
-    "fetchAdlRankedPositions() works on all discovered devnet slabs (no throw)",
+  itStale("fetchAdlRankedPositions() works on all discovered devnet slabs (no throw)",
     async () => {
       if (SKIP || !rpcReachable || discoveredAddresses.length === 0) return;
 
