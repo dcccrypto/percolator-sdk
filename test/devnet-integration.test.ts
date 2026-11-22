@@ -138,6 +138,12 @@ beforeAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("devnet — discoverMarkets() [PERC-8365]", () => {
+  it("devnet setup status (globalSetup): skips with the reason when devnet is unavailable", (ctx) => {
+    const why = devnetUnavailableReason();
+    if (why) ctx.skip(`devnet unavailable — RPC-dependent cases did not run: ${why}`);
+    expect(why).toBe("");
+  });
+
   it.skipIf(!SKIP)("skips cleanly when SKIP_DEVNET_TESTS=1", () => {
     console.log("[PERC-8365] SKIP_DEVNET_TESTS=1 — skipping devnet suite");
     expect(true).toBe(true);

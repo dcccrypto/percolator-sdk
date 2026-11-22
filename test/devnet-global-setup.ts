@@ -39,7 +39,8 @@ function withDeadline<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
 }
 
 export default async function setup(project: TestProject) {
-  if (process.env.SKIP_DEVNET_TESTS === "1") {
+  // The scan only feeds devnet runs; with an explicit alternate RPC the harness does its own.
+  if (process.env.SKIP_DEVNET_TESTS === "1" || process.env.MAINNET_RPC_URL) {
     project.provide("devnetSlabs", []);
     project.provide("devnetUnavailable", "");
     return;

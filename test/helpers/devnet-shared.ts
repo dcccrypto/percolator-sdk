@@ -40,8 +40,14 @@ export async function loadSharedMarkets(
  * Declared with `it.fails`: the suite stays green while the case still fails,
  * turns RED the moment it starts passing (so the marker gets removed), and
  * skips with a reason when devnet is unavailable. Rewrite the assertions for
- * the v17 shape, then change `itStale(` back to `it(`.
+ * the v17 shape, then change `itStale(` back to `it(`. A failure whose message does
+ * not look like a legacy-shape error is NOT treated as expected (the case goes red).
+ * Limitation: a case that early-returns (devnet flaked mid-run) also goes red.
  */
+/** Error messages that mean "legacy parser/shape applied to a v17 slab". */
+const LEGACY_SHAPE_ERR =
+  /slab magic|nrecognized slab data length|expected (undefined|null|0|'undefined')|to be an instance of PublicKey|include undefined|toBase58|not to be null|to be 'bigint'|Cannot read properties of undefined/i;
+
 export function itStale(name: string, fn: (ctx: any) => unknown, timeout?: number) {
   it.fails(
     `[known-stale: legacy parser vs v17 devnet slab] ${name}`,
@@ -49,7 +55,15 @@ export function itStale(name: string, fn: (ctx: any) => unknown, timeout?: numbe
       if (process.env.SKIP_DEVNET_TESTS === "1" || devnetUnavailableReason()) {
         ctx.skip(`devnet unavailable: ${devnetUnavailableReason() || "SKIP_DEVNET_TESTS=1"}`);
       }
-      await fn(ctx);
+      try {
+        await fn(ctx);
+      } catch (err) {
+        const msg = String((err as Error)?.message ?? err);
+        if (LEGACY_SHAPE_ERR.test(msg)) throw err; // expected stale failure -> it.fails is satisfied
+        // Unexpected cause (429, timeout, regression): do NOT hide it. Returning normally
+        // makes it.fails go RED ("expected to fail but passed") and we log the real error.
+        console.error(`[itStale] UNEXPECTED failure cause in "${name}": ${msg}`);
+      }
     },
     timeout,
   );
