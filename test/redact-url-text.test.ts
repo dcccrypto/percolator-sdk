@@ -59,6 +59,17 @@ describe("redactSecretsInText / redactUrlError", () => {
   it("leaves text with no secret in it unchanged", () => {
     expect(redactSecretsInText("HTTP 500 from https://api.example/x", "https://api.example/x")).toBe("HTTP 500 from https://api.example/x");
     expect(redactSecretsInText("", FORMS.Q)).toBe("");
+    // A base without a trailing "/" echoed as a URL prefix is left exactly as it was (review S1).
+    const echo = "Cannot GET https://api.example.com/api/adl/rankings?slab=1";
+    expect(redactSecretsInText(echo, "https://api.example.com", "https://api.example.com/api/adl/rankings?slab=1")).toBe(echo);
+  });
+
+  it("rewrites a credentials base used as a prefix without doubling the slash", () => {
+    const base = "https://user:SECRET123@h.example";
+    expect(redactSecretsInText(`at ${base}/api/x`, base)).toBe("at https://h.example/api/x");
+    // Credentials too short to be a "part" are still removed with the verbatim URL.
+    expect(redactSecretsInText("at https://a:b@h.example/", "https://a:b@h.example/")).toBe("at https://h.example/");
+    expect(redactSecretsInText("at https://x .example/p", "https://x .example/p")).toBe("at [unparseable-url]");
   });
 
   it("does not mask secret parts shorter than 4 chars (documented limit)", () => {
@@ -69,6 +80,18 @@ describe("redactSecretsInText / redactUrlError", () => {
     const e = new TypeError("fetch failed", { cause: new Error("ECONNREFUSED") });
     expect(redactUrlError(e, FORMS.Q)).toBe(e);
     expect(redactUrlError("plain", FORMS.Q)).toBe("plain");
+  });
+
+  it("never throws on values JSON cannot serialize (review S2)", () => {
+    const circular: Record<string, unknown> = { a: 1 };
+    circular.self = circular;
+    expect(redactUrlError(circular, FORMS.Q)).toBe(circular);
+    const big = { n: 1n };
+    expect(redactUrlError(big, FORMS.Q)).toBe(big);
+    const withCause = new Error(`wrap ${FORMS.Q}`, { cause: circular });
+    const safe = redactUrlError(withCause, FORMS.Q) as Error;
+    expect(safe.message).not.toContain(SECRET);
+    expect(safe.cause).toBe(circular);
   });
 
   it("rebuilds an error whose message, stack, props or cause carry the secret, keeping prototype/name/code", () => {

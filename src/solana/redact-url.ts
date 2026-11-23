@@ -108,7 +108,10 @@ function splitOnce(s: string, sep: string): [string, string?] {
  * Mask every secret part of `rawUrls` wherever it appears in `text`: the whole URL verbatim (Node's
  * fetch puts it in "Failed to parse URL from <url>" / "...includes credentials: <url>"), a normalized
  * href, or a bare echo such as a gateway's `Cannot GET /v2/<key>`. Text without a secret part is
- * returned unchanged.
+ * returned unchanged. Limits: a bare echo of a part under 4 chars (`?key=abc`) is not masked (the
+ * whole URL verbatim still is), nor is a part echoed in an encoding other than raw, decoded or
+ * `encodeURIComponent`. Non-string own properties of an error (e.g. `AggregateError.errors`) are
+ * not walked.
  *
  * @param text - Message, log line or response body.
  * @param rawUrls - The URL(s) as configured / fetched.
@@ -122,11 +125,26 @@ function splitOnce(s: string, sep: string): [string, string?] {
 export function redactSecretsInText(text: string, ...rawUrls: string[]): string {
   let out = text;
   for (const raw of rawUrls) {
-    const safe = redactUrl(raw);
-    if (safe !== raw) out = out.split(raw).join(safe);
-    for (const part of secretParts(raw)) out = out.split(part).join("***");
+    const parts = secretParts(raw);
+    let safe = redactUrl(raw);
+    // Only rewrite the whole URL when it carries something to hide, and keep a missing trailing "/"
+    // missing: a base URL echoed as a prefix ("<base>/api/x") must not become "<base>//api/x".
+    if (parts.length > 0 || safe === REDACTED_URL_PLACEHOLDER || raw.includes("@")) {
+      if (safe.endsWith("/") && !raw.endsWith("/")) safe = safe.slice(0, -1);
+      out = out.split(raw).join(safe);
+    }
+    for (const part of parts) out = out.split(part).join("***");
   }
   return out;
+}
+
+/** `JSON.stringify` that never throws (circular objects, BigInt): an unserializable value is left alone. */
+function tryJson(v: unknown): string | undefined {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -144,7 +162,7 @@ export function redactUrlError(err: unknown, ...rawUrls: string[]): unknown {
   const copy = (e: unknown, depth: number): unknown => {
     if (typeof e === "string") return scrub(e);
     if (!(e instanceof Error)) {
-      const json = JSON.stringify(e);
+      const json = tryJson(e);
       return json !== undefined && scrub(json) !== json ? scrub(json) : e;
     }
     const out = Object.create(Object.getPrototypeOf(e)) as Error;
@@ -160,7 +178,7 @@ export function redactUrlError(err: unknown, ...rawUrls: string[]): unknown {
       ? Object.getOwnPropertyNames(e)
           .map((k) => (k === "cause" ? (depth < 8 ? text(e.cause, depth + 1) : "") : String((e as unknown as Record<string, unknown>)[k])))
           .join("\n")
-      : typeof e === "string" ? e : String(JSON.stringify(e));
+      : typeof e === "string" ? e : String(tryJson(e));
   const all = text(err, 0);
   return scrub(all) === all ? err : copy(err, 0);
 }
