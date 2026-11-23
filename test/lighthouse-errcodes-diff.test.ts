@@ -163,3 +163,24 @@ describe("(2) no Percolator custom code falls in the Lighthouse code space", () 
     expect(isLighthouseError(`Program ${PERC_ID} failed: custom program error: 0x1900`)).toBe(false);
   });
 });
+
+describe("(3) bare (unattributed) codes: only the exact 0x1900 is blamed on the guard", () => {
+  const bare = (h: string) => `Transaction simulation failed: Error processing Instruction 0: custom program error: ${h}`;
+
+  // Unattributed 6000+ codes are shared by every Anchor program (custom errors start at 6000 = 0x1770), so
+  // a bare 0x1771 must not be blamed on Lighthouse. Kills a widened range such as 0x1000..0x1eff.
+  it("bare 0x1900 is Lighthouse; neighbouring and Anchor-range codes are not", () => {
+    expect(isLighthouseError(bare("0x1900"))).toBe(true);
+    for (const c of [0x1000, 0x1770, 0x1771, 0x1780, 0x1901, 0x1903, 0x18ff, 0x1eff]) {
+      expect(isLighthouseError(bare(hex(c))), hex(c)).toBe(false);
+    }
+  });
+
+  // Kills a dropped trailing \b: 0x19001 / 0x1900a must not match as a prefix.
+  it("0x1900 is matched as a whole hex token, not a prefix of a longer code", () => {
+    for (const h of ["0x19001", "0x1900a", "0x1900F", "0x190000"]) {
+      expect(isLighthouseError(bare(h)), h).toBe(false);
+    }
+    expect(isLighthouseError(`{"InstructionError":[0,{"Custom":64001}]}`)).toBe(false);
+  });
+});
