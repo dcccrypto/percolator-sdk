@@ -1,4 +1,4 @@
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey, type GetProgramAccountsConfig, type GetProgramAccountsResponse } from "@solana/web3.js";
 import {
   parseHeader,
   parseConfig,
@@ -27,6 +27,7 @@ import {
 import { getStaticMarkets, type StaticMarketEntry } from "./static-markets.js";
 import { type Network } from "../config/program-ids.js";
 import { redactUrl } from "./redact-url.js";
+import { withRpcDeadline, type RpcDeadlineOptions } from "../runtime/deadline.js";
 
 /** V1 bitmap offset within engine struct (updated for PERC-120/121/122 struct changes) */
 const ENGINE_BITMAP_OFF = 656; // Updated for PERC-299 (608 + 24 emergency OI fields)
@@ -452,7 +453,7 @@ export function parseEngineLight(
 }
 
 /** Options for `discoverMarkets`. */
-export interface DiscoverMarketsOptions {
+export interface DiscoverMarketsOptions extends RpcDeadlineOptions {
   /**
    * Run tier queries sequentially with per-tier retry on HTTP 429 instead of
    * firing all in parallel.  Reduces RPC rate-limit pressure at the cost of
@@ -542,6 +543,19 @@ export interface DiscoverMarketsOptions {
   network?: Network;
 }
 
+/**
+ * Thrown by {@link discoverMarkets} when no discovery source answered at all: every RPC query failed
+ * and the REST API / static bundle fallbacks were not configured or failed too. An empty list is only
+ * returned when some source actually answered "no markets".
+ */
+export class DiscoveryFailedError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = "DiscoveryFailedError";
+    if (cause !== undefined) Object.defineProperty(this, "cause", { value: cause, enumerable: false });
+  }
+}
+
 /** Return true if the error looks like an HTTP 429 / rate-limit response. */
 function isRateLimitError(err: unknown): boolean {
   if (!err) return false;
@@ -564,11 +578,26 @@ function withJitter(delayMs: number): number {
  * Uses getProgramAccounts with dataSize filter + dataSlice to download only ~1400 bytes per slab.
  *
  * @param options.sequential - Run tier queries sequentially with 429 retry (PERC-1650).
+ * @param options.signal / options.timeoutMs - Optional deadline for the whole scan; rejects with
+ *   `RpcDeadlineError` when it passes. Default: none.
+ * @throws {DiscoveryFailedError} When every RPC query failed and no fallback (REST API, static
+ *   bundle) answered either. A dead RPC is an error, not an empty market list.
  */
 export async function discoverMarkets(
   connection: Connection,
   programId: PublicKey,
   options: DiscoverMarketsOptions = {},
+): Promise<DiscoveredMarket[]> {
+  return withRpcDeadline("discoverMarkets", options, (signal) =>
+    discoverMarketsInner(connection, programId, options, signal),
+  );
+}
+
+async function discoverMarketsInner(
+  connection: Connection,
+  programId: PublicKey,
+  options: DiscoverMarketsOptions,
+  signal: AbortSignal | undefined,
 ): Promise<DiscoveredMarket[]> {
   const {
     sequential = false,
@@ -620,6 +649,22 @@ export async function discoverMarkets(
   type RawEntry = { pubkey: PublicKey; account: { data: Buffer | Uint8Array }; maxAccounts: number; dataSize: number };
   let rawAccounts: RawEntry[] = [];
 
+  // Whether any discovery source answered (even with zero accounts), and the last RPC failure.
+  // If nothing answered, the scan failed and must not be reported as "no markets".
+  let rpcAnswered = false;
+  let lastRpcError: unknown;
+  const getProgramAccounts = async (config: GetProgramAccountsConfig): Promise<GetProgramAccountsResponse> => {
+    signal?.throwIfAborted();
+    try {
+      const res = await connection.getProgramAccounts(programId, config);
+      rpcAnswered = true;
+      return res;
+    } catch (err) {
+      lastRpcError = err;
+      throw err;
+    }
+  };
+
   /**
    * Fetch one tier with per-attempt 429 retry (sequential mode only).
    * Returns an array of RawEntry on success, or an empty array after exhausting retries.
@@ -629,7 +674,7 @@ export async function discoverMarkets(
   ): Promise<RawEntry[]> {
     for (let attempt = 0; attempt <= rateLimitBackoffMs.length; attempt++) {
       try {
-        const results = await connection.getProgramAccounts(programId, {
+        const results = await getProgramAccounts({
           filters: [{ dataSize: tier.dataSize }],
           dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
         });
@@ -677,7 +722,7 @@ export async function discoverMarkets(
       for (let offset = 0; offset < tiersToQuery.length; offset += effectiveMaxParallelTiers) {
         const chunk = tiersToQuery.slice(offset, offset + effectiveMaxParallelTiers);
         const queries = chunk.map(tier =>
-          connection.getProgramAccounts(programId, {
+          getProgramAccounts({
             filters: [{ dataSize: tier.dataSize }],
             dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH },
           }).then(results =>
@@ -710,7 +755,7 @@ export async function discoverMarkets(
     // The memcmp bytes are derived in-code from V17_MAGIC_BYTES (the on-chain LE order) via
     // base64 (web3.js >=1.87) so the filter cannot drift from / mis-order the magic constant.
     try {
-      const v17Results = await connection.getProgramAccounts(programId, {
+      const v17Results = await getProgramAccounts({
         filters: [
           {
             memcmp: {
@@ -735,7 +780,7 @@ export async function discoverMarkets(
       console.warn("[discoverMarkets] dataSize filters returned 0 markets, falling back to memcmp");
       // PR #183 / PR #166: fetch full account data (no dataSlice) so detectSlabLayout can
       // identify the actual tier from account.data.length instead of hardcoding large/4096.
-      const fallback = await connection.getProgramAccounts(programId, {
+      const fallback = await getProgramAccounts({
         filters: [
           {
             memcmp: {
@@ -758,7 +803,7 @@ export async function discoverMarkets(
     );
     try {
       // PR #183 / PR #166: same full-data fetch as the empty-result fallback above.
-      const fallback = await connection.getProgramAccounts(programId, {
+      const fallback = await getProgramAccounts({
         filters: [
           {
             memcmp: {
@@ -785,6 +830,8 @@ export async function discoverMarkets(
   // GH#59 / PERC-8424: If getProgramAccounts returned nothing (public mainnet RPC
   // rejects it) and an API base URL is configured, fall back to the REST API to
   // discover slab addresses, then use getMarketsByAddress (getMultipleAccounts).
+  signal?.throwIfAborted();
+  let fallbackAnswered = false;
   if (rawAccounts.length === 0 && options.apiBaseUrl) {
     console.warn(
       "[discoverMarkets] RPC discovery returned 0 markets, falling back to REST API",
@@ -794,8 +841,9 @@ export async function discoverMarkets(
         connection,
         programId,
         options.apiBaseUrl,
-        { timeoutMs: options.apiTimeoutMs },
+        { timeoutMs: options.apiTimeoutMs, onChainOptions: { signal } },
       );
+      fallbackAnswered = true;
       if (apiResult.length > 0) {
         return apiResult;
       }
@@ -815,6 +863,7 @@ export async function discoverMarkets(
   // PERC-8435: Tier 3 — static bundle fallback.  If both getProgramAccounts and
   // the REST API failed (or returned 0 results) and a network hint is provided,
   // use the bundled static market list as a last-resort address directory.
+  signal?.throwIfAborted();
   if (rawAccounts.length === 0 && options.network) {
     const staticEntries = getStaticMarkets(options.network);
     if (staticEntries.length > 0) {
@@ -826,6 +875,7 @@ export async function discoverMarkets(
           connection,
           programId,
           staticEntries,
+          { onChainOptions: { signal } },
         );
       } catch (staticErr) {
         console.warn(
@@ -839,6 +889,14 @@ export async function discoverMarkets(
         `[discoverMarkets] Static bundle has 0 entries for ${options.network} — skipping tier 3`,
       );
     }
+  }
+
+  if (!rpcAnswered && !fallbackAnswered) {
+    const why = lastRpcError instanceof Error ? lastRpcError.message : String(lastRpcError);
+    throw new DiscoveryFailedError(
+      `discoverMarkets: every RPC query failed and no fallback answered (last error: ${why})`,
+      lastRpcError,
+    );
   }
 
   const accounts = rawAccounts;
@@ -935,7 +993,7 @@ export async function discoverMarkets(
 /**
  * Options for `getMarketsByAddress`.
  */
-export interface GetMarketsByAddressOptions {
+export interface GetMarketsByAddressOptions extends RpcDeadlineOptions {
   /**
    * Maximum number of addresses per `getMultipleAccounts` RPC call.
    * Solana limits a single call to 100 accounts; callers may lower this
@@ -967,7 +1025,8 @@ export interface GetMarketsByAddressOptions {
  * @param connection - Solana RPC connection
  * @param programId - The Percolator program that owns these slabs
  * @param addresses - Array of slab account public keys to fetch
- * @param options   - Optional batching/delay configuration
+ * @param options   - Optional batching/delay configuration, and an optional `signal` / `timeoutMs`
+ *                    deadline for the whole fetch (rejects with `RpcDeadlineError`; default none)
  * @returns Parsed markets for all valid slab accounts; invalid/missing accounts are silently skipped.
  *
  * @example
@@ -993,6 +1052,18 @@ export async function getMarketsByAddress(
   options: GetMarketsByAddressOptions = {},
 ): Promise<DiscoveredMarket[]> {
   if (addresses.length === 0) return [];
+  return withRpcDeadline("getMarketsByAddress", options, (signal) =>
+    getMarketsByAddressInner(connection, programId, addresses, options, signal),
+  );
+}
+
+async function getMarketsByAddressInner(
+  connection: Connection,
+  programId: PublicKey,
+  addresses: PublicKey[],
+  options: GetMarketsByAddressOptions,
+  signal: AbortSignal | undefined,
+): Promise<DiscoveredMarket[]> {
 
   const {
     batchSize = 100,
@@ -1008,6 +1079,7 @@ export async function getMarketsByAddress(
   for (let offset = 0; offset < addresses.length; offset += effectiveBatchSize) {
     const batch = addresses.slice(offset, offset + effectiveBatchSize);
 
+    signal?.throwIfAborted();
     const response = await connection.getMultipleAccountsInfo(batch);
 
     for (let i = 0; i < batch.length; i++) {

@@ -1,4 +1,5 @@
 import { Connection, PublicKey } from "@solana/web3.js";
+import { type RpcDeadlineOptions } from "../runtime/deadline.js";
 /** Slab magic number ("PERCOLAT" as little-endian u64). */
 export declare const SLAB_MAGIC: bigint;
 /**
@@ -430,7 +431,13 @@ export interface Account {
     /** Creation slot for pending bucket. null on pre-v12.17. */
     pendingCreatedSlot: bigint | null;
 }
-export declare function fetchSlab(connection: Connection, slabPubkey: PublicKey, expectedOwner?: PublicKey): Promise<Uint8Array>;
+/**
+ * Fetch a slab account's data.
+ *
+ * @param deadline - Optional `signal` / `timeoutMs` for the read; rejects with `RpcDeadlineError`
+ *   when it passes. Default: none.
+ */
+export declare function fetchSlab(connection: Connection, slabPubkey: PublicKey, expectedOwner?: PublicKey, deadline?: RpcDeadlineOptions): Promise<Uint8Array>;
 export declare const RAMP_START_BPS = 1000n;
 export declare const DEFAULT_OI_RAMP_SLOTS = 432000n;
 export declare function computeEffectiveOiCapBps(config: MarketConfig, currentSlot: bigint): bigint;

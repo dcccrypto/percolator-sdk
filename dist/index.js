@@ -9858,6 +9858,119 @@ function layoutHasBandRentV22(layout = LAYOUTS_BY_VERSION.get(19)) {
 
 // src/solana/slab.ts
 import { PublicKey as PublicKey16 } from "@solana/web3.js";
+
+// src/runtime/deadline.ts
+import { Connection } from "@solana/web3.js";
+var RpcDeadlineError = class extends Error {
+  label;
+  reason;
+  timeoutMs;
+  constructor(label, reason, timeoutMs, cause) {
+    super(
+      reason === "timeout" ? `${label}: RPC deadline of ${timeoutMs} ms passed` : `${label}: aborted by the caller's signal`
+    );
+    this.name = "RpcDeadlineError";
+    this.label = label;
+    this.reason = reason;
+    this.timeoutMs = timeoutMs;
+    if (cause !== void 0) Object.defineProperty(this, "cause", { value: cause, enumerable: false });
+  }
+};
+var DEFAULT_CONFIRM_TIMEOUT_MS = 12e4;
+var SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS = 3e4;
+var DEFAULT_RPC_REQUEST_TIMEOUT_MS = 3e4;
+function assertTimeoutMs(name, ms) {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) {
+    throw new Error(`${name} must be a positive finite number of ms (got ${String(ms)})`);
+  }
+}
+function startDeadline(label, o, timeoutName = "timeoutMs") {
+  const outer = o?.signal;
+  const ms = o?.timeoutMs;
+  if (outer == null && ms === void 0) return { signal: void 0, dispose() {
+  } };
+  if (ms !== void 0) assertTimeoutMs(timeoutName, ms);
+  const controller = new AbortController();
+  let timer;
+  const onOuterAbort = () => controller.abort(
+    outer?.reason instanceof RpcDeadlineError ? outer.reason : new RpcDeadlineError(label, "aborted", void 0, outer?.reason)
+  );
+  if (outer?.aborted) {
+    onOuterAbort();
+  } else {
+    outer?.addEventListener("abort", onOuterAbort, { once: true });
+    if (ms !== void 0) timer = setTimeout(() => controller.abort(new RpcDeadlineError(label, "timeout", ms)), ms);
+  }
+  return {
+    signal: controller.signal,
+    dispose() {
+      if (timer !== void 0) clearTimeout(timer);
+      outer?.removeEventListener("abort", onOuterAbort);
+    }
+  };
+}
+function raceSignal(p, signal) {
+  if (!signal) return p;
+  if (signal.aborted) {
+    p.catch(() => {
+    });
+    return Promise.reject(signal.reason);
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then(
+      (v) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(e);
+      }
+    );
+  });
+}
+async function withRpcDeadline(label, o, fn) {
+  const d = startDeadline(label, o);
+  if (!d.signal) return fn(void 0);
+  try {
+    d.signal.throwIfAborted();
+    return await raceSignal((async () => fn(d.signal))(), d.signal);
+  } finally {
+    d.dispose();
+  }
+}
+function createTimeoutFetch(timeoutMs = DEFAULT_RPC_REQUEST_TIMEOUT_MS, baseFetch = (input, init) => fetch(input, init)) {
+  assertTimeoutMs("timeoutMs", timeoutMs);
+  return async (input, init) => {
+    const controller = new AbortController();
+    const outer = init?.signal ?? void 0;
+    const onOuterAbort = () => controller.abort(outer?.reason);
+    if (outer?.aborted) controller.abort(outer.reason);
+    else outer?.addEventListener("abort", onOuterAbort, { once: true });
+    const timer = setTimeout(
+      () => controller.abort(new RpcDeadlineError("fetch", "timeout", timeoutMs)),
+      timeoutMs
+    );
+    try {
+      const res = await baseFetch(input, { ...init, signal: controller.signal });
+      const body = await res.arrayBuffer();
+      const nullBody = res.status === 204 || res.status === 205 || res.status === 304;
+      return new Response(nullBody ? null : body, { status: res.status, statusText: res.statusText, headers: res.headers });
+    } finally {
+      clearTimeout(timer);
+      outer?.removeEventListener("abort", onOuterAbort);
+    }
+  };
+}
+function createTimeoutConnection(endpoint, config = {}) {
+  const { requestTimeoutMs = DEFAULT_RPC_REQUEST_TIMEOUT_MS, fetch: baseFetch, ...rest } = config;
+  const bounded = createTimeoutFetch(requestTimeoutMs, baseFetch);
+  return new Connection(endpoint, { ...rest, fetch: bounded });
+}
+
+// src/solana/slab.ts
 var lastDvData = null;
 var lastDv = null;
 function dv4(data) {
@@ -11399,8 +11512,8 @@ var AccountKind = /* @__PURE__ */ ((AccountKind2) => {
   AccountKind2[AccountKind2["LP"] = 1] = "LP";
   return AccountKind2;
 })(AccountKind || {});
-async function fetchSlab(connection, slabPubkey, expectedOwner) {
-  const info = await connection.getAccountInfo(slabPubkey);
+async function fetchSlab(connection, slabPubkey, expectedOwner, deadline) {
+  const info = await withRpcDeadline("fetchSlab", deadline, () => connection.getAccountInfo(slabPubkey));
   if (!info) {
     throw new Error(`Slab account not found: ${slabPubkey.toBase58()}`);
   }
@@ -14506,6 +14619,13 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
   }
   throw new Error(`parseEngineLight: unrecognized slab layout (isV0=${isV0})`);
 }
+var DiscoveryFailedError = class extends Error {
+  constructor(message, cause) {
+    super(message);
+    this.name = "DiscoveryFailedError";
+    if (cause !== void 0) Object.defineProperty(this, "cause", { value: cause, enumerable: false });
+  }
+};
 function isRateLimitError(err) {
   if (!err) return false;
   const msg = err instanceof Error ? err.message : String(err);
@@ -14516,6 +14636,13 @@ function withJitter(delayMs) {
   return half + Math.floor(Math.random() * (delayMs - half + 1));
 }
 async function discoverMarkets(connection, programId, options = {}) {
+  return withRpcDeadline(
+    "discoverMarkets",
+    options,
+    (signal) => discoverMarketsInner(connection, programId, options, signal)
+  );
+}
+async function discoverMarketsInner(connection, programId, options, signal) {
   const {
     sequential = false,
     interTierDelayMs = 200,
@@ -14551,10 +14678,23 @@ async function discoverMarkets(connection, programId, options = {}) {
   }
   const ALL_TIERS = [...tierBySize.values()];
   let rawAccounts = [];
+  let rpcAnswered = false;
+  let lastRpcError;
+  const getProgramAccounts = async (config) => {
+    signal?.throwIfAborted();
+    try {
+      const res = await connection.getProgramAccounts(programId, config);
+      rpcAnswered = true;
+      return res;
+    } catch (err) {
+      lastRpcError = err;
+      throw err;
+    }
+  };
   async function fetchTierWithRetry(tier) {
     for (let attempt = 0; attempt <= rateLimitBackoffMs.length; attempt++) {
       try {
-        const results = await connection.getProgramAccounts(programId, {
+        const results = await getProgramAccounts({
           filters: [{ dataSize: tier.dataSize }],
           dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH }
         });
@@ -14594,7 +14734,7 @@ async function discoverMarkets(connection, programId, options = {}) {
       for (let offset = 0; offset < tiersToQuery.length; offset += effectiveMaxParallelTiers) {
         const chunk = tiersToQuery.slice(offset, offset + effectiveMaxParallelTiers);
         const queries = chunk.map(
-          (tier) => connection.getProgramAccounts(programId, {
+          (tier) => getProgramAccounts({
             filters: [{ dataSize: tier.dataSize }],
             dataSlice: { offset: 0, length: HEADER_SLICE_LENGTH }
           }).then(
@@ -14621,7 +14761,7 @@ async function discoverMarkets(connection, programId, options = {}) {
       }
     }
     try {
-      const v17Results = await connection.getProgramAccounts(programId, {
+      const v17Results = await getProgramAccounts({
         filters: [
           {
             memcmp: {
@@ -14640,7 +14780,7 @@ async function discoverMarkets(connection, programId, options = {}) {
     }
     if (rawAccounts.length === 0) {
       console.warn("[discoverMarkets] dataSize filters returned 0 markets, falling back to memcmp");
-      const fallback = await connection.getProgramAccounts(programId, {
+      const fallback = await getProgramAccounts({
         filters: [
           {
             memcmp: {
@@ -14663,7 +14803,7 @@ async function discoverMarkets(connection, programId, options = {}) {
       err instanceof Error ? err.message : err
     );
     try {
-      const fallback = await connection.getProgramAccounts(programId, {
+      const fallback = await getProgramAccounts({
         filters: [
           {
             memcmp: {
@@ -14686,6 +14826,8 @@ async function discoverMarkets(connection, programId, options = {}) {
       );
     }
   }
+  signal?.throwIfAborted();
+  let fallbackAnswered = false;
   if (rawAccounts.length === 0 && options.apiBaseUrl) {
     console.warn(
       "[discoverMarkets] RPC discovery returned 0 markets, falling back to REST API"
@@ -14695,8 +14837,9 @@ async function discoverMarkets(connection, programId, options = {}) {
         connection,
         programId,
         options.apiBaseUrl,
-        { timeoutMs: options.apiTimeoutMs }
+        { timeoutMs: options.apiTimeoutMs, onChainOptions: { signal } }
       );
+      fallbackAnswered = true;
       if (apiResult.length > 0) {
         return apiResult;
       }
@@ -14710,6 +14853,7 @@ async function discoverMarkets(connection, programId, options = {}) {
       );
     }
   }
+  signal?.throwIfAborted();
   if (rawAccounts.length === 0 && options.network) {
     const staticEntries = getStaticMarkets(options.network);
     if (staticEntries.length > 0) {
@@ -14720,7 +14864,8 @@ async function discoverMarkets(connection, programId, options = {}) {
         return await discoverMarketsViaStaticBundle(
           connection,
           programId,
-          staticEntries
+          staticEntries,
+          { onChainOptions: { signal } }
         );
       } catch (staticErr) {
         console.warn(
@@ -14733,6 +14878,13 @@ async function discoverMarkets(connection, programId, options = {}) {
         `[discoverMarkets] Static bundle has 0 entries for ${options.network} \u2014 skipping tier 3`
       );
     }
+  }
+  if (!rpcAnswered && !fallbackAnswered) {
+    const why = lastRpcError instanceof Error ? lastRpcError.message : String(lastRpcError);
+    throw new DiscoveryFailedError(
+      `discoverMarkets: every RPC query failed and no fallback answered (last error: ${why})`,
+      lastRpcError
+    );
   }
   const accounts = rawAccounts;
   const markets = [];
@@ -14802,6 +14954,13 @@ async function discoverMarkets(connection, programId, options = {}) {
 }
 async function getMarketsByAddress(connection, programId, addresses, options = {}) {
   if (addresses.length === 0) return [];
+  return withRpcDeadline(
+    "getMarketsByAddress",
+    options,
+    (signal) => getMarketsByAddressInner(connection, programId, addresses, options, signal)
+  );
+}
+async function getMarketsByAddressInner(connection, programId, addresses, options, signal) {
   const {
     batchSize = 100,
     interBatchDelayMs = 0
@@ -14810,6 +14969,7 @@ async function getMarketsByAddress(connection, programId, addresses, options = {
   const fetched = [];
   for (let offset = 0; offset < addresses.length; offset += effectiveBatchSize) {
     const batch = addresses.slice(offset, offset + effectiveBatchSize);
+    signal?.throwIfAborted();
     const response = await connection.getMultipleAccountsInfo(batch);
     for (let i = 0; i < batch.length; i++) {
       const info = response[i];
@@ -15629,7 +15789,7 @@ function findExpirableBackingDomains(data, opts = {}) {
 
 // src/solana/rpc-pool.ts
 import {
-  Connection as Connection4
+  Connection as Connection5
 } from "@solana/web3.js";
 async function checkRpcHealth(endpoint, timeoutMs = 5e3) {
   const safeEndpoint = redactUrl(endpoint);
@@ -15770,7 +15930,7 @@ var RpcPool = class _RpcPool {
       };
       return {
         config: ep,
-        connection: new Connection4(ep.url, connConfig),
+        connection: new Connection5(ep.url, connConfig),
         label: endpointLabel(ep),
         weight: Math.max(1, ep.weight ?? 1),
         failures: 0,
@@ -17382,11 +17542,48 @@ function buildIx(params) {
     data: params.data
   });
 }
+var B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function encodeBase58(bytes) {
+  let n = 0n;
+  for (const b of bytes) n = n << 8n | BigInt(b);
+  let s = "";
+  while (n > 0n) {
+    s = B58_ALPHABET[Number(n % 58n)] + s;
+    n /= 58n;
+  }
+  for (const b of bytes) {
+    if (b === 0) s = "1" + s;
+    else break;
+  }
+  return s;
+}
+function withContainedStatusLookups(connection) {
+  const contained = (...args) => Promise.resolve().then(() => connection.getSignatureStatus(...args)).catch(() => null);
+  return new Proxy(connection, {
+    get(target, prop, receiver) {
+      return prop === "getSignatureStatus" ? contained : Reflect.get(target, prop, receiver);
+    }
+  });
+}
 var MAX_COMPUTE_UNIT_LIMIT = 14e5;
 var V17_WRAPPER_HEAP_FRAME_BYTES = 128 * 1024;
 var MIN_HEAP_FRAME_BYTES = 32 * 1024;
 var MAX_HEAP_FRAME_BYTES = 256 * 1024;
 async function simulateOrSend(params) {
+  const { signal, timeoutMs, confirmTimeoutMs = DEFAULT_CONFIRM_TIMEOUT_MS } = params;
+  if (typeof confirmTimeoutMs !== "number" || !Number.isFinite(confirmTimeoutMs) || confirmTimeoutMs <= 0) {
+    throw new Error(`confirmTimeoutMs must be a positive finite number of ms (got ${String(confirmTimeoutMs)})`);
+  }
+  const overall = startDeadline("simulateOrSend", { signal, timeoutMs });
+  try {
+    overall.signal?.throwIfAborted();
+    return await simulateOrSendInner(params, overall.signal, confirmTimeoutMs);
+  } finally {
+    overall.dispose();
+  }
+}
+async function simulateOrSendInner(params, deadline, confirmTimeoutMs) {
+  const rpc = (p) => raceSignal(p, deadline);
   const {
     connection,
     ix: ix3,
@@ -17429,13 +17626,13 @@ async function simulateOrSend(params) {
     );
   }
   tx.add(ix3);
-  const latestBlockhash = await connection.getLatestBlockhash(effectiveCommitment);
+  const latestBlockhash = await rpc(connection.getLatestBlockhash(effectiveCommitment));
   tx.recentBlockhash = latestBlockhash.blockhash;
   tx.feePayer = signers[0].publicKey;
   if (simulate) {
     try {
       tx.sign(...signers);
-      const result = await connection.simulateTransaction(tx, signers);
+      const result = await rpc(connection.simulateTransaction(tx, signers));
       const logs = result.value.logs ?? [];
       let err = null;
       let hint;
@@ -17472,9 +17669,18 @@ async function simulateOrSend(params) {
   };
   let signature;
   try {
-    signature = await connection.sendTransaction(tx, signers, options);
+    signature = await rpc(connection.sendTransaction(tx, signers, options));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    if (e instanceof RpcDeadlineError) {
+      const sig = tx.signature ? encodeBase58(tx.signature) : "";
+      return {
+        signature: sig,
+        slot: 0,
+        err: `send status unknown (${message}) \u2014 the transaction may still be sent and land; ` + (sig ? `check signature ${sig}` : "check the payer's recent transactions") + " before retrying",
+        logs: []
+      };
+    }
     return {
       signature: "",
       slot: 0,
@@ -17484,18 +17690,33 @@ async function simulateOrSend(params) {
   }
   const txFinality = effectiveCommitment === "finalized" ? "finalized" : "confirmed";
   try {
-    const confirmation = await connection.confirmTransaction(
-      {
-        signature,
-        blockhash: latestBlockhash.blockhash,
-        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
-      },
-      effectiveCommitment
+    const confirmDeadline = startDeadline(
+      "simulateOrSend confirm",
+      { signal: deadline, timeoutMs: confirmTimeoutMs },
+      "confirmTimeoutMs"
     );
-    const txInfo = await connection.getTransaction(signature, {
+    let confirmation;
+    try {
+      confirmation = await raceSignal(
+        withContainedStatusLookups(connection).confirmTransaction(
+          {
+            signature,
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            abortSignal: confirmDeadline.signal
+          },
+          effectiveCommitment
+        ),
+        confirmDeadline.signal
+      );
+    } finally {
+      confirmDeadline.dispose();
+    }
+    deadline?.throwIfAborted();
+    const txInfo = await rpc(connection.getTransaction(signature, {
       commitment: txFinality,
       maxSupportedTransactionVersion: 1
-    });
+    }));
     const logs = txInfo?.meta?.logMessages ?? [];
     let err = null;
     let hint;
@@ -17517,15 +17738,21 @@ async function simulateOrSend(params) {
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    const lookup = startDeadline("simulateOrSend status lookup", {
+      signal: deadline,
+      timeoutMs: Math.min(SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS, confirmTimeoutMs)
+    });
     try {
-      const status = await connection.getSignatureStatus(signature, {
+      lookup.signal?.throwIfAborted();
+      const status = await raceSignal(connection.getSignatureStatus(signature, {
         searchTransactionHistory: true
-      });
+      }), lookup.signal);
       if (status.value && meetsCommitment(status.value.confirmationStatus, effectiveCommitment)) {
-        const txInfo = await connection.getTransaction(signature, {
+        lookup.signal?.throwIfAborted();
+        const txInfo = await raceSignal(connection.getTransaction(signature, {
           commitment: txFinality,
           maxSupportedTransactionVersion: 1
-        });
+        }), lookup.signal);
         const logs = txInfo?.meta?.logMessages ?? [];
         let err = null;
         let hint;
@@ -17559,6 +17786,8 @@ async function simulateOrSend(params) {
         };
       }
     } catch {
+    } finally {
+      lookup.dispose();
     }
     return {
       signature,
@@ -18037,10 +18266,10 @@ function signV1Message(compiled, signers) {
 function v1TransactionSignature(wire) {
   const nSigs = wire[1];
   const start = wire.length - nSigs * SIG_LEN;
-  return encodeBase58(wire.subarray(start, start + SIG_LEN));
+  return encodeBase582(wire.subarray(start, start + SIG_LEN));
 }
 var B582 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-function encodeBase58(bytes) {
+function encodeBase582(bytes) {
   let n = 0n;
   for (const b of bytes) n = n << 8n | BigInt(b);
   let s = "";
@@ -18254,6 +18483,9 @@ async function simulateV1(connection, wire, o = {}) {
   return { err: r3.value.err, logs: r3.value.logs ?? [], unitsConsumed: r3.value.unitsConsumed, loadedAccountsDataSize: r3.value.loadedAccountsDataSize };
 }
 async function sendV1(connection, wire, opts = {}) {
+  return withRpcDeadline("sendV1", opts, () => sendV1Inner(connection, wire, opts));
+}
+async function sendV1Inner(connection, wire, opts) {
   if (opts.fetchImpl === void 0 && opts.headers === void 0) {
     const transport = connection._rpcRequest;
     const seen = {};
@@ -19693,8 +19925,10 @@ export {
   CUSHION_SHARE_DEFAULT_BPS_P2B,
   CUSHION_TARGET_DEFAULT_BPS_P2B,
   CrankAction,
+  DEFAULT_CONFIRM_TIMEOUT_MS,
   DEFAULT_FLOOR_SLIPPAGE_BPS_V22,
   DEFAULT_OI_RAMP_SLOTS,
+  DEFAULT_RPC_REQUEST_TIMEOUT_MS,
   DEPLOY_TARGET_DEFAULT_BPS_V5,
   DEPLOY_TARGET_MAX_BPS_V5,
   DEPLOY_TARGET_TIMELOCK_MIN_SLOTS_V5,
@@ -19723,6 +19957,7 @@ export {
   DEPTH_TW_BUCKET_RING,
   DEPTH_TW_BUCKET_SLOTS,
   DEPTH_TW_EMPTY,
+  DiscoveryFailedError,
   ENGINE_ASSET_SLOT_OFF_V18,
   ENGINE_BOUND_SCALE,
   ENGINE_CONFIG_MAX_TRADING_FEE_BPS_OFF,
@@ -20031,12 +20266,14 @@ export {
   RESOLVE_MODE_ORDINARY,
   RESTORE_IM_BUFFER_BPS_V22,
   R_GAP_MIN_LIQUIDATION_SLOTS,
+  RpcDeadlineError,
   RpcPool,
   RpcTimeoutError,
   SEEDS_V22,
   SET_ASSET_RISK_LIMITS_TIERS_TRAILER_LEN,
   SET_CREATOR_FEE_PAYEE_LEN_V22,
   SET_DEPTH_SOURCE_LEN_V22,
+  SIGNATURE_STATUS_LOOKUP_TIMEOUT_MS,
   SLAB_MAGIC,
   SLAB_TIERS,
   SLAB_TIERS_V0,
@@ -20376,6 +20613,8 @@ export {
   couponPayFromLegV22,
   couponPayOpenV22,
   couponSettleV22,
+  createTimeoutConnection,
+  createTimeoutFetch,
   creatorCollateralAtaV5,
   creatorFeeClaimRouteV22,
   creatorFeePayeeDestinationV22,
