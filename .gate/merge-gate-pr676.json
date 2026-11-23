@@ -1,0 +1,110 @@
+{
+ "tool": "merge-gate",
+ "version": "1.0",
+ "verdict": "FAIL",
+ "repo": "dcccrypto/percolator-sdk",
+ "pr": 676,
+ "expect_head": "6833dfb1032786aef2e51e7c7e36d05d0b54f60b",
+ "checks": {
+  "1": {
+   "result": "PASS",
+   "evidence": "fresh worktree /Users/khubair/agent-work/percolator-sdk.gate-pr676-head-2026-11-23T09094397-47505 @ 6833dfb10327 (not the author's) | `npx -y pnpm@10 run test --maxWorkers=4 --testTimeout=60000` exit 1 in 15s | 3841 passed / 1 failed / 2 skipped (vitest summary) | log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/02-head-suite-nolock.log"
+  },
+  "2": {
+   "result": "PASS",
+   "evidence": "`npx -y pnpm@10 exec vitest run --maxWorkers=4 --testTimeout=60000 test/lev-guard-limits-perm-proof-v22.test.ts` | before (src src/abi/lev-guard-limits-v22.ts @ base tip aa82fc55d67f): exit 1, 1 passed/3 failed | after (head 6833dfb10327): exit 0, 4 passed/0 failed | logs /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/04-fail-before.log, /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/05-pass-after.log"
+  },
+  "3": {
+   "result": "FAIL",
+   "evidence": "FAIL: suite not green (exit 1, 1 failed); head coverage unreadable (no coverage summary (exit 1, log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/03-head-coverage-nolock.log)) || head suite exit 1: 3841 passed / 1 failed"
+  },
+  "4": {
+   "result": "PASS",
+   "evidence": ".gate/review-pr676-6833dfb1.txt | head 6833dfb1032786aef2e51e7c7e36d05d0b54f60b | verdict APPROVE | findings {\"low\":2,\"nit\":2}"
+  },
+  "5": {
+   "result": "PASS",
+   "evidence": "https://github.com/dcccrypto/percolator-sdk/pull/676 | head 6833dfb10327 (expected 6833dfb1032786aef2e51e7c7e36d05d0b54f60b) | base feat/v22-sdk-growth@779baa1febdc (default main) | OPEN | MERGEABLE/CLEAN | CI: CodeRabbit=SUCCESS | +92/-1 in 3 files | re-verified live at end of run"
+  },
+  "6": {
+   "result": "BLOCKED",
+   "evidence": "gate did not pass: do not merge"
+  }
+ },
+ "evidence": {
+  "pr": {
+   "url": "https://github.com/dcccrypto/percolator-sdk/pull/676",
+   "title": "fix(v22 sdk): lev-guard open limits admitted opens a non-devnet build refuses — model D12 fail-tight (perm_for_gate); 20k-input Rust diff, 88 → 0",
+   "head": "6833dfb1032786aef2e51e7c7e36d05d0b54f60b",
+   "base": "feat/v22-sdk-growth",
+   "base_sha": "779baa1febdccb666290332bd7a5b36403a62dbd",
+   "default_branch": "main",
+   "state": "OPEN",
+   "mergeable": "MERGEABLE",
+   "merge_state": "CLEAN",
+   "ci": [
+    {
+     "name": "CodeRabbit",
+     "status": "SUCCESS",
+     "conclusion": null
+    }
+   ],
+   "files": [
+    "CHANGELOG.md",
+    "src/abi/lev-guard-limits-v22.ts",
+    "test/lev-guard-limits-perm-proof-v22.test.ts"
+   ]
+  },
+  "changed": {
+   "tests_or_docs_only": false,
+   "docs_only": false,
+   "src_files": [
+    "src/abi/lev-guard-limits-v22.ts"
+   ],
+   "test_files": [
+    "test/lev-guard-limits-perm-proof-v22.test.ts"
+   ],
+   "doc_files": [
+    "CHANGELOG.md"
+   ]
+  },
+  "worktrees": {
+   "head": "/Users/khubair/agent-work/percolator-sdk.gate-pr676-head-2026-11-23T09094397-47505",
+   "head_sha": "6833dfb1032786aef2e51e7c7e36d05d0b54f60b",
+   "base_tip": "aa82fc55d67fdb2e2967a00636cb7bda6a85babd",
+   "merge_base": "779baa1febdccb666290332bd7a5b36403a62dbd",
+   "behind_by": 2,
+   "merge_preview": "654a66c768a70a1e585a1714a5f1937558a0c0a6",
+   "logs": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505"
+  },
+  "repo_type": {
+   "kind": "vitest",
+   "pm": "pnpm",
+   "pnpm": "npx -y pnpm@10",
+   "prog": false,
+   "test_cmd": "npx -y pnpm@10 run test --maxWorkers=4 --testTimeout=60000",
+   "cov_cmd": "npx -y pnpm@10 exec vitest run --maxWorkers=4 --testTimeout=60000 --coverage.enabled=true --coverage.provider=v8 --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reportsDirectory=__COVDIR__",
+   "coverage_na": null
+  },
+  "coverage": {
+   "base": {
+    "lines": 98.43,
+    "branches": 92.87,
+    "funcs": 99.19,
+    "source": "vitest v8 json-summary total",
+    "exit": 0,
+    "log": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/07-base-coverage-nolock.log"
+   },
+   "head": {
+    "error": "no coverage summary (exit 1, log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/03-head-coverage-nolock.log)"
+   },
+   "base_sha": "aa82fc55d67fdb2e2967a00636cb7bda6a85babd",
+   "note": null
+  }
+ },
+ "merge_cmd": null,
+ "ledger_template": "- 2026-11-23T09:10Z MERGED dcccrypto/percolator-sdk#676 \"fix(v22 sdk): lev-guard open limits admitted opens a non-devnet build refuses — model D12 fail-tight (perm_for_gate); 20k-input Rust diff, 88 → 0\" into feat/v22-sdk-growth: head 6833dfb10327 -> merge <MERGE_SHA>. Gate PASS (/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/result.json). Revert: git -C ~/agent-work/percolator-sdk fetch origin feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk switch -c revert-pr676 origin/feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk revert -m1 <MERGE_SHA> (then PR revert-pr676 into feat/v22-sdk-growth)",
+ "revert_cmd": "git revert -m1 <MERGE_SHA>",
+ "logs": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505",
+ "at": "2026-11-23T09:10:41.808Z"
+}

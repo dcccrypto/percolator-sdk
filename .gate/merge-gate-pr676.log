@@ -1,0 +1,36 @@
+[gate] head-install: exit 0 in 1s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/01-head-install.log
+[gate] head-suite-nolock: exit 1 in 15s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/02-head-suite-nolock.log
+[gate] lock-skip: 2026-11-23T09:10:07.118Z percolator-sdk#676 head 6833dfb1 head-suite SKIP lock: load 0.73/cpu, 15s, exit 1 (result used)
+[gate] head-coverage-nolock: exit 1 in 14s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/03-head-coverage-nolock.log
+[gate] lock-skip: 2026-11-23T09:10:21.149Z percolator-sdk#676 head 6833dfb1 head-coverage SKIP lock: load 0.85/cpu, 14s, exit 1 (result used)
+[gate] fail-before: exit 1 in 2s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/04-fail-before.log
+[gate] pass-after: exit 0 in 2s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/05-pass-after.log
+[gate] base-install: exit 0 in 1s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/06-base-install.log
+[gate] base-coverage-nolock: exit 0 in 15s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/07-base-coverage-nolock.log
+[gate] lock-skip: 2026-11-23T09:10:41.312Z percolator-sdk#676 head 6833dfb1 base-coverage SKIP lock: load 0.84/cpu, 15s, exit 0 (result used)
+
+MERGE GATE FAIL  dcccrypto/percolator-sdk#676  head 6833dfb10327  base feat/v22-sdk-growth  (2026-11-23T09:10:41.808Z)
++-----+----------------------------------------------+----------+
+| #   | Check                                        | Result   |
++-----+----------------------------------------------+----------+
+| 1   | Independent rerun (fresh worktree @ head)    | PASS     |
+| 2   | New test fails before / passes after         | PASS     |
+| 3   | Full suite passes + coverage not down        | FAIL     |
+| 4   | Fresh AI review: no high/medium              | PASS     |
+| 5   | Live PR state (gh)                           | PASS     |
+| 6   | Merge logged with revert                     | BLOCKED  |
++-----+----------------------------------------------+----------+
+Evidence:
+  [1] fresh worktree /Users/khubair/agent-work/percolator-sdk.gate-pr676-head-2026-11-23T09094397-47505 @ 6833dfb10327 (not the author's) | `npx -y pnpm@10 run test --maxWorkers=4 --testTimeout=60000` exit 1 in 15s | 3841 passed / 1 failed / 2 skipped (vitest summary) | log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/02-head-suite-nolock.log
+  [2] `npx -y pnpm@10 exec vitest run --maxWorkers=4 --testTimeout=60000 test/lev-guard-limits-perm-proof-v22.test.ts` | before (src src/abi/lev-guard-limits-v22.ts @ base tip aa82fc55d67f): exit 1, 1 passed/3 failed | after (head 6833dfb10327): exit 0, 4 passed/0 failed | logs /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/04-fail-before.log, /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/05-pass-after.log
+  [3] FAIL: suite not green (exit 1, 1 failed); head coverage unreadable (no coverage summary (exit 1, log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/03-head-coverage-nolock.log)) || head suite exit 1: 3841 passed / 1 failed
+  [4] .gate/review-pr676-6833dfb1.txt | head 6833dfb1032786aef2e51e7c7e36d05d0b54f60b | verdict APPROVE | findings {"low":2,"nit":2}
+  [5] https://github.com/dcccrypto/percolator-sdk/pull/676 | head 6833dfb10327 (expected 6833dfb1032786aef2e51e7c7e36d05d0b54f60b) | base feat/v22-sdk-growth@779baa1febdc (default main) | OPEN | MERGEABLE/CLEAN | CI: CodeRabbit=SUCCESS | +92/-1 in 3 files | re-verified live at end of run
+  [6] gate did not pass: do not merge
+
+Merge command: NONE (gate FAILED, do not merge)
+
+Ledger line template (check 6; use only after a gate PASS and the merge):
+  - 2026-11-23T09:10Z MERGED dcccrypto/percolator-sdk#676 "fix(v22 sdk): lev-guard open limits admitted opens a non-devnet build refuses — model D12 fail-tight (perm_for_gate); 20k-input Rust diff, 88 → 0" into feat/v22-sdk-growth: head 6833dfb10327 -> merge <MERGE_SHA>. Gate PASS (/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505/result.json). Revert: git -C ~/agent-work/percolator-sdk fetch origin feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk switch -c revert-pr676 origin/feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk revert -m1 <MERGE_SHA> (then PR revert-pr676 into feat/v22-sdk-growth)
+
+Logs: /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr676-2026-11-23T09094397-47505
