@@ -17,6 +17,7 @@ import {
   encodeAdvanceEpoch,
   encodeResolveMarket, encodeWithdrawInsurance,
   IX_TAG,
+  PUBLIC_B_CHUNK_ATOMS,
   PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
 } from "../src/abi/instructions.js";
 
@@ -40,17 +41,18 @@ function assertTruncatedPayloadThrowsOnSequentialRead(full: Uint8Array): void {
   }
 }
 
-describe("PUBLIC_B_CHUNK_ATOMS_UNLIMITED", () => {
+describe("PUBLIC_B_CHUNK_ATOMS", () => {
   it("equals the engine MAX_VAULT_TVL (10_000_000_000_000_000)", () => {
-    expect(PUBLIC_B_CHUNK_ATOMS_UNLIMITED).toBe(10_000_000_000_000_000n);
+    expect(PUBLIC_B_CHUNK_ATOMS).toBe(10_000_000_000_000_000n);
+    expect(PUBLIC_B_CHUNK_ATOMS_UNLIMITED).toBe(PUBLIC_B_CHUNK_ATOMS);
   });
 
   it("is a bigint, not a number", () => {
-    expect(typeof PUBLIC_B_CHUNK_ATOMS_UNLIMITED).toBe("bigint");
+    expect(typeof PUBLIC_B_CHUNK_ATOMS).toBe("bigint");
   });
 
-  it("encodeInitMarket accepts PUBLIC_B_CHUNK_ATOMS_UNLIMITED without throwing", () => {
-    const data = encodeInitMarket({
+  it("encodeInitMarket no longer encodes the chunk (engine 083a0d08 / prog c8ddbb6e)", () => {
+    const args = {
       maxPortfolioAssets: 256,
       hMin: 1000n,
       hMax: 100_000n,
@@ -71,21 +73,18 @@ describe("PUBLIC_B_CHUNK_ATOMS_UNLIMITED", () => {
       maxAccountBSettlementChunks: 10n,
       maxBankruptCloseChunks: 10n,
       maxBankruptCloseLifetimeSlots: 500n,
-      publicBChunkAtoms: PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
-      maintenanceFeePerSlot: 0n,
-    });
-    // 219 bytes: tag(1) + 218 bytes of params
-    expect(data.length).toBe(219);
-    // Verify publicBChunkAtoms is encoded as 10_000_000_000_000_000 at the correct offset.
-    // Layout: tag(1) + u16(2) + u64×3(24) + u128×2(32) + u64×5(40) + u128×2(32) + u64×7(56) = 187
-    //   tag=1, maxPortfolioAssets=2, hMin/hMax/initialPrice=24, mmReq/imReq=32,
-    //   maintenanceMarginBps..liquidationFeeBps=40, liquidationFeeCap/minLiquidationAbs=32,
-    //   maxPriceMovePerSlot..maxBankruptCloseLifetimeSlots=56 → publicBChunkAtoms starts at 187
-    const dv = new DataView(data.buffer);
-    const lo = dv.getBigUint64(187, true);
-    const hi = dv.getBigUint64(195, true);
-    const encoded = lo | (hi << 64n);
-    expect(encoded).toBe(PUBLIC_B_CHUNK_ATOMS_UNLIMITED);
+      maintenanceFeePerSlot: 7n,
+    };
+    const data = encodeInitMarket(args);
+    // 203 bytes: tag(1) + 202 bytes of params
+    expect(data.length).toBe(203);
+    // maintenance_fee_per_slot now sits where public_b_chunk_atoms used to (offset 187):
+    // tag(1) + u16(2) + u64x3(24) + u128x2(32) + u64x5(40) + u128x2(32) + u64x7(56) = 187
+    const dv = new DataView(data.buffer, data.byteOffset, data.length);
+    expect(dv.getBigUint64(187, true) | (dv.getBigUint64(195, true) << 64n)).toBe(7n);
+    // a caller that still passes the old field gets the same bytes
+    const legacy = encodeInitMarket({ ...args, publicBChunkAtoms: 1_000_000n });
+    expect(Buffer.from(legacy).equals(Buffer.from(data))).toBe(true);
   });
 });
 
@@ -278,10 +277,10 @@ describe("instruction encoders", () => {
     expect(() => encodeInitLP({ matcherProgram: PublicKey.unique(), matcherContext: PublicKey.unique(), feePayment: "1000000" })).toThrow(/tag 2/i);
   });
 
-  it("encodeInitMarket produces 219-byte payload (v17: INIT_MARKET_V17_LEN, no ext tail)", () => {
+  it("encodeInitMarket produces 203-byte payload (v17: INIT_MARKET_V17_LEN, no ext tail)", () => {
     // v17 BREAKING: admin/collateralMint go into accounts, not instruction data.
     // feedId/staleness/confFilter/invert/unitScale are ignored (set via ConfigureHybridOracle).
-    // Fixed 219-byte payload: tag(1) + 22 field structs (218 bytes).
+    // Fixed 203-byte payload: tag(1) + 21 field structs (202 bytes).
     const data = encodeInitMarket({
       admin: PublicKey.unique(), collateralMint: PublicKey.unique(),
       indexFeedId: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
@@ -293,7 +292,7 @@ describe("instruction encoders", () => {
       liquidationBufferBps: "50", minLiquidationAbs: "1000000",
       minNonzeroMmReq: "1000", minNonzeroImReq: "2000",
     });
-    expect(data.length).toBe(219);
+    expect(data.length).toBe(203);
     expect(data[0]).toBe(IX_TAG.InitMarket);
   });
 
@@ -311,7 +310,7 @@ describe("instruction encoders", () => {
       liquidationBufferBps: "50", minLiquidationAbs: "1000000",
       minNonzeroMmReq: "1000", minNonzeroImReq: "2000",
     });
-    expect(data.length).toBe(219);
+    expect(data.length).toBe(203);
   });
 
   it("encodeInitMarket ignores wrong-length feed ID (v17: feedId silently ignored)", () => {
@@ -327,11 +326,11 @@ describe("instruction encoders", () => {
       liquidationBufferBps: "50", minLiquidationAbs: "1000000",
       minNonzeroMmReq: "1000", minNonzeroImReq: "2000",
     });
-    expect(data.length).toBe(219);
+    expect(data.length).toBe(203);
   });
 
   it("encodeInitMarket accepts 0x-prefixed feed ID (v17: feedId silently ignored)", () => {
-    // v17: feedId ignored → size is 219 regardless of feedId format.
+    // v17: feedId ignored → size is 203 regardless of feedId format.
     const data = encodeInitMarket({
       admin: PublicKey.unique(), collateralMint: PublicKey.unique(),
       indexFeedId: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
@@ -343,14 +342,14 @@ describe("instruction encoders", () => {
       liquidationBufferBps: "50", minLiquidationAbs: "1000000",
       minNonzeroMmReq: "1000", minNonzeroImReq: "2000",
     });
-    expect(data.length).toBe(219);
+    expect(data.length).toBe(203);
   });
 
   // v17: extendedTail is ignored; maxPriceMoveBpsPerSlot maps to a field in the fixed body.
-  // The 219-byte payload includes maxPriceMoveBpsPerSlot as an inline u64 field.
-  it("encodeInitMarket emits 219-byte payload with extendedTail (v17: extendedTail ignored, fixed size)", () => {
+  // The 203-byte payload includes maxPriceMoveBpsPerSlot as an inline u64 field.
+  it("encodeInitMarket emits 203-byte payload with extendedTail (v17: extendedTail ignored, fixed size)", () => {
     // v17 BREAKING: extendedTail no longer appended. maxPriceMoveBpsPerSlot from extendedTail
-    // is mapped into the inline body field. Total is still 219 bytes.
+    // is mapped into the inline body field. Total is still 203 bytes.
     const data = encodeInitMarket({
       admin: PublicKey.unique(), collateralMint: PublicKey.unique(),
       indexFeedId: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
@@ -374,8 +373,8 @@ describe("instruction encoders", () => {
         maxPriceMoveBpsPerSlot: 7n,
       },
     });
-    // v17: always 219 bytes — no variable tail
-    expect(data.length).toBe(219);
+    // v17: always 203 bytes — no variable tail
+    expect(data.length).toBe(203);
   });
 
   it("encodeInitMarket does not throw for zero maxPriceMoveBpsPerSlot in extendedTail (v17: validation removed)", () => {

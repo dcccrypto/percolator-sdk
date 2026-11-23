@@ -87,11 +87,11 @@ describe("v12.19 encoder byte parity", () => {
       minNonzeroImReq: 2000n,
     };
 
-    it("emits 219-byte payload (v17: INIT_MARKET_V17_LEN, no ext tail)", () => {
-      // v17 BREAKING: payload reduced from 370 bytes (304 base + 66 ext tail) to 219 bytes.
+    it("emits 203-byte payload (v17: INIT_MARKET_V17_LEN, no ext tail)", () => {
+      // v17 BREAKING: payload reduced from 370 bytes (304 base + 66 ext tail) to 219 bytes, then to 203 when public_b_chunk_atoms was dropped (engine 083a0d08).
       // admin/collateralMint/feedId moved to account metas or ConfigureHybridOracle.
       const data = encodeInitMarket(baseArgs);
-      expect(data.length).toBe(219);
+      expect(data.length).toBe(203);
       expect(data[0]).toBe(IX_TAG.InitMarket);
     });
 
@@ -103,9 +103,9 @@ describe("v12.19 encoder byte parity", () => {
         minOraclePriceCap: 88888n,
         minInitialDeposit: 77777n,
       });
-      // v17: all these deprecated fields are silently ignored → both produce 219 bytes
-      expect(without.length).toBe(219);
-      expect(withDeprecated.length).toBe(219);
+      // v17: all these deprecated fields are silently ignored → both produce 203 bytes
+      expect(without.length).toBe(203);
+      expect(withDeprecated.length).toBe(203);
       expect(Buffer.from(without).equals(Buffer.from(withDeprecated))).toBe(true);
     });
   });
