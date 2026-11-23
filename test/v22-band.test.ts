@@ -122,7 +122,8 @@ describe("decoders and the wrapper's favourable-close rule", () => {
 });
 
 describe("prog#572 per notional: rate = max(utilisation, occupancy) == the real crate @ 178fedc4", () => {
-  it("fixture is from the merged program", () => { expect(FX.prog).toBe("178fedc4082beaeec63fe9b28e76800d47302d10"); });
+  // Re-cut on prog 9a0ff591 (rc23, descends from 178fedc4) for the 790-byte header: only the config offsets moved.
+  it("fixture is from the merged program", () => { expect(FX.prog).toBe("9a0ff591b1d0894fa665e94b45e18c2804eef201"); });
   it("constants", () => {
     expect(String(Band.RENT_OCC_KNEE_BPS_V22)).toBe(FX.occConsts.RENT_OCC_KNEE_BPS);
     expect(Band.RENT_OCC_CAP_DOMAIN_V22.toString()).toBe(FX.occConsts.RENT_OCC_CAP_DOMAIN);
@@ -183,7 +184,7 @@ describe("lot helpers: one conversion, sizes never round up", () => {
     }
   });
   it("lot exponent is read VERSION-keyed", () => {
-    const d = stampMarket(new Uint8Array(1398 + 2661), 19);
+    const d = stampMarket(new Uint8Array(LAYOUT_V22.marketGroupOff + LAYOUT_V22.marketGroupLen + LAYOUT_V22.assetSlotStride), 19);
     d[LAYOUT_V22.marketGroupOff + LAYOUT_V22.marketGroupLen + LAYOUT_V22.wrapperSlot.profileLotExp] = 4;
     expect(Lot.lotExpOfMarketV22(d)).toBe(4);
     expect(Lot.lotExpOfMarketV22(stampMarket(new Uint8Array(1350 + 2325), 18))).toBe(0);

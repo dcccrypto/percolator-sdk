@@ -40,13 +40,33 @@ describe("guard", () => {
     expect(code(() => parseMarketGroupV17OI(stampHeader(new Uint8Array(4100), 2, 19)))).toBe("WRONG_KIND");
   });
   it("market stride is chosen by VERSION: the same bytes decode with the right OI for each row", () => {
-    for (const L of [LAYOUT_V21, LAYOUT_V22_ROWS.variantB]) {
+    // variant B (806-byte header) shares VERSION 19 with the default variant C (790): picked by which one tiles the length.
+    for (const L of [LAYOUT_V21, LAYOUT_V22_ROWS.variantB, LAYOUT_V22_ROWS.variantC]) {
       const d = stampMarket(new Uint8Array(L.marketGroupOff + L.marketGroupLen + 2 * L.assetSlotStride), L.version);
       put128(d, L.marketGroupOff + L.group.insurance, 777n);
       put128(d, L.marketGroupOff + L.marketGroupLen + 1 * L.assetSlotStride + L.wrapperSlotLen + L.assetState.oiEffLongQ, 5n);
       const oi = parseMarketGroupV17OI(d);
       expect([oi.insuranceBalance, oi.totalLongOiQ, oi.assets.map((a) => a.assetIndex)]).toEqual([777n, 5n, [1]]);
     }
+  });
+  it("083a0d08 port: the default v2.2 row has the 790-byte header; an 806-byte (variant B) market still decodes as B", () => {
+    const B = LAYOUT_V22_ROWS.variantB, C = LAYOUT_V22_ROWS.variantC;
+    expect(LAYOUT_V22).toBe(C);
+    expect([C.marketGroupLen, B.marketGroupLen, C.group.vault, C.group.insurance, C.group.mode, C.bandRent?.configLen]).toEqual([790, 806, 317, 333, 658, 281]);
+    for (const n of [1, 2, 7]) {
+      const b = stampMarket(new Uint8Array(B.marketGroupOff + B.marketGroupLen + n * B.assetSlotStride), 19);
+      const c = stampMarket(new Uint8Array(C.marketGroupOff + C.marketGroupLen + n * C.assetSlotStride), 19);
+      expect(resolveMarketGeometry(b, { parser: "t" }).layout).toBe(B);
+      expect(resolveMarketGeometry(c, { parser: "t" }).layout).toBe(C);
+      expect(resolveMarketGeometry(c, { parser: "t" }).slotCount).toBe(n);
+    }
+    // A length neither row tiles is still refused in strict mode.
+    expect(code(() => resolveMarketGeometry(stampMarket(new Uint8Array(C.marketGroupOff + C.marketGroupLen + C.assetSlotStride + 5), 19), { parser: "t" }))).toBe("BAD_LENGTH");
+    // NEGATIVE CONTROL: read with the default row's insurance offset, a variant-B market gives the wrong number.
+    const b = stampMarket(new Uint8Array(B.marketGroupOff + B.marketGroupLen + B.assetSlotStride), 19);
+    put128(b, B.marketGroupOff + B.group.insurance, 777n);
+    expect(parseMarketGroupV17OI(b).insuranceBalance).toBe(777n);
+    expect(b[C.marketGroupOff + C.group.insurance]).toBe(0);
   });
   it("a named row can be registered for a comparison run (stage A) without changing the default", () => {
     const reg = new Map([[19, LAYOUT_V22_ROWS.stageA]]);
@@ -164,7 +184,8 @@ describe("layout-v22.json from the combination (when present)", () => {
     const j = JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
     const flat = JSON.stringify(j);
     // The 2026-10-08 artifact predates engine #299 (+4 B loss_provenance on every portfolio): compare its portfolio length -4.
-    for (const n of [LAYOUT_V22.assetSlotStride, LAYOUT_V22.portfolio.accountLen - 4, LAYOUT_V22.portfolio.legStride, LAYOUT_V22.marketGroupLen]) expect(flat).toContain(String(n));
+    // It also predates the 083a0d08 port (header 806 -> 790): compare the variant-B header.
+    for (const n of [LAYOUT_V22.assetSlotStride, LAYOUT_V22.portfolio.accountLen - 4, LAYOUT_V22.portfolio.legStride, LAYOUT_V22_ROWS.variantB.marketGroupLen]) expect(flat).toContain(String(n));
   });
   it("ACCOUNT_KIND carries the new PDA kinds", () => {
     expect([ACCOUNT_KIND.BondTranche, ACCOUNT_KIND.BondPosition, ACCOUNT_KIND.InsuranceUnits, ACCOUNT_KIND.G9FeedAllowlist]).toEqual([11, 12, 13, 15]);

@@ -252,15 +252,33 @@ export declare const LAYOUT_V22_STAGE_A: LayoutTable;
  * another stacked engine fix may still move numbers: edit this row only.
  */
 export declare const LAYOUT_V22_VARIANT_B: LayoutTable;
+/**
+ * Wrapper VERSION 19, VARIANT C: variant B plus Toly's upstream engine 083a0d08 / prog c8ddbb6e, ported to v2.2. The public
+ * B chunk is the engine constant `PUBLIC_B_CHUNK_ATOMS` and the 16-byte `public_b_chunk_atoms` config field is gone, so the
+ * engine header is 790 B (was 806) and every header field after the config moves -16 (vault 317, insurance 333, mode 658).
+ * Slots, portfolios and the wrapper config do not move. VERSION and the engine discriminator do not change, so a variant-B
+ * market is told apart only by its length: `resolveMarketGeometry` picks variant B for an account that variant C does
+ * not tile (the two lengths never coincide), so markets created before the port still decode.
+ */
+export declare const LAYOUT_V22_VARIANT_C: LayoutTable;
 /** The named v2.2 rows. */
 export declare const LAYOUT_V22_ROWS: Readonly<{
     readonly stageA: LayoutTable;
     readonly variantB: LayoutTable;
+    readonly variantC: LayoutTable;
 }>;
-/** The v2.2 layout every default uses: variant B (the launch candidate). Swap the alias to change the default. */
+/**
+ * The v2.2 layout every default uses: variant C (variant B with the 790-byte engine header of upstream 083a0d08, which
+ * the v2.2 engine and wrapper now ship). Swap the alias to change the default.
+ */
 export declare const LAYOUT_V22: LayoutTable;
 /** Every layout this SDK can decode, keyed on the wrapper VERSION. */
 export declare const LAYOUTS_BY_VERSION: ReadonlyMap<number, LayoutTable>;
+/**
+ * Other rows that share a VERSION with the default and differ only in the market header length. Chosen by
+ * {@link resolveMarketGeometry} when the default row does not tile the account. Portfolios are identical across them.
+ */
+export declare const SAME_VERSION_MARKET_ROWS: ReadonlyMap<number, readonly LayoutTable[]>;
 /** Wrapper account magic (`"PERCV16\0"` little-endian). */
 export declare const WRAPPER_ACCOUNT_MAGIC = 5784119745589622272n;
 /** Account kind bytes (header byte 10). */

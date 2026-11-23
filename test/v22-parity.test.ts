@@ -12,7 +12,7 @@ import { P2B_INIT_MARKET_ARGS } from "./p2b-vector-inputs.js";
 import * as W from "../src/abi/v22-wire.js";
 import * as S from "../src/abi/v22-state.js";
 import * as M from "../src/abi/v22-math.js";
-import { LAYOUT_V21, LAYOUT_V22, LAYOUT_V22_STAGE_A, LAYOUT_V22_VARIANT_B, UnknownLayoutError } from "../src/abi/layout.js";
+import { LAYOUT_V21, LAYOUT_V22, LAYOUT_V22_STAGE_A, LAYOUT_V22_VARIANT_B, LAYOUT_V22_VARIANT_C, UnknownLayoutError } from "../src/abi/layout.js";
 import { PERCOLATOR_ERRORS } from "../src/abi/errors.js";
 
 interface Rule { fn: string; in: string[]; out: (string | null)[] }
@@ -25,9 +25,9 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const unhex = (s: string) => Uint8Array.from(Buffer.from(s, "hex"));
 
 describe("pinned oracle", () => {
-  it("is variant B (prog 9a0ff591 = rc23 + InitMarket without public_b_chunk_atoms, engine c409c510)", () => {
+  it("is variant C (prog 9a0ff591 = rc23 + InitMarket without public_b_chunk_atoms, engine 0eed1705 = header 790)", () => {
     expect(FX.prog).toBe("9a0ff591b1d0894fa665e94b45e18c2804eef201");
-    expect(FX.engine).toBe("c409c510373f9c3b72380fd7ad1006f559cce46d");
+    expect(FX.engine).toBe("0eed170526e891ba88e2ca50b007ea5dfcb99bc2");
   });
 });
 
@@ -135,10 +135,10 @@ describe("constants, errors, tags", () => {
   });
 });
 
-describe("LAYOUT_V22 variant B == the real crate (offset_of!)", () => {
+describe("LAYOUT_V22 variant C == the real crate (offset_of!)", () => {
   const L = FX.layout;
   it("sizes", () => {
-    expect(LAYOUT_V22).toBe(LAYOUT_V22_VARIANT_B);
+    expect(LAYOUT_V22).toBe(LAYOUT_V22_VARIANT_C);
     expect([LAYOUT_V22.version, LAYOUT_V22.engineDiscriminator, LAYOUT_V22.marketGroupOff, LAYOUT_V22.marketGroupLen, LAYOUT_V22.assetSlotStride, LAYOUT_V22.wrapperSlotLen, LAYOUT_V22.engineSlotLen, LAYOUT_V22.assetStateLen, LAYOUT_V22.portfolio.accountLen, LAYOUT_V22.portfolio.legStride, LAYOUT_V22.portfolio.matcherConfigOff])
       .toEqual([L.wrapperVersion, L.engineDiscriminator, L.marketGroupOff, L.marketGroupLen, L.assetSlotStride, L.wrapperSlotLen, L.engineSlotLen, L.assetStateLen, L.portfolioAccountLen, L.legStride, L.portfolioMatcherConfigOff - 16]);
     expect([LAYOUT_V22.wrapperSlot.riskLimits, LAYOUT_V22.wrapperSlot.growth, LAYOUT_V22.wrapperSlot.vaultLp, LAYOUT_V22.wrapperSlot.vaultLpDraw]).toEqual([L.riskLimitsSlotOff, L.growthSlotOff, L.vaultLpSlotOff, L.vaultLpDrawSlotOff]);
