@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 /**
  * Instruction tags — exact match to Rust ix::Instruction::decode arm in the
- * v17 converged wrapper (percolator-prog @v17-convergence, source
+ * v2.2 wrapper (percolator-prog @feat/v22-rc23-2026-10-22, source
  * src/v16_program.rs). Tags are gappy; every absent tag rejects with
  * InvalidInstructionData.
  *
@@ -10,8 +10,8 @@ import { PublicKey } from "@solana/web3.js";
  *     moved 65-71→74-80, fork NFT-B3 kept 72/73, toly claimed 65-69).
  *   - Tag 32 UpdateAuthority: v17 has NO kind byte — just new_pubkey[32].
  *   - Tag 57 is now WithdrawInsuranceAsset{asset_index:u16, amount:u128}.
- *   - Tag 5 PermissionlessCrank: funding_rate_e9 arg MUST be hardcoded 0n by
- *     all callers — the program hard-rejects nonzero.
+ *   - Tag 5 PermissionlessCrank: now_slot(u64) + n(u8) + n x {asset_index(u16),
+ *     oracle_accounts(u8)}; n is capped at CRANK_OBSERVATION_DECODE_MAX.
  *   - Domain fields: u8→u16 everywhere.
  */
 export declare const IX_TAG: {
@@ -30,11 +30,10 @@ export declare const IX_TAG: {
     /**
      * PermissionlessCrank (tag 5).
      *
-     * CRITICAL: The on-chain decoder reads funding_rate_e9 (i128) at bytes [4..20]
-     * and hard-rejects nonzero with InvalidInstructionData. SDK callers MUST use
-     * encodePermissionlessCrank() which hardcodes fundingRateE9=0n. Do NOT
-     * construct the payload manually and omit this field — that produces a
-     * malformed instruction (missing bytes).
+     * Wire: tag(1) + now_slot(u64) + n(u8) + n x {asset_index(u16),
+     * oracle_accounts(u8)}. The decoder rejects n > CRANK_OBSERVATION_DECODE_MAX
+     * with InvalidInstructionData. There is no funding_rate_e9 field in v2.2.
+     * Use encodePermissionlessCrank().
      */
     readonly PermissionlessCrank: 5;
     /** @alias KeeperCrank @since v12.x alias */
@@ -661,25 +660,21 @@ export interface InitMarketArgs {
 export declare const HEX_RE: RegExp;
 export declare function encodeFeedId(feedId: string): Uint8Array;
 /**
- * Default value for `publicBChunkAtoms` matching the engine's `MAX_VAULT_TVL`
- * (10_000_000_000_000_000 — effectively unlimited).
- *
- * WARNING: Using a small value (e.g. 1_000_000) stalls deep liquidations.
- * When a bankrupt position's liability exceeds `public_b_chunk_atoms`, the
- * engine returns `RecoveryRequired` and refuses further liquidation until
- * the insurance fund covers the residual. Production markets MUST use this
- * constant (or the engine's own `MAX_VAULT_TVL`) unless a deliberate chunk
- * limit is intended AND the insurance fund is sized accordingly.
+ * The public B chunk: the most collateral atoms one B-settlement step or one
+ * bankruptcy-residual booking step moves. Since engine 083a0d08 (Toly's batch
+ * 12, ported to v2.2) it is the engine constant `PUBLIC_B_CHUNK_ATOMS` =
+ * `MAX_VAULT_TVL` (1e16 atoms), not a market setting, and InitMarket no longer
+ * carries it.
  *
  * @example
  * ```ts
- * import { PUBLIC_B_CHUNK_ATOMS_UNLIMITED, encodeInitMarket } from "@percolator/sdk";
- * const data = encodeInitMarket({
- *   ...otherParams,
- *   publicBChunkAtoms: PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
- *   maintenanceFeePerSlot: 0n,
- * });
+ * import { PUBLIC_B_CHUNK_ATOMS } from "@percolator/sdk";
+ * PUBLIC_B_CHUNK_ATOMS === 10_000_000_000_000_000n; // true
  * ```
+ */
+export declare const PUBLIC_B_CHUNK_ATOMS = 10000000000000000n;
+/**
+ * @deprecated The chunk is the engine constant {@link PUBLIC_B_CHUNK_ATOMS}; kept as an alias.
  */
 export declare const PUBLIC_B_CHUNK_ATOMS_UNLIMITED = 10000000000000000n;
 /**
@@ -702,7 +697,7 @@ export declare const PUBLIC_B_CHUNK_ATOMS_UNLIMITED = 10000000000000000n;
  *   max_abs_funding_e9_per_slot, min_funding_lifetime_slots,
  *   max_account_b_settlement_chunks, max_bankrupt_close_chunks,
  *   max_bankrupt_close_lifetime_slots,
- *   public_b_chunk_atoms, maintenance_fee_per_slot.
+ *   maintenance_fee_per_slot.
  */
 export interface InitMarketV17Args {
     /** Max number of portfolios (u16). Must be > 0 and <= WRAPPER_MAX_PORTFOLIO_ASSETS. */
@@ -746,23 +741,18 @@ export interface InitMarketV17Args {
     /** Maximum bankrupt-close lifetime in slots (u64). */
     maxBankruptCloseLifetimeSlots: bigint | string;
     /**
-     * Public-B chunk size in atoms (u128).
-     *
-     * WARNING: A small value (e.g. 1_000_000) can stall deep liquidations —
-     * the engine returns `RecoveryRequired` when the bankrupt position's
-     * liability exceeds this limit and insurance is insufficient to cover it.
-     * Use `PUBLIC_B_CHUNK_ATOMS_UNLIMITED` (= engine's `MAX_VAULT_TVL` =
-     * 10_000_000_000_000_000) unless you have a specific chunk-limit requirement
-     * and a funded insurance pool.
+     * @deprecated Ignored. The public B chunk is the engine constant
+     * {@link PUBLIC_B_CHUNK_ATOMS} and is no longer encoded; accepted only so
+     * existing callers still compile.
      */
-    publicBChunkAtoms: bigint | string;
+    publicBChunkAtoms?: bigint | string;
     /** Maintenance fee per slot in absolute units (u128). Must be <= MAX_PROTOCOL_FEE_ABS. */
     maintenanceFeePerSlot: bigint | string;
 }
 /**
  * Encode InitMarket instruction data (v17 wire format).
  *
- * Produces a 219-byte payload: tag(1) + market parameter fields (218 bytes).
+ * Produces a 203-byte payload: tag(1) + market parameter fields (202 bytes).
  * admin and collateralMint go into account metas (accounts[0] and accounts[2]).
  *
  * The old v12.x `InitMarketArgs` interface is accepted for source-compat via
@@ -772,7 +762,7 @@ export interface InitMarketV17Args {
  * minInitialDeposit) are silently ignored — provide `InitMarketV17Args` instead.
  *
  * @param args  v17 market parameters (InitMarketV17Args)
- * @returns 227-byte Uint8Array
+ * @returns 203-byte Uint8Array
  *
  * @example
  * ```ts
@@ -797,7 +787,6 @@ export interface InitMarketV17Args {
  *   maxAccountBSettlementChunks: 10n,
  *   maxBankruptCloseChunks: 10n,
  *   maxBankruptCloseLifetimeSlots: 500n,
- *   publicBChunkAtoms: PUBLIC_B_CHUNK_ATOMS_UNLIMITED,  // use engine's MAX_VAULT_TVL; small values stall deep liquidations
  *   maintenanceFeePerSlot: 0n,
  * });
  * ```
@@ -1387,7 +1376,7 @@ export declare function encodeWithdrawBackingBucketEarnings(args: WithdrawBackin
  *   account_b_portfolio_id(u64) + account_b_position_epoch(u64) +
  *   account_b_matcher_sequence(u64) + asset_index(u16) + market_id(u64) +
  *   size_q(i128) + fee_bps(u64) + limit_price(u64) + backing_fee_cap_bps(u16)
- *   = 87 bytes.
+ *   = 85 bytes.
  *
  * BREAKING vs v17 (35-byte payload): same identity-binding additions as
  * {@link encodeTradeNoCpi} (both legs' portfolio id/position epoch,
@@ -3124,7 +3113,7 @@ export declare function encodeWithdrawInsuranceAsset(args: WithdrawInsuranceAsse
  * CreateLpVault (tag 74) — create the LP vault for a market/asset domain.
  *
  * Wire: tag(1) + fee_share_bps(u16) + redemption_cooldown_slots(u64) +
- *       oi_reservation_threshold_bps(u16) + domain(u16) = 14 bytes.
+ *       oi_reservation_threshold_bps(u16) + domain(u16) = 15 bytes.
  *
  * @param feeShareBps                  LP vault fee share in bps (0-10000).
  * @param redemptionCooldownSlots      Slots between redemption requests.

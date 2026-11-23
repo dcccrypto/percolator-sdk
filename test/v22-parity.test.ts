@@ -25,9 +25,9 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const unhex = (s: string) => Uint8Array.from(Buffer.from(s, "hex"));
 
 describe("pinned oracle", () => {
-  it("is variant B (prog #649 f7a54350 = rc23 2b5dce8a + GH#571 tranche v2, engine 2f05df8c)", () => {
-    expect(FX.prog).toBe("f7a54350bd17d51d45effa0cb9df66d7eb8e69cf");
-    expect(FX.engine).toBe("2f05df8c8c1edd85734120e1322420621fc33cf0");
+  it("is variant B (prog 9a0ff591 = rc23 + InitMarket without public_b_chunk_atoms, engine c409c510)", () => {
+    expect(FX.prog).toBe("9a0ff591b1d0894fa665e94b45e18c2804eef201");
+    expect(FX.engine).toBe("c409c510373f9c3b72380fd7ad1006f559cce46d");
   });
 });
 
@@ -48,7 +48,7 @@ describe("instruction golden vectors (encoder == real decoder; real re-encode ==
       if (v.tag === 0) {
         // the InitMarket trailer is LENGTH-selected: a one-byte change can land on another valid form
         const okLens = new Set([4, 5, 10, 11, 28, 29]);
-        const trailer = v.build().length - 219;
+        const trailer = v.build().length - 203;
         if (!okLens.has(trailer - 1)) expect(f.rust.ok, "short").toBe(false);
         if (!okLens.has(trailer + 1)) expect(l.rust.ok, "long").toBe(false);
       } else {

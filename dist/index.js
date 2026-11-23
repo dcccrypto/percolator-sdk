@@ -134,11 +134,10 @@ var IX_TAG = {
   /**
    * PermissionlessCrank (tag 5).
    *
-   * CRITICAL: The on-chain decoder reads funding_rate_e9 (i128) at bytes [4..20]
-   * and hard-rejects nonzero with InvalidInstructionData. SDK callers MUST use
-   * encodePermissionlessCrank() which hardcodes fundingRateE9=0n. Do NOT
-   * construct the payload manually and omit this field — that produces a
-   * malformed instruction (missing bytes).
+   * Wire: tag(1) + now_slot(u64) + n(u8) + n x {asset_index(u16),
+   * oracle_accounts(u8)}. The decoder rejects n > CRANK_OBSERVATION_DECODE_MAX
+   * with InvalidInstructionData. There is no funding_rate_e9 field in v2.2.
+   * Use encodePermissionlessCrank().
    */
   PermissionlessCrank: 5,
   /** @alias KeeperCrank @since v12.x alias */
@@ -644,8 +643,9 @@ function encodeFeedId(feedId) {
   }
   return bytes;
 }
-var PUBLIC_B_CHUNK_ATOMS_UNLIMITED = 10000000000000000n;
-var INIT_MARKET_V17_LEN = 219;
+var PUBLIC_B_CHUNK_ATOMS = 10000000000000000n;
+var PUBLIC_B_CHUNK_ATOMS_UNLIMITED = PUBLIC_B_CHUNK_ATOMS;
+var INIT_MARKET_V17_LEN = 203;
 function encodeInitMarket(args) {
   const isV17Args = "maxPortfolioAssets" in args;
   let maxPortfolioAssets;
@@ -668,7 +668,6 @@ function encodeInitMarket(args) {
   let maxAccountBSettlementChunks;
   let maxBankruptCloseChunks;
   let maxBankruptCloseLifetimeSlots;
-  let publicBChunkAtoms;
   let maintenanceFeePerSlot;
   if (isV17Args) {
     const v = args;
@@ -692,7 +691,6 @@ function encodeInitMarket(args) {
     maxAccountBSettlementChunks = v.maxAccountBSettlementChunks;
     maxBankruptCloseChunks = v.maxBankruptCloseChunks;
     maxBankruptCloseLifetimeSlots = v.maxBankruptCloseLifetimeSlots;
-    publicBChunkAtoms = v.publicBChunkAtoms;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   } else {
     const v = args;
@@ -718,7 +716,6 @@ function encodeInitMarket(args) {
     maxAccountBSettlementChunks = 10n;
     maxBankruptCloseChunks = 10n;
     maxBankruptCloseLifetimeSlots = 500n;
-    publicBChunkAtoms = 1000000n;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   }
   const data = concatBytes(
@@ -743,7 +740,6 @@ function encodeInitMarket(args) {
     encU64(maxAccountBSettlementChunks),
     encU64(maxBankruptCloseChunks),
     encU64(maxBankruptCloseLifetimeSlots),
-    encU128(publicBChunkAtoms),
     encU128(maintenanceFeePerSlot)
   );
   if (data.length !== INIT_MARKET_V17_LEN) {
@@ -9698,8 +9694,12 @@ function layoutHasBandRentV22(layout = LAYOUTS_BY_VERSION.get(19)) {
 
 // src/solana/slab.ts
 import { PublicKey as PublicKey15 } from "@solana/web3.js";
+var lastDvData = null;
+var lastDv = null;
 function dv4(data) {
-  return new DataView(data.buffer, data.byteOffset, data.byteLength);
+  if (data === lastDvData && lastDv.buffer === data.buffer && lastDv.byteOffset === data.byteOffset && lastDv.byteLength === data.byteLength) return lastDv;
+  lastDvData = data;
+  return lastDv = new DataView(data.buffer, data.byteOffset, data.byteLength);
 }
 function readU8(data, off) {
   if (off >= data.length) {
@@ -14814,6 +14814,15 @@ function parseDexPool(dexType, poolAddress, data) {
   }
 }
 function computeDexSpotPriceE6(dexType, data, vaultData, decimals, solPriceE6) {
+  const price = dexSpotPriceE6(dexType, data, vaultData, decimals, solPriceE6);
+  if (price <= 0n) {
+    throw new Error(
+      `${dexType}: computed price is ${price} (empty quote side or below 1e-6); refusing to report a price`
+    );
+  }
+  return price;
+}
+function dexSpotPriceE6(dexType, data, vaultData, decimals, solPriceE6) {
   switch (dexType) {
     case "pumpswap":
       if (!vaultData) throw new Error("PumpSwap requires vaultData (base and quote vault accounts)");
@@ -15062,6 +15071,12 @@ function parseChainlinkPrice(data, options) {
   const price = answer;
   const updatedAt = readU32LE2(data, CHAINLINK_TIMESTAMP_OFFSET);
   if (options?.maxStalenessSeconds !== void 0) {
+    if (Number.isNaN(options.maxStalenessSeconds)) {
+      throw new Error("maxStalenessSeconds is NaN");
+    }
+    if (Number.isNaN(options.futureToleranceSeconds)) {
+      throw new Error("futureToleranceSeconds is NaN");
+    }
     if (updatedAt <= 0) {
       throw new Error(
         `Oracle has no valid publish timestamp (updatedAt=${updatedAt})`
@@ -15321,24 +15336,21 @@ async function fetchAdlRankings(apiBase, slab, fetchFn = fetch) {
 }
 
 // src/solana/backing-bucket.ts
-function readU8At(data, off) {
-  if (off + 1 > data.length) throw new Error(`readU8At: out of bounds at ${off}`);
-  return data[off];
+function readU8At(dv8, off) {
+  if (off + 1 > dv8.byteLength) throw new Error(`readU8At: out of bounds at ${off}`);
+  return dv8.getUint8(off);
 }
-function readU32LEAt(data, off) {
-  if (off + 4 > data.length) throw new Error(`readU32LEAt: out of bounds at ${off}`);
-  return new DataView(data.buffer, data.byteOffset + off, 4).getUint32(0, true);
+function readU32LEAt(dv8, off) {
+  if (off + 4 > dv8.byteLength) throw new Error(`readU32LEAt: out of bounds at ${off}`);
+  return dv8.getUint32(off, true);
 }
-function readU64LEAt(data, off) {
-  if (off + 8 > data.length) throw new Error(`readU64LEAt: out of bounds at ${off}`);
-  return new DataView(data.buffer, data.byteOffset + off, 8).getBigUint64(0, true);
+function readU64LEAt(dv8, off) {
+  if (off + 8 > dv8.byteLength) throw new Error(`readU64LEAt: out of bounds at ${off}`);
+  return dv8.getBigUint64(off, true);
 }
-function readU128LEAt(data, off) {
-  if (off + 16 > data.length) throw new Error(`readU128LEAt: out of bounds at ${off}`);
-  const dv8 = new DataView(data.buffer, data.byteOffset + off, 16);
-  const lo = dv8.getBigUint64(0, true);
-  const hi = dv8.getBigUint64(8, true);
-  return hi << 64n | lo;
+function readU128LEAt(dv8, off) {
+  if (off + 16 > dv8.byteLength) throw new Error(`readU128LEAt: out of bounds at ${off}`);
+  return dv8.getBigUint64(off + 8, true) << 64n | dv8.getBigUint64(off, true);
 }
 var V17_GROUP_CONFIG_REL = 32;
 var V17_GROUP_CURRENT_SLOT_REL = 613;
@@ -15387,11 +15399,12 @@ function isBackingBucketExpirable(bucket, ctx) {
 function parseBackingBucketsV17(data, opts = {}) {
   const geom = resolveMarketGeometry(data, { parser: "parseBackingBucketsV17", strictLength: false });
   const L = geom.layout;
+  const dv8 = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const groupOff = geom.groupOff;
-  const mode = readU8At(data, groupOff + L.group.mode);
-  const headerCurrentSlot = readU64LEAt(data, groupOff + L.group.currentSlot);
+  const mode = readU8At(dv8, groupOff + L.group.mode);
+  const headerCurrentSlot = readU64LEAt(dv8, groupOff + L.group.currentSlot);
   const maxMarketSlots = readU32LEAt(
-    data,
+    dv8,
     groupOff + L.group.config + L.group.maxMarketSlotsInConfig
   );
   const chainSlot = opts.chainSlot === void 0 ? 0n : BigInt(opts.chainSlot);
@@ -15410,19 +15423,19 @@ function parseBackingBucketsV17(data, opts = {}) {
       const bucketOff = engineBase + (side === "long" ? L.engineSlot.backingLong : L.engineSlot.backingShort);
       if (bucketOff + V17_BACKING_BUCKET_LEN > data.length) break;
       const domain = assetIndex * 2 + (side === "short" ? 1 : 0);
-      const status = readU8At(data, bucketOff + BB_STATUS);
-      const expirySlot = readU64LEAt(data, bucketOff + BB_EXPIRY_SLOT);
+      const status = readU8At(dv8, bucketOff + BB_STATUS);
+      const expirySlot = readU64LEAt(dv8, bucketOff + BB_EXPIRY_SLOT);
       const lapsed = status === 1 /* Fresh */ && nowSlot >= expirySlot;
       const bucket = {
         domain,
         assetIndex,
         side,
-        marketId: readU64LEAt(data, bucketOff + BB_MARKET_ID),
-        freshUnlienedBackingNum: readU128LEAt(data, bucketOff + BB_FRESH_UNLIENED),
-        validLienedBackingNum: readU128LEAt(data, bucketOff + BB_VALID_LIENED),
-        consumedLienedBackingNum: readU128LEAt(data, bucketOff + BB_CONSUMED_LIENED),
-        impairedLienedBackingNum: readU128LEAt(data, bucketOff + BB_IMPAIRED_LIENED),
-        utilizationFeeEarnings: readU128LEAt(data, bucketOff + BB_UTILIZATION_FEE),
+        marketId: readU64LEAt(dv8, bucketOff + BB_MARKET_ID),
+        freshUnlienedBackingNum: readU128LEAt(dv8, bucketOff + BB_FRESH_UNLIENED),
+        validLienedBackingNum: readU128LEAt(dv8, bucketOff + BB_VALID_LIENED),
+        consumedLienedBackingNum: readU128LEAt(dv8, bucketOff + BB_CONSUMED_LIENED),
+        impairedLienedBackingNum: readU128LEAt(dv8, bucketOff + BB_IMPAIRED_LIENED),
+        utilizationFeeEarnings: readU128LEAt(dv8, bucketOff + BB_UTILIZATION_FEE),
         expirySlot,
         status,
         statusName: backingBucketStatusName(status),
@@ -18676,14 +18689,14 @@ function computeLiqPrice(entryPrice, capital, positionSize, maintenanceMarginBps
   const absPos = positionSize < 0n ? -positionSize : positionSize;
   const capitalPerUnitE6 = capital * 1000000n / absPos;
   if (positionSize > 0n) {
-    const adjusted = capitalPerUnitE6 * 10000n / (10000n + maintenanceMarginBps);
-    const liq = entryPrice - adjusted;
+    if (maintenanceMarginBps >= 10000n) {
+      return entryPrice > capitalPerUnitE6 ? 18446744073709551615n : 0n;
+    }
+    const liq = (entryPrice - capitalPerUnitE6) * 10000n / (10000n - maintenanceMarginBps);
     return liq > 0n ? liq : 0n;
-  } else {
-    if (maintenanceMarginBps >= 10000n) return 18446744073709551615n;
-    const adjusted = capitalPerUnitE6 * 10000n / (10000n - maintenanceMarginBps);
-    return entryPrice + adjusted;
   }
+  const shortLiq = (entryPrice + capitalPerUnitE6) * 10000n / (10000n + maintenanceMarginBps);
+  return shortLiq > 0n ? shortLiq : 0n;
 }
 function computePreTradeLiqPrice(oracleE6, margin, posSize, maintBps, feeBps, direction) {
   if (oracleE6 === 0n || margin === 0n || posSize === 0n) return 0n;
@@ -18700,12 +18713,15 @@ function computePreTradeLiqPrice(oracleE6, margin, posSize, maintBps, feeBps, di
   return computeLiqPrice(adjustedEntry, margin, signedPos, maintBps);
 }
 function computeTradingFee(notional2, tradingFeeBps) {
-  return notional2 * tradingFeeBps / 10000n;
+  if (notional2 <= 0n || tradingFeeBps <= 0n) return 0n;
+  return (notional2 * tradingFeeBps + 9999n) / 10000n;
 }
 function computeDynamicFeeBps(notional2, config) {
   if (config.tier2Threshold === 0n) return config.baseBps;
-  if (config.tier3Threshold > 0n && notional2 >= config.tier3Threshold) return config.tier3Bps;
-  if (notional2 >= config.tier2Threshold) return config.tier2Bps;
+  const tier2 = config.tier2Bps === 0n ? config.baseBps : config.tier2Bps;
+  const tier3 = config.tier3Bps === 0n ? tier2 : config.tier3Bps;
+  if (config.tier3Threshold > 0n && notional2 >= config.tier3Threshold) return tier3;
+  if (notional2 >= config.tier2Threshold) return tier2;
   return config.baseBps;
 }
 function computeDynamicTradingFee(notional2, config) {
@@ -19014,7 +19030,7 @@ function parseDexScreenerPairs(json, mint) {
     else if (liquidity > 1e3) confidence = 45;
     const priceUsd = pair.priceUsd;
     const price = typeof priceUsd === "string" || typeof priceUsd === "number" ? parseFloat(String(priceUsd)) || 0 : 0;
-    if (!(price > 0)) continue;
+    if (!Number.isFinite(price) || !(price > 0)) continue;
     let baseSym = "?";
     let quoteSym = "?";
     if (isRecord(pair.baseToken) && typeof pair.baseToken.symbol === "string") {
@@ -19042,7 +19058,7 @@ function parseJupiterMintEntry(json, mint) {
   const v3Row = json[mint];
   if (isRecord(v3Row) && v3Row.usdPrice !== void 0 && v3Row.usdPrice !== null) {
     const price2 = parseFloat(String(v3Row.usdPrice)) || 0;
-    if (price2 <= 0) return null;
+    if (!Number.isFinite(price2) || price2 <= 0) return null;
     const liquidity = typeof v3Row.liquidity === "number" && Number.isFinite(v3Row.liquidity) ? v3Row.liquidity : 0;
     return { price: price2, mintSymbol: "?", liquidity };
   }
@@ -19053,7 +19069,7 @@ function parseJupiterMintEntry(json, mint) {
   const rawPrice = row.price;
   if (rawPrice === void 0 || rawPrice === null) return null;
   const price = parseFloat(String(rawPrice)) || 0;
-  if (price <= 0) return null;
+  if (!Number.isFinite(price) || price <= 0) return null;
   let mintSymbol = "?";
   if (typeof row.mintSymbol === "string") mintSymbol = row.mintSymbol;
   return { price, mintSymbol, liquidity: 0 };
@@ -19805,6 +19821,7 @@ export {
   PROGRAM_IDS_DEVNET_V22,
   PROGRAM_IDS_V17,
   PROGRAM_ID_V17,
+  PUBLIC_B_CHUNK_ATOMS,
   PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
   PUMPSWAP_PROGRAM_ID,
   PUSH_AUTH_MARK_DEPTH_LEN,
