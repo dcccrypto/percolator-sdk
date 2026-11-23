@@ -33,7 +33,7 @@ import {
   STAKE_IX, initPoolAccounts, depositAccounts, depositJuniorAccounts, withdrawAccounts, accrueFeesAccounts,
   flushToInsuranceAccounts, bindInsuranceAuthorityAccounts, rotateInsuranceAccounts, burnAssetAdminAccounts,
   recoverFlushedInsuranceAccounts, adminResolveMarketCpiAccounts, stakeGroupAProxyAccounts, stakeGroupBProxyAccounts,
-  recoverTerminalInsuranceAccounts, adminCloseSlabAccounts,
+  recoverTerminalInsuranceAccounts, adminCloseSlabAccounts, encodeStakeDeposit, encodeStakeDepositJunior, encodeStakeWithdraw,
 } from "../src/solana/stake.js";
 import { buildRecoverTerminalInsuranceIx, buildAdminCloseSlabIx } from "../src/solana/stake-wind-down.js";
 import {
@@ -330,11 +330,11 @@ const CASES: Case[] = [
     keys: { admin: K.admin, slab: K.slab, pool_pda: K.pool, lp_mint: K.lpMint, vault: K.vault, vault_auth: K.vaultAuth, collateral_mint: K.collMint, percolator_program: K.wrapper, token_program: TOKEN, system_program: SYS, rent_sysvar: RENT } },
   { builder: "initPoolAccounts", tag: 13, mode: "InitTradingPool", metas: initPoolAccounts({ admin: K.admin, slab: K.slab, pool: K.pool, lpMint: K.lpMint, vault: K.vault, vaultAuth: K.vaultAuth, collateralMint: K.collMint, percolatorProgram: K.wrapper }),
     keys: { admin: K.admin, slab: K.slab, pool_pda: K.pool } },
-  { builder: "depositAccounts", tag: 1, mode: "legacy/FEE_ONLY (mode-0 slab)", metas: depositAccounts(dep), keys: depKeys, needs: ["fee_slab"] },
+  { builder: "depositAccounts", tag: 1, mode: "legacy/FEE_ONLY (mode-0 slab)", metas: depositAccounts(dep), keys: depKeys, needs: ["fee_slab"], data: encodeStakeDeposit(1n) },
   { builder: "depositAccounts", tag: 1, mode: "FIRST_LOSS", metas: () => depositAccounts({ ...dep, ...v5Route } as typeof dep), keys: depKeys, needs: ["fee_slab", "v5_units_ai", "v5_wrapper_ai"] },
   { builder: "ACCOUNTS_STAKE_DEPOSIT_V5", tag: 1, mode: "FIRST_LOSS", metas: stakeMetasV5(ACCOUNTS_STAKE_DEPOSIT_V5, v5Keys), keys: depKeys, needs: ["fee_slab", "v5_units_ai", "v5_wrapper_ai"] },
-  { builder: "depositJuniorAccounts", tag: 16, mode: "FEE_ONLY tranche", metas: depositJuniorAccounts(dep), keys: depKeys, needs: ["fee_slab"] },
-  { builder: "withdrawAccounts", tag: 2, mode: "legacy/FEE_ONLY (with slab)", metas: withdrawAccounts(wd), keys: wdKeys, needs: ["fee_slab"] },
+  { builder: "depositJuniorAccounts", tag: 16, mode: "FEE_ONLY tranche", metas: depositJuniorAccounts(dep), keys: depKeys, needs: ["fee_slab"], data: encodeStakeDepositJunior(1n) },
+  { builder: "withdrawAccounts", tag: 2, mode: "legacy/FEE_ONLY (with slab)", metas: withdrawAccounts(wd), keys: wdKeys, needs: ["fee_slab"], data: encodeStakeWithdraw(1n) },
   { builder: "withdrawAccounts", tag: 2, mode: "FIRST_LOSS", metas: () => withdrawAccounts({ ...wd, ...v5Route } as typeof wd), keys: wdKeys, needs: ["fee_slab", "v5_units_ai", "v5_wrapper_ai", "v5_system_ai"] },
   { builder: "ACCOUNTS_STAKE_WITHDRAW_V5", tag: 2, mode: "FIRST_LOSS", metas: stakeMetasV5(ACCOUNTS_STAKE_WITHDRAW_V5, v5Keys), keys: wdKeys, needs: ["fee_slab", "v5_units_ai", "v5_wrapper_ai", "v5_system_ai"] },
   { builder: "accrueFeesAccounts", tag: 12, mode: "any", metas: accrueFeesAccounts({ caller: K.caller, pool: K.pool, vault: K.vault, slab: K.slab }),
