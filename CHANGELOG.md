@@ -1,3 +1,8 @@
+## 9.0.0-candidate: PumpSwap WSOL-quoted price floors once
+
+- **Fixed:** `computeDexSpotPriceE6("pumpswap", …, solPriceE6)` floored token/SOL to e6 before multiplying by the SOL price, so a WSOL-quoted USD price came out low by up to 1 / (token/SOL e6). On real mainnet pool reserves at SOL $150: chillhouse 1500 → 1548 (was -3.10%), swordcat 4950 → 5029 (was -1.57%); ANSEM snapshot 300730 → 300793. A token under 1e-6 SOL whose USD price is above 1e-6 was refused; it is now priced. Non-WSOL quotes, Raydium CLMM and Meteora DLMM are unchanged.
+- **Tests:** `test/dex-pumpswap-wsol-precision.test.ts` (real reserves, sub-1e-6-SOL token, 5,000 seeded draws against the one-floor formula). `test/dex-oracle.test.ts` ANSEM asserts updated to the exact value.
+
 ## 9.0.0-candidate: p2b alloc split and G6 cushion fns fail closed like vault_lp_v18.rs - BREAKING (types)
 
 - **Fixed:** on inputs the program refuses, four ports returned a value. `vaultLpAllocSplitP2b` now returns null when `dEven + dOdd` or `moved * dSmall` overflows u128 (Rust `checked_add` / `mul_div_floor`). With both dials on and a bps above 10,000, `cushionSplitP2b` returns null (it used to return a negative senior leg) and `cushionLockedP2b` returns null when the target is above 10,000. `creatorFeeVestedP2b` returns false (fail closed) for a target above 10,000 when the cushion is on.
