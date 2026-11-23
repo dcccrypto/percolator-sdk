@@ -1,0 +1,949 @@
+{
+  "rpc": "https://api.devnet.solana.com",
+  "program": "6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM",
+  "registries": [
+    {
+      "registry": "jfrCnAoM8FJpBw6A77UP9iaUt5Tb1s6Uzwc4e5VK7xH",
+      "pdaMatches": true,
+      "market": "BYFuWyuoUGhP1n8wpD8gXH2ciDsegyF1UJCQvBiVx7T5",
+      "lpMint": "J8tJJpyv9nbxYnyAL7MhTJxoBqjuaCuTdn4pzMX9VpdU",
+      "totalShares": "1682239343",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1682238343",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"55a87924-e0ee-4e29-8670-52488fc24fac\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "25f4o2uEwQ3Jr1cWGAvBed3Hqy6wJ1cux1jPxPtizXaS",
+      "pdaMatches": true,
+      "market": "A8XsQeovaevpHLgkWQx3Yg2Q3DuCfjiRvmtagmr53kew",
+      "lpMint": "Ag7vJ6mFGyatD5Vk2jVQ1q7bTi2DTxZTK6urW7W6jDR3",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"ed0424b9-c0e6-4b00-9c3b-94aee82288d6\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "3ECK72FPfNMCmLseE7choiEzjfUBMqt1oS2Ej8dDXjdC",
+      "pdaMatches": true,
+      "market": "63jCwsLasFSHB1cSgNbZaveKZnpZahxMUiMciMDFJoqL",
+      "lpMint": "4ieC7cG9h4bPgJ9dKihQKedfcGPz3T3U3HgEr21kJ9Co",
+      "totalShares": "1000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "0",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"065ca17f-6ec4-491b-bf28-751a015e5b47\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "3Fy6tqHAqEQ3TmJ2smr7PHdJDjtD8NRqFrbMhwF3BUCo",
+      "pdaMatches": true,
+      "market": "J1b5LxLKipxiM5QzXB5147poLxQneSF6c5F2HuPLQrec",
+      "lpMint": "13HCGh4pwJkfSQ2WjjUWz1GDfW5dBrkzPdGJoksWh3TK",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"0c7f0725-b63b-4754-a769-924f50792f5f\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "3HkPvzAaqySK4oUhHeTkrjhekmsW7hSynMB9CbcAAVth",
+      "pdaMatches": true,
+      "market": "7szMk5jm6piFEGLnowwbAVSBYiLY5RH7QMdnJ9Xjyoht",
+      "lpMint": "BeAd3QNJYChJdAK1hzEFvT1hqkYFteYy3MbsHJCWKk1N",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"7b4e7f39-624f-43c4-8bee-ed9368b90907\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "3JYPV6ffabBW2CoJ5L2EDyjkMX2nNEVoZV6NFhQrqfgb",
+      "pdaMatches": true,
+      "market": "FRVP35ujCY5bX4k5e5BWwpsJsiGaBeLZ6K3VckJNemEz",
+      "lpMint": "5xHiTiP32zHp8vSF7h46qJWKofDfW4TC5LDUV95dtNz1",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"5f054041-8b78-4775-87ea-282072546def\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "3PuQa1QYphni2SMKqbKJN9E923aLqEMs9MAAN3bvU4Gh",
+      "pdaMatches": true,
+      "market": "7fU9teqRPQauqEykmQ9vszXvqu3GMcPXtCsM72LfEwoh",
+      "lpMint": "3M17GzuL7vDrSBwWjkcpRrtJ4FmA65qeb75eLcgtsTQf",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"10986322-c641-49e9-8aab-c3a1e1b76238\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "3hLePQZBu2YBcwh3wTUwejLn38iw8gdnN9kaCoc6pmAo",
+      "pdaMatches": true,
+      "market": "294orabCvLGRKSfiiqxQT5F4owssHzHbuK4kqTuobmbb",
+      "lpMint": "7LAcv5z6RbM95N9gnmowzip6UMMpgcp1RWdxx9ZbzVTe",
+      "totalShares": "5200000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "5199999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"3da92fd8-6235-45d0-8540-e6f38af1dadc\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "461ma26WxLo79Yjdak6TLH9EgLgwM8e9jt7pbLqSETyb",
+      "pdaMatches": true,
+      "market": "D9iNw6B3RJcA6cH8oL6GBquh2Hyp9sVYuZAhQtDv5SMU",
+      "lpMint": "EHkfbD693o8dhfCWA8gm6rW3Df3wWZVof5EYRVVsrpmd",
+      "totalShares": "2000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"f7a384d8-f046-45c0-a453-57b51918500e\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "4MaFe3URpG3hg7azHqgcvdWnUbdU8agvpLH72bqbidQy",
+      "pdaMatches": true,
+      "market": "K6xMbo6GUNhhAf2Krrm6pUCiFj1qbdZPSnrXig1scHi",
+      "lpMint": "E4ppcTutVLra5qPG5D3gpteW7uqGfD5Fd67pt1Vd5zWF",
+      "totalShares": "2000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"880f32c3-2e24-444c-8fcf-5622efebdf7a\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "4VMMSxcWwH8rfngFTLjHg1JhKk2TQygyLcFF5fCmyK4H",
+      "pdaMatches": true,
+      "market": "B7N9sksLRY75sNVzjK2w1im6BuXHXzskiGL9Y6MgcPuv",
+      "lpMint": "YHYmkHd9mdNWBEri1QA1qpChiXzBVVFnGp2nV2zo4Aw",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"c230cb50-aa75-4265-b09e-f41586753375\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "4cBfaxQ8YzB2ToWmou3vkrNns4qgAnvaVBWuBmoUsn8B",
+      "pdaMatches": true,
+      "market": "68Jqwvd7o5gvsgG9y5d1W4WR141KkhmNNAkhsB5LGkPu",
+      "lpMint": "CBffsrbyCAY4tv4PedEtJp1y63uFSZhF6htrywMCMHqS",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"530df70a-b575-437d-b620-d7778f621b2b\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "4zSRjT8x5N2g1S1cwSnAPGx1eFmByWigtVJPJ8HK5kRv",
+      "pdaMatches": true,
+      "market": "4beVPGLpox1Amg2jRqF5feCPUGt8BCfH4bzYnCUnoAk9",
+      "lpMint": "5MRu3ZR8yZpZroznfwbFMRnjQaTzVJ9tpUSgGySCgwPW",
+      "totalShares": "2000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"0f97a616-c5b5-4e8e-b7ed-7669da84646e\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "55xjQN7pNdKjnB7MZtRMWQkHXAK2zcf8UCVKN2bmCXyn",
+      "pdaMatches": true,
+      "market": "DJM81s8hi5KnozZrgL5MzdJ8sN1mnxBzAY17VBTVkxwU",
+      "lpMint": "ovTQ1PMEF1JT3Bj9KYhkuQAk7z7VTTG9uKH65sLpVR5",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"595b482d-8894-400f-9e7b-f6a6106f5833\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "5KLdGyQcwmmF9sN7nmvtSgksSm9cQ82B5mEGZ8pJo7BB",
+      "pdaMatches": true,
+      "market": "5DWaFGSEZ3VesmWuk2Rr2k35nios4R8zz5sx5B4FwFkf",
+      "lpMint": "Gghit4zJzfzkMFDahb3qqJauQhUwt6MNZHDWzirsDZ6x",
+      "totalShares": "1496702968",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1496701968",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"8c9ffd7b-7178-4468-9471-408f8daf4bd6\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "5Uh4G811HZYWoip3ffpLVZBzgGvxaMbH9DX7RvWuKrb4",
+      "pdaMatches": true,
+      "market": "56pWj8zYeZMv6oHHf4nwAfWAunzixxknaVNEFY48oJ2Y",
+      "lpMint": "FQgRoqbpkcSnNh7R6ut24nADtzHAgygkMVBhZ7PmgCF6",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"a4bab884-57da-4732-b962-3ef29bd5daa4\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "5dpjdG6QhUeNwsLgr9CNhXtDdg7UxVxYEBGHGKms8BQP",
+      "pdaMatches": true,
+      "market": "AG3cd7uHxUXTDKWQgYVZJYTU4pkyVRKa5K6mjfYCAtSt",
+      "lpMint": "FrQTtVVojsjDbno2xnirztajMNMCZ2qWRHcUJp89jGXp",
+      "totalShares": "2000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"e653c5d2-77ad-4e76-a93e-d74f7e4c01d7\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "5g4isPg3zH19jMM5roTMiVen67KQXrpBPsMMjD2QhQax",
+      "pdaMatches": true,
+      "market": "7f52gFQcdhGBorp1DmuThCQ1wiPVMozEW7mTVq37ULbj",
+      "lpMint": "GgV7vLw93RysE54wzhfy9iUtQviAyAHGXEveqWCo44rZ",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"d1b32849-ab6e-4202-adb6-d338dffa869c\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "5nazzq6BTGjEhs35oXuoUfq4hayhEhJtB43YvD9qq7pW",
+      "pdaMatches": true,
+      "market": "EC9VKYTz4omiCPacX5hYrHoReETeTeWPX9rbU4ukYM48",
+      "lpMint": "Fgn4bSSDQHEERKDmVdGqwzeNo34es5f4bX5s9E9Ur8eF",
+      "totalShares": "1000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "0",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"d635d63b-017c-4b0c-b1b4-7140f8a417b0\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "5pGCrtnUgVaPr1JwUFjFnUjgdEV2vAB6vauU59R7q2Qx",
+      "pdaMatches": true,
+      "market": "CRC2sowKoJaMt388iovH3ZkLeHSEYAmHp15nokwrz9Zk",
+      "lpMint": "BuXXWQs2ynQfdt6KRu5Kd3eGhP3hhV2HBZvx4eEcPWSC",
+      "totalShares": "1000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "0",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"46925c12-dbc7-4065-a48b-32db21a34416\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "6WrBoUJr9VPhvpepfYCKYKyYKpDFXnCEYHpMMyWyufRK",
+      "pdaMatches": true,
+      "market": "5KDWvRc4iuHFuYh56zWuqU7VQup42KbB3kttjAZYoetn",
+      "lpMint": "7Ve2BbdwxJWxyTfrQQTdX7AirP6npgs6Z6vSZXN97TGi",
+      "totalShares": "3800000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "3799999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"da47e00a-098a-49dd-9c6a-dc964c19cab0\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "6deq4xScS3tGW5NEZNhWKpWpALhm8thSscq47TQG8WxC",
+      "pdaMatches": true,
+      "market": "B5b7qwALa7bxS6ByDTYnZTkwkA5JqDGGpGKCEREGZ699",
+      "lpMint": "6MwU8vaahrRx2r7a6dNJXiR5jMeasWMxkf89CdXYeQKe",
+      "totalShares": "4000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "3999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"38165ce4-2320-45a4-86ff-a1abaaef6b78\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "6vYW4zMgqgSfvzXnrxSjMayaumVLyURgxwAHSP2EmW42",
+      "pdaMatches": true,
+      "market": "HwFu3x4KwKjP8D3nGAcEvQQJ1Xjkez32TuAMgUd3DCkp",
+      "lpMint": "G65mB7vtVByDH2R24dTyk5h68bSVGVFjuKNP9MiSc5sK",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"439d81bd-6fef-4dc4-8333-930d2b58d0a3\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "7baPebpnoFyg3QvaeMyqgFJDMEv6x8Sve22osxtiJ3zx",
+      "pdaMatches": true,
+      "market": "819p1NhMJvG7sBV2XNnj3xfkF9gje5yy1UBWuMQtC6uE",
+      "lpMint": "F3us89pmoEHuVVpdEkK64vUNt1eR7iNSzNkacoNY3PRt",
+      "totalShares": "2000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"7f12444c-3463-4a1d-b666-f5a91a7f0197\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "7c8Tn58GvTaKSh5mfTY7B1NL2XDdnftpUYoWikCRtcKK",
+      "pdaMatches": true,
+      "market": "DBm9EhroVbVPJyRjQUpje9DWHmm79Jds7YXPsQEPRrRi",
+      "lpMint": "9mEsqCERz3PbVTmiPDSwsxATgFNaZkx9hfpaKkwothH9",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"7b4133b2-d978-4c8c-8b3c-3daa6179f5c8\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "7d9nkS3hqz8roMSuNeAgKXJ1iDZUuhRE5abhm3NfRwVp",
+      "pdaMatches": true,
+      "market": "ARSMzcMZzgZT2f4GJVbyJsLSuvyuTHvkbaS3fYeoMrvK",
+      "lpMint": "79hkp8odpYStcKE1oz8CYZVDDGBBH5wR9SkgyirJd4y5",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"d454a00a-0b35-44db-b202-ea8e4b55a1f5\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "7jYf3b6ZQS4HzCgXwMJagmFE2fhMQmXSv7qJLKjRcuq2",
+      "pdaMatches": true,
+      "market": "FGYv3PzCLRjK7UT772UVZFPcLHjxw48MwhYkro4KNrmJ",
+      "lpMint": "FKPyfxjYaS7cUP7CqSWyg5TdiMTzXEARNouKVS9rxHwN",
+      "totalShares": "2000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"f9cc6b76-34c1-4e7a-a38e-b44ea8080cef\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "7q4qtar4iYu3JY8QAaWZPXUa8sFjYKhkhAEWn1XDQ2Xx",
+      "pdaMatches": true,
+      "market": "9R5kYEkTUsR8nnpmyn9rYijebnUJtWyWrohVyD4twVW5",
+      "lpMint": "FXJb9ZLKrKvrzKm9y73jzVedEbrTeXsyy93jdY9cBHZY",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"771ad91c-8821-479c-a711-eb0b448e9372\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "7sXRsTmM1iZnJ83LxBiyZT8BYNtTQBNSKPcKumgTeYPx",
+      "pdaMatches": true,
+      "market": "H9uGY9QmeC6W9qsLF3fLxtgoMSz8Xd5sVFknr3zZNgiq",
+      "lpMint": "9eadfrEFgmPnMY8FXCLLyLAJc9DFpBaQAKERMKX3VUNT",
+      "totalShares": "2000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"efb8b52d-a40b-4d17-bbd3-6bc9688b79bf\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "8YfN2tEwRnNbybv7eXqsiaRkxB7HkUGo9AzezRgJ2gfv",
+      "pdaMatches": true,
+      "market": "8JAjikNFneRQXCXAfkEpXMHMX6wB5bXnFKhatwnw4277",
+      "lpMint": "CZ3sWP6dJYBDin2R1dzbeBDpJ3jXn7CqjJWeo1pPhms8",
+      "totalShares": "1000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "0",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"382007aa-6ced-4e75-914b-921c225aaf89\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "9GMV5yoxrnrU2jB9YVxWuP2vzwzEDjXQ37ye9eK6X3Lc",
+      "pdaMatches": true,
+      "market": "25xGmJg5ZaAckSXCnnvhSwsvzJqi82UqpR82UFtsZiNC",
+      "lpMint": "BGjdnBUr9bBwnUrGbnYZ8ev6v1ausKMtDnkwxHmXLtjq",
+      "totalShares": "3479756843",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "3479755843",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"73d429d2-3ac1-473a-9509-60e71f6adc63\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "9Ga3KbyKEjwMMWwTEsueTHozqoJkt1mU3EGkpKfTt6fD",
+      "pdaMatches": true,
+      "market": "HtaexRpm2aEJ79smhFVRbLDcj8KktreysjeUeaYVnrYE",
+      "lpMint": "DtYAWFFooU7agCkVhprPtnzw5ggh3TgXhchuK1tz1m4e",
+      "totalShares": "1000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "0",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"f7159b86-f2e9-48a8-a98d-0d518707aa4c\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "9MjrYiypoRwAm7hQ3CVG2MKn7uEsKDQouNTpnVB2u29m",
+      "pdaMatches": true,
+      "market": "HGcBU3LXdfQL3FtceKmHEWJCLKU4QxodJwUpyxCTvGgs",
+      "lpMint": "AGXykbi22m6xeYCsnTYzxEPuYYfFb1aHMrzH1aGmZZUn",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"dc5cccc3-709d-4240-aa80-3cb018a29cff\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "9iNR3Q3XaDwENwq1NmaNCNiq6iYvoBR6CrCKZt4Pqxpq",
+      "pdaMatches": true,
+      "market": "DK7FJjVWsMvbriMwmC5ixpT9topuBzBfevD2hqrd3hZ2",
+      "lpMint": "8c72aCqQ2N2phmSrwMR5HfE89XJc4XQin5riW5K6bj8v",
+      "totalShares": "2000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"b94d91ea-08b0-4dad-95b7-b4ac5833ec6a\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "AFQSEmbu4KMP6bus1HMkJiCt1qXVPxpTsn35pqyXfjVX",
+      "pdaMatches": true,
+      "market": "ALdzXdcRjbHfKyf3XKHDAGWPvDD1Dt1qHBjsaEdN76PA",
+      "lpMint": "2uv2NmQWD3LX4mQAFDF9YTSSHhzsrviXzWPPXoSmgp9X",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"0519d83c-32a0-406b-84a0-9b703327f098\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "CCkXvX76T6JeV1HjSPb1vrP3EeP31NY7V85WaUAzLvkB",
+      "pdaMatches": true,
+      "market": "52Ug8mJM9VbUudto5ih4frY8HRHugshLTmW1H7H1G3Lu",
+      "lpMint": "46qzwWkk789gMRdgmECNjSNbrNzRPYweXkAFU92Chqgj",
+      "totalShares": "4600000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "4599999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"97ece005-7e9c-491e-b43c-bd6783660009\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "CY3jaK7j9kngT7G3xEtSiF5Bb1sN23apnjj4NSL5GKsQ",
+      "pdaMatches": true,
+      "market": "J2pz2HFpfjPqEwxxV7CiohPo14j3ifZWxR6qEKZQWVK7",
+      "lpMint": "7NJ1xKD11wABpM4MHNQ5BPXFYWQLq3t4QU3A65MUJ99P",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"e9c5b5dc-6fea-460d-a1c1-beeb1d317197\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "D3EaSFpGaaV8J2vuHFLrTk9AC9vNEGUfHHTZkJTWtPvo",
+      "pdaMatches": true,
+      "market": "9nprHfroG2w4tJWsnBMy7SVPPr7Mxco9i3qZ56nsnMws",
+      "lpMint": "CVHJhmTWpHoY7gFaU84sD3Ed7URrEtgjPfsiuigkBUo8",
+      "totalShares": "5400000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "5399999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"5c95f440-16aa-4f72-9a70-2acff77347cc\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "DdYxrfJjdMuDzQvk8BN9WRvYKrz4MuSRzJ4MqrFSstFo",
+      "pdaMatches": true,
+      "market": "DZfeLdFFz3DMCKcBCtfpDSAq1Fnz4RHDoDtiNBFLc3o",
+      "lpMint": "4XALxcv2ZVeANtXrKK7RtcnpRo5CpHTSTkws7q8wg9FA",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"b51aa2c7-524a-4453-98d9-31b509a5296d\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "DjcHW8DX4s9WthTh8G1pycD6yu52gAJQtvZ4c9vhLigY",
+      "pdaMatches": true,
+      "market": "4o9q6hYsycXGBAj5e9JnbenbTvyi8PxubDyZ3aVpgVtX",
+      "lpMint": "zKPdVHGhWzXDwSedzSm4u3qAAc3e3pz4ZLobXPCnTrU",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"33b8a9fc-9ed2-4958-8517-11e035b901c5\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "DvM3vwBVRjqfJkq9kzRZ3oj4ULhVKcyEzSPCDJEcPMK6",
+      "pdaMatches": true,
+      "market": "AXyQMrAENwUvaHRJkXHekF6T6VsyfYP2A3BpNjA6uvsJ",
+      "lpMint": "BjYu24CUECEU18Mx7Qp3s13hVvGtxPqdj5vfaTfurMxm",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"ba398c71-7ab1-4916-b54e-01450d90c876\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "EpZqDWYM3BoXLLuL2YymFEDYzyr9zkoYfZNchTv2jS3Y",
+      "pdaMatches": true,
+      "market": "6TfAsNSi8dNdNCr4FQnXUmV9aUHD8ciz25gLR1MVVpUa",
+      "lpMint": "6Hrxd3XYzUbpYXGCUM3fzNdqLjyNo32fMGBGMahzARMr",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"3c2be642-d575-4f78-bea8-555ed74981b8\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "FJ8teiLm6J4FLX5if6a4kh4ZDcLtQLpWxJvfDz54tqDm",
+      "pdaMatches": true,
+      "market": "ELaepc4xFuQKcMMr2B63iJhGhyKbzvjvKJ8C9ZcT4eVf",
+      "lpMint": "AS3FkxNBmkHrZMC5N2kxRAafW7mSYhJDhE8nhZFfr7Ha",
+      "totalShares": "5000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "4999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"d0b9d8fe-e934-4f9e-bd40-f8d0dd6a05fe\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "FN3Qb1cXs16pKzxymLPYhR3cyEAavXN2fHYEMoTp8Lxh",
+      "pdaMatches": true,
+      "market": "6fonYScxUpeN8782wm1DQMPJVZj5vUGXnKg75GTRSBUF",
+      "lpMint": "FRiJAtCdA7V3vFpd823eJ4zQ7sZT4eMwtSaTzGPsCS3m",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"5943ac19-af58-40b1-b5a5-fde75e93252a\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "GDEmMrFeoLChdcxFykLeM2rga2Q7f38QCw44LydRv9YH",
+      "pdaMatches": true,
+      "market": "GSJ5Z7CBYjCepi8HLE5DjwyTPCRiVVofptXFQZ4iM8on",
+      "lpMint": "69BkMYQET267tGrxAqLTtAFsNaxZDKYXxaairQiPMGg2",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"60daf8c5-0953-46b3-8375-2e00dc77bf50\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "GDiiwZcEfpSBNfCM3SjPFconKaar9x5nHqjiTEkehAHt",
+      "pdaMatches": true,
+      "market": "6J3G1yNAo7bmGJjGNkmxL691JrfKUFvCtnZNosj9pnoX",
+      "lpMint": "WuKeUDHD8vnomJxBKndjU4BfYEX5qs658P6BW37Zyqa",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"2b1ff255-3a9b-41fe-a6d0-87dfc604ec27\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "GNANBFavy55SiWKEZ5N51TYcbUuh8g4E1Yhq5J8sjFrC",
+      "pdaMatches": true,
+      "market": "3TbThULumCsxVwQHUu1kQyCG81EroyzHEDYE4SBw4MyB",
+      "lpMint": "BMnwYBixNNJiq1fpC5wCQHfngFVHPvyvCyUmp5GeBA2W",
+      "totalShares": "1497143302",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1497142302",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"971010ed-7e80-479a-b8c4-671943556c90\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "GRvWABmYiDUgL3H3gzVP8mKnzNDmr1oCboJ4fZCscoug",
+      "pdaMatches": true,
+      "market": "5S7h2kKgsnHi4sNRFqMwmxnSUnCYfbBGq7khYu14jgPb",
+      "lpMint": "AwFgaZkAZ5DaVGVEMmMWan74z9a1GvtqZ2i5ZPRq59HF",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"e09e63af-3c8a-4ec1-9132-e59e72ad09a7\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "Gbd1HgUHAksURq3T73NEgN1K5E88jGawzVm3VNinJKtn",
+      "pdaMatches": true,
+      "market": "6YppKdUiMmQSie7DrpJgQ9ofmCxvEhanKoRw6e9Yzh4T",
+      "lpMint": "8gPedMw4LuszDwjLX6o3pyCsq1q3Pp1ohjHdGXihEmor",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"ae07c89f-a06f-4bcc-99ab-8fda85ea1bf2\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "Gvj4ZQADL7qYvkGtgAGka47bPVEVF43QuBJsqFHT81FU",
+      "pdaMatches": true,
+      "market": "GtUe5hYy8scuMsp2cmXt7WfCfqKVgTJ8RjuTyvz3MB8B",
+      "lpMint": "DxpBJyw6NWpGyA5nW8bmseTEPgeaZ1U61VjJNs21Z4NV",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"fb04aa28-e51e-487a-8110-91e58d189f00\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "GxgcBa7sH1xXSRpYDvmrZHM2fx45x3gx6fZBcN7vKwy3",
+      "pdaMatches": true,
+      "market": "BDJMcmtGZNTNoHJgasm5LdVagW5pJQY4EsshX2Ybf7NF",
+      "lpMint": "CcUcaRq2B5rmaRe87zsQaedeKZgmcnpFxCcZAage7izn",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"0e7e5769-d93e-4843-8e8b-15d0e930a660\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "GygQsPRap8EhuduRdXCwfRmQARZ9CbYfXrnHNgwFtbEH",
+      "pdaMatches": true,
+      "market": "HNKzKtHurQtgxvEoPXRaifj6ucYECr2piW8k1DjPStdY",
+      "lpMint": "DnXH1sU6hh6MSwySq3ibYYMpHoShzZVcKsdcLytL5U68",
+      "totalShares": "2000000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "1999999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"8c5ffa2e-c6c7-4a8d-a9b8-21dff4a0e773\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "HT4nYtijwCZmTYUXA7R25CqgmvdFpgh3onj5s53WHF2F",
+      "pdaMatches": true,
+      "market": "Su3emGX1YuyfEevu4HB1ANMXrnGdxcjXcR2JbRvAoGC",
+      "lpMint": "6V3No6n6gkpBRM4ePV9K3pK4evhKpz1XqUU4FYNZ3G7v",
+      "totalShares": "1000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "0",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"101c966a-3408-4a32-a341-265804532cd3\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "HfU73B3ftHrfiaUUV4bXeNE5XXAR8hpCBHWgkkcP4ogC",
+      "pdaMatches": true,
+      "market": "HKpBepzgPNXJmJjBXRDeAMPLbkyizM1q56gXBKqs7B3o",
+      "lpMint": "8VhTPANmGa94RcbJBsCLFyf7pmbJP1LgTapmERDE7Mxo",
+      "totalShares": "500000000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "499999000",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"41b9b39a-d896-4081-9ec0-376e52d267a4\" } \r\n"
+        }
+      ]
+    },
+    {
+      "registry": "JADXVfK52nMCa6EHsZzopzkXsoLEnx6aXn1Heavw3xYz",
+      "pdaMatches": true,
+      "market": "J5vfVELevNZ5TUZjzPekB1czphR8W8tgVXZNQRBfSojs",
+      "lpMint": "44NC6wXRTN4rqYeMUhZudbzrZkczEaYSVzdKmQvxvLVc",
+      "totalShares": "1000",
+      "cooldown": "150",
+      "domain": 0,
+      "paused": false,
+      "version": 1,
+      "supply": "0",
+      "holders": [
+        {
+          "error": "Error: 429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests for a specific RPC call\"}, \"id\": \"bc8ce190-a916-4cd0-b56a-b6ade8e228e3\" } \r\n"
+        }
+      ]
+    }
+  ],
+  "redemptions112": [
+    "7HhMPZihQVn6wDmgsncuSR8H69uMA4Dzg45EpqvSx9tb"
+  ],
+  "redemptions128": [
+    "DT2MAJmF5SFAsqDKKaQ5317B8Ep96yNcXug3hfT2jny4",
+    "GCoR9R6FmGRH1SkoBcegaVDU6gYeKDtgXt9gs9jgXSUm",
+    "GT4YakWX7HTMTdd9cJgQcF8J85k59MUdTsUuYRUxD4c1"
+  ]
+}

@@ -1,0 +1,106 @@
+program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM  rpc https://api.devnet.solana.com  at 2026-11-23T17:44:43.420Z  throwaway 4GWXMhjHgwzbdtfgVM2i98jHLMdXfDRkDN23GM9cp6WU
+
+VAULT registry 3hLePQZBu2YBcwh3wTUwejLn38iw8gdnN9kaCoc6pmAo market 294orabCvLGRKSfiiqxQT5F4owssHzHbuK4kqTuobmbb domain 0 cooldown 150 holder 9sM73A4MvS2ye2Fuvpr1tmkj68iA61eebuRKz1rnGUWa (5199999000 shares)
+  T-floored  floored-26 len=26 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=6357
+     data 4ce8030000000000000000000000000000de0300000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6207 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  T-legacy   legacy-17  len=17 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=6344
+     data 4ce8030000000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6194 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  H-floored  floored-26 len=26 err=null code=null cu=23016 redemptionPdaLen=128
+     data 4c40420f00000000000000000000000000010000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 22866 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+  H-legacy   legacy-17  len=17 err=null code=null cu=22977 redemptionPdaLen=112
+     data 4c40420f00000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 22827 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+
+VAULT registry 6WrBoUJr9VPhvpepfYCKYKyYKpDFXnCEYHpMMyWyufRK market 5KDWvRc4iuHFuYh56zWuqU7VQup42KbB3kttjAZYoetn domain 0 cooldown 150 holder 9sM73A4MvS2ye2Fuvpr1tmkj68iA61eebuRKz1rnGUWa (3799999000 shares)
+  T-floored  floored-26 len=26 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=7857
+     data 4ce8030000000000000000000000000000de0300000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 7707 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  T-legacy   legacy-17  len=17 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=7844
+     data 4ce8030000000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 7694 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  H-floored  floored-26 len=26 err=null code=null cu=21516 redemptionPdaLen=128
+     data 4c40420f00000000000000000000000000010000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 21366 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+  H-legacy   legacy-17  len=17 err=null code=null cu=21477 redemptionPdaLen=112
+     data 4c40420f00000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 21327 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+
+VAULT registry 6deq4xScS3tGW5NEZNhWKpWpALhm8thSscq47TQG8WxC market B5b7qwALa7bxS6ByDTYnZTkwkA5JqDGGpGKCEREGZ699 domain 0 cooldown 150 holder DrrDGxiojUPHnLZaNw7DN6JYoEKKqu3bG4PmNjv8P1yG (3999999000 shares)
+  T-floored  floored-26 len=26 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=4857
+     data 4ce8030000000000000000000000000000de0300000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 4707 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  T-legacy   legacy-17  len=17 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=4844
+     data 4ce8030000000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 4694 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  H-floored  floored-26 len=26 err=null code=null cu=18516 redemptionPdaLen=128
+     data 4c40420f00000000000000000000000000010000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 18366 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+  H-legacy   legacy-17  len=17 err=null code=null cu=18477 redemptionPdaLen=112
+     data 4c40420f00000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 18327 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+
+VAULT registry 7baPebpnoFyg3QvaeMyqgFJDMEv6x8Sve22osxtiJ3zx market 819p1NhMJvG7sBV2XNnj3xfkF9gje5yy1UBWuMQtC6uE domain 0 cooldown 150 holder DrrDGxiojUPHnLZaNw7DN6JYoEKKqu3bG4PmNjv8P1yG (1999999000 shares)
+  T-floored  floored-26 len=26 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=6357
+     data 4ce8030000000000000000000000000000de0300000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6207 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  T-legacy   legacy-17  len=17 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=6344
+     data 4ce8030000000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6194 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  H-floored  floored-26 len=26 err=null code=null cu=21516 redemptionPdaLen=128
+     data 4c40420f00000000000000000000000000010000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 21366 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+  H-legacy   legacy-17  len=17 err=null code=null cu=21477 redemptionPdaLen=112
+     data 4c40420f00000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 21327 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+
+VAULT registry 7jYf3b6ZQS4HzCgXwMJagmFE2fhMQmXSv7qJLKjRcuq2 market FGYv3PzCLRjK7UT772UVZFPcLHjxw48MwhYkro4KNrmJ domain 0 cooldown 150 holder 6Rz2i9cRAQ2JRZ9pZAuPidYQAYhrJSWbbWaJAVvknAVq (1999999000 shares)
+  T-floored  floored-26 len=26 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=6357
+     data 4ce8030000000000000000000000000000de0300000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6207 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  T-legacy   legacy-17  len=17 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=6344
+     data 4ce8030000000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6194 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  H-floored  floored-26 len=26 err=null code=null cu=20016 redemptionPdaLen=128
+     data 4c40420f00000000000000000000000000010000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 19866 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+  H-legacy   legacy-17  len=17 err=null code=null cu=19977 redemptionPdaLen=112
+     data 4c40420f00000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 19827 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+
+VAULT registry 7sXRsTmM1iZnJ83LxBiyZT8BYNtTQBNSKPcKumgTeYPx market H9uGY9QmeC6W9qsLF3fLxtgoMSz8Xd5sVFknr3zZNgiq domain 0 cooldown 150 holder 6Rz2i9cRAQ2JRZ9pZAuPidYQAYhrJSWbbWaJAVvknAVq (1999999000 shares)
+  T-floored  floored-26 len=26 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=7857
+     data 4ce8030000000000000000000000000000de0300000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 7707 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  T-legacy   legacy-17  len=17 err={"InstructionError":[1,{"Custom":11}]} code=11 cu=7844
+     data 4ce8030000000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 7694 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb
+  H-floored  floored-26 len=26 err=null code=null cu=23016 redemptionPdaLen=128
+     data 4c40420f00000000000000000000000000010000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 22866 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+  H-legacy   legacy-17  len=17 err=null code=null cu=22977 redemptionPdaLen=112
+     data 4c40420f00000000000000000000000000
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 22827 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+
+PENDING bound=undefined DT2MAJmF5SFAsqDKKaQ5317B8Ep96yNcXug3hfT2jny4 (len 128) registry jfrCnAoM8FJpBw6A77UP9iaUt5Tb1s6Uzwc4e5VK7xH redeemer DRarGoxYdwLx9cLfb5GmVVeZiCGPYq4MGxAVnvGypuAj shares 99541519 storedFloor 90000000 requestSlot 509436276
+  dest AY6vTrLcmfgKQbcM27QojzTCzgXi1dtLkLyYuRXZXKRq exists=true before=900000000 vaultToken GjuQ85LmeRm2ABo8YVRDE5QSFaWmdR4ayRzZTsdbS9G
+  P-floor1       wireFloor=1 quote=null err={"InstructionError":[1,"NotEnoughAccountKeys"]} code=NotEnoughAccountKeys classified={"kind":"other"} cu=33118
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 32968 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction
+  P-above-quote  wireFloor=1000090000000 quote=null err={"InstructionError":[1,"NotEnoughAccountKeys"]} code=NotEnoughAccountKeys classified={"kind":"other"} cu=33118
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 32968 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction
+
+PENDING bound=undefined GCoR9R6FmGRH1SkoBcegaVDU6gYeKDtgXt9gs9jgXSUm (len 128) registry 9GMV5yoxrnrU2jB9YVxWuP2vzwzEDjXQ37ye9eK6X3Lc redeemer 5EjUCcqCR8Kz4SEMJsSy46q4S5ZrFY14nv7pzmogTnnr shares 2979756843 storedFloor 1 requestSlot 510876859
+  dest 2CREUzA5BZy6eZbnA1RspCw4gEt54SXgHXf4JGDBXtEj exists=true before=197000000000 vaultToken B69SfNQK3Q1N9SVQTPmp4mNWxcg8LKEY85PcidYf9Hu2
+  P-floor1       wireFloor=1 quote=null err={"InstructionError":[1,"NotEnoughAccountKeys"]} code=NotEnoughAccountKeys classified={"kind":"other"} cu=31995
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 31845 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction
+  P-above-quote  wireFloor=1000000000001 quote=null err={"InstructionError":[1,"NotEnoughAccountKeys"]} code=NotEnoughAccountKeys classified={"kind":"other"} cu=31995
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 31845 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction
+
+PENDING bound=undefined GT4YakWX7HTMTdd9cJgQcF8J85k59MUdTsUuYRUxD4c1 (len 128) registry GNANBFavy55SiWKEZ5N51TYcbUuh8g4E1Yhq5J8sjFrC redeemer DrrDGxiojUPHnLZaNw7DN6JYoEKKqu3bG4PmNjv8P1yG shares 997143302 storedFloor 900000600 requestSlot 514481657
+  dest DpxMpKxwRSe5moCcopwtvEiCYfMAK2hDPu3U8ncrLjPd exists=true before=63510789548 vaultToken JBivZHER5tL7pa8F1D9umQ5wsUCRh1X6nTa5TXR52M4d
+  P-floor1       wireFloor=1 quote=null err={"InstructionError":[1,"NotEnoughAccountKeys"]} code=NotEnoughAccountKeys classified={"kind":"other"} cu=34617
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 34467 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction
+  P-above-quote  wireFloor=1000900000600 quote=null err={"InstructionError":[1,"NotEnoughAccountKeys"]} code=NotEnoughAccountKeys classified={"kind":"other"} cu=34617
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 34467 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction

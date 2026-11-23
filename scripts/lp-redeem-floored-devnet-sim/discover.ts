@@ -6,6 +6,7 @@ import { PROGRAM_IDS_DEVNET_V22, parseLpVaultRegistry, deriveLpVaultRegistry } f
 const RPC = process.env.LPSIM_RPC ?? "https://api.devnet.solana.com";
 const conn = new Connection(RPC, "confirmed");
 const PROGRAM = new PublicKey(PROGRAM_IDS_DEVNET_V22.percolator);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   const regs = await conn.getProgramAccounts(PROGRAM, { filters: [{ dataSize: 176 }] });
@@ -16,10 +17,13 @@ async function main() {
     const expected = deriveLpVaultRegistry(PROGRAM, r.marketGroup)[0];
     let supply: string | null = null; let holders: any[] = [];
     try {
+      await sleep(1000);
       supply = (await conn.getTokenSupply(r.lpMint)).value.amount;
+      await sleep(1000);
       const largest = await conn.getTokenLargestAccounts(r.lpMint);
       for (const a of largest.value.slice(0, 5)) {
         if (a.amount === "0") continue;
+        await sleep(800);
         const info = await conn.getParsedAccountInfo(a.address);
         const owner = (info.value?.data as any)?.parsed?.info?.owner ?? null;
         holders.push({ ata: a.address.toBase58(), owner, amount: a.amount });

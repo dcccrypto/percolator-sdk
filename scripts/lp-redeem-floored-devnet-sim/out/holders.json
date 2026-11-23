@@ -1,0 +1,202 @@
+{
+  "rpc": "https://api.devnet.solana.com",
+  "slot": 525508333,
+  "pending": [
+    {
+      "redemption": "7HhMPZihQVn6wDmgsncuSR8H69uMA4Dzg45EpqvSx9tb",
+      "len": 112,
+      "registry": "8NjPmGygC8nT1hApRifusfk6CTLNTU25Kz8E7LTYkYLE",
+      "market": null,
+      "redeemer": "13VwGEw4m1HTbSMqVD3KmNbJwxyoGcDPDGboukRwRQgF",
+      "shares": "1204221899875833749920072",
+      "requestSlot": "0",
+      "minPayoutStored": null,
+      "keeperOkStored": null
+    },
+    {
+      "redemption": "DT2MAJmF5SFAsqDKKaQ5317B8Ep96yNcXug3hfT2jny4",
+      "len": 128,
+      "registry": "jfrCnAoM8FJpBw6A77UP9iaUt5Tb1s6Uzwc4e5VK7xH",
+      "market": "BYFuWyuoUGhP1n8wpD8gXH2ciDsegyF1UJCQvBiVx7T5",
+      "redeemer": "DRarGoxYdwLx9cLfb5GmVVeZiCGPYq4MGxAVnvGypuAj",
+      "shares": "99541519",
+      "requestSlot": "509436276",
+      "minPayoutStored": "90000000",
+      "keeperOkStored": 0,
+      "redeemerLpAta": "GGG786Fr1XHiK8RwJRWEs8SB3sDKwt4iRRE6brf9M739",
+      "redeemerLpBalance": "0"
+    },
+    {
+      "redemption": "GCoR9R6FmGRH1SkoBcegaVDU6gYeKDtgXt9gs9jgXSUm",
+      "len": 128,
+      "registry": "9GMV5yoxrnrU2jB9YVxWuP2vzwzEDjXQ37ye9eK6X3Lc",
+      "market": "25xGmJg5ZaAckSXCnnvhSwsvzJqi82UqpR82UFtsZiNC",
+      "redeemer": "5EjUCcqCR8Kz4SEMJsSy46q4S5ZrFY14nv7pzmogTnnr",
+      "shares": "2979756843",
+      "requestSlot": "510876859",
+      "minPayoutStored": "1",
+      "keeperOkStored": 0,
+      "redeemerLpAta": "AP1oJDXizRauFBnuw1XYAE3njxh7RzZ2PbLmQ4wAUpDG",
+      "redeemerLpBalance": "0"
+    },
+    {
+      "redemption": "GT4YakWX7HTMTdd9cJgQcF8J85k59MUdTsUuYRUxD4c1",
+      "len": 128,
+      "registry": "GNANBFavy55SiWKEZ5N51TYcbUuh8g4E1Yhq5J8sjFrC",
+      "market": "3TbThULumCsxVwQHUu1kQyCG81EroyzHEDYE4SBw4MyB",
+      "redeemer": "DrrDGxiojUPHnLZaNw7DN6JYoEKKqu3bG4PmNjv8P1yG",
+      "shares": "997143302",
+      "requestSlot": "514481657",
+      "minPayoutStored": "900000600",
+      "keeperOkStored": 0,
+      "redeemerLpAta": "DSR4mPYC29dtbRDjPXjLagPx9vpUTFWev5TGzWw3NzVK",
+      "redeemerLpBalance": "0"
+    }
+  ],
+  "holders": [
+    {
+      "registry": "D3EaSFpGaaV8J2vuHFLrTk9AC9vNEGUfHHTZkJTWtPvo",
+      "market": "9nprHfroG2w4tJWsnBMy7SVPPr7Mxco9i3qZ56nsnMws",
+      "lpMint": "CVHJhmTWpHoY7gFaU84sD3Ed7URrEtgjPfsiuigkBUo8",
+      "holders": [
+        {
+          "ata": "7BLrZqbr73SbFPxQx6pHCK9kE5WP8YvoUQyEBu3L3fd9",
+          "owner": "9sM73A4MvS2ye2Fuvpr1tmkj68iA61eebuRKz1rnGUWa",
+          "amount": "5399999000"
+        }
+      ]
+    },
+    {
+      "registry": "3hLePQZBu2YBcwh3wTUwejLn38iw8gdnN9kaCoc6pmAo",
+      "market": "294orabCvLGRKSfiiqxQT5F4owssHzHbuK4kqTuobmbb",
+      "lpMint": "7LAcv5z6RbM95N9gnmowzip6UMMpgcp1RWdxx9ZbzVTe",
+      "holders": [
+        {
+          "ata": "3SLmYd37SqcXDUAL9jbNC9Ra5b1dW7tTuDKVZzdFvv3W",
+          "owner": "9sM73A4MvS2ye2Fuvpr1tmkj68iA61eebuRKz1rnGUWa",
+          "amount": "5199999000"
+        }
+      ]
+    },
+    {
+      "registry": "FJ8teiLm6J4FLX5if6a4kh4ZDcLtQLpWxJvfDz54tqDm",
+      "market": "ELaepc4xFuQKcMMr2B63iJhGhyKbzvjvKJ8C9ZcT4eVf",
+      "lpMint": "AS3FkxNBmkHrZMC5N2kxRAafW7mSYhJDhE8nhZFfr7Ha",
+      "holders": [
+        {
+          "ata": "GnwVLLX1TSeqjDa2cHAFpbj4L7CroKfYxyCJYje16geG",
+          "owner": "9sM73A4MvS2ye2Fuvpr1tmkj68iA61eebuRKz1rnGUWa",
+          "amount": "4999999000"
+        }
+      ]
+    },
+    {
+      "registry": "CCkXvX76T6JeV1HjSPb1vrP3EeP31NY7V85WaUAzLvkB",
+      "market": "52Ug8mJM9VbUudto5ih4frY8HRHugshLTmW1H7H1G3Lu",
+      "lpMint": "46qzwWkk789gMRdgmECNjSNbrNzRPYweXkAFU92Chqgj",
+      "holders": [
+        {
+          "ata": "9ENDutF1Wpyhim26M6vZQEz3E3BV4Q7XwgwXqXBAFmPY",
+          "owner": "9sM73A4MvS2ye2Fuvpr1tmkj68iA61eebuRKz1rnGUWa",
+          "amount": "4599999000"
+        }
+      ]
+    },
+    {
+      "registry": "6deq4xScS3tGW5NEZNhWKpWpALhm8thSscq47TQG8WxC",
+      "market": "B5b7qwALa7bxS6ByDTYnZTkwkA5JqDGGpGKCEREGZ699",
+      "lpMint": "6MwU8vaahrRx2r7a6dNJXiR5jMeasWMxkf89CdXYeQKe",
+      "holders": [
+        {
+          "ata": "6JjVbzjtVnqSKbsNtbgpZY95gukqAjjkbErRe3tTSPQo",
+          "owner": "DrrDGxiojUPHnLZaNw7DN6JYoEKKqu3bG4PmNjv8P1yG",
+          "amount": "3999999000"
+        }
+      ]
+    },
+    {
+      "registry": "6WrBoUJr9VPhvpepfYCKYKyYKpDFXnCEYHpMMyWyufRK",
+      "market": "5KDWvRc4iuHFuYh56zWuqU7VQup42KbB3kttjAZYoetn",
+      "lpMint": "7Ve2BbdwxJWxyTfrQQTdX7AirP6npgs6Z6vSZXN97TGi",
+      "holders": [
+        {
+          "ata": "3S2n8EqEhSsSymX2mkeaCkDj91BWFU192mY5sQCfqy41",
+          "owner": "9sM73A4MvS2ye2Fuvpr1tmkj68iA61eebuRKz1rnGUWa",
+          "amount": "3799999000"
+        }
+      ]
+    },
+    {
+      "registry": "9GMV5yoxrnrU2jB9YVxWuP2vzwzEDjXQ37ye9eK6X3Lc",
+      "market": "25xGmJg5ZaAckSXCnnvhSwsvzJqi82UqpR82UFtsZiNC",
+      "lpMint": "BGjdnBUr9bBwnUrGbnYZ8ev6v1ausKMtDnkwxHmXLtjq",
+      "holders": [
+        {
+          "ata": "M9r7TeDkgkzexbAWoYzQPvTbUdqm4Mw44HdkbGX71By",
+          "owner": "FbTbDeGWQpjrEqJdqoBHX3sTWHoAmU2xywD7wyxH6WC7",
+          "amount": "499999000"
+        }
+      ]
+    },
+    {
+      "registry": "GygQsPRap8EhuduRdXCwfRmQARZ9CbYfXrnHNgwFtbEH",
+      "market": "HNKzKtHurQtgxvEoPXRaifj6ucYECr2piW8k1DjPStdY",
+      "lpMint": "DnXH1sU6hh6MSwySq3ibYYMpHoShzZVcKsdcLytL5U68",
+      "holders": [
+        {
+          "ata": "bo4RvXdkBgc9CUXyTajqHuptknApeiNa236rrhVjrzp",
+          "owner": "H2V6s5vzJz5FD6bt95F8jE9nRrAauwDPJ42Qc27hGGBa",
+          "amount": "1999999000"
+        }
+      ]
+    },
+    {
+      "registry": "9iNR3Q3XaDwENwq1NmaNCNiq6iYvoBR6CrCKZt4Pqxpq",
+      "market": "DK7FJjVWsMvbriMwmC5ixpT9topuBzBfevD2hqrd3hZ2",
+      "lpMint": "8c72aCqQ2N2phmSrwMR5HfE89XJc4XQin5riW5K6bj8v",
+      "holders": [
+        {
+          "ata": "5P5Sus34Ro8NTT2iuQdJvp4RJpq8rQ352yumy7tnsRHs",
+          "owner": "9sM73A4MvS2ye2Fuvpr1tmkj68iA61eebuRKz1rnGUWa",
+          "amount": "1999999000"
+        }
+      ]
+    },
+    {
+      "registry": "7sXRsTmM1iZnJ83LxBiyZT8BYNtTQBNSKPcKumgTeYPx",
+      "market": "H9uGY9QmeC6W9qsLF3fLxtgoMSz8Xd5sVFknr3zZNgiq",
+      "lpMint": "9eadfrEFgmPnMY8FXCLLyLAJc9DFpBaQAKERMKX3VUNT",
+      "holders": [
+        {
+          "ata": "3PzzCUrh75b4WPbdHzynMzKV5h4fLCF12x9g6jmKkunh",
+          "owner": "6Rz2i9cRAQ2JRZ9pZAuPidYQAYhrJSWbbWaJAVvknAVq",
+          "amount": "1999999000"
+        }
+      ]
+    },
+    {
+      "registry": "7jYf3b6ZQS4HzCgXwMJagmFE2fhMQmXSv7qJLKjRcuq2",
+      "market": "FGYv3PzCLRjK7UT772UVZFPcLHjxw48MwhYkro4KNrmJ",
+      "lpMint": "FKPyfxjYaS7cUP7CqSWyg5TdiMTzXEARNouKVS9rxHwN",
+      "holders": [
+        {
+          "ata": "FCYVswEgaZapUzwxh1gYHcCj5GnHjDyHySvVbMByCy5z",
+          "owner": "6Rz2i9cRAQ2JRZ9pZAuPidYQAYhrJSWbbWaJAVvknAVq",
+          "amount": "1999999000"
+        }
+      ]
+    },
+    {
+      "registry": "7baPebpnoFyg3QvaeMyqgFJDMEv6x8Sve22osxtiJ3zx",
+      "market": "819p1NhMJvG7sBV2XNnj3xfkF9gje5yy1UBWuMQtC6uE",
+      "lpMint": "F3us89pmoEHuVVpdEkK64vUNt1eR7iNSzNkacoNY3PRt",
+      "holders": [
+        {
+          "ata": "BgkiGZThhEkvfzRhwLG6A5ctGQKw87H1F7jRQjaB8Fuc",
+          "owner": "DrrDGxiojUPHnLZaNw7DN6JYoEKKqu3bG4PmNjv8P1yG",
+          "amount": "1999999000"
+        }
+      ]
+    }
+  ]
+}

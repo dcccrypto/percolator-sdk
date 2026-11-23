@@ -1,0 +1,22 @@
+program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM  rpc https://api.devnet.solana.com  at 2026-11-23T17:45:39.132Z  throwaway 3iaPeJ82XdySNnCoL9uRk37hy3Z4qFXTCaD7NnL5hnVB
+
+PENDING bound=59N7KL3PPm5jxLqQ4WacLcsae1g5QPq31SZKDLWpxv78 DT2MAJmF5SFAsqDKKaQ5317B8Ep96yNcXug3hfT2jny4 (len 128) registry jfrCnAoM8FJpBw6A77UP9iaUt5Tb1s6Uzwc4e5VK7xH redeemer DRarGoxYdwLx9cLfb5GmVVeZiCGPYq4MGxAVnvGypuAj shares 99541519 storedFloor 90000000 requestSlot 509436276
+  dest AY6vTrLcmfgKQbcM27QojzTCzgXi1dtLkLyYuRXZXKRq exists=true before=900000000 vaultToken GjuQ85LmeRm2ABo8YVRDE5QSFaWmdR4ayRzZTsdbS9G
+  P-floor1       wireFloor=1 quote=101360104 err=null code=null classified={"kind":"ok"} cu=165369
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 165219 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+  P-above-quote  wireFloor=101360105 quote=101360104 err={"InstructionError":[1,{"Custom":117}]} code=117 classified={"kind":"belowMinPayout","code":117} cu=142873
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 142723 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0x75
+
+PENDING bound=5yARqECkvSBvP9Dt3SKHP9R7m7JT1z8qiZnxrfJRFXyK GCoR9R6FmGRH1SkoBcegaVDU6gYeKDtgXt9gs9jgXSUm (len 128) registry 9GMV5yoxrnrU2jB9YVxWuP2vzwzEDjXQ37ye9eK6X3Lc redeemer 5EjUCcqCR8Kz4SEMJsSy46q4S5ZrFY14nv7pzmogTnnr shares 2979756843 storedFloor 1 requestSlot 510876859
+  dest 2CREUzA5BZy6eZbnA1RspCw4gEt54SXgHXf4JGDBXtEj exists=true before=197000000000 vaultToken B69SfNQK3Q1N9SVQTPmp4mNWxcg8LKEY85PcidYf9Hu2
+  P-floor1       wireFloor=1 quote=null err={"InstructionError":[1,{"Custom":84}]} code=84 classified={"kind":"other","code":84} cu=62121
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 61971 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0x54
+  P-above-quote  wireFloor=1000000000001 quote=null err={"InstructionError":[1,{"Custom":84}]} code=84 classified={"kind":"other","code":84} cu=62121
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 61971 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0x54
+
+PENDING bound=DxvBMniNueBXTgENBDiJdxo5Evu1VoH4ErzuanYdyc8z GT4YakWX7HTMTdd9cJgQcF8J85k59MUdTsUuYRUxD4c1 (len 128) registry GNANBFavy55SiWKEZ5N51TYcbUuh8g4E1Yhq5J8sjFrC redeemer DrrDGxiojUPHnLZaNw7DN6JYoEKKqu3bG4PmNjv8P1yG shares 997143302 storedFloor 900000600 requestSlot 514481657
+  dest DpxMpKxwRSe5moCcopwtvEiCYfMAK2hDPu3U8ncrLjPd exists=true before=63510789548 vaultToken JBivZHER5tL7pa8F1D9umQ5wsUCRh1X6nTa5TXR52M4d
+  P-floor1       wireFloor=1 quote=1000232586 err=null code=null classified={"kind":"ok"} cu=108889
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 108739 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success
+  P-above-quote  wireFloor=1000232587 quote=1000232586 err={"InstructionError":[1,{"Custom":117}]} code=117 classified={"kind":"belowMinPayout","code":117} cu=86399
+     logs Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1] || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 86249 of 1399850 compute units || Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0x75

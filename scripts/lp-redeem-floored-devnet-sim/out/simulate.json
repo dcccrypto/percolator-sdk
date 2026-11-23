@@ -1,0 +1,1163 @@
+{
+  "rpc": "https://api.devnet.solana.com",
+  "program": "6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM",
+  "throwaway": "4GWXMhjHgwzbdtfgVM2i98jHLMdXfDRkDN23GM9cp6WU",
+  "feePayerForThrowawayCases": "the vault holder wallet (vault.holder.owner)",
+  "at": "2026-11-23T17:44:43.420Z",
+  "vaults": [
+    {
+      "registry": "3hLePQZBu2YBcwh3wTUwejLn38iw8gdnN9kaCoc6pmAo",
+      "market": "294orabCvLGRKSfiiqxQT5F4owssHzHbuK4kqTuobmbb",
+      "lpMint": "7LAcv5z6RbM95N9gnmowzip6UMMpgcp1RWdxx9ZbzVTe",
+      "domain": 0,
+      "cooldownSlots": "150",
+      "paused": false,
+      "totalShares": "5200000000",
+      "cases": [
+        {
+          "form": "floored-26",
+          "redeemer": "throwaway",
+          "dataLen": 26,
+          "dataHex": "4ce8030000000000000000000000000000de0300000000000000",
+          "name": "T-floored",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 6357,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6207 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "throwaway",
+          "dataLen": 17,
+          "dataHex": "4ce8030000000000000000000000000000",
+          "name": "T-legacy",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 6344,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6194 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "floored-26",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "minPayout": "1",
+          "dataLen": 26,
+          "dataHex": "4c40420f00000000000000000000000000010000000000000000",
+          "name": "H-floored",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 23016,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1384631 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1377928 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 22866 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "APbVWimeuWjCed47frUgqzKbBakuyPQwQuiGjDSFK15s",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAACgM0YRhuCu9bUblnT/j+nKlOgkaUMzVTVIHDcXK0FHwg8NEg3KiJkMbyp/GoJfFnfADNz2Hnbqms9z8jjTkCcdAQg8AAAAAAAAAAAAAAAAASKNSHwAAAAAB/wAAAAAAAAEAAAAAAAAAAAAAAAAAAAA="
+            }
+          ]
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "dataLen": 17,
+          "dataHex": "4c40420f00000000000000000000000000",
+          "name": "H-legacy",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 22977,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1384644 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1377940 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 22827 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "APbVWimeuWjCed47frUgqzKbBakuyPQwQuiGjDSFK15s",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAACgM0YRhuCu9bUblnT/j+nKlOgkaUMzVTVIHDcXK0FHwg8NEg3KiJkMbyp/GoJfFnfADNz2Hnbqms9z8jjTkCcdAQg8AAAAAAAAAAAAAAAAATaNSHwAAAAAB/wAAAAAAAA=="
+            }
+          ]
+        }
+      ],
+      "holder": {
+        "owner": "9sM73A4MvS2ye2Fuvpr1tmkj68iA61eebuRKz1rnGUWa",
+        "ata": "3SLmYd37SqcXDUAL9jbNC9Ra5b1dW7tTuDKVZzdFvv3W",
+        "amount": "5199999000"
+      },
+      "holderPendingRedemption": false
+    },
+    {
+      "registry": "6WrBoUJr9VPhvpepfYCKYKyYKpDFXnCEYHpMMyWyufRK",
+      "market": "5KDWvRc4iuHFuYh56zWuqU7VQup42KbB3kttjAZYoetn",
+      "lpMint": "7Ve2BbdwxJWxyTfrQQTdX7AirP6npgs6Z6vSZXN97TGi",
+      "domain": 0,
+      "cooldownSlots": "150",
+      "paused": false,
+      "totalShares": "3800000000",
+      "cases": [
+        {
+          "form": "floored-26",
+          "redeemer": "throwaway",
+          "dataLen": 26,
+          "dataHex": "4ce8030000000000000000000000000000de0300000000000000",
+          "name": "T-floored",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 7857,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 7707 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "throwaway",
+          "dataLen": 17,
+          "dataHex": "4ce8030000000000000000000000000000",
+          "name": "T-legacy",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 7844,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 7694 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "floored-26",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "minPayout": "1",
+          "dataLen": 26,
+          "dataHex": "4c40420f00000000000000000000000000010000000000000000",
+          "name": "H-floored",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 21516,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1386131 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1379428 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 21366 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "9MLT2ddQ57PfvZ9nwg7xoVN64T9pPdogxUbZbYYeZgEJ",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAAFHv5KTVysZE4BO8zYxWlRbOGQv2JH1cj8R1qjDGjGmag8NEg3KiJkMbyp/GoJfFnfADNz2Hnbqms9z8jjTkCcdAQg8AAAAAAAAAAAAAAAAAY6NSHwAAAAAB/wAAAAAAAAEAAAAAAAAAAAAAAAAAAAA="
+            }
+          ]
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "dataLen": 17,
+          "dataHex": "4c40420f00000000000000000000000000",
+          "name": "H-legacy",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 21477,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1386144 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1379440 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 21327 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "9MLT2ddQ57PfvZ9nwg7xoVN64T9pPdogxUbZbYYeZgEJ",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAAFHv5KTVysZE4BO8zYxWlRbOGQv2JH1cj8R1qjDGjGmag8NEg3KiJkMbyp/GoJfFnfADNz2Hnbqms9z8jjTkCcdAQg8AAAAAAAAAAAAAAAAAaKNSHwAAAAAB/wAAAAAAAA=="
+            }
+          ]
+        }
+      ],
+      "holder": {
+        "owner": "9sM73A4MvS2ye2Fuvpr1tmkj68iA61eebuRKz1rnGUWa",
+        "ata": "3S2n8EqEhSsSymX2mkeaCkDj91BWFU192mY5sQCfqy41",
+        "amount": "3799999000"
+      },
+      "holderPendingRedemption": false
+    },
+    {
+      "registry": "6deq4xScS3tGW5NEZNhWKpWpALhm8thSscq47TQG8WxC",
+      "market": "B5b7qwALa7bxS6ByDTYnZTkwkA5JqDGGpGKCEREGZ699",
+      "lpMint": "6MwU8vaahrRx2r7a6dNJXiR5jMeasWMxkf89CdXYeQKe",
+      "domain": 0,
+      "cooldownSlots": "150",
+      "paused": false,
+      "totalShares": "4000000000",
+      "cases": [
+        {
+          "form": "floored-26",
+          "redeemer": "throwaway",
+          "dataLen": 26,
+          "dataHex": "4ce8030000000000000000000000000000de0300000000000000",
+          "name": "T-floored",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 4857,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 4707 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "throwaway",
+          "dataLen": 17,
+          "dataHex": "4ce8030000000000000000000000000000",
+          "name": "T-legacy",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 4844,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 4694 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "floored-26",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "minPayout": "1",
+          "dataLen": 26,
+          "dataHex": "4c40420f00000000000000000000000000010000000000000000",
+          "name": "H-floored",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 18516,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1389131 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1382428 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 18366 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "G4oWk6fWA4MW6EeHjCT2fEh87wncurroCciLkTo65aF3",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAAFOuHeuZKnydCCWWcz9oYV+9JEXfFD/abmDOx7f+EAZ9vxFYtuemI5CDK5n+8wnugTFn7iTGw8vyWx9ys3fvcL9AQg8AAAAAAAAAAAAAAAAAf6NSHwAAAAAB/wAAAAAAAAEAAAAAAAAAAAAAAAAAAAA="
+            }
+          ]
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "dataLen": 17,
+          "dataHex": "4c40420f00000000000000000000000000",
+          "name": "H-legacy",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 18477,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1389144 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1382440 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 18327 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "G4oWk6fWA4MW6EeHjCT2fEh87wncurroCciLkTo65aF3",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAAFOuHeuZKnydCCWWcz9oYV+9JEXfFD/abmDOx7f+EAZ9vxFYtuemI5CDK5n+8wnugTFn7iTGw8vyWx9ys3fvcL9AQg8AAAAAAAAAAAAAAAAAg6NSHwAAAAAB/wAAAAAAAA=="
+            }
+          ]
+        }
+      ],
+      "holder": {
+        "owner": "DrrDGxiojUPHnLZaNw7DN6JYoEKKqu3bG4PmNjv8P1yG",
+        "ata": "6JjVbzjtVnqSKbsNtbgpZY95gukqAjjkbErRe3tTSPQo",
+        "amount": "3999999000"
+      },
+      "holderPendingRedemption": false
+    },
+    {
+      "registry": "7baPebpnoFyg3QvaeMyqgFJDMEv6x8Sve22osxtiJ3zx",
+      "market": "819p1NhMJvG7sBV2XNnj3xfkF9gje5yy1UBWuMQtC6uE",
+      "lpMint": "F3us89pmoEHuVVpdEkK64vUNt1eR7iNSzNkacoNY3PRt",
+      "domain": 0,
+      "cooldownSlots": "150",
+      "paused": false,
+      "totalShares": "2000000000",
+      "cases": [
+        {
+          "form": "floored-26",
+          "redeemer": "throwaway",
+          "dataLen": 26,
+          "dataHex": "4ce8030000000000000000000000000000de0300000000000000",
+          "name": "T-floored",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 6357,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6207 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "throwaway",
+          "dataLen": 17,
+          "dataHex": "4ce8030000000000000000000000000000",
+          "name": "T-legacy",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 6344,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6194 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "floored-26",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "minPayout": "1",
+          "dataLen": 26,
+          "dataHex": "4c40420f00000000000000000000000000010000000000000000",
+          "name": "H-floored",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 21516,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1386131 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1379428 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 21366 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "CzMpgQ44yWFg2UmFtJwy46S1GPPiqFhYefnPVFT6pRpK",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAAGIBn7IaoO/2QzjBs0W3Ea97unqhrU7ISASFhWbtyrNBvxFYtuemI5CDK5n+8wnugTFn7iTGw8vyWx9ys3fvcL9AQg8AAAAAAAAAAAAAAAAAmaNSHwAAAAAB/wAAAAAAAAEAAAAAAAAAAAAAAAAAAAA="
+            }
+          ]
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "dataLen": 17,
+          "dataHex": "4c40420f00000000000000000000000000",
+          "name": "H-legacy",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 21477,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1386144 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1379440 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 21327 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "CzMpgQ44yWFg2UmFtJwy46S1GPPiqFhYefnPVFT6pRpK",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAAGIBn7IaoO/2QzjBs0W3Ea97unqhrU7ISASFhWbtyrNBvxFYtuemI5CDK5n+8wnugTFn7iTGw8vyWx9ys3fvcL9AQg8AAAAAAAAAAAAAAAAAn6NSHwAAAAAB/wAAAAAAAA=="
+            }
+          ]
+        }
+      ],
+      "holder": {
+        "owner": "DrrDGxiojUPHnLZaNw7DN6JYoEKKqu3bG4PmNjv8P1yG",
+        "ata": "BgkiGZThhEkvfzRhwLG6A5ctGQKw87H1F7jRQjaB8Fuc",
+        "amount": "1999999000"
+      },
+      "holderPendingRedemption": false
+    },
+    {
+      "registry": "7jYf3b6ZQS4HzCgXwMJagmFE2fhMQmXSv7qJLKjRcuq2",
+      "market": "FGYv3PzCLRjK7UT772UVZFPcLHjxw48MwhYkro4KNrmJ",
+      "lpMint": "FKPyfxjYaS7cUP7CqSWyg5TdiMTzXEARNouKVS9rxHwN",
+      "domain": 0,
+      "cooldownSlots": "150",
+      "paused": false,
+      "totalShares": "2000000000",
+      "cases": [
+        {
+          "form": "floored-26",
+          "redeemer": "throwaway",
+          "dataLen": 26,
+          "dataHex": "4ce8030000000000000000000000000000de0300000000000000",
+          "name": "T-floored",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 6357,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6207 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "throwaway",
+          "dataLen": 17,
+          "dataHex": "4ce8030000000000000000000000000000",
+          "name": "T-legacy",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 6344,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 6194 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "floored-26",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "minPayout": "1",
+          "dataLen": 26,
+          "dataHex": "4c40420f00000000000000000000000000010000000000000000",
+          "name": "H-floored",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 20016,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1387631 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1380928 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 19866 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "7CANnuEppbMWVrwsct8N8vLYdyETcHjUULggrwnNzx9x",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAAGQMTxxe4CRulEO27v2fXnZ8+ZASILuGWUVspUO9t8hpULDbg9rN/QbH+BR8sVUW0QXxe+e9m/GKQyTFQ4GEHiRAQg8AAAAAAAAAAAAAAAAAtKNSHwAAAAAB/wAAAAAAAAEAAAAAAAAAAAAAAAAAAAA="
+            }
+          ]
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "dataLen": 17,
+          "dataHex": "4c40420f00000000000000000000000000",
+          "name": "H-legacy",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 19977,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1387644 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1380940 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 19827 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "7CANnuEppbMWVrwsct8N8vLYdyETcHjUULggrwnNzx9x",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAAGQMTxxe4CRulEO27v2fXnZ8+ZASILuGWUVspUO9t8hpULDbg9rN/QbH+BR8sVUW0QXxe+e9m/GKQyTFQ4GEHiRAQg8AAAAAAAAAAAAAAAAAuaNSHwAAAAAB/wAAAAAAAA=="
+            }
+          ]
+        }
+      ],
+      "holder": {
+        "owner": "6Rz2i9cRAQ2JRZ9pZAuPidYQAYhrJSWbbWaJAVvknAVq",
+        "ata": "FCYVswEgaZapUzwxh1gYHcCj5GnHjDyHySvVbMByCy5z",
+        "amount": "1999999000"
+      },
+      "holderPendingRedemption": false
+    },
+    {
+      "registry": "7sXRsTmM1iZnJ83LxBiyZT8BYNtTQBNSKPcKumgTeYPx",
+      "market": "H9uGY9QmeC6W9qsLF3fLxtgoMSz8Xd5sVFknr3zZNgiq",
+      "lpMint": "9eadfrEFgmPnMY8FXCLLyLAJc9DFpBaQAKERMKX3VUNT",
+      "domain": 0,
+      "cooldownSlots": "150",
+      "paused": false,
+      "totalShares": "2000000000",
+      "cases": [
+        {
+          "form": "floored-26",
+          "redeemer": "throwaway",
+          "dataLen": 26,
+          "dataHex": "4ce8030000000000000000000000000000de0300000000000000",
+          "name": "T-floored",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 7857,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 7707 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "throwaway",
+          "dataLen": 17,
+          "dataHex": "4ce8030000000000000000000000000000",
+          "name": "T-legacy",
+          "err": {
+            "InstructionError": [
+              1,
+              {
+                "Custom": 11
+              }
+            ]
+          },
+          "ixIndex": 1,
+          "code": 11,
+          "unitsConsumed": 7844,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 7694 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: custom program error: 0xb"
+          ],
+          "classified": {
+            "kind": "other",
+            "code": 11
+          },
+          "watched": []
+        },
+        {
+          "form": "floored-26",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "minPayout": "1",
+          "dataLen": 26,
+          "dataHex": "4c40420f00000000000000000000000000010000000000000000",
+          "name": "H-floored",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 23016,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1386131 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1377928 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 22866 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "4iKQTn2rPDjKnLbmx1BasJCQo3brHiF49Pxouxpsr1bh",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAAGYXkWW43Q2ousDkajHBZwhrfo4zg6uJVOD4KL+XK1BXULDbg9rN/QbH+BR8sVUW0QXxe+e9m/GKQyTFQ4GEHiRAQg8AAAAAAAAAAAAAAAAA0KNSHwAAAAAB/gAAAAAAAAEAAAAAAAAAAAAAAAAAAAA="
+            }
+          ]
+        },
+        {
+          "form": "legacy-17",
+          "redeemer": "holder",
+          "shares": "1000000",
+          "dataLen": 17,
+          "dataHex": "4c40420f00000000000000000000000000",
+          "name": "H-legacy",
+          "err": null,
+          "ixIndex": null,
+          "code": null,
+          "unitsConsumed": 22977,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 1386144 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 1377940 compute units",
+            "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 22827 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM success"
+          ],
+          "classified": {
+            "kind": "ok"
+          },
+          "watched": [
+            {
+              "key": "4iKQTn2rPDjKnLbmx1BasJCQo3brHiF49Pxouxpsr1bh",
+              "exists": true,
+              "data": "ADYxVkNSRVATAAYAAAAAAGYXkWW43Q2ousDkajHBZwhrfo4zg6uJVOD4KL+XK1BXULDbg9rN/QbH+BR8sVUW0QXxe+e9m/GKQyTFQ4GEHiRAQg8AAAAAAAAAAAAAAAAA1aNSHwAAAAAB/gAAAAAAAA=="
+            }
+          ]
+        }
+      ],
+      "holder": {
+        "owner": "6Rz2i9cRAQ2JRZ9pZAuPidYQAYhrJSWbbWaJAVvknAVq",
+        "ata": "3PzzCUrh75b4WPbdHzynMzKV5h4fLCF12x9g6jmKkunh",
+        "amount": "1999999000"
+      },
+      "holderPendingRedemption": false
+    }
+  ],
+  "pending": [
+    {
+      "redemption": "DT2MAJmF5SFAsqDKKaQ5317B8Ep96yNcXug3hfT2jny4",
+      "len": 128,
+      "registry": "jfrCnAoM8FJpBw6A77UP9iaUt5Tb1s6Uzwc4e5VK7xH",
+      "market": "BYFuWyuoUGhP1n8wpD8gXH2ciDsegyF1UJCQvBiVx7T5",
+      "redeemer": "DRarGoxYdwLx9cLfb5GmVVeZiCGPYq4MGxAVnvGypuAj",
+      "shares": "99541519",
+      "requestSlot": "509436276",
+      "minPayoutStored": "90000000",
+      "keeperOkStored": 0,
+      "redeemerLpAta": "GGG786Fr1XHiK8RwJRWEs8SB3sDKwt4iRRE6brf9M739",
+      "redeemerLpBalance": "0",
+      "redeemerDest": {
+        "key": "AY6vTrLcmfgKQbcM27QojzTCzgXi1dtLkLyYuRXZXKRq",
+        "exists": true,
+        "before": "900000000"
+      },
+      "vaultToken": "GjuQ85LmeRm2ABo8YVRDE5QSFaWmdR4ayRzZTsdbS9G",
+      "cases": [
+        {
+          "minPayoutWire": "1",
+          "quote": null,
+          "dataHex": "4d0000010000000000000000",
+          "name": "P-floor1",
+          "err": {
+            "InstructionError": [
+              1,
+              "NotEnoughAccountKeys"
+            ]
+          },
+          "ixIndex": 1,
+          "code": "NotEnoughAccountKeys",
+          "unitsConsumed": 33118,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 32968 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction"
+          ],
+          "classified": {
+            "kind": "other"
+          }
+        },
+        {
+          "minPayoutWire": "1000090000000",
+          "quote": null,
+          "dataHex": "4d0000805a02dae800000000",
+          "name": "P-above-quote",
+          "err": {
+            "InstructionError": [
+              1,
+              "NotEnoughAccountKeys"
+            ]
+          },
+          "ixIndex": 1,
+          "code": "NotEnoughAccountKeys",
+          "unitsConsumed": 33118,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 32968 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction"
+          ],
+          "classified": {
+            "kind": "other"
+          },
+          "watched": []
+        }
+      ]
+    },
+    {
+      "redemption": "GCoR9R6FmGRH1SkoBcegaVDU6gYeKDtgXt9gs9jgXSUm",
+      "len": 128,
+      "registry": "9GMV5yoxrnrU2jB9YVxWuP2vzwzEDjXQ37ye9eK6X3Lc",
+      "market": "25xGmJg5ZaAckSXCnnvhSwsvzJqi82UqpR82UFtsZiNC",
+      "redeemer": "5EjUCcqCR8Kz4SEMJsSy46q4S5ZrFY14nv7pzmogTnnr",
+      "shares": "2979756843",
+      "requestSlot": "510876859",
+      "minPayoutStored": "1",
+      "keeperOkStored": 0,
+      "redeemerLpAta": "AP1oJDXizRauFBnuw1XYAE3njxh7RzZ2PbLmQ4wAUpDG",
+      "redeemerLpBalance": "0",
+      "redeemerDest": {
+        "key": "2CREUzA5BZy6eZbnA1RspCw4gEt54SXgHXf4JGDBXtEj",
+        "exists": true,
+        "before": "197000000000"
+      },
+      "vaultToken": "B69SfNQK3Q1N9SVQTPmp4mNWxcg8LKEY85PcidYf9Hu2",
+      "cases": [
+        {
+          "minPayoutWire": "1",
+          "quote": null,
+          "dataHex": "4d0000010000000000000000",
+          "name": "P-floor1",
+          "err": {
+            "InstructionError": [
+              1,
+              "NotEnoughAccountKeys"
+            ]
+          },
+          "ixIndex": 1,
+          "code": "NotEnoughAccountKeys",
+          "unitsConsumed": 31995,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 31845 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction"
+          ],
+          "classified": {
+            "kind": "other"
+          }
+        },
+        {
+          "minPayoutWire": "1000000000001",
+          "quote": null,
+          "dataHex": "4d00000110a5d4e800000000",
+          "name": "P-above-quote",
+          "err": {
+            "InstructionError": [
+              1,
+              "NotEnoughAccountKeys"
+            ]
+          },
+          "ixIndex": 1,
+          "code": "NotEnoughAccountKeys",
+          "unitsConsumed": 31995,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 31845 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction"
+          ],
+          "classified": {
+            "kind": "other"
+          },
+          "watched": []
+        }
+      ]
+    },
+    {
+      "redemption": "GT4YakWX7HTMTdd9cJgQcF8J85k59MUdTsUuYRUxD4c1",
+      "len": 128,
+      "registry": "GNANBFavy55SiWKEZ5N51TYcbUuh8g4E1Yhq5J8sjFrC",
+      "market": "3TbThULumCsxVwQHUu1kQyCG81EroyzHEDYE4SBw4MyB",
+      "redeemer": "DrrDGxiojUPHnLZaNw7DN6JYoEKKqu3bG4PmNjv8P1yG",
+      "shares": "997143302",
+      "requestSlot": "514481657",
+      "minPayoutStored": "900000600",
+      "keeperOkStored": 0,
+      "redeemerLpAta": "DSR4mPYC29dtbRDjPXjLagPx9vpUTFWev5TGzWw3NzVK",
+      "redeemerLpBalance": "0",
+      "redeemerDest": {
+        "key": "DpxMpKxwRSe5moCcopwtvEiCYfMAK2hDPu3U8ncrLjPd",
+        "exists": true,
+        "before": "63510789548"
+      },
+      "vaultToken": "JBivZHER5tL7pa8F1D9umQ5wsUCRh1X6nTa5TXR52M4d",
+      "cases": [
+        {
+          "minPayoutWire": "1",
+          "quote": null,
+          "dataHex": "4d0000010000000000000000",
+          "name": "P-floor1",
+          "err": {
+            "InstructionError": [
+              1,
+              "NotEnoughAccountKeys"
+            ]
+          },
+          "ixIndex": 1,
+          "code": "NotEnoughAccountKeys",
+          "unitsConsumed": 34617,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 34467 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction"
+          ],
+          "classified": {
+            "kind": "other"
+          }
+        },
+        {
+          "minPayoutWire": "1000900000600",
+          "quote": null,
+          "dataHex": "4d000058fb490ae900000000",
+          "name": "P-above-quote",
+          "err": {
+            "InstructionError": [
+              1,
+              "NotEnoughAccountKeys"
+            ]
+          },
+          "ixIndex": 1,
+          "code": "NotEnoughAccountKeys",
+          "unitsConsumed": 34617,
+          "logs": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM invoke [1]",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM consumed 34467 of 1399850 compute units",
+            "Program 6kpg2wi7vwkn7E9rvodXSktYRhna8TWjiZrC1dBek6NM failed: insufficient account keys for instruction"
+          ],
+          "classified": {
+            "kind": "other"
+          },
+          "watched": []
+        }
+      ]
+    }
+  ]
+}
