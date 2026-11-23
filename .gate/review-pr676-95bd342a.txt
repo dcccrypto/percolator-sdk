@@ -1,0 +1,11 @@
+Fresh claude-reviewer (read-only, isolated), round 1, J-20261123-SDK-GATE-PR676c, 2026-11-23.
+Scope: git diff 779baa1f..95bd342a (src, test, CHANGELOG, dist). Checked against percolator-prog bc657392
+(perm_for_gate lev_guard_v22.rs:1021-1028; LEV_GUARD_PERM_PROOF_REQUIRED v16_program.rs:696; sole merge_overlay call v16_program.rs:46209).
+dist/: git archive of 95bd342a + npm run build -> recursive diff vs committed dist/ is empty.
+Scoped run: vitest test/lev-guard-limits-perm-proof-v22.test.ts test/dist-fresh.test.ts -> 2 files, 6 tests passed.
+
+HEAD: 95bd342a6ff24e1d46c93f232ebbc422663a18cd
+FINDING: low | src/abi/lev-guard-v22.ts:455 | Pre-existing on base: decoder refuses guard flag bit 2 (GUARD_FLAG_PERM_PROVEN), so the proven/full-limits branch (lev-guard-limits-v22.ts:375) is unreachable from on-chain data until #593 lands; fails tight (decode throws, no loose quote)
+FINDING: low | src/abi/lev-guard-limits-v22.ts:311 | permProofRequired defaults to false (devnet behaviour); non-devnet callers must pass true (documented as MUST in JSDoc and CHANGELOG); same as base, not a regression
+FINDING: nit | src/abi/lev-guard-limits-v22.ts:32 | LEV_GUARD_FLAG_PERM_PROVEN_V22 lives apart from LEV_GUARD_FLAG_V22 (lev-guard-v22.ts:67); merge when #593 adds bit 2 to the decoder
+VERDICT: APPROVE
