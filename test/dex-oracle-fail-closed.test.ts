@@ -193,10 +193,10 @@ describe("DEX oracle fail-closed: outer guard and input bounds", () => {
   it("non-integer and negative decimals are refused with the range error (M16, M17)", () => {
     expect(() =>
       computeDexSpotPriceE6("meteora-dlmm", meteora(10, 0), undefined, { base: 6.5, quote: 6 }),
-    ).toThrow(/decimals out of range/);
+    ).toThrow(/base decimals out of range/);
     expect(() =>
       computeDexSpotPriceE6("meteora-dlmm", meteora(10, 0), undefined, { base: 6, quote: -1 }),
-    ).toThrow(/decimals out of range/);
+    ).toThrow(/quote decimals out of range/);
   });
 
   it("Raydium decimals0 or decimals1 = 25 is refused (M18, M19)", () => {
@@ -206,16 +206,16 @@ describe("DEX oracle fail-closed: outer guard and input bounds", () => {
 
   it("Meteora binStep 10001 is refused (M22)", () => {
     expect(() => computeDexSpotPriceE6("meteora-dlmm", meteora(10_001, 0), undefined, DECIMALS)).toThrow(
-      /exceeds max/,
+      /binStep 10001 exceeds max/,
     );
   });
 
   it("Meteora |activeId| 500001 is refused on both sides (M23, M24)", () => {
     expect(() => computeDexSpotPriceE6("meteora-dlmm", meteora(1, 500_001), undefined, DECIMALS)).toThrow(
-      /exceeds max/,
+      /\|activeId\| 500001 exceeds max/,
     );
     expect(() => computeDexSpotPriceE6("meteora-dlmm", meteora(1, -500_001), undefined, DECIMALS)).toThrow(
-      /exceeds max/,
+      /\|activeId\| 500001 exceeds max/,
     );
   });
 });
