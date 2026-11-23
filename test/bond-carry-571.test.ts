@@ -112,12 +112,21 @@ describe("coupon rules == the crate", () => {
   it("every row", () => {
     const seen = new Set<string>();
     expect(FX.rules.length).toBeGreaterThan(1_000);
+    // One cheap string compare per row and a single assertion at the end: a vitest `expect` per row (plus its eager
+    // message template) was ~85% of this test's cost under coverage. Every row is still compared; mismatches are listed.
+    const bad: string[] = [];
+    let compared = 0;
     for (const r of FX.rules) {
       seen.add(r.fn);
-      expect(fns[r.fn], `no SDK mapping for ${r.fn}`).toBeDefined();
+      const f = fns[r.fn];
+      if (!f) { bad.push(`no SDK mapping for ${r.fn}`); continue; }
       const want = r.fn === "settle" && r.out.length === 1 && r.out[0] === null ? [] : r.out;
-      expect(fns[r.fn](r.in), `${r.fn}(${r.in.join(",")})`).toEqual(want);
+      const got = f(r.in);
+      compared++;
+      if (JSON.stringify(got) !== JSON.stringify(want)) bad.push(`${r.fn}(${r.in.join(",")}): got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
     }
+    expect(compared).toBe(FX.rules.length);
+    expect(bad).toEqual([]);
     expect([...seen].sort()).toEqual(Object.keys(fns).sort());
     // the grid reaches the cap, the overflow (None) and the closed gate
     expect(FX.rules.some((r) => r.fn === "settle" && r.out.length === 1 && r.out[0] === null)).toBe(true);
