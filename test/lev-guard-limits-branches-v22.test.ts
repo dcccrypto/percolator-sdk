@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
 import {
-  levLTraderX100V22, levShortUsersCapNotionalV22, levBurstDecayV22, levMoveBpsV22, levObservePriceV22, levGuardOpenLimitsV22,
+  levLTraderX100V22, levShortUsersCapNotionalV22, levBurstDecayV22, levBurstUpdateV22, levMergeOverlayV22, levMoveBpsV22, levObservePriceV22, levGuardOpenLimitsV22,
   levGuardLeverageOkV22, levGuardMaxPositionQV22, levGuardShortCapOkV22, levGuardMaxFillQV22, levGuardRefusalV22,
 } from "../src/index.js";
 import type { LevGuardV22, LevGuardOpenInputV22, LevGuardOpenLimitsV22, LevPriceBandV22 } from "../src/index.js";
@@ -217,5 +217,24 @@ describe("levGuardRefusalV22 order and bounds", () => {
     expect(l.roundLive).toBe(true);
     expect(levGuardRefusalV22(l, i, 0n, 1n, 0n)).toBe("lp_stop_round"); // LP short 2000: taker long grows |LP|
     expect(levGuardRefusalV22(l, i, 0n, -1n, 10n ** 18n)).toBeNull(); // taker short shrinks the short LP
+  });
+});
+
+describe("mutation killers (SDK-REPORT-LEVGUARDBRANCHESMUT survivors)", () => {
+  it("K-M06: a holder proof exactly 216 000 slots old still binds; one slot older does not (lev_guard_v22.rs:205 `<=`)", () => {
+    const now = 1_000_000n + 40n * DAY;
+    expect(levMergeOverlayV22("Mature", guard({ holderDumpBps: 5_000, holderDumpSlot: now - DAY }), now).jDumpBps).toBe(5_000);
+    expect(levMergeOverlayV22("Mature", guard({ holderDumpBps: 5_000, holderDumpSlot: now - DAY - 1n }), now).jDumpBps).toBe(0);
+  });
+  it("K-M24: a sample equal to the decayed peak restarts the burst clock (lev_guard_v22.rs:359 `>=`)", () => {
+    expect(levBurstUpdateV22(100, 0n, 100, 1n)).toEqual([100, 1n]);
+    expect(levBurstUpdateV22(100, 0n, 99, 1n)).toEqual([100, 0n]); // below the peak: peak and its slot are kept
+  });
+  it("K-M35: a risk-up fill that shrinks an LP already above n_eff is not a size refusal (v16_program.rs:46255)", () => {
+    const month = 1_000_000n + 40n * DAY;
+    const i = input({ nowSlot: month, lpEffQ: -20_000n * USD, guard: guard({ repNMultBps: 1_000, repSlot: month - 1n }) });
+    const l = levGuardOpenLimitsV22(i);
+    expect(l.nEffQ).toBeLessThan(20_000n * USD); // the LP is already over n_eff
+    expect(levGuardRefusalV22(l, i, 0n, -1n * USD, 10n ** 18n)).toBeNull(); // taker short shrinks the short LP
   });
 });
