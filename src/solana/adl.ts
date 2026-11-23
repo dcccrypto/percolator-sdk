@@ -42,6 +42,7 @@ import {
   SlabLayout,
 } from "./slab.js";
 import { redactSecretsInText, redactUrl, redactUrlError } from "./redact-url.js";
+import { decodeMarketFundingV22, ADL_ONE_V22 } from "../abi/v22-funding.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -122,6 +123,12 @@ export interface AdlRankingResult {
    * percolator-prog@19d5d932 emits no target_side log and exposes no tie rule.
    */
   dominantSide: AdlSide | null;
+  /**
+   * Set when the slab is not a layout this ranking understands (for example a
+   * v2.2 / VERSION 19 market), in which case `ranked`, `longs` and `shorts` are
+   * empty. Absent for recognised layouts.
+   */
+  unsupportedReason?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +144,21 @@ function computePnlPct(pnl: bigint, capital: bigint): bigint {
   return (pnl * 10_000n) / capital;
 }
 
+/**
+ * v2.2 (VERSION 19) ADL state: true when any asset has `a_long` or `a_short`
+ * below `ADL_ONE` (engine `v16.rs`: a side is in ADL once its `A != ADL_ONE`).
+ * Returns null when the bytes are not a v2.2 market.
+ */
+function v22AdlActive(slabData: Uint8Array): boolean | null {
+  try {
+    return decodeMarketFundingV22(slabData).assets.some(
+      (a) => a.aLong !== ADL_ONE_V22 || a.aShort !== ADL_ONE_V22,
+    );
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Core API
 // ---------------------------------------------------------------------------
@@ -145,6 +167,10 @@ function computePnlPct(pnl: bigint, capital: bigint): bigint {
  * Check whether ADL is currently triggered on a slab.
  *
  * ADL triggers when pnl_pos_tot > max_pnl_cap (max_pnl_cap must be > 0).
+ * On a v2.2 (VERSION 19) market, which has no legacy slab layout, it is true
+ * when any asset's `a_long` or `a_short` differs from `ADL_ONE`. There it means
+ * "a side has been deleveraged and not yet reset", not "pnl_pos_tot is over
+ * the cap now"; `pnlPosTot`/`maxPnlCap` are not read for v2.2.
  *
  * @param slabData - Raw slab account bytes.
  * @returns true if ADL is triggered.
@@ -159,7 +185,7 @@ function computePnlPct(pnl: bigint, capital: bigint): bigint {
  */
 export function isAdlTriggered(slabData: Uint8Array): boolean {
   const layout = detectSlabLayout(slabData.length, slabData);
-  if (!layout) return false;
+  if (!layout) return v22AdlActive(slabData) ?? false;
   try {
     const engine = parseEngine(slabData);
     if (engine.pnlPosTot === 0n) return false;
@@ -178,8 +204,10 @@ export function isAdlTriggered(slabData: Uint8Array): boolean {
  * - Longs: rank 0 = highest positive PnL% (most profitable long)
  * - Shorts: rank 0 = highest negative PnL% by abs value (most profitable short)
  *
- * Rank ordering matches the on-chain ADL engine in percolator-prog (PERC-8273):
- * the position at rank 0 of the dominant side is deleveraged first.
+ * This ordering is an SDK heuristic, not the on-chain rule. The v2.2 (rc23)
+ * engine picks no target: it spreads ADL pro rata across a side by shrinking
+ * that side's `A`. On a v2.2 slab (or any unknown layout) the result has empty
+ * lists and `unsupportedReason` set; `isTriggered` comes from `A != ADL_ONE`.
  *
  * @param connection - Solana connection.
  * @param slab       - Slab (market) public key.
@@ -242,8 +270,18 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
     }
   }
 
-  // Parse all used accounts.
-  const accounts = parseAllAccounts(slabData);
+  let unsupportedReason: string | undefined;
+  if (!layout) {
+    const v22 = v22AdlActive(slabData);
+    isTriggered = v22 ?? false;
+    unsupportedReason =
+      v22 === null
+        ? `unrecognized slab layout (${slabData.length} bytes): no ranking`
+        : "v2.2 market: ADL is applied pro rata through a side's A, there is no per-position ranking";
+  }
+
+  // Parse all used accounts (none for an unknown layout: parseAllAccounts throws).
+  const accounts = layout ? parseAllAccounts(slabData) : [];
 
   // Build ranked position list (user accounts with non-zero position only).
   const positions: AdlRankedPosition[] = [];
@@ -288,7 +326,9 @@ export function rankAdlPositions(slabData: Uint8Array): AdlRankingResult {
     (a, b) => (b.pnlPct > a.pnlPct ? 1 : b.pnlPct < a.pnlPct ? -1 : 0)
   );
 
-  return { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap, dominantSide };
+  const result: AdlRankingResult = { ranked, longs, shorts, isTriggered, pnlPosTot, maxPnlCap, dominantSide };
+  if (unsupportedReason !== undefined) result.unsupportedReason = unsupportedReason;
+  return result;
 }
 
 /**
