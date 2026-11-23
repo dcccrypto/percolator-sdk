@@ -40,7 +40,7 @@ function rng(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-const rand = rng(SEED);
+let rand = rng(SEED);
 const int = (n: number) => Math.floor(rand() * n);
 const chance = (p: number) => rand() < p;
 const bytes = (n: number) => {
@@ -62,7 +62,7 @@ const u64 = (): bigint =>
     () => bytes(8).readBigUInt64LE(0),
   ])();
 /** COption tag: usually 0/1, sometimes an odd u32 (spl treats any non-zero as Some). */
-const optTag = () => pick([0, 1, 0, 1, 0, 1, 2, 0x100, 0xffff_ffff, int(2 ** 32)]);
+const optTag = () => pick([0, 1, 0, 1, 0, 1, 2, 0x100, 0xffff_ffff, 2 + int(2 ** 32 - 2)]);
 
 const PROGRAMS = [spl.TOKEN_PROGRAM_ID, spl.TOKEN_2022_PROGRAM_ID] as const;
 
@@ -103,7 +103,7 @@ function encodeBase(tags: string[]): Buffer {
   tags.push(del === 0 ? "delegate:none" : del === 1 ? "delegate:some" : "delegate:odd-tag");
   // Delegate bytes are random even when the tag is 0 (decoder must ignore them).
   bytes(32).copy(b, 76);
-  const state = pick([0, 1, 2, 1, 2, int(256)]);
+  const state = pick([0, 1, 2, 1, 2, 3 + int(253)]);
   b[108] = state;
   tags.push(state === 0 ? "state:uninit" : state === 1 ? "state:init" : state === 2 ? "state:frozen" : "state:odd");
   const nat = optTag();
@@ -203,6 +203,7 @@ function genUnpack(): UnpackCase {
     case "garbage-long": {
       const len = lite.ACCOUNT_SIZE + 1 + int(600);
       data = len === 355 ? bytes(356) : bytes(len);
+      if (chance(0.25)) data[lite.ACCOUNT_SIZE] = spl.AccountType.Account;
       tags.push(data[lite.ACCOUNT_SIZE] === spl.AccountType.Account ? "garbage:type-ok" : "garbage:type-bad");
       break;
     }
@@ -235,13 +236,13 @@ function outcome(f: () => spl.Account | lite.Account): unknown {
       mint: a.mint.toBase58(),
       owner: a.owner.toBase58(),
       amount: a.amount,
-      delegate: a.delegate?.toBase58() ?? null,
+      delegate: a.delegate === null ? null : a.delegate?.toBase58(),
       delegatedAmount: a.delegatedAmount,
       isInitialized: a.isInitialized,
       isFrozen: a.isFrozen,
       isNative: a.isNative,
       rentExemptReserve: a.rentExemptReserve,
-      closeAuthority: a.closeAuthority?.toBase58() ?? null,
+      closeAuthority: a.closeAuthority === null ? null : a.closeAuthority?.toBase58(),
       tlvData: a.tlvData.toString("hex"),
       tlvIsBuffer: Buffer.isBuffer(a.tlvData),
       keys: Object.keys(a).sort().join(","),
@@ -256,15 +257,18 @@ describe("spl-token-lite fuzz-diff: unpackAccount vs @solana/spl-token", { timeo
     const counts = new Map<string, number>();
     const mismatches: string[] = [];
     let threw = 0;
+    rand = rng(SEED); // own stream, so a case index reproduces under -t too
     for (let i = 0; i < N_UNPACK; i++) {
       const c = genUnpack();
       for (const t of c.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
       const want = outcome(() => spl.unpackAccount(c.address, c.info, c.programId));
       const got = outcome(() => lite.unpackAccount(c.address, c.info, c.programId));
-      if (typeof want === "string") {
-        threw++;
-        counts.set(want.split(":")[1], (counts.get(want.split(":")[1]) ?? 0) + 1);
-      }
+      const result = typeof want === "string" ? want.split(":")[1] : "ok";
+      if (result !== "ok") threw++;
+      counts.set(result, (counts.get(result) ?? 0) + 1);
+      // Which branch each shape actually reached (not just generated).
+      const shape = c.tags.find((t) => t.startsWith("shape:"))!;
+      counts.set(`${shape}=>${result}`, (counts.get(`${shape}=>${result}`) ?? 0) + 1);
       try {
         expect(got).toEqual(want);
       } catch {
@@ -309,6 +313,15 @@ describe("spl-token-lite fuzz-diff: unpackAccount vs @solana/spl-token", { timeo
       "TokenInvalidAccountOwnerError",
       "TokenInvalidAccountSizeError",
       "TokenInvalidAccountError",
+      "shape:null=>TokenAccountNotFoundError",
+      "shape:short=>TokenInvalidAccountSizeError",
+      "shape:exact165=>ok",
+      "shape:type-only166=>ok",
+      "shape:tlv=>ok",
+      "shape:tlv-bad-type=>TokenInvalidAccountError",
+      "shape:multisig355=>TokenInvalidAccountSizeError",
+      "shape:garbage-long=>ok",
+      "shape:garbage-long=>TokenInvalidAccountError",
       ...ACCOUNT_EXTENSIONS.map(([t]) => `ext:${spl.ExtensionType[t]}`),
     ];
     for (const k of must) expect(counts.get(k) ?? 0, `category ${k}`).toBeGreaterThan(0);
@@ -327,6 +340,7 @@ describe("spl-token-lite fuzz-diff: ATA derivation and create-idempotent ix vs @
     const counts = new Map<string, number>();
     const bump = (k: string) => counts.set(k, (counts.get(k) ?? 0) + 1);
     const mismatches: string[] = [];
+    rand = rng(SEED ^ 0xa7a);
     const run = (f: () => PublicKey) => {
       try {
         return f().toBase58();
