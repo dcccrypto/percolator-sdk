@@ -330,11 +330,14 @@ describe("Q2 senior floor code vs Rust vault_lp_v18 @ bc657392", { timeout: 30_0
   it("(4) halt rule: equity at floor-1 / floor / floor+1 for every code, and against a re-encoded T", () => {
     const mismatches: Mismatch[] = [];
     for (let code = 0; code <= U16_MAX; code++) {
+      // Decode once per code (was re-decoded inside rustHaltPath for each of the 4 equities).
       const floor = rustDecode(code);
-      for (const eq of [0n, floor - 1n, floor, floor + 1n]) {
+      const sdkFloor = seniorFloorDecodeP2b(code);
+      for (let k = 0; k < 4; k++) {
+        const eq = k === 0 ? 0n : k === 1 ? floor - 1n : k === 2 ? floor : floor + 1n;
         if (eq < 0n) continue; // u128 equity
-        const sdk = seniorCapitalHaltP2b(eq, seniorFloorDecodeP2b(code));
-        const rust = rustHaltPath(eq, code);
+        const sdk = seniorCapitalHaltP2b(eq, sdkFloor);
+        const rust = floor !== 0n && rustHalt(eq, floor); // == rustHaltPath(eq, code)
         if (sdk !== rust) mismatches.push({ input: `code=${code} eq=${eq}`, sdk: String(sdk), rust: String(rust) });
       }
     }
@@ -343,10 +346,11 @@ describe("Q2 senior floor code vs Rust vault_lp_v18 @ bc657392", { timeout: 30_0
     for (const t of [...seededAtoms(2_000, 0x7a11_0ffn), ...boundaryAtoms()]) {
       if (t > SAT_EDGE) continue;
       const sdkFloor = seniorFloorDecodeP2b(seniorFloorEncodeP2b(t));
+      const rustCode = rustEncode(t); // once per T, not once per equity
       for (const eq of [0n, t - 1n, t, t + 1n, sdkFloor - 1n, sdkFloor]) {
         if (eq < 0n) continue;
         const sdk = seniorCapitalHaltP2b(eq, sdkFloor);
-        const rust = rustHaltPath(eq, rustEncode(t));
+        const rust = rustHaltPath(eq, rustCode);
         if (sdk !== rust) mismatches.push({ input: `T=${t} eq=${eq}`, sdk: String(sdk), rust: String(rust) });
         if (eq < t && !sdk) mismatches.push({ input: `T=${t} eq=${eq}`, sdk: "open", rust: "halt (eq < true T)" });
       }
