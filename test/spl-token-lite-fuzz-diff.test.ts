@@ -236,6 +236,7 @@ function outcome(f: () => spl.Account | lite.Account): unknown {
       mint: a.mint.toBase58(),
       owner: a.owner.toBase58(),
       amount: a.amount,
+      // Not `?? null`: an `undefined` from either side must show up as a mismatch.
       delegate: a.delegate === null ? null : a.delegate?.toBase58(),
       delegatedAmount: a.delegatedAmount,
       isInitialized: a.isInitialized,
