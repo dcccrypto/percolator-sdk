@@ -312,8 +312,8 @@ function computePumpSwapPriceE6(
   // before the single division, so low-priced tokens don't truncate to 0n.
   //   price = (quote_raw / 10^quoteDec) / (base_raw / 10^baseDec)
   //   price_e6 = quote_raw * 10^baseDec * 1e6 / (10^quoteDec * base_raw)
-  const baseScale = 10n ** BigInt(decimals.base);
-  const quoteScale = 10n ** BigInt(decimals.quote);
+  const baseScale = POW10[decimals.base];
+  const quoteScale = POW10[decimals.quote];
 
   const quoteMint = new PublicKey(poolData.slice(75, 107));
   if (quoteMint.equals(WSOL_MINT)) {
@@ -416,9 +416,9 @@ function computeRaydiumClmmPriceE6(data: Uint8Array): bigint {
   const adjustedDiff = decimalDiff - 6;
 
   if (adjustedDiff >= 0) {
-    return (sq1e6 * 10n ** BigInt(adjustedDiff)) >> 128n;
+    return (sq1e6 * POW10[adjustedDiff]) >> 128n;
   } else {
-    return sq1e6 / ((1n << 128n) * 10n ** BigInt(-adjustedDiff));
+    return sq1e6 / ((1n << 128n) * POW10[-adjustedDiff]);
   }
 }
 
@@ -516,21 +516,19 @@ function computeMeteoraDlmmPriceE6(
   }
 
   const SCALE = 1_000_000_000_000_000_000n; // 1e18
-  const base = SCALE + (BigInt(binStep) * SCALE) / 10_000n;
-
   const isNeg = activeId < 0;
-  let exp = isNeg ? BigInt(-activeId) : BigInt(activeId);
+  // |activeId| <= MAX_ACTIVE_ID_ABS (checked above), so it fits a JS number and
+  // its bits can be walked with >>> as an unsigned 32-bit int.
+  let exp = isNeg ? -activeId : activeId;
+  // Highest set bit of exp (-1 when exp is 0).
+  const sq = dlmmSquares(binStep, 31 - Math.clz32(exp));
 
+  // result = SCALE * (base/SCALE)^exp by square-and-multiply, truncating after each
+  // step. The squares come from the per-binStep cache (see dlmmSquares).
   let result = SCALE;
-  let b = base;
-
-  while (exp > 0n) {
-    if (exp & 1n) {
-      result = (result * b) / SCALE;
-    }
-    exp >>= 1n;
-    if (exp > 0n) {
-      b = (b * b) / SCALE;
+  for (let k = 0; exp > 0; k++, exp >>>= 1) {
+    if (exp & 1) {
+      result = (result * sq[k]) / SCALE;
     }
   }
 
@@ -555,21 +553,56 @@ function computeMeteoraDlmmPriceE6(
     // price_e6 = (1e24 / result) * 10^diff   [1e24 = 1e18 (inverse) * 1e6 (e6 scale)]
     const num = 1_000_000_000_000_000_000_000_000n; // 1e24
     if (diff >= 0) {
-      return (num * 10n ** BigInt(diff)) / result;
+      return (num * POW10[diff]) / result;
     }
-    return num / (result * 10n ** BigInt(-diff));
+    return num / (result * POW10[-diff]);
   } else {
     // price_e6 = (result / 1e12) * 10^diff
     if (diff >= 0) {
-      return (result * 10n ** BigInt(diff)) / 1_000_000_000_000n;
+      return (result * POW10[diff]) / 1_000_000_000_000n;
     }
-    return result / (1_000_000_000_000n * 10n ** BigInt(-diff));
+    return result / (1_000_000_000_000n * POW10[-diff]);
   }
 }
 
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/** 10n ** BigInt(k) for k in 0..48 (max |decimal diff| is 2*MAX_TOKEN_DECIMALS). */
+const POW10: bigint[] = Array.from({ length: 49 }, (_, k) => 10n ** BigInt(k));
+
+/**
+ * Per-binStep cache of the repeated-squaring chain used by the Meteora pow loop:
+ * sq[0] = 1e18 + binStep * 1e14, sq[k] = sq[k-1]^2 / 1e18. These are exactly the
+ * values the square-and-multiply loop computed on every call, so reusing them is
+ * bit-identical.
+ *
+ * Bounds:
+ * - A table only grows up to the highest exponent bit actually needed
+ *   (|activeId| <= 500_000 < 2^19, so at most 19 entries). It is not filled to 19
+ *   up front, because at large binSteps the top squares are huge: at binStep 10_000,
+ *   sq[18] = 2^262144 * 1e18 (~32 KB).
+ * - At most DLMM_SQ_MAX binSteps are kept. Inserting a new one evicts the oldest
+ *   (Map keeps insertion order). Real pools use a handful of binSteps.
+ */
+const DLMM_SQ_MAX = 512;
+const DLMM_SQ = new Map<number, bigint[]>();
+function dlmmSquares(binStep: number, topBit: number): bigint[] {
+  let t = DLMM_SQ.get(binStep);
+  if (t === undefined) {
+    if (DLMM_SQ.size >= DLMM_SQ_MAX) {
+      DLMM_SQ.delete(DLMM_SQ.keys().next().value as number);
+    }
+    t = [1_000_000_000_000_000_000n + (BigInt(binStep) * 1_000_000_000_000_000_000n) / 10_000n];
+    DLMM_SQ.set(binStep, t);
+  }
+  while (t.length <= topBit) {
+    const last = t[t.length - 1];
+    t.push((last * last) / 1_000_000_000_000_000_000n);
+  }
+  return t;
+}
 
 /** Read a little-endian u64 from a DataView. */
 function readU64LE(dv: DataView, offset: number): bigint {
