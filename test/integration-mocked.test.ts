@@ -194,7 +194,11 @@ function base58Decode(s: string): Uint8Array {
 /** memcmp `bytes` per its `encoding` — base58 when absent (the RPC default), else base64. */
 function memcmpBytes(m: { bytes: string; encoding?: string }): Uint8Array {
   if (m.encoding === undefined || m.encoding === "base58") return base58Decode(m.bytes);
-  if (m.encoding === "base64") return new Uint8Array(Buffer.from(m.bytes, "base64"));
+  if (m.encoding === "base64") {
+    const b = Buffer.from(m.bytes, "base64");
+    if (b.toString("base64") !== m.bytes) throw new Error(`mock RPC: invalid base64 ${JSON.stringify(m.bytes)}`); // node rejects; Buffer skips bad chars
+    return new Uint8Array(b);
+  }
   throw new Error(`mock RPC: unsupported memcmp encoding ${m.encoding}`);
 }
 
@@ -395,7 +399,7 @@ describe("mock getProgramAccounts — memcmp/dataSlice semantics", () => {
     const past = rpcGetProgramAccounts([market], V22_PROGRAM, { dataSlice: { offset: full.length + 10, length: 16 } });
     expect(past[0].account.data.length).toBe(0);
     // the fixture itself is unchanged
-    expect(market.account.data.length).toBe(V22_DEVNET.accounts[0].data_length);
+    expect(market.account.data.length).toBe(V22_DEVNET.accounts.find(x => x.role === "market")!.data_length);
   });
 
   it("only returns accounts owned by the queried program", () => {
