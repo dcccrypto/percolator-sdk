@@ -119,4 +119,14 @@ describe("Meteora DLMM price at edge binStep / activeId values", () => {
       for (const [s, id] of cases) expectMatchesReference(s, id, 6, 6);
     }
   });
+
+  it("stays exact when large tables are evicted by the byte cap and rebuilt", () => {
+    // binStep ~10_000 up to sq[18] is ~64 KB a table, so 80 of them pass the ~4 MB cap well
+    // before the 512-entry cap. Revisit the first ones after they were evicted.
+    const steps = Array.from({ length: 80 }, (_, i) => 9_921 + i);
+    for (const s of [...steps, ...steps.slice(0, 10), 9_960, 10_000]) {
+      expect(price(s, 262_144, 0, 0)).toBe(reference(s, 262_144, 0, 0));
+    }
+    expectMatchesReference(9_921, -300_000, 6, 6);
+  });
 });
