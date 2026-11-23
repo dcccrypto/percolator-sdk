@@ -1,3 +1,8 @@
+## 9.0.0-candidate: lev-guard open limits model D12 fail-tight (unproven authorities read live)
+
+- **Fixed:** on a program build with `LEV_GUARD_PERM_PROOF_REQUIRED` (every non-devnet build), `lev_trade_post` treats a guard whose mint/freeze authorities op 3 never proved (flags bit 2 clear) as having both authorities live (`perm_for_gate`, prog #620). That clamps leverage to L_floor (2x) and size to N_floor ($200). `levGuardOpenLimitsV22` read only the stored bits, so it quoted full limits and `levGuardRefusalV22` admitted opens the program refuses. Over 20,000 seeded scenarios on the proof-required build, 88 verdicts differed; in 60 of them the SDK said ok where the program refuses. New optional input `permProofRequired` (default `false` = the devnet build, unchanged) and constant `LEV_GUARD_FLAG_PERM_PROVEN_V22`. Callers quoting a non-devnet build must pass `true`.
+- **Tests:** `test/lev-guard-limits-perm-proof-v22.test.ts`. A scratch differential against a transcription of prog `bc657392` (fixed seed, 20,000 scenarios, run twice) now shows 0 verdict mismatches on both builds.
+
 ## 9.0.0-candidate: PumpSwap WSOL-quoted price floors once
 
 - **Fixed:** `computeDexSpotPriceE6("pumpswap", …, solPriceE6)` floored token/SOL to e6 before multiplying by the SOL price, so a WSOL-quoted USD price came out low by up to 1 / (token/SOL e6). On real mainnet pool reserves at SOL $150: chillhouse 1500 → 1548 (was -3.10%), swordcat 4950 → 5029 (was -1.57%); ANSEM snapshot 300730 → 300793. A token under 1e-6 SOL whose USD price is above 1e-6 was refused; it is now priced. Non-WSOL quotes, Raydium CLMM and Meteora DLMM are unchanged.

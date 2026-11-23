@@ -7178,8 +7178,9 @@ var VOL_MOVE_CAP_BPS = 10000n;
 var VOL_VAR_SEED_X100 = 2500;
 var GROWTH_FLAG_R3_LAYOUT = 1;
 var GROWTH_FLAG_VOL_DATA = 2;
+var GROWTH_FLAG_LEV_GUARD_BIT = 4;
 function growthFlagsOk(flags) {
-  return (flags & ~(GROWTH_FLAG_R3_LAYOUT | GROWTH_FLAG_VOL_DATA) & 255) === 0 && ((flags & GROWTH_FLAG_VOL_DATA) === 0 || (flags & GROWTH_FLAG_R3_LAYOUT) !== 0);
+  return (flags & ~(GROWTH_FLAG_R3_LAYOUT | GROWTH_FLAG_VOL_DATA | GROWTH_FLAG_LEV_GUARD_BIT) & 255) === 0 && ((flags & GROWTH_FLAG_VOL_DATA) === 0 || (flags & GROWTH_FLAG_R3_LAYOUT) !== 0);
 }
 function volSampleX100(prevMarkE6, markE6, dtSlots) {
   if (prevMarkE6 === 0n || dtSlots === 0n) return null;
@@ -8009,10 +8010,12 @@ function vaultLpDeallocP2b(allocated, recalled) {
 }
 function vaultLpAllocSplitP2b(moved, dEven, dOdd) {
   const total2 = dEven + dOdd;
+  if (total2 > U1282) return null;
   if (moved > total2) return null;
   if (moved === 0n) return [0n, 0n];
   const smallIsOdd = dOdd <= dEven;
   const [dSmall, dLarge] = smallIsOdd ? [dOdd, dEven] : [dEven, dOdd];
+  if (moved * dSmall > U1282) return null;
   let takeSmall = moved * dSmall / total2;
   if (takeSmall > dSmall) takeSmall = dSmall;
   const takeLarge = moved - takeSmall;
@@ -8027,17 +8030,20 @@ function liveBoundPrincipalPortionP2b(atomsOut, available) {
 }
 function cushionSplitP2b(available, cushionShareBps, cushionTargetBps, cEff, juniorLevel) {
   if (cushionShareBps === 0 || cushionTargetBps === 0) return [available, 0n];
+  if (cushionShareBps > 1e4 || cushionTargetBps > 1e4) return null;
   const need = sat(bpsCeil(cEff, cushionTargetBps), juniorLevel);
   const share = bpsFloor(available, cushionShareBps);
   const cushion = share < need ? share : need;
   return [available - cushion, cushion];
 }
 function cushionLockedP2b(cushionAccrued, cEff, cushionTargetBps) {
+  if (cushionTargetBps > 1e4) return null;
   const target = bpsCeil(cEff, cushionTargetBps);
   return cushionAccrued < target ? cushionAccrued : target;
 }
 function creatorFeeVestedP2b(juniorLevel, cEff, cushionShareBps, cushionTargetBps) {
   if (cushionShareBps === 0 || cushionTargetBps === 0) return true;
+  if (cushionTargetBps > 1e4) return false;
   return juniorLevel >= bpsCeil(cEff, cushionTargetBps);
 }
 var KIND_BACKING_DOMAIN_LEDGER_P2B = 3;
@@ -13448,6 +13454,7 @@ function payeeUpdateAllowedV22(assetAdmin, signer, currentPayee, newPayee, vault
 var BPS4 = 10000n;
 var U16_MAX3 = 65535;
 var GROWTH_FLAG_LEV_GUARD_V22 = 4;
+var LEV_GUARD_FLAG_PERM_PROVEN_V22 = 4;
 var LEV_SLOTS_PER_HOUR = 9000n;
 var LEV_SLOTS_PER_DAY = 216000n;
 var LEV_J_DUMP_DEFAULT_DAY_BPS = 3500;
@@ -13631,7 +13638,8 @@ function levGuardOpenLimitsV22(i) {
   const frozenN = tripNow ? i.nCapQ : g.frozenNQ;
   const frozen = levFrozenV22(pb, now);
   const mOracle = levMOracleOnV22(pb, now);
-  const ov = levMergeOverlayV22(band, g, now);
+  const unproven = i.permProofRequired === true && (g.flags & LEV_GUARD_FLAG_PERM_PROVEN_V22) === 0;
+  const ov = levMergeOverlayV22(band, unproven ? { ...g, mintAuthLive: true, freezeAuthLive: true } : g, now);
   let sigmaLev = null;
   if (i.volHasData) {
     const [p, t] = levBurstUpdateV22(g.burstVarPeakX100, g.burstPeakSlot, i.volVarX100, now);
@@ -14283,7 +14291,8 @@ function clearStaticMarkets(network) {
 
 // src/solana/redact-url.ts
 var REDACTED_URL_PLACEHOLDER = "[unparseable-url]";
-var OPAQUE_TOKEN = /^[A-Za-z0-9_\-.~%]{20,}$/;
+var looksOpaque = (s) => s.length >= 20;
+var SENSITIVE_PARAM = /^((x[-_]?)?api[-_]?key|access[-_]?token|auth([-_]?token)?|dkey|token|secret|key|password|bearer|credential|jwt)$/i;
 function redactUrl(raw) {
   try {
     const u = new URL(raw);
@@ -14291,17 +14300,92 @@ function redactUrl(raw) {
     u.username = "";
     u.password = "";
     u.hash = "";
-    const sensitive = /^(api[-_]?key|access[-_]?token|auth[-_]?token|token|secret|key|password|bearer|credential|jwt)$/i;
     for (const [k, v] of [...u.searchParams.entries()]) {
-      if (sensitive.test(k) || OPAQUE_TOKEN.test(v)) {
+      if (SENSITIVE_PARAM.test(k) || looksOpaque(v)) {
         u.searchParams.set(k, "***");
       }
     }
-    u.pathname = u.pathname.split("/").map((seg) => OPAQUE_TOKEN.test(seg) ? "***" : seg).join("/");
+    u.pathname = u.pathname.split("/").map((seg) => looksOpaque(seg) ? "***" : seg).join("/");
     return u.toString();
   } catch {
     return REDACTED_URL_PLACEHOLDER;
   }
+}
+var MIN_SECRET_CHARS = 4;
+function spellings(v) {
+  let decoded = v;
+  try {
+    decoded = decodeURIComponent(v.replace(/\+/g, " "));
+  } catch {
+  }
+  return [v, decoded, encodeURIComponent(decoded)];
+}
+function secretParts(raw) {
+  const rest = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  const [beforeHash, fragment = ""] = splitOnce(rest, "#");
+  const [beforeQuery, query = ""] = splitOnce(beforeHash, "?");
+  const slash = beforeQuery.indexOf("/");
+  const authority = slash < 0 ? beforeQuery : beforeQuery.slice(0, slash);
+  const path = slash < 0 ? "" : beforeQuery.slice(slash);
+  const at = authority.lastIndexOf("@");
+  const found = [fragment];
+  if (at >= 0) found.push(...authority.slice(0, at).split(":"));
+  for (const seg of path.split("/")) if (looksOpaque(seg)) found.push(seg);
+  for (const pair of query.split("&")) {
+    const [k, v = ""] = splitOnce(pair, "=");
+    if (SENSITIVE_PARAM.test(spellings(k)[1]) || looksOpaque(v)) found.push(v);
+  }
+  const all = new Set(found.flatMap(spellings).filter((s) => s.length >= MIN_SECRET_CHARS));
+  return [...all].sort((a, b) => b.length - a.length);
+}
+function splitOnce(s, sep) {
+  const i = s.indexOf(sep);
+  return i < 0 ? [s] : [s.slice(0, i), s.slice(i + sep.length)];
+}
+function redactSecretsInText(text, ...rawUrls) {
+  let out = text;
+  for (const raw of rawUrls) {
+    const parts = secretParts(raw);
+    let safe = redactUrl(raw);
+    if (parts.length > 0 || safe === REDACTED_URL_PLACEHOLDER || safe.includes("***") || raw.includes("@")) {
+      if (safe.endsWith("/") && !raw.endsWith("/")) safe = safe.slice(0, -1);
+      out = out.split(raw).join(safe);
+    }
+    for (const part of parts) out = out.split(part).join("***");
+  }
+  return out;
+}
+function tryJson(v) {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return void 0;
+  }
+}
+function redactUrlError(err, ...rawUrls) {
+  const scrub = (s) => redactSecretsInText(s, ...rawUrls);
+  const copy = (e, depth) => {
+    if (typeof e === "string") return scrub(e);
+    if (!(e instanceof Error)) {
+      const json = tryJson(e);
+      return json !== void 0 && scrub(json) !== json ? scrub(json) : e;
+    }
+    let out = Object.create(Object.getPrototypeOf(e));
+    try {
+      void String(out);
+    } catch {
+      out = typeof DOMException !== "undefined" && e instanceof DOMException ? new DOMException(scrub(e.message), e.name) : Object.assign(new Error(scrub(String(e.message))), { name: scrub(String(e.name)) });
+    }
+    for (const key3 of Object.getOwnPropertyNames(e)) {
+      const v = e[key3];
+      const safe = key3 === "cause" ? depth < 8 ? copy(v, depth + 1) : void 0 : typeof v === "string" ? scrub(v) : v;
+      Object.defineProperty(out, key3, { value: safe, writable: true, configurable: true, enumerable: key3 !== "message" && key3 !== "stack" && key3 !== "cause" });
+    }
+    return out;
+  };
+  const text = (e, depth) => e instanceof Error ? Object.getOwnPropertyNames(e).map((k) => k === "cause" ? depth < 8 ? text(e.cause, depth + 1) : "" : String(e[k])).join("\n") : typeof e === "string" ? e : String(tryJson(e));
+  const all = text(err, 0);
+  return scrub(all) === all ? err : copy(err, 0);
 }
 
 // src/solana/discovery.ts
@@ -15061,7 +15145,6 @@ function computePumpSwapPriceE6(poolData, vaultData, decimals, solPriceE6) {
   }
   const baseScale = 10n ** BigInt(decimals.base);
   const quoteScale = 10n ** BigInt(decimals.quote);
-  const quotePerBaseE6 = quoteAmount * baseScale * 1000000n / (quoteScale * baseAmount);
   const quoteMint = new PublicKey23(poolData.slice(75, 107));
   if (quoteMint.equals(WSOL_MINT)) {
     if (solPriceE6 === void 0) {
@@ -15069,9 +15152,9 @@ function computePumpSwapPriceE6(poolData, vaultData, decimals, solPriceE6) {
         "PumpSwap: pool is WSOL-quoted but no solPriceE6 was supplied \u2014 cannot convert to USD. Pass the current SOL/USD price (e6) to computeDexSpotPriceE6."
       );
     }
-    return quotePerBaseE6 * solPriceE6 / 1000000n;
+    return quoteAmount * baseScale * solPriceE6 / (quoteScale * baseAmount);
   }
-  return quotePerBaseE6;
+  return quoteAmount * baseScale * 1000000n / (quoteScale * baseAmount);
 }
 var RAYDIUM_CLMM_MIN_LEN = 269;
 function parseRaydiumClmmPool(poolAddress, data) {
@@ -15455,13 +15538,19 @@ async function fetchAdlRankings(apiBase, slab, fetchFn = fetch) {
   const slabStr = typeof slab === "string" ? slab : slab.toBase58();
   const base = apiBase.replace(/\/$/, "");
   const url = `${base}/api/adl/rankings?slab=${encodeURIComponent(slabStr)}`;
-  const res = await fetchFn(url);
+  let res;
+  try {
+    res = await fetchFn(url);
+  } catch (err) {
+    throw redactUrlError(err, apiBase, url);
+  }
   if (!res.ok) {
     let body = "";
     try {
       body = await res.text();
     } catch {
     }
+    body = redactSecretsInText(body, apiBase, url);
     if (body.length > MAX_ERROR_BODY_CHARS) body = `${body.slice(0, MAX_ERROR_BODY_CHARS)}\u2026`;
     throw new Error(
       `fetchAdlRankings: HTTP ${res.status} from ${redactUrl(url)}${body ? ` \u2014 ${body}` : ""}`
@@ -15775,7 +15864,10 @@ var RpcPool = class _RpcPool {
         weight: Math.max(1, ep.weight ?? 1),
         failures: 0,
         healthy: true,
-        lastLatencyMs: -1
+        lastLatencyMs: -1,
+        opSeq: 0,
+        downSeq: 0,
+        lastOkSeq: 0
       };
     });
   }
@@ -15820,14 +15912,18 @@ var RpcPool = class _RpcPool {
       const ep = this.endpoints[epIdx];
       const timeout = rejectAfter(this.requestTimeoutMs, `RPC request timed out after ${this.requestTimeoutMs}ms (${ep.label})`);
       const ac = new AbortController();
+      const seq = ++ep.opSeq;
       try {
         const result = await Promise.race([
           fn(ep.connection, ac.signal),
           timeout.promise
         ]);
-        ep.failures = 0;
-        ep.healthy = true;
-        ep.unhealthySince = void 0;
+        if (ep.healthy || seq > ep.downSeq) {
+          ep.failures = 0;
+          ep.healthy = true;
+          ep.unhealthySince = void 0;
+          ep.lastOkSeq = Math.max(ep.lastOkSeq, seq);
+        }
         return result;
       } catch (err) {
         lastError = err;
@@ -15836,6 +15932,7 @@ var RpcPool = class _RpcPool {
           ac.abort(err);
         }
         if (ep.failures >= _RpcPool.UNHEALTHY_THRESHOLD) {
+          if (ep.healthy) ep.downSeq = seq;
           ep.healthy = false;
           ep.unhealthySince = ep.unhealthySince ?? Date.now();
           if (this.verbose) {
@@ -15916,13 +16013,19 @@ var RpcPool = class _RpcPool {
   async healthCheck(timeoutMs = 5e3) {
     const results = await Promise.all(
       this.endpoints.map(async (ep) => {
+        const seq = ++ep.opSeq;
         const result = await checkRpcHealth(ep.config.url, timeoutMs);
         ep.lastLatencyMs = result.latencyMs;
-        ep.healthy = result.healthy;
         if (result.healthy) {
-          ep.failures = 0;
-          ep.unhealthySince = void 0;
-        } else {
+          if (ep.healthy || seq > ep.downSeq) {
+            ep.healthy = true;
+            ep.failures = 0;
+            ep.unhealthySince = void 0;
+            ep.lastOkSeq = Math.max(ep.lastOkSeq, seq);
+          }
+        } else if (seq > ep.lastOkSeq) {
+          if (ep.healthy) ep.downSeq = seq;
+          ep.healthy = false;
           ep.unhealthySince = ep.unhealthySince ?? Date.now();
         }
         return result;
@@ -18882,45 +18985,49 @@ var LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
 var LIGHTHOUSE_CONSTRAINT_ADDRESS = 6400;
 var LIGHTHOUSE_ERROR_CODES = /* @__PURE__ */ new Set([
   6e3,
-  // InstructionMissing
+  // 6000 InvalidInstructionData
   6001,
-  // InstructionFallbackNotFound
+  // 6001 AssertionFailed (single assertion)
   6002,
-  // InstructionDidNotDeserialize
+  // 6002 NotEnoughAccounts
   6003,
-  // InstructionDidNotSerialize
+  // 6003 BumpNotFound
+  6004,
+  // 6004 AccountBorrowFailed
+  6005,
+  // 6005 RangeOutOfBounds
+  6006,
+  // 6006 IndexOutOfBounds
+  6007,
+  // 6007 FailedToDeserialize
+  6008,
+  // 6008 FailedToSerialize
+  6009,
+  // 6009 AccountOwnerMismatch
+  6010,
+  // 6010 AccountKeyMismatch
+  6011,
+  // 6011 AccountNotInitialized
+  6012,
+  // 6012 AccountOwnerValidationFailed
+  6013,
+  // 6013 AccountFundedValidationFailed
+  6014,
+  // 6014 AccountDiscriminatorValidationFailed
+  6015,
+  // 6015 AccountValidationFailed
   6016,
-  // IdlInstructionStub
-  6032,
-  // ConstraintMut
-  6033,
-  // ConstraintHasOne
-  6034,
-  // ConstraintSigner
-  6035,
-  // ConstraintRaw
-  6036,
-  // ConstraintOwner
-  6037,
-  // ConstraintRentExempt
-  6038,
-  // ConstraintSeeds
-  6039,
-  // ConstraintExecutable
-  6040,
-  // ConstraintState
-  6041,
-  // ConstraintAssociated
-  6042,
-  // ConstraintAssociatedInit
-  6043,
-  // ConstraintClose
+  // 6016 CrossProgramInvokeViolation
   6400
-  // ConstraintAddress (the one we hit most often)
+  // 6400 AssertionFailed, multi-assert index 0 (the one we hit most often)
 ]);
 function isLighthouseInstruction(ix3) {
   return ix3.programId.equals(LIGHTHOUSE_PROGRAM_ID);
 }
+var LIGHTHOUSE_BENIGN_LINE = new RegExp(
+  `Program ${LIGHTHOUSE_PROGRAM_ID_STR} (?:invoke \\[\\d+\\]|success|consumed \\d+ of \\d+ compute units)`,
+  "g"
+);
 function isLighthouseError(error) {
   const msg = extractErrorMessage(error);
   if (!msg) return false;
@@ -18928,7 +19035,12 @@ function isLighthouseError(error) {
   if (failed.length > 0) {
     return failed.some((m) => m[1] === LIGHTHOUSE_PROGRAM_ID_STR);
   }
-  if (msg.includes(LIGHTHOUSE_PROGRAM_ID_STR)) return true;
+  if (msg.includes(LIGHTHOUSE_PROGRAM_ID_STR)) {
+    const invokes = msg.split(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke [`).length - 1;
+    const successes = msg.split(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} success`).length - 1;
+    const rest = msg.replace(LIGHTHOUSE_BENIGN_LINE, "");
+    if (invokes > successes || rest.includes(LIGHTHOUSE_PROGRAM_ID_STR)) return true;
+  }
   if (/custom\s+program\s+error:\s*0x1900\b/i.test(msg)) return true;
   if (/"Custom"\s*:\s*6400\b/.test(msg) && /InstructionError/i.test(msg)) return true;
   return false;
@@ -19832,6 +19944,7 @@ export {
   LEV_GUARD_ACCOUNT_LEN_V22,
   LEV_GUARD_BODY_LEN_V22,
   LEV_GUARD_FIELD_OFF_V22,
+  LEV_GUARD_FLAG_PERM_PROVEN_V22,
   LEV_GUARD_FLAG_V22,
   LEV_GUARD_KEY_TAG_LEN_V22,
   LEV_GUARD_OP_V22,

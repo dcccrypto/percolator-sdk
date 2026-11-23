@@ -2,7 +2,7 @@
  * @module lighthouse
  * Lighthouse v2 (Blowfish / Phantom wallet middleware) detection and mitigation.
  *
- * Lighthouse (program L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95) is an Anchor-based
+ * Lighthouse (program L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95) is a native (non-Anchor)
  * wallet guard injected by Phantom and other Solana wallets via the Blowfish transaction
  * scanning service. It adds assertion instructions to transactions that verify account
  * state expectations (e.g., "this account should be empty" or "this account should have
@@ -11,7 +11,7 @@
  * **Problem:** Lighthouse doesn't understand Percolator's slab accounts. When a slab
  * (e.g., ESa89R5 with 323,312 bytes) is passed as a TradeCpi account, Lighthouse injects
  * an assertion like `StateInvalidAddress` that expects `data_len == 0` (uninitialised).
- * The slab IS initialised, so the assertion fails with error 0x1900 (Anchor ConstraintAddress
+ * The slab IS initialised, so a multi-assert instruction fails with error 0x1900 (Lighthouse multi-assert AssertionFailed
  * = 6400 decimal). This causes the transaction to revert even though the Percolator program
  * logic is correct.
  *
@@ -38,7 +38,7 @@ import { PublicKey, TransactionInstruction, Transaction } from "@solana/web3.js"
 /**
  * Lighthouse v2 program ID (Blowfish/Phantom wallet guard).
  *
- * This is an immutable Anchor program deployed at slot 294,179,293.
+ * This is an immutable native program deployed at slot 294,179,293.
  * Wallets like Phantom inject instructions from this program into user
  * transactions to enforce Blowfish security assertions.
  */
@@ -46,16 +46,19 @@ export declare const LIGHTHOUSE_PROGRAM_ID: PublicKey;
 /** Base58 string form for fast comparison without PublicKey instantiation. */
 export declare const LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
 /**
- * Anchor error code for ConstraintAddress (0x1900 = 6400 decimal).
- * This is NOT a Percolator error — it comes from Lighthouse's Anchor framework
- * when an account constraint check fails.
+ * Lighthouse multi-assert AssertionFailed at assertion index 0 (0x1900 = 6400).
+ * Lighthouse maps a failed assertion i of a multi-assert instruction to
+ * Custom(0x1900 + i) (`map_multi_err`). It is NOT an Anchor code and NOT a
+ * Percolator error. (Name kept for compatibility.)
  */
 export declare const LIGHTHOUSE_CONSTRAINT_ADDRESS = 6400;
 /**
- * Known Lighthouse/Anchor error codes that may appear in transaction logs.
- * All are in the Anchor error range (0x1770–0x1900+).
+ * Lighthouse's own custom error codes: `LighthouseError` 6000..6016 plus
+ * 0x1900 (multi-assert index 0; index i is 0x1900 + i). Lighthouse is a native
+ * program, not Anchor. Source: Jac0xb/lighthouse@4c579479
+ * programs/lighthouse/src/error.rs:23-78.
  */
-export declare const LIGHTHOUSE_ERROR_CODES: Set<6400 | 6000 | 6001 | 6002 | 6003 | 6016 | 6032 | 6033 | 6034 | 6035 | 6036 | 6037 | 6038 | 6039 | 6040 | 6041 | 6042 | 6043>;
+export declare const LIGHTHOUSE_ERROR_CODES: Set<6400 | 6000 | 6001 | 6002 | 6003 | 6004 | 6005 | 6006 | 6007 | 6008 | 6009 | 6010 | 6011 | 6012 | 6013 | 6014 | 6015 | 6016>;
 /**
  * Check if a TransactionInstruction is from the Lighthouse program.
  *
@@ -72,10 +75,11 @@ export declare function isLighthouseInstruction(ix: TransactionInstruction): boo
  * Check if an error message or error object indicates a Lighthouse assertion failure.
  *
  * Detects:
- * - `custom program error: 0x1900` (Anchor ConstraintAddress from Lighthouse)
- * - References to the Lighthouse program ID in error text
+ * - `custom program error: 0x1900` (Lighthouse multi-assert AssertionFailed)
+ * - References to the Lighthouse program ID in error text (not counting
+ *   invoke/consumed/success lines of a Lighthouse ix that completed)
  * - `"Custom": 6400` in JSON-encoded InstructionError
- * - Any Anchor error code in the LIGHTHOUSE_ERROR_CODES range when the
+ * - Any code (LIGHTHOUSE_ERROR_CODES or other) when the
  *   failing program is Lighthouse (identified by program ID in logs)
  *
  * @param error - An Error object, error message string, or transaction logs array.
