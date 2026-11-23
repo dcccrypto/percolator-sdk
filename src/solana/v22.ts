@@ -859,6 +859,7 @@ export function buildLaunchBundleV22(i: LaunchBundleInputV22): LaunchBundlePlanV
  * @param programId   The wrapper program id.
  * @param layout      Layout table (default {@link LAYOUT_V22}).
  * @returns The createAccount instruction.
+ * @throws If `lamports` or `layout.portfolio.accountLen` is not a safe non-negative integer.
  * @example
  * ```ts
  * const ix = buildCreateLpPortfolioIxV22(payer, lpKp.publicKey, lamports, programId);
@@ -866,7 +867,8 @@ export function buildLaunchBundleV22(i: LaunchBundleInputV22): LaunchBundlePlanV
  */
 export function buildCreateLpPortfolioIxV22(payer: PublicKey, portfolio: PublicKey, lamports: number, programId: PublicKey, layout: LayoutTable = LAYOUT_V22): TransactionInstruction {
   assertUintNumber("lamports", lamports);
-  return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
+  const space = assertUintNumber("layout.portfolio.accountLen", layout.portfolio.accountLen);
+  return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space, programId });
 }
 
 /**
@@ -880,6 +882,7 @@ export function buildCreateLpPortfolioIxV22(payer: PublicKey, portfolio: PublicK
  * @param programId  The wrapper program id.
  * @param layout     Layout row (default {@link LAYOUT_V22}).
  * @returns The createAccount instruction.
+ * @throws If `lamports` or `layout.portfolio.accountLen` is not a safe non-negative integer.
  * @example
  * ```ts
  * const ix = buildCreatePortfolioAccountIxV22(payer, kp.publicKey, await conn.getMinimumBalanceForRentExemption(portfolioAccountLenV22()), programId);
@@ -887,7 +890,8 @@ export function buildCreateLpPortfolioIxV22(payer: PublicKey, portfolio: PublicK
  */
 export function buildCreatePortfolioAccountIxV22(payer: PublicKey, portfolio: PublicKey, lamports: number, programId: PublicKey, layout: LayoutTable = LAYOUT_V22): TransactionInstruction {
   assertUintNumber("lamports", lamports);
-  return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
+  const space = assertUintNumber("layout.portfolio.accountLen", layout.portfolio.accountLen);
+  return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space, programId });
 }
 
 /**
