@@ -197,6 +197,13 @@ export async function fetchMintDecimals(
  * whether a `solPriceE6` conversion is needed, without duplicating the address.
  */
 export const WSOL_MINT = new PublicKey("So11111111111111111111111111111111111111112");
+// Private copy (toBytes() copies), compared byte by byte so the PumpSwap price
+// path doesn't build a PublicKey just to call equals().
+const WSOL_BYTES = WSOL_MINT.toBytes();
+function isWsolAt(d: Uint8Array, off: number): boolean {
+  for (let i = 0; i < 32; i++) if (d[off + i] !== WSOL_BYTES[i]) return false;
+  return true;
+}
 
 // PumpSwap (pump.fun AMM, program pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA) `Pool`
 // account layout (Anchor discriminator = 8 bytes):
@@ -315,8 +322,7 @@ function computePumpSwapPriceE6(
   const baseScale = POW10[decimals.base];
   const quoteScale = POW10[decimals.quote];
 
-  const quoteMint = new PublicKey(poolData.slice(75, 107));
-  if (quoteMint.equals(WSOL_MINT)) {
+  if (isWsolAt(poolData, 75)) {
     // #PS-3: pump.fun pools quote in WSOL, not USD. Convert token/SOL → token/USD.
     if (solPriceE6 === undefined) {
       throw new Error(
