@@ -27,7 +27,7 @@ function market(n: number): Uint8Array {
 function setEpoch(d: Uint8Array, i: number, epoch: bigint): void {
   const L = LAYOUT_V22;
   const slot = L.marketGroupOff + L.marketGroupLen + i * L.assetSlotStride;
-  new DataView(d.buffer).setBigUint64(slot + L.wrapperSlot.controlSequences + FX.offsets.controlAuthorityEpoch, epoch, true);
+  new DataView(d.buffer, d.byteOffset, d.byteLength).setBigUint64(slot + L.wrapperSlot.controlSequences + FX.offsets.controlAuthorityEpoch, epoch, true);
 }
 
 describe("creator-fee payee killers", () => {
