@@ -71,6 +71,9 @@ describe("rejections the guards file does not reach", () => {
   it.each(pricing)("guard-only block rejects pricing field %s = %s", (k, v) => {
     expect(() => validateMatcherSetParams(guardOnly({ [k]: v } as Partial<MatcherV2Config>))).toThrow(/pricing field/);
   });
+  it("kind 1 guard-only block rejects pricing too", () => {
+    expect(() => validateMatcherSetParams({ ...guardOnly({ feeLoBps: 1 }), kind: 1 })).toThrow(/pricing field/);
+  });
 });
 
 describe("guard-only block bytes on the wire", () => {
