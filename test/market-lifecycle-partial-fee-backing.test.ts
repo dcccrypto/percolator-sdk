@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { planCloseSlabAttempt, type CloseSlabAttemptArgs } from "../src/solana/market-lifecycle.js";
+import { planCloseSlabAttempt, planPayeeGraceCloseSequenceV22, type CloseSlabAttemptArgs } from "../src/solana/market-lifecycle.js";
 
 const W = new PublicKey("ETDLAdiAyWnEUngspYczTXUceT6X8f92eZQvr8nmSkWB");
 const pk = (): PublicKey => Keypair.generate().publicKey;
@@ -86,6 +86,16 @@ describe("planCloseSlabAttempt with a partially backed fee pool", () => {
     });
     expect(tags(ixs)).toEqual([84, 41, 90, 13]);
     expect(tag90Amounts(ixs)).toEqual([40n]);
+  });
+
+  it("payee-grace tx2 only claims what tx1's tag 84 left in the pool", () => {
+    const leg = { ...payee(0, 40n) };
+    const [a1, a2] = planPayeeGraceCloseSequenceV22({ ...base, protocolFee: fee, creatorFees: [leg], feeBackingAtoms: 100n });
+    expect(tags(a1)).toEqual([84, 13]);
+    expect(tags(a2)).toEqual([13]); // tx1's tag 84 spent the whole pool; a tx2 tag 84 would transfer 0 → EngineLockActive
+    const [b1, b2] = planPayeeGraceCloseSequenceV22({ ...base, protocolFee: fee, creatorFees: [leg], feeBackingAtoms: 120n });
+    expect(tags(b1)).toEqual([84, 13]);
+    expect(tags(b2)).toEqual([84, 13]);
   });
 
   it("omitted feeBackingAtoms keeps the previous plan (no cap)", () => {
