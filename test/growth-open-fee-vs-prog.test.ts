@@ -95,3 +95,36 @@ describe("utilisationFeeBps at kink 10_000 (growth_v19.rs:693 returns None, neve
     expect(() => previewGrowthOpenFee(i, -3n * M, 13n * M, 30n)).not.toThrow();
   });
 });
+
+// Kills the 4 previewGrowthOpenFee mutants the tests above let through (SDK-REPORT-GROWTHOPENFEEVSPROGMUT: F01 F02 F07 F09).
+// Wrapper refs (percolator-prog feat/v22-rc23-2026-10-22 @ 08361ffc): growth_util_fee_for_fill_bps (v16_program.rs:47917) ->
+// growth_v19::util_fee_on_fill_bps (growth_v19.rs:733, "Rounds DOWN"); p1_cpi_preflight_before_matcher builds GrowthUtilIn only
+// for the bound vault LP, and reads `long_side = size_q > 0` (:48095).
+describe("previewGrowthOpenFee: flip pro-rata, bound gate, close-to-flat side", () => {
+  it("a flip pays floor(f * |after| / |size|): the closing part is free and the rate rounds DOWN (F01, F02)", () => {
+    const before = -1_000n * M;
+    const size = 3_000n * M + 1n; // after = 2e9 + 1 long
+    const after = before + size;
+    expect(utilisationFeeBps(after, 100_000n * M, 0, utilFeeMaxEffectiveBps(0))).toBe(11); // ceil(500 * (2e9 + 1) / 1e11)
+    const p = previewGrowthOpenFee(inp(rec({ kink: 0 })), before, size, 30n);
+    expect(p.openingQ).toBe(after);
+    // floor(11 * (2e9 + 1) / (3e9 + 1)) = floor(7.33) = 7 (ceil would give 8, no pro-rata 11)
+    expect(p.utilFeeBps).toBe(7);
+    expect(p.minSignedFeeBpsExMatcher).toBe(37n);
+    expect(p.batchAllowed).toBe(false);
+  });
+  it("an unbound asset previews no utilisation fee (F09)", () => {
+    const size = 2_000n * M + 1n;
+    const p = previewGrowthOpenFee(inp(rec({ kink: 0 }), { assetBound: false }), 0n, size, 30n);
+    expect(p.utilFeeBps).toBe(0);
+    expect(p.minSignedFeeBpsExMatcher).toBe(30n);
+    expect(p.batchAllowed).toBe(true);
+    expect(previewGrowthOpenFee(inp(rec({ kink: 0 })), 0n, size, 30n).utilFeeBps).toBe(11); // same open, bound: 11
+  });
+  it("a sell that closes to flat reports the short side's users OI (F07)", () => {
+    const p = previewGrowthOpenFee(inp(rec(), { oiEffLongQ: 7n * M, oiEffShortQ: 3n * M }), 5n * M, -5n * M, 30n);
+    expect(p.openingQ).toBe(0n);
+    expect(p.usersOiAfterQ).toBe(3n * M);
+    expect(p.utilFeeBps).toBe(0);
+  });
+});
