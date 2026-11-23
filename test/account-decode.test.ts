@@ -29,6 +29,7 @@ import {
   parseHeader,
   parseConfig,
   parseEngine,
+  parseParams,
   detectSlabLayout,
   SLAB_MAGIC,
 } from "../src/solana/slab.js";
@@ -190,8 +191,10 @@ describe("account-decode: Wrapper slab V1D (devnet)", () => {
     const layout = detectSlabLayout(data.length, data);
     expect(layout).not.toBeNull();
     expect(layout?.version).toBe(1);
-    // V1D engineOff = 424
-    expect(layout?.engineOff).toBe(424);
+    // 65088 B V1D slabs were written by prog f7a2e8ab: CONFIG_LEN 352, so engineOff = 456
+    // (was pinned at 424, which read config bytes as the engine).
+    expect(layout?.engineOff).toBe((fixture.expected_decoded["engine"] as Record<string, unknown>)["engineOff"]);
+    expect(layout?.engineOff).toBe(456);
     // V1D accountSize = 248
     expect(layout?.accountSize).toBe(248);
     // V1D maxAccounts = 256 (small tier)
@@ -237,5 +240,31 @@ describe("account-decode: Wrapper slab V1D (devnet)", () => {
     expect(engine.currentSlot).toBe(BigInt(ex["currentSlot"] as string));
     expect(engine.markPriceE6).toBe(BigInt(ex["markPriceE6"] as string));
     expect(engine.fundingRateBpsPerSlotLast).toBe(BigInt(ex["fundingRateBpsPerSlotLast"] as string));
+
+    // Captured runtime state (all nonzero ones are the InitMarket slot / defaults)
+    expect(engine.vault).toBe(BigInt(ex["vault"] as string));
+    expect(engine.insuranceFund.balance).toBe(BigInt(ex["insuranceBalance"] as string));
+    expect(engine.lastFundingSlot).toBe(BigInt(ex["lastFundingSlot"] as string));
+    expect(engine.lastCrankSlot).toBe(BigInt(ex["lastCrankSlot"] as string));
+    expect(engine.maxCrankStalenessSlots).toBe(BigInt(ex["maxCrankStalenessSlots"] as string));
+    expect(engine.cTot).toBe(BigInt(ex["cTot"] as string));
+    expect(engine.lastSweepStartSlot).toBe(BigInt(ex["lastSweepStartSlot"] as string));
+    expect(engine.lastSweepCompleteSlot).toBe(BigInt(ex["lastSweepCompleteSlot"] as string));
+    expect(engine.numUsedAccounts).toBe(ex["numUsedAccounts"]);
+    expect(engine.nextAccountId).toBe(BigInt(ex["nextAccountId"] as string));
+  });
+
+  it("parseParams returns the captured RiskParams", () => {
+    const params = parseParams(data);
+    const ex = fixture.expected_decoded["params"] as Record<string, string>;
+    expect(params.warmupPeriodSlots).toBe(BigInt(ex["warmupPeriodSlots"]));
+    expect(params.maintenanceMarginBps).toBe(BigInt(ex["maintenanceMarginBps"]));
+    expect(params.initialMarginBps).toBe(BigInt(ex["initialMarginBps"]));
+    expect(params.tradingFeeBps).toBe(BigInt(ex["tradingFeeBps"]));
+    expect(params.maxAccounts).toBe(BigInt(ex["maxAccounts"]));
+    expect(params.newAccountFee).toBe(BigInt(ex["newAccountFee"]));
+    expect(params.maxCrankStalenessSlots).toBe(BigInt(ex["maxCrankStalenessSlots"]));
+    expect(params.liquidationFeeBps).toBe(BigInt(ex["liquidationFeeBps"]));
+    expect(params.liquidationBufferBps).toBe(BigInt(ex["liquidationBufferBps"]));
   });
 });

@@ -1,6 +1,7 @@
 /**
- * DRAFT killers for test/account-decode.test.ts (J-20261123-SDK-REPORT-ACCOUNTDECODETESTMUT).
- * Copy into test/ for a FOLLOW job. Green on unmutated ec8ba67d.
+ * Mutation killers for test/account-decode.test.ts, drafted by J-20261123-SDK-REPORT-ACCOUNTDECODETESTMUT
+ * and landed by J-20261123-SDK-FIX-V1DENGINEOFFSETS (21 tests). One draft test was changed: it
+ * pinned the V1D vault at abs 424, which is config, not engine (see the V1D block below).
  *
  * The captured devnet StakePool/StakeDeposit fixtures predate the discriminator, so the current
  * file only proves they are REFUSED; no field read in decodeStakePool/decodeDepositPda runs.
@@ -249,7 +250,13 @@ describe("account-decode killers: wrapper slab V1D", () => {
     expect(parseConfig(d).fundingMaxPremiumBps).toBe(-7n);
   });
 
-  it("reads the engine vault at engine+0 (captured value 1_000_000)", () => {
-    expect(parseEngine(slab()).vault).toBe(1_000_000n);
+  // The draft pinned vault = 1_000_000 read at abs 424. That word is config.authority_price_e6
+  // (prog f7a2e8ab CONFIG_LEN = 352), not the engine. The engine starts at abs 456 and its vault
+  // is 0 on this slab, so pin a sentinel at abs 456 instead.
+  it("reads the engine vault at engine+0 (abs 456), not the config tail at 424", () => {
+    expect(parseEngine(slab()).vault).toBe(0n);
+    const d = slab();
+    d.set([0x15, 0xcd, 0x5b, 0x07], 456); // 123_456_789
+    expect(parseEngine(d).vault).toBe(123_456_789n);
   });
 });

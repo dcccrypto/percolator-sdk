@@ -286,6 +286,54 @@ const V1D_ENGINE_NET_LP_POS_OFF = 592;
 const V1D_ENGINE_LP_SUM_ABS_OFF = 608;
 // lp_max_abs, lp_max_abs_sweep, emergency_*, trade_twap_* do NOT exist in this version
 const V1D_ENGINE_BITMAP_OFF = 624;
+// NOTE: since the split below, these V1D_* constants are used only for the 65104 B
+// (postBitmap=18, SLAB_TIERS_V1D_LEGACY) variant. The SLAB_TIERS_V1D sizes (65088 B for
+// 256 accounts) decode with the V1D_PRE306_* layout below.
+
+// ---- V1D pre-PERC-306 layout (the program that wrote the SLAB_TIERS_V1D sizes) ----
+// Pinned to the source, not probed: percolator-prog f7a2e8ab (2026-02-24, "sync: update program
+// from monorepo") built against percolator engine a235a5f2 (its Cargo.lock pin). Version 1,
+// before PERC-306 added insurance isolation. Checked against the captured devnet slab
+// 2swBcS47 (fixtures/accounts/devnet-wrapper-slab-v1d.json, 65088 B):
+//   - MarketConfig is 352 B on SBF (ends with authority_price_e6, authority_timestamp,
+//     oracle_price_cap_e2bps, last_effective_price_e6), so ENGINE_OFF = align_up(104+352, 8) = 456.
+//     The SDK used to put the engine at 424. It then read oracle_price_cap_e2bps (10_000) and
+//     last_effective_price_e6 (1e6) as the insurance balance (~1.8e25) and read params 32 B late.
+//   - InsuranceFund is {balance, fee_revenue} = 32 B, so params start at engine+48.
+//   - RiskParams is 288 B, the same field order as the legacy V1D build.
+//   - The engine still has lp_max_abs/lp_max_abs_sweep and num_used/pad/next_account_id/free_head
+//     (postBitmap=18) with the bitmap at engine+576. That gives the same slab sizes as the
+//     postBitmap=2 model (424+624+2 == 456+576+18), which is why the size table never showed it.
+//   - No long_oi/short_oi (total_open_interest only) and no emergency OI fields.
+const V1D_PRE306_CONFIG_LEN = 352;
+const V1D_PRE306_ENGINE_OFF = 456;
+const V1D_PRE306_ENGINE_INSURANCE_OFF = 16;
+const V1D_PRE306_ENGINE_PARAMS_OFF = 48;
+const V1D_PRE306_PARAMS_SIZE = 288;
+const V1D_PRE306_ENGINE_CURRENT_SLOT_OFF = 336;
+const V1D_PRE306_ENGINE_FUNDING_INDEX_OFF = 344;   // I128
+const V1D_PRE306_ENGINE_LAST_FUNDING_SLOT_OFF = 360;
+const V1D_PRE306_ENGINE_FUNDING_RATE_BPS_OFF = 368;
+const V1D_PRE306_ENGINE_MARK_PRICE_OFF = 376;
+// funding_frozen(bool) at 384, funding_frozen_rate_snapshot(i64) at 392
+const V1D_PRE306_ENGINE_LAST_CRANK_SLOT_OFF = 400;
+const V1D_PRE306_ENGINE_MAX_CRANK_STALENESS_OFF = 408;
+const V1D_PRE306_ENGINE_TOTAL_OI_OFF = 416;
+const V1D_PRE306_ENGINE_C_TOT_OFF = 432;
+const V1D_PRE306_ENGINE_PNL_POS_TOT_OFF = 448;
+const V1D_PRE306_ENGINE_LIQ_CURSOR_OFF = 464;
+const V1D_PRE306_ENGINE_GC_CURSOR_OFF = 466;
+const V1D_PRE306_ENGINE_LAST_SWEEP_START_OFF = 472;
+const V1D_PRE306_ENGINE_LAST_SWEEP_COMPLETE_OFF = 480;
+const V1D_PRE306_ENGINE_CRANK_CURSOR_OFF = 488;
+const V1D_PRE306_ENGINE_SWEEP_START_IDX_OFF = 490;
+const V1D_PRE306_ENGINE_LIFETIME_LIQUIDATIONS_OFF = 496;
+const V1D_PRE306_ENGINE_LIFETIME_FORCE_CLOSES_OFF = 504;
+const V1D_PRE306_ENGINE_NET_LP_POS_OFF = 512;
+const V1D_PRE306_ENGINE_LP_SUM_ABS_OFF = 528;
+const V1D_PRE306_ENGINE_LP_MAX_ABS_OFF = 544;
+const V1D_PRE306_ENGINE_LP_MAX_ABS_SWEEP_OFF = 560;
+const V1D_PRE306_ENGINE_BITMAP_OFF = 576;
 
 // ---- V2 layout constants (BPF intermediate layout, ENGINE_OFF=600, BITMAP_OFF=432) ----
 // V2 shares ENGINE_OFF=600 with V1, but has a completely different engine struct layout:
@@ -845,9 +893,10 @@ for (const n of TIERS) {
   V0_SIZES.set(computeSlabSize(V0_ENGINE_OFF, V0_ENGINE_BITMAP_OFF, V0_ACCOUNT_SIZE, n), n);
   V1_SIZES.set(computeSlabSize(V1_ENGINE_OFF, V1_ENGINE_BITMAP_OFF, V1_ACCOUNT_SIZE, n), n);
   V1_SIZES_LEGACY.set(computeSlabSize(V1_ENGINE_OFF_LEGACY, V1_ENGINE_BITMAP_OFF, V1_ACCOUNT_SIZE, n), n);
-  // GH#1234: V1D deployed program omits num_used/pad/next_account_id → postBitmap=2 (free_head only).
-  // This yields 65088 (n=256) and 1025568 (n=4096) matching actual devnet account sizes.
-  V1D_SIZES.set(computeSlabSize(V1D_ENGINE_OFF, V1D_ENGINE_BITMAP_OFF, V1D_ACCOUNT_SIZE, n, 2), n);
+  // GH#1234 sizes: 65088 (n=256) and 1025568 (n=4096), matching actual devnet account sizes.
+  // Computed from the pinned pre-PERC-306 layout (engine 456, bitmap 576, postBitmap=18). These
+  // are byte-identical to the old (424, 624, postBitmap=2) model, so detection is unchanged.
+  V1D_SIZES.set(computeSlabSize(V1D_PRE306_ENGINE_OFF, V1D_PRE306_ENGINE_BITMAP_OFF, V1D_ACCOUNT_SIZE, n, 18), n);
   // GH#1237: also register the legacy postBitmap=18 sizes for slabs created before GH#1234 fix.
   V1D_SIZES_LEGACY.set(computeSlabSize(V1D_ENGINE_OFF, V1D_ENGINE_BITMAP_OFF, V1D_ACCOUNT_SIZE, n, 18), n);
   // V2: postBitmap=18 — produces same sizes as V1D postBitmap=2 (e.g. 65088 for n=256).
@@ -1186,15 +1235,12 @@ function buildLayout(version: 0 | 1, maxAccounts: number, engineOffOverride?: nu
  * Build layout for V1D (actually deployed V1 program, rev ac18a0e).
  * Uses correct field offsets derived from on-chain probing.
  *
+ * Only the SLAB_TIERS_V1D_LEGACY sizes (65104 B for 256 accounts, postBitmap=18) use this now.
+ * The SLAB_TIERS_V1D sizes (65088 B) are decoded by buildLayoutV1DPre306.
+ *
  * @param maxAccounts - Number of account slots in the slab
  * @param postBitmap  - Bytes after the bitmap before next_free array.
- *   2  = free_head(u16) only — deployed program (GH#1234, default for new slabs)
  *   18 = num_used(u16)+pad(6)+next_account_id(u64)+free_head(u16) — legacy on-chain slabs (GH#1237)
- */
-/**
- * Build a SlabLayout for the actually-deployed V1D program (ENGINE_OFF=424).
- * `postBitmap` is 2 for new slabs (free_head only) and 18 for legacy on-chain slabs
- * created before the GH#1234 fix that removed num_used/pad/next_account_id.
  */
 function buildLayoutV1D(maxAccounts: number, postBitmap = 2): SlabLayout {
   const engineOff = V1D_ENGINE_OFF;
@@ -1255,6 +1301,76 @@ function buildLayoutV1D(maxAccounts: number, postBitmap = 2): SlabLayout {
     hasInsuranceIsolation: true,
     engineInsuranceIsolatedOff: 48,     // same within InsuranceFund
     engineInsuranceIsolationBpsOff: 64, // same within InsuranceFund
+  };
+}
+
+/**
+ * Build a SlabLayout for the SLAB_TIERS_V1D sizes (65088 B for 256 accounts): percolator-prog
+ * f7a2e8ab + engine a235a5f2 (pre-PERC-306). See the V1D_PRE306_* constants for the derivation.
+ * Slab sizes match the old (ENGINE_OFF=424, postBitmap=2) model, and accountsOff is the same
+ * (1600 for n=256). Only the config length and the engine field offsets differ.
+ */
+function buildLayoutV1DPre306(maxAccounts: number): SlabLayout {
+  const engineOff = V1D_PRE306_ENGINE_OFF;
+  const bitmapOff = V1D_PRE306_ENGINE_BITMAP_OFF;
+  const accountSize = V1D_ACCOUNT_SIZE;
+  const postBitmap = 18;
+  const bitmapWords = Math.ceil(maxAccounts / 64);
+  const bitmapBytes = bitmapWords * 8;
+  const nextFreeBytes = maxAccounts * 2;
+  const preAccountsLen = bitmapOff + bitmapBytes + postBitmap + nextFreeBytes;
+  const accountsOffRel = Math.ceil(preAccountsLen / 8) * 8;
+
+  return {
+    version: 1,
+    headerLen: V1_HEADER_LEN,
+    configOffset: V1_HEADER_LEN,
+    configLen: V1D_PRE306_CONFIG_LEN,
+    reservedOff: V1_RESERVED_OFF,
+    engineOff,
+    accountSize,
+    maxAccounts,
+    bitmapWords,
+    accountsOff: engineOff + accountsOffRel,
+
+    engineInsuranceOff: V1D_PRE306_ENGINE_INSURANCE_OFF,
+    engineParamsOff: V1D_PRE306_ENGINE_PARAMS_OFF,
+    paramsSize: V1D_PRE306_PARAMS_SIZE,
+    engineCurrentSlotOff: V1D_PRE306_ENGINE_CURRENT_SLOT_OFF,
+    engineFundingIndexOff: V1D_PRE306_ENGINE_FUNDING_INDEX_OFF,
+    engineLastFundingSlotOff: V1D_PRE306_ENGINE_LAST_FUNDING_SLOT_OFF,
+    engineFundingRateBpsOff: V1D_PRE306_ENGINE_FUNDING_RATE_BPS_OFF,
+    engineMarkPriceOff: V1D_PRE306_ENGINE_MARK_PRICE_OFF,
+    engineLastCrankSlotOff: V1D_PRE306_ENGINE_LAST_CRANK_SLOT_OFF,
+    engineMaxCrankStalenessOff: V1D_PRE306_ENGINE_MAX_CRANK_STALENESS_OFF,
+    engineTotalOiOff: V1D_PRE306_ENGINE_TOTAL_OI_OFF,
+    engineLongOiOff: -1,                // not present (total_open_interest only)
+    engineShortOiOff: -1,               // not present
+    engineCTotOff: V1D_PRE306_ENGINE_C_TOT_OFF,
+    enginePnlPosTotOff: V1D_PRE306_ENGINE_PNL_POS_TOT_OFF,
+    engineLiqCursorOff: V1D_PRE306_ENGINE_LIQ_CURSOR_OFF,
+    engineGcCursorOff: V1D_PRE306_ENGINE_GC_CURSOR_OFF,
+    engineLastSweepStartOff: V1D_PRE306_ENGINE_LAST_SWEEP_START_OFF,
+    engineLastSweepCompleteOff: V1D_PRE306_ENGINE_LAST_SWEEP_COMPLETE_OFF,
+    engineCrankCursorOff: V1D_PRE306_ENGINE_CRANK_CURSOR_OFF,
+    engineSweepStartIdxOff: V1D_PRE306_ENGINE_SWEEP_START_IDX_OFF,
+    engineLifetimeLiquidationsOff: V1D_PRE306_ENGINE_LIFETIME_LIQUIDATIONS_OFF,
+    engineLifetimeForceClosesOff: V1D_PRE306_ENGINE_LIFETIME_FORCE_CLOSES_OFF,
+    engineNetLpPosOff: V1D_PRE306_ENGINE_NET_LP_POS_OFF,
+    engineLpSumAbsOff: V1D_PRE306_ENGINE_LP_SUM_ABS_OFF,
+    engineLpMaxAbsOff: V1D_PRE306_ENGINE_LP_MAX_ABS_OFF,
+    engineLpMaxAbsSweepOff: V1D_PRE306_ENGINE_LP_MAX_ABS_SWEEP_OFF,
+    engineEmergencyOiModeOff: -1,       // not present
+    engineEmergencyStartSlotOff: -1,    // not present
+    engineLastBreakerSlotOff: -1,       // not present
+    engineBitmapOff: bitmapOff,
+    postBitmap,
+    acctOwnerOff: ACCT_OWNER_OFF,
+
+    // InsuranceFund is {balance, fee_revenue} only — no isolation fields before PERC-306.
+    hasInsuranceIsolation: false,
+    engineInsuranceIsolatedOff: -1,
+    engineInsuranceIsolationBpsOff: -1,
   };
 }
 
@@ -2080,8 +2196,8 @@ export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout
   const v0n = V0_SIZES.get(dataLen);
   if (v0n !== undefined) return validateLayout(buildLayout(0, v0n), dataLen);
 
-  // Check V1D sizes (actually deployed V1 program — ENGINE_OFF=424, correct struct layout).
-  // V2 slabs produce identical sizes (postBitmap=18 for V2 == postBitmap=2 for V1D).
+  // Check V1D sizes (version 1, prog f7a2e8ab + engine a235a5f2 — ENGINE_OFF=456, see V1D_PRE306_*).
+  // V2 slabs produce identical sizes.
   // When data is available, peek at the version field to disambiguate.
   const v1dn = V1D_SIZES.get(dataLen);
   if (v1dn !== undefined) {
@@ -2089,7 +2205,7 @@ export function detectSlabLayout(dataLen: number, data?: Uint8Array): SlabLayout
       const version = readU32LE(data, 8);
       if (version === 2) return validateLayout(buildLayoutV2(v1dn), dataLen);
     }
-    return validateLayout(buildLayoutV1D(v1dn, 2), dataLen);
+    return validateLayout(buildLayoutV1DPre306(v1dn), dataLen);
   }
 
   // Check V1D legacy sizes (postBitmap=18 on-chain slabs created before GH#1234 fix).

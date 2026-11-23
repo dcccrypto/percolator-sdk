@@ -85,11 +85,12 @@ describe("detectSlabLayout", () => {
   });
 
   // GH#1234: postBitmap=2 sizes (new V1D slabs)
-  it("detects V1D small tier (65088, postBitmap=2) — GH#1234", () => {
+  it("detects V1D small tier (65088) — GH#1234 size, prog f7a2e8ab layout", () => {
     const layout = detectSlabLayout(65_088);
     expect(layout).not.toBeNull();
     expect(layout!.maxAccounts).toBe(256);
-    expect(layout!.engineOff).toBe(424);
+    // CONFIG_LEN 352 → engine at 456 (was pinned at 424, which is inside MarketConfig)
+    expect(layout!.engineOff).toBe(456);
     expect(layout!.accountSize).toBe(248);
   });
 
@@ -116,7 +117,7 @@ describe("detectLayout (GH#1238)", () => {
   it("returns correct accountsOff for V1D new slab (65088, postBitmap=2)", () => {
     const result = detectLayout(65_088);
     expect(result).not.toBeNull();
-    // postBitmap=2: accountsOff = 424 + ceil((624+32+2+512)/8)*8 = 424+1176 = 1600
+    // accountsOff = 456 + ceil((576+32+18+512)/8)*8 = 456+1144 = 1600 (same as the old 424/postBitmap=2 model)
     expect(result!.accountsOff).toBe(1600);
   });
 

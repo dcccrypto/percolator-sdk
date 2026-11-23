@@ -321,14 +321,15 @@ describe("detectSlabLayout V2 disambiguation", () => {
     const layout = detectSlabLayout(65_088, data);
     expect(layout).not.toBeNull();
     expect(layout!.version).toBe(1);
-    expect(layout!.engineOff).toBe(424);
+    // 65088 B version-1 slabs: prog f7a2e8ab, CONFIG_LEN 352 → engine at 456 (was pinned at 424)
+    expect(layout!.engineOff).toBe(456);
   });
 
   it("returns V1D layout when no data is provided (backward compat)", () => {
     const layout = detectSlabLayout(65_088);
     expect(layout).not.toBeNull();
     expect(layout!.version).toBe(1);
-    expect(layout!.engineOff).toBe(424);
+    expect(layout!.engineOff).toBe(456);
   });
 
   it("V2 layout has correct missing-field markers", () => {
