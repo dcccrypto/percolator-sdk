@@ -146,6 +146,21 @@ describe("V1D 65088 B: every config-tail field reads from its Rust offset", () =
     expect(c.oraclePriceCapE2bps).toBe(10_000n);
   });
 
+  it("65104 B legacy V1D (configLen 320) keeps the generic reader: no 32 B skip, oiCap/maxPnlCap read", () => {
+    const d = new Uint8Array(65_104);
+    d.set(data.subarray(0, 104), 0); // same header/magic
+    expect(detectSlabLayout(d.length, d)!.configLen).toBe(320);
+    put(d, CFG + 160, 211n, 16); // threshFloor (generic: right after funding_max_bps_per_slot)
+    put(d, CFG + 176, 223n, 8); // threshRiskBps
+    put(d, CFG + 288, 227n, 8); // authorityPriceE6
+    put(d, CFG + 304, 229n, 8); // oraclePriceCapE2bps
+    put(d, CFG + 320, 233n, 8); // oiCapMultiplierBps
+    put(d, CFG + 328, 239n, 8); // maxPnlCap
+    const c = parseConfig(d);
+    expect([c.threshFloor, c.threshRiskBps, c.authorityPriceE6, c.oraclePriceCapE2bps, c.oiCapMultiplierBps, c.maxPnlCap])
+      .toEqual([211n, 223n, 227n, 229n, 233n, 239n]);
+  });
+
   it("engine bytes right after the config (abs 456..) do not leak into oiCap/maxPnlCap", () => {
     const d = new Uint8Array(data);
     put(d, 456, 0x1234n, 8);
