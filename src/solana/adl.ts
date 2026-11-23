@@ -41,7 +41,7 @@ import {
   Account,
   SlabLayout,
 } from "./slab.js";
-import { redactUrl } from "./redact-url.js";
+import { redactSecretsInText, redactUrl, redactUrlError } from "./redact-url.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -626,11 +626,18 @@ export async function fetchAdlRankings(
   const base = apiBase.replace(/\/$/, "");
   const url = `${base}/api/adl/rankings?slab=${encodeURIComponent(slabStr)}`;
 
-  const res = await fetchFn(url);
+  let res: Response;
+  try {
+    res = await fetchFn(url);
+  } catch (err) {
+    // Node's fetch repeats the raw URL in some errors ("Failed to parse URL from <url>").
+    throw redactUrlError(err, apiBase, url);
+  }
   if (!res.ok) {
     let body = "";
     try { body = await res.text(); } catch { /* ignore */ }
-    // Cap the body: a gateway may echo the request URL/headers (and so the key) on error.
+    // A gateway may echo the request URL/path (and so the key) on error: mask it, then cap.
+    body = redactSecretsInText(body, apiBase, url);
     if (body.length > MAX_ERROR_BODY_CHARS) body = `${body.slice(0, MAX_ERROR_BODY_CHARS)}…`;
     throw new Error(
       `fetchAdlRankings: HTTP ${res.status} from ${redactUrl(url)}${body ? ` — ${body}` : ""}`,
