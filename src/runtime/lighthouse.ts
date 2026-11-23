@@ -55,6 +55,11 @@ export const LIGHTHOUSE_PROGRAM_ID = new PublicKey(
 /** Base58 string form for fast comparison without PublicKey instantiation. */
 export const LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
 
+// Log-line prefixes used by isLighthouseFailureInLogs, built once.
+const LH_LOG_INVOKE = `Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke`;
+const LH_LOG_SUCCESS = `Program ${LIGHTHOUSE_PROGRAM_ID_STR} success`;
+const LH_LOG_FAILED = `Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed`;
+
 /**
  * Lighthouse multi-assert AssertionFailed at assertion index 0 (0x1900 = 6400).
  * Lighthouse maps a failed assertion i of a multi-assert instruction to
@@ -147,7 +152,10 @@ export function isLighthouseError(error: unknown): boolean {
   // A 0x1900 / 6400 code attributed to another program (e.g. Anchor
   // ConstraintAddress in a stake/matcher/DEX program) is not Lighthouse.
   // If the message names failing programs, only Lighthouse failing counts.
-  const failed = [...msg.matchAll(/Program\s+([1-9A-HJ-NP-Za-km-z]{32,44})\s+failed/g)];
+  // The regex needs the literal "failed", so skip the scan when it is absent.
+  const failed = msg.includes("failed")
+    ? [...msg.matchAll(/Program\s+([1-9A-HJ-NP-Za-km-z]{32,44})\s+failed/g)]
+    : [];
   if (failed.length > 0) {
     return failed.some((m) => m[1] === LIGHTHOUSE_PROGRAM_ID_STR);
   }
@@ -188,21 +196,23 @@ export function isLighthouseFailureInLogs(logs: string[]): boolean {
 
   for (const line of logs) {
     if (typeof line !== "string") continue;
+    // Every check below needs the program ID in the line.
+    if (!line.includes(LIGHTHOUSE_PROGRAM_ID_STR)) continue;
 
     // Track Lighthouse program invocation depth
-    if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke`)) {
+    if (line.includes(LH_LOG_INVOKE)) {
       lighthouseDepth++;
       continue;
     }
 
     // Lighthouse program returned success — decrement depth
-    if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} success`)) {
+    if (line.includes(LH_LOG_SUCCESS)) {
       if (lighthouseDepth > 0) lighthouseDepth--;
       continue;
     }
 
     // Only report failure when the Lighthouse program itself explicitly fails
-    if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed`)) {
+    if (line.includes(LH_LOG_FAILED)) {
       return true;
     }
   }
