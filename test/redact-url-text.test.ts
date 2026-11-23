@@ -69,6 +69,9 @@ describe("redactSecretsInText / redactUrlError", () => {
     expect(redactSecretsInText(`at ${base}/api/x`, base)).toBe("at https://h.example/api/x");
     // Credentials too short to be a "part" are still removed with the verbatim URL.
     expect(redactSecretsInText("at https://a:b@h.example/", "https://a:b@h.example/")).toBe("at https://h.example/");
+    expect(redactSecretsInText("Failed to parse URL from https://h.example/x?key=abc", "https://h.example/x?key=abc")).toBe(
+      "Failed to parse URL from https://h.example/x?key=***",
+    );
     expect(redactSecretsInText("at https://x .example/p", "https://x .example/p")).toBe("at [unparseable-url]");
   });
 

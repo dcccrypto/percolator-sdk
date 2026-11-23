@@ -129,7 +129,7 @@ export function redactSecretsInText(text: string, ...rawUrls: string[]): string 
     let safe = redactUrl(raw);
     // Only rewrite the whole URL when it carries something to hide, and keep a missing trailing "/"
     // missing: a base URL echoed as a prefix ("<base>/api/x") must not become "<base>//api/x".
-    if (parts.length > 0 || safe === REDACTED_URL_PLACEHOLDER || raw.includes("@")) {
+    if (parts.length > 0 || safe === REDACTED_URL_PLACEHOLDER || safe.includes("***") || raw.includes("@")) {
       if (safe.endsWith("/") && !raw.endsWith("/")) safe = safe.slice(0, -1);
       out = out.split(raw).join(safe);
     }
