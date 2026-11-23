@@ -263,7 +263,7 @@ async function main() {
   }
 
   // 7. Wrong-type accounts through the fetch path: the mint itself, a market, a portfolio (with each program).
-  for (const m of mints.slice(0, 120)) for (const [pn, prog] of [["default", undefined], ["Token", TOKEN], ["T22", T22]] as const)
+  for (const m of mints) for (const [pn, prog] of [["default", undefined], ["Token", TOKEN], ["T22", T22]] as const)
     await diffFetch(`fetch MINT address, expect=${pn}, mint=${progName(mintInfo.get(m.toBase58())!.prog)}`, m, prog, { mint: m.toBase58() });
   for (const k of [...marketKeys.slice(0, 5), ...pfKeys.slice(0, 5)]) for (const prog of [undefined, TOKEN, T22])
     await diffFetch("fetch wrapper-owned account", k, prog, {});
