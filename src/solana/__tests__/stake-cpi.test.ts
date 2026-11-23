@@ -22,7 +22,7 @@
 // covered by test/drift-check.test.ts.
 process.env.NETWORK ??= 'devnet';
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PublicKey, Keypair, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
@@ -73,6 +73,7 @@ import {
   withdrawAccounts,
   flushToInsuranceAccounts,
   adminResolveMarketCpiAccounts,
+  getStakeProgramId,
 } from '../stake.js';
 import {
   encodeUpdateFeeSplit,
@@ -734,5 +735,197 @@ describe('fee-split CPI proxies (stake tags 25-28)', () => {
   // reports, so the SDK constant must match the pinned value.
   it('devnet stake program id matches the wrapper pin used by tag 87', () => {
     expect(STAKE_PROGRAM_IDS.devnet).toBe('7JrgAUHi4PxaRv5JKHoGAxodDFbozYexpERei66Xgq4V'); // v2.2 fresh wrapper pin (percolator-prog devnet/v22-fresh-ids 81ed7fdf)
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Full account-meta, u64 and PDA-seed pins against the stake program
+// ═══════════════════════════════════════════════════════════════
+//
+// Mutation report sdk-stake-cpi-mutation-score-20261122 found that the spot
+// checks above miss 20/40 single-edit mutants of src/solana/stake.ts: account
+// swaps between same-flag token accounts (withdraw vault <-> user collateral
+// reverses the transfer), isSigner flips, u32-truncated amounts, removed u64
+// range guards and any change to a PDA seed. The pins below compare the WHOLE
+// {pubkey,isSigner,isWritable}[] list, encode amounts above 2^32 and at the u64
+// edges, and restate each PDA seed list literally.
+//
+// Account order and seeds are copied from percolator-stake
+// `fix/v22-stake-310-313-combined` @ a58219b (the base of the open v2.2 stake
+// PRs #346-#353), read with `git show a58219b:<file>`:
+//   InitPool  accounts  src/instruction.rs:83-95,   parsed src/processor.rs:576-586
+//   Deposit   accounts  src/instruction.rs:117-131 (+[11] :132), parsed src/processor.rs:889-901
+//   Withdraw  accounts  src/instruction.rs:162-175 (+[10] :176), parsed src/processor.rs:1407-1420
+//             withdraw[0] is pinned read-only: instruction.rs:163 says [signer, writable], but only
+//             the v5 FIRST_LOSS refresh (14 accounts, processor.rs:1600-1608) needs it writable;
+//             the legacy <=11-account list checks only is_signer (processor.rs:1426).
+//   amount    u64 LE    src/instruction.rs:874 (Deposit), :915 (Withdraw)
+//   stake_pool    seeds src/state.rs:1796  [b"stake_pool", slab]         (signs: src/processor.rs:713)
+//   vault_auth    seeds src/state.rs:1802  [b"vault_auth", pool]         (signs: src/processor.rs:761)
+//   stake_deposit seeds src/state.rs:1808  [b"stake_deposit", pool, user] (creates: src/processor.rs:1326-1330)
+//
+// Fixture keys are distinct deterministic bytes, so a swapped or substituted
+// account can never compare equal by accident.
+
+describe('Stake builders — full account-meta pins vs percolator-stake a58219b', () => {
+  const k = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
+  const K = {
+    admin: k(1), user: k(2), slab: k(3), pool: k(4), lpMint: k(5), vault: k(6),
+    vaultAuth: k(7), collateralMint: k(8), perc: k(9), userCollateralAta: k(10),
+    userLpAta: k(11), depositPda: k(12),
+  };
+  const meta = (pubkey: PublicKey, isSigner: boolean, isWritable: boolean) => ({ pubkey, isSigner, isWritable });
+
+  it('initPoolAccounts: 11 metas in instruction.rs:83-95 order with exact flags', () => {
+    const keys = initPoolAccounts({
+      admin: K.admin, slab: K.slab, pool: K.pool, lpMint: K.lpMint, vault: K.vault,
+      vaultAuth: K.vaultAuth, collateralMint: K.collateralMint, percolatorProgram: K.perc,
+    });
+    expect(keys).toEqual([
+      meta(K.admin, true, true),                         //  0 [signer, writable] admin (pays rent)
+      meta(K.slab, false, true),                         //  1 [writable] slab (marketauth handoff CPI)
+      meta(K.pool, false, true),                         //  2 [writable] pool PDA
+      meta(K.lpMint, false, true),                       //  3 [writable] LP mint
+      meta(K.vault, false, true),                        //  4 [writable] vault token account
+      meta(K.vaultAuth, false, false),                   //  5 [] vault authority PDA
+      meta(K.collateralMint, false, false),              //  6 [] collateral mint
+      meta(K.perc, false, false),                        //  7 [] percolator program
+      meta(TOKEN_PROGRAM_ID, false, false),              //  8 [] token program
+      meta(SystemProgram.programId, false, false),       //  9 [] system program
+      meta(SYSVAR_RENT_PUBKEY, false, false),            // 10 [] rent sysvar
+    ]);
+  });
+
+  it('depositAccounts: 12 metas in instruction.rs:117-132 order with exact flags', () => {
+    const keys = depositAccounts({
+      user: K.user, pool: K.pool, userCollateralAta: K.userCollateralAta, vault: K.vault,
+      lpMint: K.lpMint, userLpAta: K.userLpAta, vaultAuth: K.vaultAuth, depositPda: K.depositPda, slab: K.slab,
+    });
+    expect(keys).toEqual([
+      meta(K.user, true, true),                          //  0 [signer, writable] user (deposit-PDA rent payer)
+      meta(K.pool, false, true),                         //  1 [writable] pool PDA
+      meta(K.userCollateralAta, false, true),            //  2 [writable] user collateral (SOURCE)
+      meta(K.vault, false, true),                        //  3 [writable] pool vault (DESTINATION)
+      meta(K.lpMint, false, true),                       //  4 [writable] LP mint
+      meta(K.userLpAta, false, true),                    //  5 [writable] user LP account (receives LP)
+      meta(K.vaultAuth, false, false),                   //  6 [] vault authority PDA (mint authority)
+      meta(K.depositPda, false, true),                   //  7 [writable] deposit PDA
+      meta(TOKEN_PROGRAM_ID, false, false),              //  8 [] token program
+      meta(SYSVAR_CLOCK_PUBKEY, false, false),           //  9 [] clock sysvar
+      meta(SystemProgram.programId, false, false),       // 10 [] system program
+      meta(K.slab, false, false),                        // 11 [] wrapper market (#290; writable only on v5 FIRST_LOSS)
+    ]);
+  });
+
+  it('withdrawAccounts: 11 metas in instruction.rs:162-176 order; vault[4] is the SOURCE, user collateral[5] the DESTINATION; SDK drops [10] only when slab is omitted', () => {
+    const args = {
+      user: K.user, pool: K.pool, userLpAta: K.userLpAta, lpMint: K.lpMint, vault: K.vault,
+      userCollateralAta: K.userCollateralAta, vaultAuth: K.vaultAuth, depositPda: K.depositPda,
+    };
+    const expected10 = [
+      meta(K.user, true, false),                         //  0 [signer] user (writable only on the v5 14-account list)
+      meta(K.pool, false, true),                         //  1 [writable] pool PDA
+      meta(K.userLpAta, false, true),                    //  2 [writable] user LP account (burned)
+      meta(K.lpMint, false, true),                       //  3 [writable] LP mint
+      meta(K.vault, false, true),                        //  4 [writable] pool vault (SOURCE of collateral)
+      meta(K.userCollateralAta, false, true),            //  5 [writable] user collateral (DESTINATION)
+      meta(K.vaultAuth, false, false),                   //  6 [] vault authority PDA (transfer authority)
+      meta(K.depositPda, false, true),                   //  7 [writable] deposit PDA
+      meta(TOKEN_PROGRAM_ID, false, false),              //  8 [] token program
+      meta(SYSVAR_CLOCK_PUBKEY, false, false),           //  9 [] clock sysvar
+    ];
+    // On this (non-v5) 11-account list, live, resolved AND CloseSlab-tombstoned markets all take
+    // the slab at [10] on a58219b:
+    // a tombstone there is accepted (slab_is_closed_tombstone, processor.rs:1586 / :3371, GH#309).
+    expect(withdrawAccounts({ ...args, slab: K.slab })).toEqual([
+      ...expected10,
+      meta(K.slab, false, false),                        // 10 [] wrapper market (#290 / GH#309 / GH#315)
+    ]);
+    // SDK-side only: with `slab` omitted the builder emits exactly the first 10 metas. This does
+    // NOT pin a valid withdraw. On a58219b a mode-0 pool refuses it with NotEnoughAccountKeys
+    // (processor.rs:1627 -> book_terminal_surplus_before_pricing :3141, refusal :3164-3166, GH#315;
+    // FIRST_LOSS already earlier at :1604), tombstoned market or not; only pool_mode != 0 pools
+    // return early there (:3147).
+    expect(withdrawAccounts(args)).toEqual(expected10);
+  });
+});
+
+describe('Stake amount encoding — u64 LE at the edges (instruction.rs:874, :915)', () => {
+  const U32_MAX = 0xFFFF_FFFFn;
+  const U64_MAX = 0xFFFF_FFFF_FFFF_FFFFn;
+  const cases: Array<[string, (v: bigint | number) => Uint8Array, number]> = [
+    ['encodeStakeDeposit', encodeStakeDeposit, STAKE_IX.Deposit],
+    ['encodeStakeWithdraw', encodeStakeWithdraw, STAKE_IX.Withdraw],
+  ];
+
+  for (const [name, encode, tag] of cases) {
+    it(`${name} keeps every bit at 2^32, 2^32+1, 2^40+7 and 2^64-1`, () => {
+      for (const v of [1n << 32n, (1n << 32n) + 1n, (1n << 40n) + 7n, U64_MAX]) {
+        const d = encode(v);
+        expect(d.length).toBe(9);
+        expect(d[0]).toBe(tag);
+        expect(readU64LE(d, 1)).toBe(v);
+      }
+      // Literal bytes for 2^32 and 2^64-1, independent of the read helper.
+      expect(Array.from(encode(1n << 32n).subarray(1))).toEqual([0, 0, 0, 0, 1, 0, 0, 0]);
+      expect(Array.from(encode(U64_MAX).subarray(1))).toEqual([255, 255, 255, 255, 255, 255, 255, 255]);
+      expect(readU64LE(encode(U32_MAX), 1)).toBe(U32_MAX);
+    });
+
+    it(`${name} refuses 2^64 and -1 instead of wrapping mod 2^64`, () => {
+      expect(() => encode(1n << 64n)).toThrow(/u64Le: value exceeds u64 max/);
+      expect(() => encode(2 ** 53)).toThrow(/exceeds Number.MAX_SAFE_INTEGER/);
+      expect(() => encode(-1n)).toThrow(/u64Le: value must be non-negative, got -1$/);
+      expect(() => encode(-1)).toThrow(/u64Le: value must be non-negative, got -1$/);
+    });
+  }
+});
+
+describe('Stake PDAs — literal seed lists from percolator-stake a58219b src/state.rs:1795-1811', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const P = STAKE_PROGRAM_ID;
+  const slabKey = new PublicKey(new Uint8Array(32).fill(3));
+  const poolKey = new PublicKey(new Uint8Array(32).fill(4));
+  const userKey = new PublicKey(new Uint8Array(32).fill(2));
+
+  // The no-programId calls below pin the DEFAULT (getStakeProgramId() -> devnet constant). Pin the
+  // env they resolve through, so an ambient STAKE_PROGRAM_ID / NEXT_PUBLIC_DEFAULT_NETWORK on the
+  // runner cannot redirect them (STAKE_PROGRAM_ID=<v1 vault> failed all three before this).
+  beforeEach(() => {
+    vi.stubEnv('STAKE_PROGRAM_ID', undefined);
+    vi.stubEnv('PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE', undefined);
+    vi.stubEnv('NEXT_PUBLIC_DEFAULT_NETWORK', undefined);
+    vi.stubEnv('NETWORK', 'devnet');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('the default stake program id under the pinned env is the devnet constant', () => {
+    expect(getStakeProgramId().equals(P)).toBe(true);
+    expect(P.toBase58()).toBe(STAKE_PROGRAM_IDS.devnet);
+  });
+
+  it('deriveStakePool = find_program_address([b"stake_pool", slab]) (state.rs:1796)', () => {
+    const [want, bump] = PublicKey.findProgramAddressSync([enc('stake_pool'), slabKey.toBytes()], P);
+    expect(deriveStakePool(slabKey, P)).toEqual([want, bump]);
+    expect(deriveStakePool(slabKey)[0].equals(want)).toBe(true);
+  });
+
+  it('deriveStakeVaultAuth = find_program_address([b"vault_auth", pool]) (state.rs:1802)', () => {
+    const [want, bump] = PublicKey.findProgramAddressSync([enc('vault_auth'), poolKey.toBytes()], P);
+    expect(deriveStakeVaultAuth(poolKey, P)).toEqual([want, bump]);
+    expect(deriveStakeVaultAuth(poolKey)[0].equals(want)).toBe(true);
+  });
+
+  it('deriveDepositPda = find_program_address([b"stake_deposit", pool, user]) — pool BEFORE user (state.rs:1808)', () => {
+    const [want, bump] = PublicKey.findProgramAddressSync(
+      [enc('stake_deposit'), poolKey.toBytes(), userKey.toBytes()], P);
+    expect(deriveDepositPda(poolKey, userKey, P)).toEqual([want, bump]);
+    expect(deriveDepositPda(poolKey, userKey)[0].equals(want)).toBe(true);
+    // The reversed order is a different address, so the pin above is order-sensitive.
+    const [swapped] = PublicKey.findProgramAddressSync(
+      [enc('stake_deposit'), userKey.toBytes(), poolKey.toBytes()], P);
+    expect(swapped.equals(want)).toBe(false);
   });
 });
