@@ -643,6 +643,7 @@ export const WRAPPER_BATCH_MAX_LEGS = 4;
  * @param takerReducing      Leg only reduces the taker.
  * @param acceptsFeeRequest  Fee-request channel (the wrapper passes false in batches).
  * @returns 24 bytes.
+ * @throws If `mode` is not 0 or 1 (the wrapper refuses any other `matcher_ext_mode`).
  * @example
  * ```ts
  * encodeWrapperMatcherCallExt(1, 505_000_000n, 1_000_000n, 300, false, false);
@@ -651,7 +652,9 @@ export const WRAPPER_BATCH_MAX_LEGS = 4;
 export function encodeWrapperMatcherCallExt(
   mode: number, markSlot: bigint, lpHeadroomQ: bigint, execBandBps: number, takerReducing: boolean, acceptsFeeRequest: boolean,
 ): Uint8Array {
-  if (mode !== 1) return new Uint8Array(MATCHER_CALL_EXT_LEN);
+  // The wrapper refuses matcher_ext_mode > MATCHER_EXT_MODE_V1 (1) in SetRiskLimits, so any other value is a caller bug.
+  checkRange("mode", mode, 1);
+  if (mode === 0) return new Uint8Array(MATCHER_CALL_EXT_LEN);
   const headroom = lpHeadroomQ > (1n << 64n) - 1n ? (1n << 64n) - 1n : lpHeadroomQ;
   return encodeMatcherCallExt({ headroomQ: headroom, markSlot, execBandBps, takerReducing, acceptsFeeRequest });
 }
@@ -676,6 +679,7 @@ export interface MatcherBatchLeg {
  * @param legs         1..=16 legs (the wrapper sends at most 4 since #546).
  * @param exts         Optional per-leg 24-byte extensions (must match `legs.length`).
  * @returns Instruction data for the matcher program.
+ * @throws If a leg's `assetIndex` is not an integer in 0..=65535.
  * @example
  * ```ts
  * encodeMatcherBatchCall(7n, lpId, [{ assetIndex: 0, oraclePriceE6: 1_000_000n, reqSize: 5n }], [encodeWrapperMatcherCallExt(1, slot, 5n, 300, false, false)]);
@@ -692,6 +696,7 @@ export function encodeMatcherBatchCall(reqId: bigint, lpAccountId: bigint, legs:
   v.setBigUint64(10, lpAccountId, true);
   legs.forEach((l, i) => {
     const b = MATCHER_BATCH_HEADER_LEN + i * MATCHER_BATCH_LEG_LEN;
+    checkRange(`legs[${i}].assetIndex`, l.assetIndex, 0xffff);
     v.setUint16(b, l.assetIndex, true);
     v.setBigUint64(b + 2, l.oraclePriceE6, true);
     const u = l.reqSize < 0n ? (1n << 128n) + l.reqSize : l.reqSize;

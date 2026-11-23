@@ -222,9 +222,9 @@ describe("misc decoders", () => {
 });
 
 describe("wrapper ext + batch call", () => {
-  it("mode != 1 is all-zero legacy", () => {
+  it("mode 0 is all-zero legacy; unknown modes (the wrapper refuses > 1) throw", () => {
     expect(encodeWrapperMatcherCallExt(0, 5n, 5n, 300, false, false)).toEqual(new Uint8Array(24));
-    expect(encodeWrapperMatcherCallExt(2, 5n, 5n, 300, true, true)).toEqual(new Uint8Array(24));
+    expect(() => encodeWrapperMatcherCallExt(2, 5n, 5n, 300, true, true)).toThrow(/mode/);
   });
   it("mode 1 sets HEADROOM|MARK_SLOT|EXEC_BAND and saturates headroom", () => {
     const b = encodeWrapperMatcherCallExt(1, 505n, (1n << 70n), 300, true, true);
