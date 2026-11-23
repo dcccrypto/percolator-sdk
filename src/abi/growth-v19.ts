@@ -3006,11 +3006,7 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
     return out({ imrBps: e, maxLeverageX100: lev(e) });
   }
   const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
-  const v = input.v22;
-  const stress = v ? stressLevel(v.drawOutstanding === true, realAdl(v.modeLong ?? 0, v.modeShort ?? 0), input.bankruptcyHlockActive) : STRESS_NONE;
-  const view = v
-    ? growthCeilingView(g, v.bandBps, v.nowSlot, cM, stress, v.vol ? { engineImrBps: e, liquidationFeeBps: v.vol.liquidationFeeBps, bandMaxEpochSlots: v.vol.bandMaxEpochSlots } : undefined, { rc23Caps: v.rc23Caps !== false })
-    : null;
+  const view = quoteCeilingView(input, g, cM);
   const lCeil = view ? view.ceilingX100 : Math.min(g.lLaunchX100, g.lTierX100);
   meta = {
     ceilingX100: lCeil, tier: view?.tier ?? 0, venueTier: view?.venueTier ?? 0, bookTier: view?.bookTier ?? 0, capDepthE6: view?.capDepthE6 ?? null,
@@ -3021,9 +3017,7 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   if (base === null) return closed("invalid-config");
   // N-1: growth opens only against the asset's BOUND vault LP (wrapper 97 / 95 otherwise).
   if (!input.assetBound) return closed("not-bound", { headroomQ: 0n });
-  const nCap = view
-    ? nCapG8Q({ clamp: view.clampEnforced, cM, lambdaBps: g.lambdaBps, tier: view.tier, capDepth: view.capDepthE6, priceE6: input.priceE6, posScale: input.posScale, dials: view.dials })
-    : nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
+  const nCap = quoteNCapQ(input, g, cM, view);
   // N-1: utilisation is the USERS' open interest on this side (the engine OI minus the vault
   // LP's own leg on it), the same number the wrapper gates on (`users_side_oi_q`).
   const usersOi = usersSideOiQ(side === "long" ? input.oiEffLongQ : input.oiEffShortQ, lp, side === "long");
@@ -3040,6 +3034,21 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   const dyn = dynImrBps(usersOi, nCap, base, g.kinkBps);
   if (dyn === null) return closed("capacity-full", { ...info, headroomQ: 0n });
   return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - usersOi, utilisationFeeBps });
+}
+
+/** The v2.2 ceiling view of a quote input (`null` without `v22` input: the growth-1 quote). */
+function quoteCeilingView(input: QuoteMaxLeverageInput, g: AssetGrowthV19, cM: bigint): GrowthCeilingView | null {
+  const v = input.v22;
+  if (!v) return null;
+  const stress = stressLevel(v.drawOutstanding === true, realAdl(v.modeLong ?? 0, v.modeShort ?? 0), input.bankruptcyHlockActive);
+  return growthCeilingView(g, v.bandBps, v.nowSlot, cM, stress, v.vol ? { engineImrBps: input.engineImrBps, liquidationFeeBps: v.vol.liquidationFeeBps, bandMaxEpochSlots: v.vol.bandMaxEpochSlots } : undefined, { rc23Caps: v.rc23Caps !== false });
+}
+
+/** The `N_cap` the wrapper gates, clips and prices the utilisation fee with (`growth_clip_n_cap_view`: G8 with the view, growth-1 without). */
+function quoteNCapQ(input: QuoteMaxLeverageInput, g: AssetGrowthV19, cM: bigint, view: GrowthCeilingView | null): bigint | null {
+  return view
+    ? nCapG8Q({ clamp: view.clampEnforced, cM, lambdaBps: g.lambdaBps, tier: view.tier, capDepth: view.capDepthE6, priceE6: input.priceE6, posScale: input.posScale, dials: view.dials })
+    : nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
 }
 
 /**
@@ -3065,7 +3074,7 @@ export function usersSideOiQ(oiEffSideQ: bigint, vaultLpEffQ: bigint, longSide: 
 /**
  * N-2: the utilisation fee (bps) an open pays when it leaves its side's users OI at
  * `usersOiAfterQ`: 0 at or below the kink, `ceil(max * (u - u_k) / (1 - u_k))` above, capped at
- * `max`. Port of `growth_v19::utilisation_fee_bps`; `null` when `nCap == 0`.
+ * `max`. Port of `growth_v19::utilisation_fee_bps`; `null` when `nCap == 0`, or at a 100% kink above `N_cap` (Rust `None`).
  *
  * @param usersOiAfterQ  Users OI on the taker's side after the open (Q).
  * @param nCapQ          `N_cap` (Q).
@@ -3082,6 +3091,8 @@ export function utilisationFeeBps(usersOiAfterQ: bigint, nCapQ: bigint, kinkBps:
   const lhs = usersOiAfterQ * 10_000n;
   const rhs = BigInt(kinkBps) * nCapQ;
   if (lhs <= rhs || maxFeeBps === 0) return 0;
+  // kink 100% above N_cap: zero denominator -> Rust `mul_div_ceil_u128` returns None
+  if (kinkBps === 10_000) return null;
   const fee = divCeil(BigInt(maxFeeBps) * (lhs - rhs), nCapQ * BigInt(10_000 - kinkBps));
   return fee > BigInt(maxFeeBps) ? maxFeeBps : Number(fee);
 }
@@ -3142,7 +3153,8 @@ export interface GrowthOpenFeePreview {
 /**
  * N-2 fee preview for a growth open on a BOUND asset (the vault LP is the counterparty): the
  * utilisation fee the wrapper will charge and the fee the taker must sign. Closes / reduces never
- * pay it. Evaluated at the CURRENT N_cap and users OI (the wrapper uses the same pre-fill numbers).
+ * pay it. Evaluated at the CURRENT N_cap and users OI (the wrapper uses the same pre-fill numbers); with `v22` input the N_cap is the
+ * G8 one ({@link nCapG8Q}: λ_eff and the depth cap), exactly the N_cap {@link quoteMaxLeverage} reports and the wrapper charges on.
  *
  * @param input        The quote inputs (see {@link QuoteMaxLeverageInput}).
  * @param takerEffQ    Taker's ADL-effective signed position on the asset (Q).
@@ -3165,7 +3177,8 @@ export function previewGrowthOpenFee(input: QuoteMaxLeverageInput, takerEffQ: bi
   let utilFeeBps = 0;
   if (g !== null && input.assetBound && openingQ > 0n) {
     const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
-    const nCap = nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
+    // the wrapper prices on the G8 N_cap (v16_program.rs `GrowthUtilIn.n_cap_q` = `growth_clip_n_cap_view`), as the quote does
+    const nCap = quoteNCapQ(input, g, cM, quoteCeilingView(input, g, cM));
     const f = nCap === null ? 0 : (utilisationFeeBps(usersOiAfterQ, nCap, g.kinkBps, utilFeeMaxEffectiveBps(g.utilFeeMaxBps)) ?? 0);
     const fill = sizeQ < 0n ? -sizeQ : sizeQ;
     const o = openingQ > fill ? fill : openingQ;
