@@ -181,6 +181,7 @@ describe("(3) bare (unattributed) codes: only the exact 0x1900 is blamed on the 
     for (const h of ["0x19001", "0x1900a", "0x1900F", "0x190000"]) {
       expect(isLighthouseError(bare(h)), h).toBe(false);
     }
+    // Same for the JSON form: the `"Custom": 6400\b` regex must not match 64001.
     expect(isLighthouseError(`{"InstructionError":[0,{"Custom":64001}]}`)).toBe(false);
   });
 });
