@@ -1,0 +1,6 @@
+HEAD: 6833dfb1032786aef2e51e7c7e36d05d0b54f60b
+FINDING: low | src/abi/lev-guard-v22.ts:455 | Already on base, not added by #676, fixed by open PR #593: the decoder rejects flag bit 2, so the proven branch at src/abi/lev-guard-limits-v22.ts:375 can't be reached from decoded chain data until #593 lands. The failure is tighter (guard-missing blocks the open), never looser.
+FINDING: low | src/abi/lev-guard-limits-v22.ts:311 | permProofRequired defaults to false, which is looser than every non-devnet build (v16_program.rs:696). Not a regression (same as base), but mainnet callers have to opt in or they over-quote.
+FINDING: nit | src/abi/lev-guard-limits-v22.ts:32 | With #593, the same bit is defined twice: LEV_GUARD_FLAG_PERM_PROVEN_V22 here and LEV_GUARD_FLAG_V22.PERM_PROVEN in lev-guard-v22.ts. Different names, so no export clash.
+FINDING: nit | test/lev-guard-limits-perm-proof-v22.test.ts:21 | Once #593 lands, the LevGuardV22 literal in this test lacks the new required permProven field. Harmless: tsconfig excludes tests from type-checking, and the combined tree's vitest run passed 95/95 with tsc --noEmit clean.
+VERDICT: APPROVE
