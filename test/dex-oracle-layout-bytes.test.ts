@@ -165,6 +165,19 @@ describe("Raydium CLMM PoolState", () => {
     expect(() => computeDexSpotPriceE6("raydium-clmm", raydium({ d0: 6, d1: 25 }))).toThrow(/decimals out of range/);
   });
 
+  it("decimals of exactly 24 are accepted (24/24 -> 1.000000, 24/18 -> 1e6)", () => {
+    expect(computeDexSpotPriceE6("raydium-clmm", raydium({ d0: 24, d1: 24, sqrt: 1n << 64n }))).toBe(1_000_000n);
+    expect(computeDexSpotPriceE6("raydium-clmm", raydium({ d0: 24, d1: 18, sqrt: 1n << 64n }))).toBe(
+      1_000_000_000_000n,
+    );
+  });
+
+  it("sqrt_price_x64 = 0 is rejected as uninitialized, not as a rounded-down price", () => {
+    expect(() => computeDexSpotPriceE6("raydium-clmm", raydium({ d0: 9, d1: 6, sqrt: 0n }))).toThrow(
+      /sqrt_price_x64 = 0 — uninitialized/,
+    );
+  });
+
   it("works on a subarray with a non-zero byteOffset", () => {
     const outer = new Uint8Array(1544 + 7);
     outer.fill(0xff);
@@ -243,6 +256,18 @@ describe("PumpSwap Pool", () => {
     const pool = pumpPool({ quoteMint: USDC });
     expect(computeDexSpotPriceE6("pumpswap", pool, v, { base: 6, quote: 6 })).toBe(1_500_000n);
     expect(computeDexSpotPriceE6("pumpswap", pool, v, { base: 6, quote: 6 }, 999n)).toBe(1_500_000n);
+  });
+
+  it("non-WSOL quote applies 10^(base-quote): 2 tokens (9dp) vs 3 quote (6dp) -> 1.500000", () => {
+    // base/quote scales swapped would give 3e6*1e6*1e6 / (1e9*2e9) = 1n
+    const v = { base: tokenAccount(2_000_000_000n), quote: tokenAccount(3_000_000n) };
+    expect(computeDexSpotPriceE6("pumpswap", pumpPool({ quoteMint: USDC }), v, { base: 9, quote: 6 })).toBe(1_500_000n);
+  });
+
+  it("non-WSOL quote, other direction: 2 tokens (6dp) vs 3 quote (9dp) -> 1.500000", () => {
+    // base/quote scales swapped would give 3e9*1e9*1e6 / (1e6*2e6) = 1.5e12
+    const v = { base: tokenAccount(2_000_000n), quote: tokenAccount(3_000_000_000n) };
+    expect(computeDexSpotPriceE6("pumpswap", pumpPool({ quoteMint: USDC }), v, { base: 6, quote: 9 })).toBe(1_500_000n);
   });
 
   it("reads the high u32 of the vault amount", () => {
