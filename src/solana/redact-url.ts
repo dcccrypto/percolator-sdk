@@ -46,10 +46,24 @@ export function redactUrl(raw: string): string {
     u.username = "";
     u.password = "";
     u.hash = "";
-    for (const [k, v] of [...u.searchParams.entries()]) {
-      if (SENSITIVE_PARAM.test(k) || looksOpaque(v)) {
-        u.searchParams.set(k, "***");
+    // One pass, not `searchParams.set` per hit: each `set` re-serializes the whole query and scans
+    // for duplicates, so N hits cost O(N^2) (a 100 KB URL with distinct opaque params took ~1 s).
+    // Same result as the old per-hit `set`: a name with any hit collapses to one `name=***` at its
+    // first position, and the query is re-serialized only when something was masked.
+    const entries = [...u.searchParams];
+    const hit = new Set<string>();
+    for (const [k, v] of entries) if (SENSITIVE_PARAM.test(k) || looksOpaque(v)) hit.add(k);
+    if (hit.size > 0) {
+      const masked = new URLSearchParams();
+      const done = new Set<string>();
+      for (const [k, v] of entries) {
+        if (!hit.has(k)) masked.append(k, v);
+        else if (!done.has(k)) {
+          done.add(k);
+          masked.append(k, "***");
+        }
       }
+      u.search = masked.toString();
     }
     u.pathname = u.pathname
       .split("/")
