@@ -323,7 +323,7 @@ describe("V1D descriptor fields used by parseEngine", () => {
     expect(n.engineBitmapOff).toBe(576);
     expect(l.engineBitmapOff).toBe(624);
   });
-  it("V1D: num_used / next_account_id right after the bitmap are read (free_head is not)", () => {
+  it("V1D: num_used at 1064 and next_account_id at 1072 are read, not free_head at 1080", () => {
     const buf = slabWithVersion(65_088, 1);
     const dv = new DataView(buf.buffer);
     // engine 456 + bitmap 576 + 4 words * 8 = 1064 num_used, 1072 next_account_id, 1080 free_head
