@@ -230,11 +230,11 @@ describe("mutation killers (SDK-REPORT-LEVGUARDBRANCHESMUT survivors)", () => {
     expect(levBurstUpdateV22(100, 0n, 100, 1n)).toEqual([100, 1n]);
     expect(levBurstUpdateV22(100, 0n, 99, 1n)).toEqual([100, 0n]); // below the peak: peak and its slot are kept
   });
-  it("K-M35: a risk-up fill that shrinks an LP already above n_eff is not a size refusal (v16_program.rs:46255)", () => {
+  it("K-M35: a risk-up fill that shrinks an LP already above n_eff is not a size refusal (v16_program.rs lev_trade_post size check)", () => {
     const month = 1_000_000n + 40n * DAY;
     const i = input({ nowSlot: month, lpEffQ: -20_000n * USD, guard: guard({ repNMultBps: 1_000, repSlot: month - 1n }) });
     const l = levGuardOpenLimitsV22(i);
-    expect(l.nEffQ).toBeLessThan(20_000n * USD); // the LP is already over n_eff
+    expect(l.nEffQ).toBeLessThan(19_999n * USD); // the LP stays over n_eff even after the 1 USD fill
     expect(levGuardRefusalV22(l, i, 0n, -1n * USD, 10n ** 18n)).toBeNull(); // taker short shrinks the short LP
   });
 });
