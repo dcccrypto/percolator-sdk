@@ -6,6 +6,7 @@
  *   message contains "failed".
  * The reference functions below are the pre-change bodies, copied verbatim.
  * Inputs are the perf-bench log shapes plus edge lines.
+ * If you change what these functions return on purpose, delete this file.
  */
 import { describe, it, expect } from "vitest";
 import {
