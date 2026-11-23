@@ -151,7 +151,8 @@ function tryJson(v: unknown): string | undefined {
  * Return `err` with every secret part of `rawUrls` masked in its message, stack, own string
  * properties and whole `cause` chain (see {@link redactSecretsInText}). If nothing in the chain
  * carries a secret the same object is returned; otherwise a copy with the same prototype (so
- * `instanceof`, `name` and `code` survive) is returned. Use it on errors thrown by `fetch(url)`.
+ * `instanceof`, `name` and `code` survive; a DOMException is rebuilt as a new DOMException) is
+ * returned. Use it on errors thrown by `fetch(url)`.
  *
  * @param err - Anything thrown.
  * @param rawUrls - The URL(s) that were fetched.
@@ -165,7 +166,15 @@ export function redactUrlError(err: unknown, ...rawUrls: string[]): unknown {
       const json = tryJson(e);
       return json !== undefined && scrub(json) !== json ? scrub(json) : e;
     }
-    const out = Object.create(Object.getPrototypeOf(e)) as Error;
+    let out = Object.create(Object.getPrototypeOf(e)) as Error;
+    try {
+      void String(out);
+    } catch {
+      // name/message getters need an internal slot (DOMException from fetch abort/timeout): build a real one.
+      out = typeof DOMException !== "undefined" && e instanceof DOMException
+        ? new DOMException(scrub(e.message), e.name)
+        : Object.assign(new Error(scrub(String(e.message))), { name: scrub(String(e.name)) });
+    }
     for (const key of Object.getOwnPropertyNames(e)) {
       const v = (e as unknown as Record<string, unknown>)[key];
       const safe = key === "cause" ? (depth < 8 ? copy(v, depth + 1) : undefined) : typeof v === "string" ? scrub(v) : v;

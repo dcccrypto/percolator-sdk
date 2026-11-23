@@ -133,4 +133,16 @@ describe("redactSecretsInText / redactUrlError", () => {
     expect(safeRanged.code).toBe(3);
     expect(Object.keys(safeRanged)).toEqual(["code"]);
   });
+  it("keeps a DOMException readable (AbortError/TimeoutError from fetch) with no secret (gate PR689)", () => {
+    for (const name of ["AbortError", "TimeoutError"]) {
+      const e = new DOMException(`aborted ${FORMS.Q}`, name);
+      const safe = redactUrlError(e, FORMS.Q) as DOMException;
+      expect(safe).not.toBe(e);
+      expect(safe).toBeInstanceOf(DOMException);
+      expect(safe.name).toBe(name);
+      expect(safe.message).toBe("aborted https://x.example/?api-key=***");
+      expect(String(safe)).toBe(`${name}: aborted https://x.example/?api-key=***`);
+      expect(`${safe.message}\n${safe.stack ?? ""}\n${String(safe)}`).not.toContain(SECRET);
+    }
+  });
 });
