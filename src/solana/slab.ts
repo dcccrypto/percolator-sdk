@@ -3015,6 +3015,14 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
   // fundingPremiumDampeningE6, fundingPremiumMaxBpsPerSlot) were removed in V12_1 upstream
   // rebase. They do NOT exist in the on-chain MarketConfig struct. Reading them here shifted
   // all subsequent fields by 32 bytes, causing oracle_authority to read garbage.
+  //
+  // Exception: the 65088 B V1D slabs (prog f7a2e8ab, 352 B config) still have them at
+  // config+160..192 (src/percolator.rs:1929-1935), and their config ends at
+  // last_effective_price_e6 (config+344) with no oi_cap_multiplier_bps / max_pnl_cap.
+  const isV1dPre306 = !!layout
+    && layout.configLen === V1D_PRE306_CONFIG_LEN
+    && layout.engineOff === V1D_PRE306_ENGINE_OFF;
+  if (isV1dPre306) off += 32;
 
   // Threshold parameters
   const threshFloor = readU128LE(data, off);
@@ -3058,12 +3066,10 @@ export function parseConfig(data: Uint8Array, layoutHint?: SlabLayout | null): M
   const lastEffectivePriceE6 = readU64LE(data, off);
   off += 8;
 
-  // OI cap
-  const oiCapMultiplierBps = readU64LE(data, off);
-  off += 8;
-
-  const maxPnlCap = readU64LE(data, off);
-  off += 8;
+  // OI cap (not in the V1D pre-306 MarketConfig: the next bytes are the engine)
+  const oiCapMultiplierBps = isV1dPre306 ? 0n : readU64LE(data, off);
+  const maxPnlCap = isV1dPre306 ? 0n : readU64LE(data, off + 8);
+  if (!isV1dPre306) off += 16;
 
   // Check if we have enough data for V1-only fields
   const remaining = configOff + configLen - off;

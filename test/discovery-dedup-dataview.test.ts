@@ -20,7 +20,11 @@ const programId = new PublicKey(new Uint8Array(32).fill(7));
 // prog f7a2e8ab layout (engine at 456, not 424). A per-market diff against 2bf0fcd7 showed only
 // the 72 V1D-sized fixtures (17064/65088/257184/1025568) changed; the other 328 are byte-identical.
 // (was b5e7271587492a1925cd167e1551f41684b837b6de226b8d279fe145dfe26e8f)
-const GOLDEN_SHA256 = "7511d1af3b51767fd99ad0e3693de141691eabe2cf78f8a29518c6c73e8ebd0f";
+// Re-frozen by J-20261123-SDK-FIX-V1DCONFIGTAIL: parseConfig reads the V1D 65088 B config tail
+// 32 B later (prog f7a2e8ab funding_premium_* block). A per-market diff against 74e4d29e showed
+// the same 72 V1D-sized fixtures changed, only in thresh_* / oracle-authority / oiCap / maxPnlCap;
+// the other 328 are byte-identical. (was 7511d1af3b51767fd99ad0e3693de141691eabe2cf78f8a29518c6c73e8ebd0f)
+const GOLDEN_SHA256 = "2c1d794d2511e8323c5ea8e34eb9caa10a3269550e8d267a270a049b5da3d4e2";
 const GOLDEN_COUNT = 400;
 
 function pk(i: number): PublicKey {
