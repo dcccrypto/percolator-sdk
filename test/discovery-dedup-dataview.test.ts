@@ -6,7 +6,7 @@
  *     dropped, and the skip warnings still carry the base58 address.
  */
 import { createHash } from "node:crypto";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { PublicKey, type Connection } from "@solana/web3.js";
 import { discoverMarkets, SLAB_TIERS, SLAB_TIERS_V0, SLAB_TIERS_V1D } from "../src/solana/discovery.js";
 import { SLAB_TIERS_V2, SLAB_TIERS_V12_1, SLAB_TIERS_V12_19, SLAB_TIERS_V_ADL } from "../src/solana/slab.js";
@@ -57,14 +57,23 @@ function buildFixtures() {
   return new Map(fixtureCache);
 }
 
-// Decoding 400 random slabs is CPU-bound and ~3-4x slower under --coverage; 5s default flaked.
+// Decoding 400 random slabs is CPU-bound and ~3-4x slower under --coverage or CPU contention
+// (measured up to ~13 s under coverage + load vs ~1.3 s idle). Every test is capped at the 30 s
+// per-test timeout below (the old "267% of 5 s" reading ignored it: 13.3 s was 44% of 30 s).
+// The expensive work (fixture build + the single un-spied baseline decode) now runs once in
+// beforeAll with its own explicit, larger hook timeout, so no test body races a timer on it.
 const HEAVY_TIMEOUT_MS = 30_000;
+// 4x the per-test cap: fixture build + one 400-slab decode, with room for coverage on a loaded box.
+const SETUP_TIMEOUT_MS = 120_000;
 
-// Single un-spied baseline decode shared by the identical-output and duplicate-drop tests.
-let baselineRun: Promise<Awaited<ReturnType<typeof discoverMarkets>>> | undefined;
+let baselineMarkets: Awaited<ReturnType<typeof discoverMarkets>>;
+beforeAll(async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  baselineMarkets = await discoverMarkets(connFor(buildFixtures()), programId, { maxParallelTiers: 64 });
+  vi.restoreAllMocks();
+}, SETUP_TIMEOUT_MS);
 function baseline() {
-  baselineRun ??= discoverMarkets(connFor(buildFixtures()), programId, { maxParallelTiers: 64 });
-  return baselineRun;
+  return baselineMarkets;
 }
 
 function connFor(byDataSize: Map<number, Array<{ pubkey: PublicKey; account: any }>>) {
@@ -82,7 +91,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("discoverMarkets perf change (DataView reuse + byte dedup)", () => {
   it("decodes every tier fixture identically to the pre-change output", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const markets = await baseline();
+    const markets = baseline();
     const sorted = [...markets].sort((a, b) => a.slabAddress.toBase58().localeCompare(b.slabAddress.toBase58()));
     const sha = createHash("sha256").update(JSON.stringify(sorted, replacer)).digest("hex");
     console.log(`GOLDEN count=${markets.length} sha=${sha}`);
@@ -104,7 +113,7 @@ describe("discoverMarkets perf change (DataView reuse + byte dedup)", () => {
     const [size, arr] = [...fx.entries()][0];
     fx.set(size, [...arr, { pubkey: arr[0].pubkey, account: arr[0].account }, { pubkey: new PublicKey(arr[0].pubkey.toBytes()), account: arr[0].account }]);
     const dup = await discoverMarkets(connFor(fx), programId, { maxParallelTiers: 64 });
-    const base = await baseline();
+    const base = baseline();
     expect(dup.length).toBe(base.length);
   }, HEAVY_TIMEOUT_MS);
 
