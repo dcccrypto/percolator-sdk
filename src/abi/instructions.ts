@@ -820,9 +820,9 @@ export interface InitMarketV17Args {
   /** Maximum bankrupt-close lifetime in slots (u64). */
   maxBankruptCloseLifetimeSlots: bigint | string;
   /**
-   * @deprecated Ignored. The public B chunk is the engine constant
-   * {@link PUBLIC_B_CHUNK_ATOMS} and is no longer encoded; accepted only so
-   * existing callers still compile.
+   * @deprecated Ignored by {@link encodeInitMarket}: the public B chunk is the engine constant
+   * {@link PUBLIC_B_CHUNK_ATOMS} and is no longer encoded. Only {@link encodeInitMarketPre083a0d08}
+   * (for programs built before the upstream 083a0d08 port) still writes it.
    */
   publicBChunkAtoms?: bigint | string;
   /** Maintenance fee per slot in absolute units (u128). Must be <= MAX_PROTOCOL_FEE_ABS. */
@@ -990,6 +990,35 @@ export function encodeInitMarket(args: InitMarketV17Args | InitMarketArgs): Uint
   }
 
   return data;
+}
+
+/** Length of the InitMarket wire before the upstream 083a0d08 port (with `public_b_chunk_atoms`). */
+export const INIT_MARKET_PRE_083A0D08_LEN = INIT_MARKET_V17_LEN + 16;
+
+/**
+ * Encode InitMarket in the 219-byte form a wrapper built BEFORE the upstream 083a0d08 / c8ddbb6e port expects
+ * (v2.1, and a v2.2 program not yet redeployed with the 790-byte header): the {@link encodeInitMarket} payload with
+ * `public_b_chunk_atoms` (u128) put back before `maintenance_fee_per_slot`. A ported program refuses this form, and a
+ * pre-port program refuses the 203-byte one, so pick the encoder that matches the program you send to.
+ *
+ * @param args  Same as {@link encodeInitMarket}.
+ * @param publicBChunkAtoms  The chunk to encode (default `args.publicBChunkAtoms`, else {@link PUBLIC_B_CHUNK_ATOMS}).
+ * @returns 219-byte Uint8Array
+ * @example
+ * ```ts
+ * const data = encodeInitMarketPre083a0d08(args); // for the pre-port v2.2 devnet program
+ * ```
+ */
+export function encodeInitMarketPre083a0d08(
+  args: InitMarketV17Args | InitMarketArgs,
+  publicBChunkAtoms?: bigint | string,
+): Uint8Array {
+  const base = encodeInitMarket(args);
+  const chunk = publicBChunkAtoms ?? ("publicBChunkAtoms" in args ? (args as InitMarketV17Args).publicBChunkAtoms : undefined) ?? PUBLIC_B_CHUNK_ATOMS;
+  const cut = INIT_MARKET_V17_LEN - 16; // maintenance_fee_per_slot is the last u128
+  const out = concatBytes(base.subarray(0, cut), encU128(chunk), base.subarray(cut));
+  if (out.length !== INIT_MARKET_PRE_083A0D08_LEN) throw new Error(`encodeInitMarketPre083a0d08: expected ${INIT_MARKET_PRE_083A0D08_LEN} bytes, got ${out.length}`);
+  return out;
 }
 
 /**

@@ -148,3 +148,27 @@ describe("derivePythPriceUpdateAccount guards", () => {
     await expect(ix.derivePythPriceUpdateAccount(feed, 1.5)).rejects.toThrow(/u16/);
   });
 });
+
+describe("encodeInitMarketPre083a0d08 (programs built before the upstream 083a0d08 port)", () => {
+  const v17 = {
+    maxPortfolioAssets: 1, hMin: 0n, hMax: 10n, initialPrice: 100n, minNonzeroMmReq: 1n, minNonzeroImReq: 2n,
+    maintenanceMarginBps: 500n, initialMarginBps: 1000n, maxTradingFeeBps: 100n, tradeFeeBaseBps: 0n, liquidationFeeBps: 0n,
+    liquidationFeeCap: 0n, minLiquidationAbs: 0n, maxPriceMoveBpsPerSlot: 1n, maxAccrualDtSlots: 500n, maxAbsFundingE9PerSlot: 0n,
+    minFundingLifetimeSlots: 500n, maxAccountBSettlementChunks: 1n, maxBankruptCloseChunks: 1n, maxBankruptCloseLifetimeSlots: 100n,
+    maintenanceFeePerSlot: 77n,
+  };
+  it("is the 203-byte payload with the u128 chunk put back before maintenance_fee_per_slot", () => {
+    const now = ix.encodeInitMarket(v17);
+    const old = ix.encodeInitMarketPre083a0d08(v17);
+    expect([now.length, old.length, ix.INIT_MARKET_PRE_083A0D08_LEN]).toEqual([203, 219, 219]);
+    expect(Buffer.from(old.subarray(0, 187))).toEqual(Buffer.from(now.subarray(0, 187)));
+    expect(Buffer.from(old.subarray(203))).toEqual(Buffer.from(now.subarray(187)));
+    const dv = new DataView(old.buffer, old.byteOffset, old.byteLength);
+    const u128 = (o: number) => (dv.getBigUint64(o + 8, true) << 64n) | dv.getBigUint64(o, true);
+    expect(u128(187)).toBe(ix.PUBLIC_B_CHUNK_ATOMS);
+    expect(u128(203)).toBe(77n);
+    const custom = ix.encodeInitMarketPre083a0d08({ ...v17, publicBChunkAtoms: 5n });
+    expect(new DataView(custom.buffer, custom.byteOffset).getBigUint64(187, true)).toBe(5n);
+    expect(new DataView(ix.encodeInitMarketPre083a0d08(v17, 9n).buffer).getBigUint64(187, true)).toBe(9n);
+  });
+});

@@ -749,6 +749,15 @@ function encodeInitMarket(args) {
   }
   return data;
 }
+var INIT_MARKET_PRE_083A0D08_LEN = INIT_MARKET_V17_LEN + 16;
+function encodeInitMarketPre083a0d08(args, publicBChunkAtoms) {
+  const base = encodeInitMarket(args);
+  const chunk = publicBChunkAtoms ?? ("publicBChunkAtoms" in args ? args.publicBChunkAtoms : void 0) ?? PUBLIC_B_CHUNK_ATOMS;
+  const cut = INIT_MARKET_V17_LEN - 16;
+  const out = concatBytes(base.subarray(0, cut), encU128(chunk), base.subarray(cut));
+  if (out.length !== INIT_MARKET_PRE_083A0D08_LEN) throw new Error(`encodeInitMarketPre083a0d08: expected ${INIT_MARKET_PRE_083A0D08_LEN} bytes, got ${out.length}`);
+  return out;
+}
 function encodeInitUser(_args) {
   return new Uint8Array([IX_TAG.InitPortfolio]);
 }
@@ -19929,6 +19938,7 @@ export {
   HYSTERESIS_DEFAULT_BPS_V5,
   HYSTERESIS_MAX_BPS_V5,
   INIT_CTX_LEN,
+  INIT_MARKET_PRE_083A0D08_LEN,
   INIT_MATCHER_CTX_V17_LEN,
   INSURANCE_UNITS_FIELD_OFF_V22,
   INSURANCE_UNITS_TAIL_FROM_V22,
@@ -20714,6 +20724,7 @@ export {
   encodeInitLP,
   encodeInitLpShareMetadataV22,
   encodeInitMarket,
+  encodeInitMarketPre083a0d08,
   encodeInitMarketTrailerV22,
   encodeInitMarketV19,
   encodeInitMarketV22,
