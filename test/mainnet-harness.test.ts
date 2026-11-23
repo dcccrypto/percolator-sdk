@@ -94,6 +94,7 @@ import {
   type Account,
   type RiskParams,
 } from "../src/index.js";
+import { itStale, devnetUnavailableReason, loadSharedMarkets, withDeadline } from "./helpers/devnet-shared.js";
 
 // ---------------------------------------------------------------------------
 // Config: devnet vs mainnet
@@ -165,12 +166,23 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
 
     // Discover markets once for all suites
     try {
-      discoveredMarkets = await discoverMarkets(connection, PROGRAM_ID);
+      if (!IS_MAINNET) {
+        // devnet: discovery ran once in test/devnet-global-setup.ts
+        const why = devnetUnavailableReason();
+        if (why) {
+          rpcReachable = false;
+          console.warn(`SKIPPING RPC-dependent cases: ${why}`);
+          return;
+        }
+        discoveredMarkets = await loadSharedMarkets(connection, PROGRAM_ID);
+      } else {
+        discoveredMarkets = await withDeadline(discoverMarkets(connection, PROGRAM_ID), 50_000, "discoverMarkets");
+      }
       discoveredAddresses = discoveredMarkets.map((m) => m.slabAddress);
 
       if (discoveredAddresses.length > 0) {
         // Fetch first slab raw data for parsing tests
-        const ai = await connection.getAccountInfo(discoveredAddresses[0]);
+        const ai = await withDeadline(connection.getAccountInfo(discoveredAddresses[0]), 10_000, "getAccountInfo");
         slabData = ai?.data ? new Uint8Array(ai.data) : null;
       }
     } catch (e) {
@@ -235,21 +247,21 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
   // ========================================================================
 
   describe("2. Slab Parsing", () => {
-    it("detectSlabLayout() returns non-null for discovered slab", () => {
+    itStale("detectSlabLayout() returns non-null for discovered slab", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const layout = detectSlabLayout(slabData.length, slabData);
       expect(layout).not.toBeNull();
       expect(layout!.maxAccounts).toBeGreaterThan(0);
     });
 
-    it("parseHeader() returns valid header fields", () => {
+    itStale("parseHeader() returns valid header fields", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const header: SlabHeader = parseHeader(slabData);
       expect(header.admin).toBeInstanceOf(PublicKey);
       expect(typeof header.bump).toBe("number");
     });
 
-    it("parseConfig() returns valid config with collateral mint + oracle", () => {
+    itStale("parseConfig() returns valid config with collateral mint + oracle", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const layout = detectSlabLayout(slabData.length, slabData);
       const config: MarketConfig = parseConfig(slabData, layout);
@@ -259,7 +271,7 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
       expect(config.unitScale).toBeGreaterThanOrEqual(0);
     });
 
-    it("parseEngine() returns valid engine state with mark price", () => {
+    itStale("parseEngine() returns valid engine state with mark price", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const engine: EngineState = parseEngine(slabData);
       expect(typeof engine.markPriceE6).toBe("bigint");
@@ -278,7 +290,7 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
       expect(typeof params.tradingFeeBps).toBe("bigint");
     });
 
-    it("parseAllAccounts() returns array of indexed accounts", () => {
+    itStale("parseAllAccounts() returns array of indexed accounts", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const accounts = parseAllAccounts(slabData);
       expect(Array.isArray(accounts)).toBe(true);
@@ -292,7 +304,7 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
       }
     });
 
-    it("parseUsedIndices() returns non-negative indices", () => {
+    itStale("parseUsedIndices() returns non-negative indices", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const indices = parseUsedIndices(slabData);
       expect(Array.isArray(indices)).toBe(true);
@@ -301,25 +313,25 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
       }
     });
 
-    it("maxAccountIndex() returns positive number for valid slab length", () => {
+    itStale("maxAccountIndex() returns positive number for valid slab length", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const max = maxAccountIndex(slabData.length);
       expect(max).toBeGreaterThan(0);
     });
 
-    it("readNonce() returns a bigint", () => {
+    itStale("readNonce() returns a bigint", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const nonce = readNonce(slabData);
       expect(typeof nonce).toBe("bigint");
     });
 
-    it("readLastThrUpdateSlot() returns a bigint", () => {
+    itStale("readLastThrUpdateSlot() returns a bigint", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const slot = readLastThrUpdateSlot(slabData);
       expect(typeof slot).toBe("bigint");
     });
 
-    it("computeEffectiveOiCapBps() returns a bigint for valid config + slot", () => {
+    itStale("computeEffectiveOiCapBps() returns a bigint for valid config + slot", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const layout = detectSlabLayout(slabData.length, slabData);
       const config = parseConfig(slabData, layout);
@@ -365,7 +377,7 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
   // ========================================================================
 
   describe("5. ADL Flow", () => {
-    it("fetchAdlRankedPositions() runs without error on live slab", async () => {
+    itStale("fetchAdlRankedPositions() runs without error on live slab", async () => {
       if (!rpcReachable || SKIP || discoveredAddresses.length === 0) return;
       try {
         const ranking = await fetchAdlRankedPositions(connection, discoveredAddresses[0]);
@@ -386,7 +398,7 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
       expect(typeof triggered).toBe("boolean");
     });
 
-    it("rankAdlPositions() runs without error on live slab data", () => {
+    itStale("rankAdlPositions() runs without error on live slab data", () => {
       if (!rpcReachable || SKIP || !slabData) return;
       const ranking = rankAdlPositions(slabData);
       expect(typeof ranking.isTriggered).toBe("boolean");
@@ -426,7 +438,7 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
       expect(keys[1].isWritable).toBe(true);
     });
 
-    it("buildAdlTransaction() returns null when ADL not triggered on live data", async () => {
+    itStale("buildAdlTransaction() returns null when ADL not triggered on live data", async () => {
       if (!rpcReachable || SKIP || discoveredAddresses.length === 0) return;
       try {
         const caller = randomKeypair().publicKey;
@@ -605,7 +617,7 @@ describe(`PERC-8417: Mainnet Readiness Harness (${NETWORK_LABEL})`, () => {
   // ========================================================================
 
   describe("10. End-to-End: Live Slab → Parse → Build Instructions", () => {
-    it("parse live slab + build trade instruction from parsed data", () => {
+    itStale("parse live slab + build trade instruction from parsed data", () => {
       if (!rpcReachable || SKIP || !slabData || !discoveredAddresses[0]) return;
 
       // Parse header + config + engine

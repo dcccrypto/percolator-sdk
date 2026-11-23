@@ -18,6 +18,7 @@ export default defineConfig({
     include: ["test/devnet-integration.test.ts", "test/devnet-getmarkets.test.ts", "test/mainnet-harness.test.ts", "test/devnet-full-api.test.ts"],
     testTimeout: 60_000,   // allow up to 60 s for RPC calls
     hookTimeout: 90_000,   // beforeAll does market discovery (can be slow)
+    globalSetup: ["test/devnet-global-setup.ts"], // one bounded discovery per run, shared by all files
     reporters: ["verbose"],
   },
 });

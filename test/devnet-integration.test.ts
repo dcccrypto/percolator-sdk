@@ -38,6 +38,7 @@ import {
   PERCOLATOR_ERRORS,
   getProgramId,
 } from "../src/index.js";
+import { itStale, devnetUnavailableReason, loadSharedMarkets } from "./helpers/devnet-shared.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -114,11 +115,14 @@ beforeAll(async () => {
 
   // Discover markets once; all subsequent tests reuse the cached results.
   try {
-    discoveredMarkets = await discoverMarkets(devnetConnection, DEVNET_PROGRAM_ID, {
-      sequential: true,        // be polite to public RPC — no parallel bursts
-      interTierDelayMs: 500,   // 500 ms between tier queries
-      rateLimitBackoffMs: [2_000, 5_000],
-    });
+    // Discovery ran once in test/devnet-global-setup.ts; here: one bounded batch read.
+    const why = devnetUnavailableReason();
+    if (why) {
+      rpcReachable = false;
+      console.warn(`[PERC-8365] SKIPPING RPC-dependent cases: ${why}`);
+      return;
+    }
+    discoveredMarkets = await loadSharedMarkets(devnetConnection, DEVNET_PROGRAM_ID);
     discoveredSlabs = discoveredMarkets.map(m => m.slabAddress);
     console.log(
       `[PERC-8365] beforeAll: discovered ${discoveredSlabs.length} devnet market(s)`
@@ -134,6 +138,12 @@ beforeAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("devnet — discoverMarkets() [PERC-8365]", () => {
+  it("devnet setup status (globalSetup): skips with the reason when devnet is unavailable", (ctx) => {
+    const why = devnetUnavailableReason();
+    if (why) ctx.skip(`devnet unavailable — RPC-dependent cases did not run: ${why}`);
+    expect(why).toBe("");
+  });
+
   it.skipIf(!SKIP)("skips cleanly when SKIP_DEVNET_TESTS=1", () => {
     console.log("[PERC-8365] SKIP_DEVNET_TESTS=1 — skipping devnet suite");
     expect(true).toBe(true);
@@ -165,7 +175,7 @@ describe("devnet — discoverMarkets() [PERC-8365]", () => {
     }
   });
 
-  it("discoverMarkets() response includes valid header fields", async () => {
+  itStale("discoverMarkets() response includes valid header fields", async () => {
     if (SKIP || !rpcReachable) return;
 
     // Reuse cached markets from beforeAll — no extra RPC scan
@@ -182,7 +192,7 @@ describe("devnet — discoverMarkets() [PERC-8365]", () => {
     expect(first.slabAddress).toBeInstanceOf(PublicKey);
   });
 
-  it("discoverMarkets() response includes valid config fields", async () => {
+  itStale("discoverMarkets() response includes valid config fields", async () => {
     if (SKIP || !rpcReachable) return;
 
     // Reuse cached markets from beforeAll — no extra RPC scan
@@ -203,7 +213,7 @@ describe("devnet — discoverMarkets() [PERC-8365]", () => {
     }
   });
 
-  it("all discovered slab sizes are recognized by detectSlabLayout()", async () => {
+  itStale("all discovered slab sizes are recognized by detectSlabLayout()", async () => {
     if (SKIP || !rpcReachable || discoveredSlabs.length === 0) return;
 
     for (const slabAddr of discoveredSlabs.slice(0, 5)) {
@@ -224,7 +234,7 @@ describe("devnet — discoverMarkets() [PERC-8365]", () => {
 // ---------------------------------------------------------------------------
 
 describe("devnet — getMarketStats() via parseEngine/parseConfig [PERC-8365]", () => {
-  it("fetchSlab + parseHeader returns valid header for a discovered slab", async () => {
+  itStale("fetchSlab + parseHeader returns valid header for a discovered slab", async () => {
     if (SKIP || !rpcReachable || discoveredSlabs.length === 0) return;
 
     const slabKey = discoveredSlabs[0];
@@ -238,7 +248,7 @@ describe("devnet — getMarketStats() via parseEngine/parseConfig [PERC-8365]", 
     expect(header.admin).toBeInstanceOf(PublicKey);
   }, 30_000);
 
-  it("parseEngine returns numeric fields with expected types for a devnet slab", async () => {
+  itStale("parseEngine returns numeric fields with expected types for a devnet slab", async () => {
     if (SKIP || !rpcReachable || discoveredSlabs.length === 0) return;
 
     const slabKey = discoveredSlabs[0];
@@ -258,7 +268,7 @@ describe("devnet — getMarketStats() via parseEngine/parseConfig [PERC-8365]", 
     expect(engine.openInterest).toBeGreaterThanOrEqual(0n);
   }, 30_000);
 
-  it("parseConfig returns valid unitScale for a devnet slab", async () => {
+  itStale("parseConfig returns valid unitScale for a devnet slab", async () => {
     if (SKIP || !rpcReachable || discoveredSlabs.length === 0) return;
 
     const slabKey = discoveredSlabs[0];
@@ -288,7 +298,7 @@ describe("devnet — getMarketStats() via parseEngine/parseConfig [PERC-8365]", 
     }
   }, 60_000);
 
-  it("pnlPosTot <= collateral (economic invariant) for all sampled devnet slabs", async () => {
+  itStale("pnlPosTot <= collateral (economic invariant) for all sampled devnet slabs", async () => {
     if (SKIP || !rpcReachable || discoveredSlabs.length === 0) return;
 
     // Economic invariant: total positive PnL cannot exceed total collateral in the slab
@@ -305,7 +315,7 @@ describe("devnet — getMarketStats() via parseEngine/parseConfig [PERC-8365]", 
     }
   }, 60_000);
 
-  it("engine.numUsedAccounts is a non-negative integer for devnet slabs", async () => {
+  itStale("engine.numUsedAccounts is a non-negative integer for devnet slabs", async () => {
     if (SKIP || !rpcReachable || discoveredSlabs.length === 0) return;
 
     const slabKey = discoveredSlabs[0];
