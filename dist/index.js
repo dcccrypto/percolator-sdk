@@ -643,8 +643,9 @@ function encodeFeedId(feedId) {
   }
   return bytes;
 }
-var PUBLIC_B_CHUNK_ATOMS_UNLIMITED = 10000000000000000n;
-var INIT_MARKET_V17_LEN = 219;
+var PUBLIC_B_CHUNK_ATOMS = 10000000000000000n;
+var PUBLIC_B_CHUNK_ATOMS_UNLIMITED = PUBLIC_B_CHUNK_ATOMS;
+var INIT_MARKET_V17_LEN = 203;
 function encodeInitMarket(args) {
   const isV17Args = "maxPortfolioAssets" in args;
   let maxPortfolioAssets;
@@ -667,7 +668,6 @@ function encodeInitMarket(args) {
   let maxAccountBSettlementChunks;
   let maxBankruptCloseChunks;
   let maxBankruptCloseLifetimeSlots;
-  let publicBChunkAtoms;
   let maintenanceFeePerSlot;
   if (isV17Args) {
     const v = args;
@@ -691,7 +691,6 @@ function encodeInitMarket(args) {
     maxAccountBSettlementChunks = v.maxAccountBSettlementChunks;
     maxBankruptCloseChunks = v.maxBankruptCloseChunks;
     maxBankruptCloseLifetimeSlots = v.maxBankruptCloseLifetimeSlots;
-    publicBChunkAtoms = v.publicBChunkAtoms;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   } else {
     const v = args;
@@ -717,7 +716,6 @@ function encodeInitMarket(args) {
     maxAccountBSettlementChunks = 10n;
     maxBankruptCloseChunks = 10n;
     maxBankruptCloseLifetimeSlots = 500n;
-    publicBChunkAtoms = 1000000n;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   }
   const data = concatBytes(
@@ -742,7 +740,6 @@ function encodeInitMarket(args) {
     encU64(maxAccountBSettlementChunks),
     encU64(maxBankruptCloseChunks),
     encU64(maxBankruptCloseLifetimeSlots),
-    encU128(publicBChunkAtoms),
     encU128(maintenanceFeePerSlot)
   );
   if (data.length !== INIT_MARKET_V17_LEN) {
@@ -751,6 +748,15 @@ function encodeInitMarket(args) {
     );
   }
   return data;
+}
+var INIT_MARKET_PRE_083A0D08_LEN = INIT_MARKET_V17_LEN + 16;
+function encodeInitMarketPre083a0d08(args, publicBChunkAtoms) {
+  const base = encodeInitMarket(args);
+  const chunk = publicBChunkAtoms ?? ("publicBChunkAtoms" in args ? args.publicBChunkAtoms : void 0) ?? PUBLIC_B_CHUNK_ATOMS;
+  const cut = INIT_MARKET_V17_LEN - 16;
+  const out = concatBytes(base.subarray(0, cut), encU128(chunk), base.subarray(cut));
+  if (out.length !== INIT_MARKET_PRE_083A0D08_LEN) throw new Error(`encodeInitMarketPre083a0d08: expected ${INIT_MARKET_PRE_083A0D08_LEN} bytes, got ${out.length}`);
+  return out;
 }
 function encodeInitUser(_args) {
   return new Uint8Array([IX_TAG.InitPortfolio]);
@@ -6066,7 +6072,13 @@ var BAND_RENT_V22 = Object.freeze({
   growth: Object.freeze({ rentKinkBps: 42, rentNCapQ: 48, version: 38 }),
   vaultLp: Object.freeze({ lpNetQ: 32, flags: 90 })
 });
+var BAND_RENT_V22_C = Object.freeze({
+  ...BAND_RENT_V22,
+  configLen: 281,
+  config: Object.freeze({ maxAccrualDtSlots: 118, maxPriceMoveBpsPerSlot: 142, bandBps: 233, bandMaxEpochSlots: 241, bandMaxPinSlots: 249, rentMaxE9PerSlot: 257, bandMaxPositionsPerSide: 265, bandMinLegNotional: 273 })
+});
 function v22Row(o) {
+  const d = o.noChunkField ? 16 : 0;
   return Object.freeze({
     name: o.name,
     status: "PROVISIONAL",
@@ -6076,7 +6088,7 @@ function v22Row(o) {
     headerLen: 16,
     wrapperConfigLen: 576,
     marketGroupOff: 592,
-    marketGroupLen: 806,
+    marketGroupLen: 806 - d,
     assetSlotStride: o.slotStride,
     wrapperSlotLen: 1024,
     engineSlotLen: o.engineSlotLen,
@@ -6084,15 +6096,15 @@ function v22Row(o) {
     group: Object.freeze({
       config: 32,
       maxMarketSlotsInConfig: 2,
-      assetSlotCapacity: 329,
-      vault: 333,
-      insurance: 349,
-      cTot: 365,
-      sourceInsuranceCreditReservedTotalAtoms: 493,
-      insuranceDomainBudgetRemainingTotal: 509,
-      materializedPortfolioCount: 565,
-      currentSlot: 661,
-      mode: 674
+      assetSlotCapacity: 329 - d,
+      vault: 333 - d,
+      insurance: 349 - d,
+      cTot: 365 - d,
+      sourceInsuranceCreditReservedTotalAtoms: 493 - d,
+      insuranceDomainBudgetRemainingTotal: 509 - d,
+      materializedPortfolioCount: 565 - d,
+      currentSlot: 661 - d,
+      mode: 674 - d
     }),
     assetState: Object.freeze({ rawOracleTargetPrice: 17, effectivePrice: 25, oiEffLongQ: 289, oiEffShortQ: 305 }),
     engineSlot: Object.freeze({
@@ -6124,7 +6136,7 @@ function v22Row(o) {
       leg: Object.freeze(o.leg)
     }),
     accounts: STANDALONE_V22,
-    bandRent: BAND_RENT_V22
+    bandRent: o.noChunkField ? BAND_RENT_V22_C : BAND_RENT_V22
   });
 }
 var LEG_V21_PREFIX = { active: 0, assetIndex: 1, marketId: 5, side: 13, basisPosQ: 14, aBasis: 30, kSnap: 46, fSnap: 62 };
@@ -6180,11 +6192,26 @@ var LAYOUT_V22_VARIANT_B = v22Row({
     rentCarry: 209
   }
 });
-var LAYOUT_V22_ROWS = Object.freeze({ stageA: LAYOUT_V22_STAGE_A, variantB: LAYOUT_V22_VARIANT_B });
-var LAYOUT_V22 = LAYOUT_V22_VARIANT_B;
+var LAYOUT_V22_VARIANT_C = v22Row({
+  name: "v2.2 variant C (PROVISIONAL, upstream 083a0d08 layout)",
+  source: "percolator-prog agent/1123-layout2-percolator-prog on engine agent/1123-layout2-percolator (upstream 083a0d08 + c8ddbb6e)",
+  slotStride: 2661,
+  engineSlotLen: 1637,
+  portfolioLen: 10607,
+  legStride: 217,
+  receiptOff: 10409,
+  engineDiscriminator: 20,
+  leg: LAYOUT_V22_VARIANT_B.portfolio.leg,
+  noChunkField: true
+});
+var LAYOUT_V22_ROWS = Object.freeze({ stageA: LAYOUT_V22_STAGE_A, variantB: LAYOUT_V22_VARIANT_B, variantC: LAYOUT_V22_VARIANT_C });
+var LAYOUT_V22 = LAYOUT_V22_VARIANT_C;
 var LAYOUTS_BY_VERSION = /* @__PURE__ */ new Map([
   [LAYOUT_V21.version, LAYOUT_V21],
   [LAYOUT_V22.version, LAYOUT_V22]
+]);
+var SAME_VERSION_MARKET_ROWS = /* @__PURE__ */ new Map([
+  [LAYOUT_V22.version, [LAYOUT_V22_VARIANT_B]]
 ]);
 var WRAPPER_ACCOUNT_MAGIC = 0x5045524356313600n;
 var ACCOUNT_KIND = Object.freeze({
@@ -6253,6 +6280,13 @@ function resolveMarketGeometry(data, opts) {
       throw new UnknownLayoutError(e.code, opts.parser, `${e.code === "WRONG_KIND" ? `not a market account (kind ${e.kind}); ` : ""}not a v17 market account (bad magic, version, or kind): ${e.message.slice(opts.parser.length + 2)}`, { version: e.version, kind: e.kind });
     }
     throw e;
+  }
+  if (opts.registry === void 0) {
+    const fits = (t) => data.length >= t.marketGroupOff + t.marketGroupLen && (data.length - t.marketGroupOff - t.marketGroupLen) % t.assetSlotStride === 0;
+    if (!fits(layout)) {
+      const alt = (SAME_VERSION_MARKET_ROWS.get(layout.version) ?? []).find(fits);
+      if (alt) layout = alt;
+    }
   }
   const groupOff = layout.marketGroupOff;
   const slotsBase = groupOff + layout.marketGroupLen;
@@ -13432,7 +13466,7 @@ function creatorFeeClaimRouteV22(assetAdmin, payeeFlag) {
   return payeeFlag ? "Payee" : "Refused";
 }
 var CREATOR_PAYEE_GRACE_SLOTS_V22 = 1512000n;
-var MARKET_GROUP_RESOLVED_SLOT_OFF_V22 = 675;
+var MARKET_GROUP_RESOLVED_SLOT_OFF_V22 = LAYOUT_V22.group.mode + 1;
 function payeeGraceElapsedV22(resolved, resolvedSlot, nowSlot) {
   if (nowSlot === null) return false;
   const end = resolvedSlot + CREATOR_PAYEE_GRACE_SLOTS_V22;
@@ -16208,7 +16242,7 @@ function readCreatorFeeClaimStateV22(marketData, assetIndex, nowSlot = null) {
   const legacy = assetIndex === 0 ? parseWrapperConfigV17(marketData).creatorFeeClaimableAtoms : 0n;
   const dv8 = new DataView(marketData.buffer, marketData.byteOffset, marketData.byteLength);
   const resolved = marketData[g.groupOff + g.layout.group.mode] === 1;
-  const resolvedSlot = dv8.getBigUint64(g.groupOff + MARKET_GROUP_RESOLVED_SLOT_OFF_V22, true);
+  const resolvedSlot = dv8.getBigUint64(g.groupOff + g.layout.group.mode + 1, true);
   return {
     assetIndex,
     assetAdmin: profile.assetAdmin,
@@ -16266,9 +16300,13 @@ function planCloseSlabAttempt(a) {
   } catch (e) {
     throw new Error(`planCloseSlabAttempt: ${e.message}`);
   }
+  if (a.feeBackingAtoms !== void 0 && a.feeBackingAtoms < 0n) {
+    throw new Error(`planCloseSlabAttempt: feeBackingAtoms must be >= 0 (got ${a.feeBackingAtoms})`);
+  }
+  const feesUnbacked = a.feeBackingAtoms === 0n;
   const [vaultAuthority] = deriveVaultAuthority(a.programId, a.market);
   const ixs = [];
-  if (a.protocolFee && a.protocolFee.owed > 0n) {
+  if (a.protocolFee && a.protocolFee.owed > 0n && !feesUnbacked) {
     ixs.push(new TransactionInstruction8({
       programId: a.programId,
       keys: buildAccountMetas(ACCOUNTS_WITHDRAW_PROTOCOL_FEE, {
@@ -16298,7 +16336,7 @@ function planCloseSlabAttempt(a) {
       data: Buffer.from(encodeWithdrawInsurance({ amount: a.insuranceRecredit.amount }))
     }));
   }
-  for (const leg of a.creatorFees ?? []) {
+  for (const leg of feesUnbacked ? [] : a.creatorFees ?? []) {
     if (leg.owed <= 0n || leg.route === "Refused") continue;
     if (leg.route === "Payee" && a.payeeGraceOver) continue;
     if (leg.route === "AdminSigned") {
@@ -19900,6 +19938,7 @@ export {
   HYSTERESIS_DEFAULT_BPS_V5,
   HYSTERESIS_MAX_BPS_V5,
   INIT_CTX_LEN,
+  INIT_MARKET_PRE_083A0D08_LEN,
   INIT_MATCHER_CTX_V17_LEN,
   INSURANCE_UNITS_FIELD_OFF_V22,
   INSURANCE_UNITS_TAIL_FROM_V22,
@@ -19929,6 +19968,7 @@ export {
   LAYOUT_V22_ROWS,
   LAYOUT_V22_STAGE_A,
   LAYOUT_V22_VARIANT_B,
+  LAYOUT_V22_VARIANT_C,
   LEV_ABNORMAL_SIGMA_MULT,
   LEV_AGE_DAY_SLOTS_V22,
   LEV_AGE_MONTH_SLOTS_V22,
@@ -20113,6 +20153,7 @@ export {
   PROGRAM_IDS_DEVNET_V22,
   PROGRAM_IDS_V17,
   PROGRAM_ID_V17,
+  PUBLIC_B_CHUNK_ATOMS,
   PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
   PUMPSWAP_PROGRAM_ID,
   PUSH_AUTH_MARK_DEPTH_LEN,
@@ -20146,6 +20187,7 @@ export {
   R_GAP_MIN_LIQUIDATION_SLOTS,
   RpcPool,
   RpcTimeoutError,
+  SAME_VERSION_MARKET_ROWS,
   SEEDS_V22,
   SET_ASSET_RISK_LIMITS_TIERS_TRAILER_LEN,
   SET_CREATOR_FEE_PAYEE_LEN_V22,
@@ -20682,6 +20724,7 @@ export {
   encodeInitLP,
   encodeInitLpShareMetadataV22,
   encodeInitMarket,
+  encodeInitMarketPre083a0d08,
   encodeInitMarketTrailerV22,
   encodeInitMarketV19,
   encodeInitMarketV22,

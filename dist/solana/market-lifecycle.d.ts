@@ -101,7 +101,8 @@ export interface CloseSlabAttemptArgs {
     closeAuthorityEpoch: bigint;
     /**
      * Protocol leg (tag 84, amount 0 = all). Include whenever
-     * protocol_fee_accrued − protocol_fee_withdrawn > 0 (tag 84 refuses when nothing is owed).
+     * protocol_fee_accrued − protocol_fee_withdrawn > 0 (tag 84 refuses when nothing is owed). The planner skips it when
+     * {@link CloseSlabAttemptArgs.feeBackingAtoms} is 0n (tag 84 would refuse and the fee no longer blocks CloseSlab).
      * On P1, CloseSlab only retires if the protocol fee was claimed between attempts.
      */
     protocolFee?: {
@@ -147,6 +148,15 @@ export interface CloseSlabAttemptArgs {
     creatorFees?: readonly CloseSlabCreatorFeeLegV22[];
     /** prog #651: the payee grace is over (`readCreatorFeeClaimStateV22(data, i, nowSlot).payeeGraceOver`). Default false. */
     payeeGraceOver?: boolean;
+    /**
+     * The unbudgeted insurance pool that backs the fee legs, as CloseSlab computes it:
+     * `insurance − source_insurance_credit_reserved_total − insurance_domain_budget_remaining_total − rent_unrouted`
+     * (saturating). When it is `0n`, CloseSlab no longer refuses for owed fees (`min(outstanding, pool) > 0` is false), but
+     * tag 84 (transfer 0 → EngineLockActive) and tag 90 (no surplus) both refuse, and in the same transaction they would
+     * sink the close. So at `0n` the planner adds no tag 84 / tag 90 and does not throw for an AdminSigned pot.
+     * Omit to keep the previous behaviour (every owed leg planned).
+     */
+    feeBackingAtoms?: bigint;
 }
 /** One asset's creator-fee leg for {@link planCloseSlabAttempt}. */
 export interface CloseSlabCreatorFeeLegV22 {
@@ -181,7 +191,7 @@ export interface CloseSlabCreatorFeeLegV22 {
  *
  * @returns Ordered instructions (CloseSlab last).
  * @throws If `hasLpVault` is true (not retirable), a creator-fee leg is owed under a LIVE asset_admin (only that key can
- *   claim it), a payee leg lacks `payee` / `vaultMint`, or a claim amount is non-positive or above `owed`.
+ *   claim it; not thrown when `feeBackingAtoms` is 0n), `feeBackingAtoms` is negative, a payee leg lacks `payee` / `vaultMint`, or a claim amount is non-positive or above `owed`.
  * @example
  * ```ts
  * const ixs = planCloseSlabAttempt({ programId, market, vaultToken, closer, closerDestToken, closeAuthorityEpoch,

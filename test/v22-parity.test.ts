@@ -12,7 +12,7 @@ import { P2B_INIT_MARKET_ARGS } from "./p2b-vector-inputs.js";
 import * as W from "../src/abi/v22-wire.js";
 import * as S from "../src/abi/v22-state.js";
 import * as M from "../src/abi/v22-math.js";
-import { LAYOUT_V21, LAYOUT_V22, LAYOUT_V22_STAGE_A, LAYOUT_V22_VARIANT_B, UnknownLayoutError } from "../src/abi/layout.js";
+import { LAYOUT_V21, LAYOUT_V22, LAYOUT_V22_STAGE_A, LAYOUT_V22_VARIANT_B, LAYOUT_V22_VARIANT_C, UnknownLayoutError } from "../src/abi/layout.js";
 import { PERCOLATOR_ERRORS } from "../src/abi/errors.js";
 
 interface Rule { fn: string; in: string[]; out: (string | null)[] }
@@ -25,9 +25,9 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const unhex = (s: string) => Uint8Array.from(Buffer.from(s, "hex"));
 
 describe("pinned oracle", () => {
-  it("is variant B (prog #649 f7a54350 = rc23 2b5dce8a + GH#571 tranche v2, engine 2f05df8c)", () => {
-    expect(FX.prog).toBe("f7a54350bd17d51d45effa0cb9df66d7eb8e69cf");
-    expect(FX.engine).toBe("2f05df8c8c1edd85734120e1322420621fc33cf0");
+  it("is variant C (prog 9a0ff591 = rc23 + InitMarket without public_b_chunk_atoms, engine 0eed1705 = header 790)", () => {
+    expect(FX.prog).toBe("9a0ff591b1d0894fa665e94b45e18c2804eef201");
+    expect(FX.engine).toBe("0eed170526e891ba88e2ca50b007ea5dfcb99bc2");
   });
 });
 
@@ -48,7 +48,7 @@ describe("instruction golden vectors (encoder == real decoder; real re-encode ==
       if (v.tag === 0) {
         // the InitMarket trailer is LENGTH-selected: a one-byte change can land on another valid form
         const okLens = new Set([4, 5, 10, 11, 28, 29]);
-        const trailer = v.build().length - 219;
+        const trailer = v.build().length - 203;
         if (!okLens.has(trailer - 1)) expect(f.rust.ok, "short").toBe(false);
         if (!okLens.has(trailer + 1)) expect(l.rust.ok, "long").toBe(false);
       } else {
@@ -135,10 +135,10 @@ describe("constants, errors, tags", () => {
   });
 });
 
-describe("LAYOUT_V22 variant B == the real crate (offset_of!)", () => {
+describe("LAYOUT_V22 variant C == the real crate (offset_of!)", () => {
   const L = FX.layout;
   it("sizes", () => {
-    expect(LAYOUT_V22).toBe(LAYOUT_V22_VARIANT_B);
+    expect(LAYOUT_V22).toBe(LAYOUT_V22_VARIANT_C);
     expect([LAYOUT_V22.version, LAYOUT_V22.engineDiscriminator, LAYOUT_V22.marketGroupOff, LAYOUT_V22.marketGroupLen, LAYOUT_V22.assetSlotStride, LAYOUT_V22.wrapperSlotLen, LAYOUT_V22.engineSlotLen, LAYOUT_V22.assetStateLen, LAYOUT_V22.portfolio.accountLen, LAYOUT_V22.portfolio.legStride, LAYOUT_V22.portfolio.matcherConfigOff])
       .toEqual([L.wrapperVersion, L.engineDiscriminator, L.marketGroupOff, L.marketGroupLen, L.assetSlotStride, L.wrapperSlotLen, L.engineSlotLen, L.assetStateLen, L.portfolioAccountLen, L.legStride, L.portfolioMatcherConfigOff - 16]);
     expect([LAYOUT_V22.wrapperSlot.riskLimits, LAYOUT_V22.wrapperSlot.growth, LAYOUT_V22.wrapperSlot.vaultLp, LAYOUT_V22.wrapperSlot.vaultLpDraw]).toEqual([L.riskLimitsSlotOff, L.growthSlotOff, L.vaultLpSlotOff, L.vaultLpDrawSlotOff]);

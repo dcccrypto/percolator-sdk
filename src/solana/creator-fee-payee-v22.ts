@@ -17,7 +17,6 @@ import {
   deriveCreatorFeePayeeV22,
   encodeSetCreatorFeePayeeV22,
   hasCreatorFeePayeeFlagV22,
-  MARKET_GROUP_RESOLVED_SLOT_OFF_V22,
   payeeGraceElapsedV22,
 } from "../abi/creator-fee-payee-v22.js";
 import type { CreatorFeeClaimRouteV22 } from "../abi/creator-fee-payee-v22.js";
@@ -177,7 +176,7 @@ export function readCreatorFeeClaimStateV22(marketData: Uint8Array, assetIndex: 
   const legacy = assetIndex === 0 ? parseWrapperConfigV17(marketData).creatorFeeClaimableAtoms : 0n;
   const dv = new DataView(marketData.buffer, marketData.byteOffset, marketData.byteLength);
   const resolved = marketData[g.groupOff + g.layout.group.mode] === 1;
-  const resolvedSlot = dv.getBigUint64(g.groupOff + MARKET_GROUP_RESOLVED_SLOT_OFF_V22, true);
+  const resolvedSlot = dv.getBigUint64(g.groupOff + g.layout.group.mode + 1, true); // MARKET_GROUP_RESOLVED_SLOT_OFF_V22 on the default row
   return {
     assetIndex,
     assetAdmin: profile.assetAdmin,

@@ -38,7 +38,7 @@ const ENGINE_BITMAP_OFF_V0 = 320;
  */
 export interface DiscoveredMarket {
   slabAddress: PublicKey;
-  /** v17-line markets: the wrapper VERSION (18 = v2.1, 19 = v2.2); decode with `LAYOUTS_BY_VERSION.get(wrapperVersion)`. */
+  /** v17-line markets: the wrapper VERSION (18 = v2.1, 19 = v2.2); decode market bytes with `resolveMarketGeometry` (VERSION 19 has two header lengths; `LAYOUTS_BY_VERSION.get(19)` is only the default row). */
   wrapperVersion?: number;
   /** The program that owns this slab account */
   programId: PublicKey;

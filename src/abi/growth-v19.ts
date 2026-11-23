@@ -320,7 +320,7 @@ export function decodeAssetGrowthFromSlotV19(slot: Uint8Array): AssetGrowthV19 |
  * (the same slot base as `AssetRiskLimitsV17` at slot + 608, see `assetRiskLimitsAccountOffsetP1`).
  *
  * @param assetIndex  Asset slot index.
- * @param layout      Layout table of the account's VERSION (default LAYOUT_V21; LAYOUT_V22 for v2.2).
+ * @param layout      Layout table of the account (default LAYOUT_V21). For a v2.2 market pass `resolveMarketGeometry(data).layout`: VERSION 19 has two header lengths (806 / 790).
  * @returns Byte offset into the market account.
  * @example
  * ```ts
