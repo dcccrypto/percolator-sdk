@@ -834,7 +834,8 @@ describe('Stake builders — full account-meta pins vs percolator-stake a58219b'
       meta(TOKEN_PROGRAM_ID, false, false),              //  8 [] token program
       meta(SYSVAR_CLOCK_PUBKEY, false, false),           //  9 [] clock sysvar
     ];
-    // Live, resolved AND CloseSlab-tombstoned markets all take the slab at [10] on a58219b:
+    // On this (non-v5) 11-account list, live, resolved AND CloseSlab-tombstoned markets all take
+    // the slab at [10] on a58219b:
     // a tombstone there is accepted (slab_is_closed_tombstone, processor.rs:1586 / :3371, GH#309).
     expect(withdrawAccounts({ ...args, slab: K.slab })).toEqual([
       ...expected10,
@@ -842,8 +843,9 @@ describe('Stake builders — full account-meta pins vs percolator-stake a58219b'
     ]);
     // SDK-side only: with `slab` omitted the builder emits exactly the first 10 metas. This does
     // NOT pin a valid withdraw. On a58219b a mode-0 pool refuses it with NotEnoughAccountKeys
-    // (processor.rs:1627 -> book_terminal_surplus_before_pricing :3141-3159, GH#315), tombstoned
-    // market or not; only pool_mode != 0 pools return early there (:3147).
+    // (processor.rs:1627 -> book_terminal_surplus_before_pricing :3141, refusal :3164-3166, GH#315;
+    // FIRST_LOSS already earlier at :1604), tombstoned market or not; only pool_mode != 0 pools
+    // return early there (:3147).
     expect(withdrawAccounts(args)).toEqual(expected10);
   });
 });
