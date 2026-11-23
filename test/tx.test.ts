@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll } from "vitest";
 import { Keypair, Connection, TransactionInstruction, PublicKey, ComputeBudgetProgram } from "@solana/web3.js";
 import { simulateOrSend, buildIx, formatResult, TxResult } from "../src/runtime/tx.js";
 
@@ -30,6 +30,23 @@ function makeMockConnection(overrides: Record<string, unknown> = {}): Connection
 }
 
 describe("simulateOrSend", () => {
+  // One-time cost (ed25519 keygen/sign init, tx compile, first-call JIT) is paid here
+  // so no single case carries it. Result is discarded; every case builds its own state.
+  beforeAll(async () => {
+    await simulateOrSend({
+      connection: makeMockConnection(),
+      ix: dummyIx,
+      signers: [Keypair.generate()],
+      simulate: true,
+    });
+    await simulateOrSend({
+      connection: makeMockConnection(),
+      ix: dummyIx,
+      signers: [Keypair.generate()],
+      simulate: false,
+    });
+  });
+
   it("returns TxResult on successful simulation", async () => {
     const conn = makeMockConnection();
     const result = await simulateOrSend({
