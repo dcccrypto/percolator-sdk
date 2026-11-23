@@ -22,7 +22,7 @@
 // covered by test/drift-check.test.ts.
 process.env.NETWORK ??= 'devnet';
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PublicKey, Keypair, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
@@ -73,6 +73,7 @@ import {
   withdrawAccounts,
   flushToInsuranceAccounts,
   adminResolveMarketCpiAccounts,
+  getStakeProgramId,
 } from '../stake.js';
 import {
   encodeUpdateFeeSplit,
@@ -816,7 +817,7 @@ describe('Stake builders — full account-meta pins vs percolator-stake a58219b'
     ]);
   });
 
-  it('withdrawAccounts: 11 metas in instruction.rs:162-176 order; vault[4] is the SOURCE, user collateral[5] the DESTINATION', () => {
+  it('withdrawAccounts: 11 metas in instruction.rs:162-176 order; vault[4] is the SOURCE, user collateral[5] the DESTINATION; SDK drops [10] only when slab is omitted', () => {
     const args = {
       user: K.user, pool: K.pool, userLpAta: K.userLpAta, lpMint: K.lpMint, vault: K.vault,
       userCollateralAta: K.userCollateralAta, vaultAuth: K.vaultAuth, depositPda: K.depositPda,
@@ -833,11 +834,16 @@ describe('Stake builders — full account-meta pins vs percolator-stake a58219b'
       meta(TOKEN_PROGRAM_ID, false, false),              //  8 [] token program
       meta(SYSVAR_CLOCK_PUBKEY, false, false),           //  9 [] clock sysvar
     ];
+    // Live, resolved AND CloseSlab-tombstoned markets all take the slab at [10] on a58219b:
+    // a tombstone there is accepted (slab_is_closed_tombstone, processor.rs:1586 / :3371, GH#309).
     expect(withdrawAccounts({ ...args, slab: K.slab })).toEqual([
       ...expected10,
-      meta(K.slab, false, false),                        // 10 [] wrapper market (#290 / GH#315)
+      meta(K.slab, false, false),                        // 10 [] wrapper market (#290 / GH#309 / GH#315)
     ]);
-    // Tombstoned market: slab omitted -> exactly the first 10 (processor.rs:1420 reads it optionally).
+    // SDK-side only: with `slab` omitted the builder emits exactly the first 10 metas. This does
+    // NOT pin a valid withdraw. On a58219b a mode-0 pool refuses it with NotEnoughAccountKeys
+    // (processor.rs:1627 -> book_terminal_surplus_before_pricing :3141-3159, GH#315), tombstoned
+    // market or not; only pool_mode != 0 pools return early there (:3147).
     expect(withdrawAccounts(args)).toEqual(expected10);
   });
 });
@@ -867,8 +873,8 @@ describe('Stake amount encoding — u64 LE at the edges (instruction.rs:874, :91
     it(`${name} refuses 2^64 and -1 instead of wrapping mod 2^64`, () => {
       expect(() => encode(1n << 64n)).toThrow(/u64Le: value exceeds u64 max/);
       expect(() => encode(2 ** 53)).toThrow(/exceeds Number.MAX_SAFE_INTEGER/);
-      expect(() => encode(-1n)).toThrow(/u64Le: value must be non-negative, got -1/);
-      expect(() => encode(-1)).toThrow(/u64Le: value must be non-negative, got -1/);
+      expect(() => encode(-1n)).toThrow(/u64Le: value must be non-negative, got -1$/);
+      expect(() => encode(-1)).toThrow(/u64Le: value must be non-negative, got -1$/);
     });
   }
 });
@@ -879,6 +885,24 @@ describe('Stake PDAs — literal seed lists from percolator-stake a58219b src/st
   const slabKey = new PublicKey(new Uint8Array(32).fill(3));
   const poolKey = new PublicKey(new Uint8Array(32).fill(4));
   const userKey = new PublicKey(new Uint8Array(32).fill(2));
+
+  // The no-programId calls below pin the DEFAULT (getStakeProgramId() -> devnet constant). Pin the
+  // env they resolve through, so an ambient STAKE_PROGRAM_ID / NEXT_PUBLIC_DEFAULT_NETWORK on the
+  // runner cannot redirect them (STAKE_PROGRAM_ID=<v1 vault> failed all three before this).
+  beforeEach(() => {
+    vi.stubEnv('STAKE_PROGRAM_ID', undefined);
+    vi.stubEnv('PERCOLATOR_SDK_ALLOW_PROGRAM_OVERRIDE', undefined);
+    vi.stubEnv('NEXT_PUBLIC_DEFAULT_NETWORK', undefined);
+    vi.stubEnv('NETWORK', 'devnet');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('the default stake program id under the pinned env is the devnet constant', () => {
+    expect(getStakeProgramId().equals(P)).toBe(true);
+    expect(P.toBase58()).toBe(STAKE_PROGRAM_IDS.devnet);
+  });
 
   it('deriveStakePool = find_program_address([b"stake_pool", slab]) (state.rs:1796)', () => {
     const [want, bump] = PublicKey.findProgramAddressSync([enc('stake_pool'), slabKey.toBytes()], P);
