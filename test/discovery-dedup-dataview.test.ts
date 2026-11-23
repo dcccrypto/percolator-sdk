@@ -16,7 +16,11 @@ const SLICE = 1940;
 const programId = new PublicKey(new Uint8Array(32).fill(7));
 
 // Frozen from the pre-change implementation (b1296be) over buildFixtures() below.
-const GOLDEN_SHA256 = "b5e7271587492a1925cd167e1551f41684b837b6de226b8d279fe145dfe26e8f";
+// Re-frozen by J-20261123-SDK-FIX-V1DENGINEOFFSETS: SLAB_TIERS_V1D sizes now decode with the
+// prog f7a2e8ab layout (engine at 456, not 424). A per-market diff against 2bf0fcd7 showed only
+// the 72 V1D-sized fixtures (17064/65088/257184/1025568) changed; the other 328 are byte-identical.
+// (was b5e7271587492a1925cd167e1551f41684b837b6de226b8d279fe145dfe26e8f)
+const GOLDEN_SHA256 = "7511d1af3b51767fd99ad0e3693de141691eabe2cf78f8a29518c6c73e8ebd0f";
 const GOLDEN_COUNT = 400;
 
 function pk(i: number): PublicKey {

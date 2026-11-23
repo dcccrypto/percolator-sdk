@@ -30,9 +30,32 @@
       "confFilterBps": 0
     },
     "engine": {
-      "currentSlot": "0",
-      "markPriceE6": "0",
-      "fundingRateBpsPerSlotLast": "0"
+      "_layout": "percolator-prog f7a2e8ab + engine a235a5f2 (pre-PERC-306): CONFIG_LEN 352, ENGINE_OFF 456, InsuranceFund 32 B, params at engine+48. Values read from the raw bytes at those offsets.",
+      "engineOff": 456,
+      "vault": "0",
+      "insuranceBalance": "0",
+      "currentSlot": "444844114",
+      "lastFundingSlot": "444844114",
+      "markPriceE6": "1000000",
+      "fundingRateBpsPerSlotLast": "0",
+      "lastCrankSlot": "444844114",
+      "maxCrankStalenessSlots": "100",
+      "cTot": "0",
+      "lastSweepStartSlot": "444844114",
+      "lastSweepCompleteSlot": "444844114",
+      "numUsedAccounts": 0,
+      "nextAccountId": "0"
+    },
+    "params": {
+      "warmupPeriodSlots": "0",
+      "maintenanceMarginBps": "500",
+      "initialMarginBps": "1000",
+      "tradingFeeBps": "30",
+      "maxAccounts": "256",
+      "newAccountFee": "1000000",
+      "maxCrankStalenessSlots": "100",
+      "liquidationFeeBps": "100",
+      "liquidationBufferBps": "50"
     }
   }
 }
