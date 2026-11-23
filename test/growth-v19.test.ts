@@ -105,7 +105,7 @@ describe("AssetGrowthV19 decoder", () => {
       ...common, flags: 3, cLaunchAtoms: 0n, r3Layout: true, volHasData: true, volVarX100: 2_500, rentStamp64: 101,
       depthTw: { curTokens: 400, prevTokens: 0xffff_ffff, bucketP1: 7 },
     });
-    expect([growthFlagsOk(0), growthFlagsOk(1), growthFlagsOk(3), growthFlagsOk(2), growthFlagsOk(4)]).toEqual([true, true, true, false, false]);
+    expect([growthFlagsOk(0), growthFlagsOk(1), growthFlagsOk(3), growthFlagsOk(2), growthFlagsOk(4), growthFlagsOk(8)]).toEqual([true, true, true, false, true, false]);
     expect(depthTwWindowOk(h.depthTw)).toBe(true);
     expect(depthTwWindowOk(g.depthTw)).toBe(false);
     // bit 0 set but no data (migrated by a rent stamp only): variance readable, volHasData false

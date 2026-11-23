@@ -32,6 +32,7 @@ function rng(seed: number) {
   };
 }
 
+const ZERO_RNG = () => 0n;
 const BITS: Record<Exclude<FieldType, "pk">, number> = { u8: 8, u16: 16, u32: 32, u64: 64, u128: 128, i64: 64, i128: 128 };
 const SIGNED = (t: FieldType) => t === "i64" || t === "i128";
 
@@ -78,14 +79,25 @@ const norm = (v: bigint | number | PublicKey) => (v instanceof PublicKey ? v.toB
 /** Pinned in the table with `=value` (enum, cap or version byte): the encoder validates it, so leave it alone. */
 const isPinned = (spec: string, name: string) => new RegExp(`(^|\\s)${name}:[a-z0-9]+=`).test(spec);
 
-function roundTrip(row: (typeof ROWS)[number], fields: Field[]) {
-  const bytes = row.enc(valuesByName(fields));
-  expect(bytes[0], "tag byte").toBe(row.tag);
-  expect(bytes.length, "length").toBe(expectedLength(fields));
+/** (tag, field, value) triples actually compared; reported in afterAll and must stay constant across refactors. */
+let triples = 0;
+
+/**
+ * Compare encoded bytes to the input fields. Mismatches are collected (not asserted per value) so the
+ * hot loop stays cheap; the test asserts the list is empty once per row.
+ */
+function check(row: (typeof ROWS)[number], fields: Field[], bytes: Uint8Array, bad: string[]) {
+  triples += 2;
+  if (bytes[0] !== row.tag) bad.push(`tag byte ${bytes[0]} != ${row.tag}`);
+  const want = expectedLength(fields);
+  if (bytes.length !== want) bad.push(`length ${bytes.length} != ${want}`);
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let off = 1;
   for (const f of fields) {
-    expect(readField(dv, off, f.type, bytes), `${f.name}:${f.type} at offset ${off}`).toBe(norm(f.value));
+    triples++;
+    const got = readField(dv, off, f.type, bytes);
+    const exp = norm(f.value);
+    if (got !== exp) bad.push(`${f.name}:${f.type} at offset ${off}: got ${String(got)} want ${String(exp)}`);
     off += SIZE[f.type];
   }
 }
@@ -93,54 +105,57 @@ function roundTrip(row: (typeof ROWS)[number], fields: Field[]) {
 const stats = { rows: 0, rowsWithFreeFields: 0, accepted: 0, rejected: 0 };
 const rejectedByRow: string[] = [];
 
+/** Encode once; null when the encoder rejects (throws a non-TypeError). TypeErrors are test bugs and propagate. */
+function tryEncode(row: (typeof ROWS)[number], fields: Field[]): Uint8Array | null {
+  try { return row.enc(valuesByName(fields)); } catch (e) { if (e instanceof TypeError) throw e; return null; }
+}
+
 describe("v2.2 instruction encoders round-trip boundary and random values", () => {
   ROWS.forEach((row, rowIdx) => {
     if (row.mismatch) return; // legacy shape the program rejects; covered by it.fails in wire-size-v22.test.ts
     it(`tag ${row.tag} ${row.name} [${row.form}]`, () => {
       const base = parseSpec(row.spec);
-      const free = base.filter((f) => !isPinned(row.spec, f.name));
+      const pinned = base.map((f) => isPinned(row.spec, f.name));
+      const free = base.filter((_, i) => !pinned[i]);
       stats.rows++;
       if (free.length) stats.rowsWithFreeFields++;
       const next = rng(1000 + rowIdx);
       let accepted = 0;
       let rejected = 0;
+      const bad: string[] = [];
+      const run = (fields: Field[]) => {
+        const bytes = tryEncode(row, fields);
+        if (!bytes) { rejected++; return; }
+        accepted++;
+        check(row, fields, bytes, bad);
+      };
 
       // 1) Vary one field at a time (others at table default): isolates the field under test.
       for (const target of free) {
+        const idx = base.indexOf(target);
         for (const v of candidates(target.type, next)) {
-          const fields = base.map((f) => (f.name === target.name ? { ...f, value: v } : f));
-          let threw = false;
-          try { row.enc(valuesByName(fields)); } catch (e) { if (e instanceof TypeError) throw e; threw = true; }
-          if (threw) { rejected++; continue; }
-          accepted++;
-          roundTrip(row, fields);
+          const fields = base.slice();
+          fields[idx] = { ...target, value: v };
+          run(fields);
         }
       }
       // 2) All free fields at once, seeded random, to catch cross-field offset bleed.
       for (let i = 0; i < SEED_COUNT; i++) {
-        const fields = base.map((f) => (isPinned(row.spec, f.name) ? f : { ...f, value: (() => { const c = candidates(f.type, next); return c[c.length - SEED_COUNT + i]; })() }));
-        let threw = false;
-        try { row.enc(valuesByName(fields)); } catch (e) { if (e instanceof TypeError) throw e; threw = true; }
-        if (threw) { rejected++; continue; }
-        accepted++;
-        roundTrip(row, fields);
+        run(base.map((f, k) => { if (pinned[k]) return f; const c = candidates(f.type, next); return { ...f, value: c[c.length - SEED_COUNT + i] }; }));
       }
-      // 3) All free fields at max, then all at zero.
+      // 3) All free fields at max, then all at zero. Boundary entries are fixed (c[0..2|4]); no draws needed
+      //    (nothing is drawn after this point, so skipping the draws leaves every earlier value unchanged).
       for (const pick of ["max", "zero"] as const) {
-        const fields = base.map((f) => {
-          if (isPinned(row.spec, f.name)) return f;
-          const c = candidates(f.type, next);
+        run(base.map((f, k) => {
+          if (pinned[k]) return f;
+          const c = candidates(f.type, ZERO_RNG);
           return { ...f, value: pick === "zero" ? c[0] : f.type === "pk" ? c[1] : SIGNED(f.type) ? c[3] : c[2] };
-        });
-        let threw = false;
-        try { row.enc(valuesByName(fields)); } catch (e) { if (e instanceof TypeError) throw e; threw = true; }
-        if (threw) { rejected++; continue; }
-        accepted++;
-        roundTrip(row, fields);
+        }));
       }
       stats.accepted += accepted;
       stats.rejected += rejected;
       if (rejected) rejectedByRow.push(`tag ${row.tag} ${row.name}[${row.form}]: ${rejected} rejected / ${accepted} accepted`);
+      expect(bad.slice(0, 5), "round-trip mismatches").toEqual([]);
       // Every row must actually exercise the encoder with something other than the fixed table value.
       if (free.length) expect(accepted, "no boundary/random value was accepted").toBeGreaterThan(0);
     });
@@ -148,7 +163,7 @@ describe("v2.2 instruction encoders round-trip boundary and random values", () =
 
   afterAll(() => {
     process.stderr.write(
-      `[roundtrip] rows=${stats.rows} withFreeFields=${stats.rowsWithFreeFields} accepted=${stats.accepted} rejected=${stats.rejected}\n` +
+      `[roundtrip] rows=${stats.rows} withFreeFields=${stats.rowsWithFreeFields} accepted=${stats.accepted} rejected=${stats.rejected} triples=${triples}\n` +
         rejectedByRow.join("\n") + "\n",
     );
   });

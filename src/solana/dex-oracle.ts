@@ -314,7 +314,6 @@ function computePumpSwapPriceE6(
   //   price_e6 = quote_raw * 10^baseDec * 1e6 / (10^quoteDec * base_raw)
   const baseScale = 10n ** BigInt(decimals.base);
   const quoteScale = 10n ** BigInt(decimals.quote);
-  const quotePerBaseE6 = (quoteAmount * baseScale * 1_000_000n) / (quoteScale * baseAmount);
 
   const quoteMint = new PublicKey(poolData.slice(75, 107));
   if (quoteMint.equals(WSOL_MINT)) {
@@ -325,11 +324,15 @@ function computePumpSwapPriceE6(
           "convert to USD. Pass the current SOL/USD price (e6) to computeDexSpotPriceE6.",
       );
     }
-    return (quotePerBaseE6 * solPriceE6) / 1_000_000n;
+    // Floor ONCE. Flooring token/SOL to e6 first and then multiplying by the
+    // SOL price lost up to 1 / (token/SOL e6) of the value: -3.1% on a real
+    // mainnet pool at SOL $150, and a refusal for any token under 1e-6 SOL.
+    //   price_e6 = quote_raw * 10^baseDec * solPriceE6 / (10^quoteDec * base_raw)
+    return (quoteAmount * baseScale * solPriceE6) / (quoteScale * baseAmount);
   }
   // Non-WSOL quote mint (e.g. a hypothetical USDC-quoted PumpSwap pool) is
   // already ~USD once decimal-adjusted — no further conversion needed.
-  return quotePerBaseE6;
+  return (quoteAmount * baseScale * 1_000_000n) / (quoteScale * baseAmount);
 }
 
 // ============================================================================

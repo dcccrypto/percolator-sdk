@@ -24,7 +24,7 @@
  * cover the encoder's bytes and bounds in the meantime.
  */
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import * as W from "../src/abi/v22-wire.js";
 import * as B from "../src/solana/v22.js";
 
@@ -32,6 +32,14 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const pk = () => Keypair.generate().publicKey;
 
 describe("SDK#421: tag 111 accepts mode 3 (RESTORE-FROM-PNL)", () => {
+  // Warm the lazy first-use costs (Keypair.generate's crypto init and the builder's first call) in
+  // a hook with its own budget, so no case pays them against the 5 s default. Measured on 26de9204:
+  // the first case to call pk() took 0.9-2.1 s idle; the static imports above are not the cost.
+  beforeAll(() => {
+    const m: B.MarketV22 = { programId: pk(), market: pk(), registryDomain: 0, lpPortfolio: pk(), vaultLpExt: pk() };
+    B.buildInsuranceBackstopDrawIxV22(m, pk(), W.BackstopMode.RestoreFromPnl, 0n);
+  }, 60_000);
+
   it("BackstopMode names all four modes the program implements", () => {
     expect(W.BackstopMode).toMatchObject({ Draw: 0, Restore: 1, Propose: 2, RestoreFromPnl: 3 });
   });

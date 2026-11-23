@@ -96,7 +96,7 @@ describe("Rust r3_item6_vol_term", () => {
   });
   it("flags validator", () => {
     expect(growthFlagsOk(0) && growthFlagsOk(1) && growthFlagsOk(3)).toBe(true);
-    expect(!growthFlagsOk(2) && !growthFlagsOk(4)).toBe(true);
+    expect(!growthFlagsOk(2) && !growthFlagsOk(8) && growthFlagsOk(4)).toBe(true); // bit 2 = lev guard (prog #601)
   });
   it("growthLVolX100: H = 2 * band_max_epoch_slots, no data -> null", () => {
     const cfg = { engineImrBps: 500n, liquidationFeeBps: 50n, bandMaxEpochSlots: 600n };
