@@ -8,7 +8,7 @@
  * Inputs are the perf-bench log shapes plus edge lines.
  * If you change what these functions return on purpose, delete this file.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   LIGHTHOUSE_PROGRAM_ID_STR as L,
   isLighthouseError,
@@ -138,5 +138,33 @@ describe("lighthouse log-scan speedups keep the old results", () => {
     const e = logSets.map((l) => isLighthouseError(l.join("\n")));
     expect(e).toContain(true);
     expect(e).toContain(false);
+  });
+});
+
+// The speedups themselves: count the string work each function does. These
+// fail on the pre-change code (matchAll always ran; 3 includes per line).
+describe("lighthouse log scans skip work they cannot use", () => {
+  function count<K extends "matchAll" | "includes">(name: K, fn: () => void): number {
+    const spy = vi.spyOn(String.prototype, name);
+    try {
+      fn();
+      return spy.mock.calls.length;
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it("isLighthouseError does not run the failed-regex when the text has no \"failed\"", () => {
+    const msg = logs(1000, 1).join("\n");
+    expect(msg.includes("failed")).toBe(false);
+    expect(count("matchAll", () => isLighthouseError(msg))).toBe(0);
+    const withFail = logs(1000, 1, true).join("\n");
+    expect(count("matchAll", () => isLighthouseError(withFail))).toBe(1);
+  });
+
+  it("isLighthouseFailureInLogs does one includes per non-Lighthouse line", () => {
+    const l = logs(1000, 0);
+    expect(l.some((x) => x.includes(L))).toBe(false);
+    expect(count("includes", () => isLighthouseFailureInLogs(l))).toBe(1000);
   });
 });
