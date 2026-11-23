@@ -179,7 +179,8 @@ export declare function creatorFeeClaimRouteV22(assetAdmin: PublicKey | Uint8Arr
 export declare const CREATOR_PAYEE_GRACE_SLOTS_V22 = 1512000n;
 /**
  * prog #651 anchor: the engine header's `resolved_slot` (u64 LE), relative to the market-group header (rustc `offset_of!`),
- * the byte after `mode`. 659 since the upstream 083a0d08 port (675 on variant B).
+ * the byte after `mode`. 659 since the upstream 083a0d08 port (675 on variant B). Default row only: for a market read off
+ * chain use `resolveMarketGeometry(data).layout.group.mode + 1`, which is right for both header lengths.
  */
 export declare const MARKET_GROUP_RESOLVED_SLOT_OFF_V22: number;
 /**

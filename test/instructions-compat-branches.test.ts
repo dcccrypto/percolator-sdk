@@ -29,7 +29,7 @@ function decodeInitMarket(b: Uint8Array) {
     liqCap: u128(), minLiq: u128(),
     maxPriceMove: u64(), maxAccrualDt: u64(), maxFunding: u64(), minFundingLife: u64(),
     bSettleChunks: u64(), bankruptChunks: u64(), bankruptLife: u64(),
-    publicBChunk: u128(), maintFee: u128(),
+    maintFee: u128(), // upstream 083a0d08: no public_b_chunk_atoms before it
   };
   expect(o, "trailing/missing bytes").toBe(b.length);
   return r;
@@ -64,7 +64,7 @@ describe("encodeInitMarket v12 compat shim", () => {
       ix.encodeInitMarket({ ...baseV12, warmupPeriodSlots: 4242n } as any),
     );
     expect(d).toEqual({
-      len: 219,
+      len: 203,
       tag: IX_TAG.InitMarket,
       maxPortfolioAssets: 256,
       hMin: 4242n, hMax: 4242n, price: 1_500_000n,
@@ -73,7 +73,7 @@ describe("encodeInitMarket v12 compat shim", () => {
       liqCap: 10_000n, minLiq: 5n,
       maxPriceMove: 4n, maxAccrualDt: 300n, maxFunding: 1000n, minFundingLife: 0n,
       bSettleChunks: 10n, bankruptChunks: 10n, bankruptLife: 500n,
-      publicBChunk: 1_000_000n, maintFee: 77n,
+      maintFee: 77n,
     });
   });
 

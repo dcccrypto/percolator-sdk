@@ -643,8 +643,9 @@ function encodeFeedId(feedId) {
   }
   return bytes;
 }
-var PUBLIC_B_CHUNK_ATOMS_UNLIMITED = 10000000000000000n;
-var INIT_MARKET_V17_LEN = 219;
+var PUBLIC_B_CHUNK_ATOMS = 10000000000000000n;
+var PUBLIC_B_CHUNK_ATOMS_UNLIMITED = PUBLIC_B_CHUNK_ATOMS;
+var INIT_MARKET_V17_LEN = 203;
 function encodeInitMarket(args) {
   const isV17Args = "maxPortfolioAssets" in args;
   let maxPortfolioAssets;
@@ -667,7 +668,6 @@ function encodeInitMarket(args) {
   let maxAccountBSettlementChunks;
   let maxBankruptCloseChunks;
   let maxBankruptCloseLifetimeSlots;
-  let publicBChunkAtoms;
   let maintenanceFeePerSlot;
   if (isV17Args) {
     const v = args;
@@ -691,7 +691,6 @@ function encodeInitMarket(args) {
     maxAccountBSettlementChunks = v.maxAccountBSettlementChunks;
     maxBankruptCloseChunks = v.maxBankruptCloseChunks;
     maxBankruptCloseLifetimeSlots = v.maxBankruptCloseLifetimeSlots;
-    publicBChunkAtoms = v.publicBChunkAtoms;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   } else {
     const v = args;
@@ -717,7 +716,6 @@ function encodeInitMarket(args) {
     maxAccountBSettlementChunks = 10n;
     maxBankruptCloseChunks = 10n;
     maxBankruptCloseLifetimeSlots = 500n;
-    publicBChunkAtoms = 1000000n;
     maintenanceFeePerSlot = v.maintenanceFeePerSlot;
   }
   const data = concatBytes(
@@ -742,7 +740,6 @@ function encodeInitMarket(args) {
     encU64(maxAccountBSettlementChunks),
     encU64(maxBankruptCloseChunks),
     encU64(maxBankruptCloseLifetimeSlots),
-    encU128(publicBChunkAtoms),
     encU128(maintenanceFeePerSlot)
   );
   if (data.length !== INIT_MARKET_V17_LEN) {
@@ -16294,9 +16291,13 @@ function planCloseSlabAttempt(a) {
   } catch (e) {
     throw new Error(`planCloseSlabAttempt: ${e.message}`);
   }
+  if (a.feeBackingAtoms !== void 0 && a.feeBackingAtoms < 0n) {
+    throw new Error(`planCloseSlabAttempt: feeBackingAtoms must be >= 0 (got ${a.feeBackingAtoms})`);
+  }
+  const feesUnbacked = a.feeBackingAtoms === 0n;
   const [vaultAuthority] = deriveVaultAuthority(a.programId, a.market);
   const ixs = [];
-  if (a.protocolFee && a.protocolFee.owed > 0n) {
+  if (a.protocolFee && a.protocolFee.owed > 0n && !feesUnbacked) {
     ixs.push(new TransactionInstruction8({
       programId: a.programId,
       keys: buildAccountMetas(ACCOUNTS_WITHDRAW_PROTOCOL_FEE, {
@@ -16326,7 +16327,7 @@ function planCloseSlabAttempt(a) {
       data: Buffer.from(encodeWithdrawInsurance({ amount: a.insuranceRecredit.amount }))
     }));
   }
-  for (const leg of a.creatorFees ?? []) {
+  for (const leg of feesUnbacked ? [] : a.creatorFees ?? []) {
     if (leg.owed <= 0n || leg.route === "Refused") continue;
     if (leg.route === "Payee" && a.payeeGraceOver) continue;
     if (leg.route === "AdminSigned") {
@@ -20142,6 +20143,7 @@ export {
   PROGRAM_IDS_DEVNET_V22,
   PROGRAM_IDS_V17,
   PROGRAM_ID_V17,
+  PUBLIC_B_CHUNK_ATOMS,
   PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
   PUMPSWAP_PROGRAM_ID,
   PUSH_AUTH_MARK_DEPTH_LEN,

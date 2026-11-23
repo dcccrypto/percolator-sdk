@@ -62,11 +62,16 @@ describe("guard", () => {
     }
     // A length neither row tiles is still refused in strict mode.
     expect(code(() => resolveMarketGeometry(stampMarket(new Uint8Array(C.marketGroupOff + C.marketGroupLen + C.assetSlotStride + 5), 19), { parser: "t" }))).toBe("BAD_LENGTH");
-    // NEGATIVE CONTROL: read with the default row's insurance offset, a variant-B market gives the wrong number.
+    // NEGATIVE CONTROL: without the fallback (a registry holding only variant C) the same variant-B bytes are refused in
+    // strict mode and misread in non-strict mode; with it they decode as B.
     const b = stampMarket(new Uint8Array(B.marketGroupOff + B.marketGroupLen + B.assetSlotStride), 19);
     put128(b, B.marketGroupOff + B.group.insurance, 777n);
     expect(parseMarketGroupV17OI(b).insuranceBalance).toBe(777n);
-    expect(b[C.marketGroupOff + C.group.insurance]).toBe(0);
+    const onlyC = new Map([[19, C]]);
+    expect(code(() => resolveMarketGeometry(b, { parser: "t", registry: onlyC }))).toBe("BAD_LENGTH");
+    const g = resolveMarketGeometry(b, { parser: "t", registry: onlyC, strictLength: false });
+    expect(g.layout).toBe(C);
+    expect(new DataView(b.buffer).getBigUint64(g.groupOff + g.layout.group.insurance, true)).not.toBe(777n);
   });
   it("a named row can be registered for a comparison run (stage A) without changing the default", () => {
     const reg = new Map([[19, LAYOUT_V22_ROWS.stageA]]);
