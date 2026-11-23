@@ -99,7 +99,7 @@ describe("utilisationFeeBps at kink 10_000 (growth_v19.rs:693 returns None, neve
 // Kills the 4 previewGrowthOpenFee mutants the tests above let through (SDK-REPORT-GROWTHOPENFEEVSPROGMUT: F01 F02 F07 F09).
 // Wrapper refs (percolator-prog feat/v22-rc23-2026-10-22 @ 08361ffc): growth_util_fee_for_fill_bps (v16_program.rs:47917) ->
 // growth_v19::util_fee_on_fill_bps (growth_v19.rs:733, "Rounds DOWN"); p1_cpi_preflight_before_matcher builds GrowthUtilIn only
-// for the bound vault LP, and reads `long_side = size_q > 0` (:48095).
+// for the bound vault LP, and reads `long_side = size_q > 0` (:48095); the SDK's `afterQ > 0n` agrees on a close to flat and a flip.
 describe("previewGrowthOpenFee: flip pro-rata, bound gate, close-to-flat side", () => {
   it("a flip pays floor(f * |after| / |size|): the closing part is free and the rate rounds DOWN (F01, F02)", () => {
     const before = -1_000n * M;
