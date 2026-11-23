@@ -165,7 +165,7 @@ describe("Raydium CLMM PoolState", () => {
     expect(() => computeDexSpotPriceE6("raydium-clmm", raydium({ d0: 6, d1: 25 }))).toThrow(/decimals out of range/);
   });
 
-  it("decimals of exactly 24 are accepted (24/24 -> 1.000000, 24/18 -> 1e6)", () => {
+  it("decimals of exactly 24 are accepted (24/24 -> 1.000000, 24/18 -> price 1e6 = 1e12 e6)", () => {
     expect(computeDexSpotPriceE6("raydium-clmm", raydium({ d0: 24, d1: 24, sqrt: 1n << 64n }))).toBe(1_000_000n);
     expect(computeDexSpotPriceE6("raydium-clmm", raydium({ d0: 24, d1: 18, sqrt: 1n << 64n }))).toBe(
       1_000_000_000_000n,
