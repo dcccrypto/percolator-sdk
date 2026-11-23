@@ -328,7 +328,8 @@ export declare function allocWrittenDownP2b(allocated: bigint, lpValue: bigint):
 export declare function vaultLpDeallocP2b(allocated: bigint, recalled: bigint): bigint;
 /**
  * `vault_lp_v18::vault_lp_alloc_split`: how tag 103 takes `moved` from the two pots, proportional
- * to each pot's drawable backing with the floor on the SMALLER pot. `null` if `moved` exceeds both pots.
+ * to each pot's drawable backing with the floor on the SMALLER pot. `null` if `moved` exceeds both pots,
+ * or (like the Rust `checked_add` / `mul_div_floor`) if `dEven + dOdd` or `moved * dSmall` overflows u128.
  * @param moved   Atoms moved.
  * @param dEven   Even-domain drawable.
  * @param dOdd    Odd-domain drawable.
@@ -371,25 +372,26 @@ export declare function liveBoundPrincipalPortionP2b(atomsOut: bigint, available
  * @param cushionTargetBps   Ext target.
  * @param cEff               Effective senior claim.
  * @param juniorLevel        `V - C_eff` excluding this leg.
- * @returns `[senior, cushion]`, summing to `available`.
+ * @returns `[senior, cushion]`, summing to `available`; null (Rust `None`) when both dials are
+ *          non-zero and either is above 10,000 bps.
  * @example
  * ```ts
  * cushionSplitP2b(1_000n, 5_000, 1_000, 10_000n, 900n); // [900n, 100n]
  * ```
  */
-export declare function cushionSplitP2b(available: bigint, cushionShareBps: number, cushionTargetBps: number, cEff: bigint, juniorLevel: bigint): [bigint, bigint];
+export declare function cushionSplitP2b(available: bigint, cushionShareBps: number, cushionTargetBps: number, cEff: bigint, juniorLevel: bigint): [bigint, bigint] | null;
 /**
  * `vault_lp_v18::cushion_locked`: the cushion tag 97 may not withdraw, `min(accrued, ceil(target*C_eff))`.
  * @param cushionAccrued    `VaultLpExtV19.cushion_accrued_atoms`.
  * @param cEff              Effective senior claim.
  * @param cushionTargetBps  Ext target.
- * @returns Locked atoms.
+ * @returns Locked atoms; null (Rust `None`) when the target is above 10,000 bps.
  * @example
  * ```ts
  * cushionLockedP2b(5_000n, 10_000n, 1_000); // 1000n
  * ```
  */
-export declare function cushionLockedP2b(cushionAccrued: bigint, cEff: bigint, cushionTargetBps: number): bigint;
+export declare function cushionLockedP2b(cushionAccrued: bigint, cEff: bigint, cushionTargetBps: number): bigint | null;
 /**
  * `vault_lp_v18::creator_fee_vested`: creator discretionary fees vest only at or above the
  * cushion target (always, when the cushion is off). Tag 90 returns 102 otherwise.
@@ -397,7 +399,7 @@ export declare function cushionLockedP2b(cushionAccrued: bigint, cEff: bigint, c
  * @param cEff              Effective senior claim.
  * @param cushionShareBps   Ext share.
  * @param cushionTargetBps  Ext target.
- * @returns Vested?
+ * @returns Vested? False (fail closed, as the Rust) when the cushion is on with a target above 10,000 bps.
  * @example
  * ```ts
  * creatorFeeVestedP2b(999n, 10_000n, 5_000, 1_000); // false
