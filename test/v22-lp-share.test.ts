@@ -25,12 +25,17 @@ describe("ticker derivation (client side: the program refuses, never truncates)"
     const rnd = (n: number) => ((x = (x * 1103515245 + 12345) & 0x7fffffff), x % n);
     const pool = "abzAZ09 -_$\u00df\ufb01\u0131\u017f\u212a\u65e5\u00e9\u{1f600}";
     const chars = Array.from(pool);
+    // The loop's cost was 10 000 expect() calls (~85% of the case's time, measured), not the corpus: compare inline, assert once on the mismatch list.
+    const mismatches: { sym: string; got: string; ref: string }[] = [];
     for (let i = 0; i < 10000; i++) {
       let sym = "";
       for (let k = rnd(14); k > 0; k--) sym += rnd(3) === 0 ? String.fromCodePoint(rnd(0x3000) + 32) : chars[rnd(chars.length)];
       const ref = sym.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 8);
-      expect(S.lpShareTickerFromSymbolV22(sym)).toBe(ref);
+      const got = S.lpShareTickerFromSymbolV22(sym);
+      if (got !== ref) mismatches.push({ sym, got, ref });
     }
+    expect(mismatches.slice(0, 5)).toEqual([]);
+    expect(mismatches.length).toBe(0);
   });
   it("uppercases, drops everything outside A-Z 0-9, keeps the first 8", () => {
     expect(S.lpShareTickerFromSymbolV22("1000pepe")).toBe("1000PEPE");
