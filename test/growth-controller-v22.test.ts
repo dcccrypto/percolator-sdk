@@ -91,6 +91,7 @@ describe("Rust r3_item6_vol_term", () => {
     expect(lVolX100(500n, 0n, 50n)).toBe(2_000);
     expect(lVolX100(500n, 1_000n, 50n)).toBe(327);
     expect(lVolX100(0n, 0n, 0n)).toBe(0xffff); // den == 0 guarded
+    expect(lVolX100(10n, 0n, 0n)).toBe(0xffff); // 1e6 / 10 = 100,000 > u16::MAX: saturates, not 100_000
     expect(lSignalWithVol(2_000, null, 500)).toBe(500);
     expect(lSignalWithVol(2_000, 1_748, 500)).toBe(1_748);
   });
@@ -116,6 +117,9 @@ describe("Rust contlev_curve_unit (continuous leverage, e699d7da; replaces r3_it
     expect(log2Q16(3n)).toBe(103_872); // floor(log2(3) * 2^16)
     expect(log2Q16(1_024n)).toBe(10 << 16);
     expect(log2Q16(U64_MAX)).toBe(63 * 65_536 + 0xffff);
+    // just above sqrt(2^63): the squared mantissa lands EXACTLY on 2^32 in the first step, so the fraction bit
+    // is set by `m >= 2^32` (a `>` would read 31.4999.. = 2_064_383)
+    expect(log2Q16(3_037_000_500n)).toBe(2_064_384); // 31.5 * 2^16
   });
   it("below anchor 0 (T1 / 4) and past T3: the end values; AT each anchor: exactly the table", () => {
     expect(curveU64(0n, th, l)).toBe(500n);
@@ -239,6 +243,7 @@ describe("Rust g8_target_ceiling_ratchet_and_force_down (stress part, 666df893)"
     expect(stressCapX100(STRESS_DRAW, 3, tab)).toBe(1_000);
     expect(stressCapX100(STRESS_ADL, 3, tab)).toBe(500);
     expect(stressCapX100(STRESS_ADL, 1, tab)).toBe(500); // floored at tier 0
+    expect(stressCapX100(STRESS_DRAW, 4, tab)).toBe(1_000); // tier clamped to 3 first: draw -> L_table(2), not L_table(3) 20x
     expect(stressCapX100(STRESS_HLOCK, 3, tab)).toBe(500);
     expect(stressLevel(true, false, false)).toBe(STRESS_DRAW);
     expect(stressLevel(true, true, false)).toBe(STRESS_ADL);
