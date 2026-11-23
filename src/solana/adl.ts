@@ -168,7 +168,9 @@ function v22AdlActive(slabData: Uint8Array): boolean | null {
  *
  * ADL triggers when pnl_pos_tot > max_pnl_cap (max_pnl_cap must be > 0).
  * On a v2.2 (VERSION 19) market, which has no legacy slab layout, it is true
- * when any asset's `a_long` or `a_short` differs from `ADL_ONE`.
+ * when any asset's `a_long` or `a_short` differs from `ADL_ONE`. There it means
+ * "a side has been deleveraged and not yet reset", not "pnl_pos_tot is over
+ * the cap now"; `pnlPosTot`/`maxPnlCap` are not read for v2.2.
  *
  * @param slabData - Raw slab account bytes.
  * @returns true if ADL is triggered.
