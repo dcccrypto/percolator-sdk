@@ -142,7 +142,7 @@ export interface SlabLayout {
   engineEmergencyStartSlotOff: number;  // -1 if not present (V0)
   engineLastBreakerSlotOff: number;     // -1 if not present (V0)
   engineBitmapOff: number;              // relative to engineOff
-  postBitmap: number;                   // 2 = free_head only (V1D), 18 = num_used + pad + next_account_id + free_head
+  postBitmap: number;                   // 18 = num_used + pad + next_account_id + free_head (most layouts)
   acctOwnerOff: number;                 // byte offset of owner pubkey within an account slot
 
   // Insurance fund layout
@@ -339,10 +339,9 @@ const V1D_PRE306_ENGINE_BITMAP_OFF = 576;
 // V2 shares ENGINE_OFF=600 with V1, but has a completely different engine struct layout:
 //   - CONFIG_LEN=496 (same as V1 on-chain), HEADER_LEN=104, ACCOUNT_SIZE=248
 //   - Engine lacks mark_price, long_oi, short_oi, emergency OI fields
-//   - Different field offsets than V1D (which has ENGINE_OFF=424)
+//   - Different field offsets than V1D (65088 B V1D has ENGINE_OFF=456, see V1D_PRE306_*)
 // V2 is identified by reading the version field at slab header offset 8 (u32 LE) == 2.
-// Without data, V2 cannot be distinguished from V1D by size alone (postBitmap=18 produces
-// identical sizes to V1D postBitmap=2 — both 65088 for 256 accounts).
+// Without data, V2 cannot be distinguished from V1D by size alone (both 65088 for 256 accounts).
 const V2_HEADER_LEN = 104;
 const V2_CONFIG_LEN = 496;
 const V2_ENGINE_OFF = 600;    // align_up(104 + 496, 8) = 600
@@ -861,7 +860,7 @@ const V0_SIZES = new Map<number, number>();
 const V1_SIZES = new Map<number, number>();
 // Legacy V1 sizes using incorrect ENGINE_OFF=640 (pre-PERC-1094). Orphaned on devnet; read-only.
 const V1_SIZES_LEGACY = new Map<number, number>();
-// V1D: actually deployed V1 program (ENGINE_OFF=424, BITMAP_OFF=624)
+// V1D: version-1 devnet program prog f7a2e8ab (ENGINE_OFF=456, BITMAP_OFF=576, postBitmap=18)
 const V1D_SIZES = new Map<number, number>();
 // V1D_SIZES_LEGACY: on-chain slabs created before GH#1234 when SDK assumed postBitmap=18.
 // These are 16 bytes larger per tier (micro=17080, small=65104, medium=257200, large=1025584).
@@ -899,7 +898,7 @@ for (const n of TIERS) {
   V1D_SIZES.set(computeSlabSize(V1D_PRE306_ENGINE_OFF, V1D_PRE306_ENGINE_BITMAP_OFF, V1D_ACCOUNT_SIZE, n, 18), n);
   // GH#1237: also register the legacy postBitmap=18 sizes for slabs created before GH#1234 fix.
   V1D_SIZES_LEGACY.set(computeSlabSize(V1D_ENGINE_OFF, V1D_ENGINE_BITMAP_OFF, V1D_ACCOUNT_SIZE, n, 18), n);
-  // V2: postBitmap=18 — produces same sizes as V1D postBitmap=2 (e.g. 65088 for n=256).
+  // V2: postBitmap=18 — produces same sizes as V1D (e.g. 65088 for n=256).
   // Disambiguation requires peeking at the version field in the slab header.
   V2_SIZES.set(computeSlabSize(V2_ENGINE_OFF, V2_ENGINE_BITMAP_OFF, V2_ACCOUNT_SIZE, n, 18), n);
   // V1M: mainnet program with expanded RiskParams (336 bytes) and trade_twap fields.
@@ -1109,7 +1108,7 @@ for (const [, n] of [["Micro", 64], ["Small", 256], ["Medium", 1024], ["Large", 
 /**
  * V2 slab tier sizes (small and large) for discovery.
  * V2 uses ENGINE_OFF=600, BITMAP_OFF=432, ACCOUNT_SIZE=248, postBitmap=18.
- * Sizes overlap with V1D (postBitmap=2) — disambiguation requires reading the version field.
+ * Sizes overlap with V1D — disambiguation requires reading the version field.
  */
 export const SLAB_TIERS_V2 = Object.freeze({
   small: { maxAccounts: 256,  dataSize: 65_088,    label: "Small",  description: "256 slots (V2 BPF intermediate)" },
@@ -1242,7 +1241,7 @@ function buildLayout(version: 0 | 1, maxAccounts: number, engineOffOverride?: nu
  * @param postBitmap  - Bytes after the bitmap before next_free array.
  *   18 = num_used(u16)+pad(6)+next_account_id(u64)+free_head(u16) — legacy on-chain slabs (GH#1237)
  */
-function buildLayoutV1D(maxAccounts: number, postBitmap = 2): SlabLayout {
+function buildLayoutV1D(maxAccounts: number, postBitmap: number): SlabLayout {
   const engineOff = V1D_ENGINE_OFF;
   const bitmapOff = V1D_ENGINE_BITMAP_OFF;
   const accountSize = V1D_ACCOUNT_SIZE;
