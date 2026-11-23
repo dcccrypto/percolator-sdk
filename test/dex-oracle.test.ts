@@ -197,8 +197,9 @@ assertThrows(
   const quote = makeSplTokenAccount(15_062_049_237_081n); // ~15,062 SOL, 9dp
   const solPriceE6 = 77_728_195n; // $77.728195
   const price = computeDexSpotPriceE6("pumpswap", poolData, { base, quote }, { base: 6, quote: 9 }, solPriceE6);
-  // token/SOL price_e6 = 3869 (from the case above); 3869 * 77.728195 / 1e6 ≈ 0.30073 → 300730 e6
-  assert(price === 300_730n, `pumpswap SOL→USD conversion: expected 300730, got ${price}`);
+  // One floor: 15062.049237081 / 3892192.026206 * 77.728195 = 0.300793… → 300793 e6.
+  // (Flooring token/SOL to 3869 first gave 300730, 0.02% low.)
+  assert(price === 300_793n, `pumpswap SOL→USD conversion: expected 300793, got ${price}`);
 }
 
 // #338 INVERTED (was "zero base returns 0"): a zero is not a price, and every
@@ -304,12 +305,12 @@ assertThrows(
     solPriceE6,
   );
   // Independently verified against Jupiter Price API v3 ($0.298347) and
-  // DexScreener ($0.2994) at fetch time — within 0.5% of both. The pre-fix
+  // DexScreener ($0.2994) at fetch time — within 1% of both. The pre-fix
   // formula (no decimals, no SOL conversion) computed $3.84 for this same
   // snapshot — a ~1186% error.
   assert(
-    priceE6 === 300_730n,
-    `fixture: ANSEM price should be $0.30073 (300730 e6), got ${priceE6}`,
+    priceE6 === 300_793n,
+    `fixture: ANSEM price should be $0.300793 (300793 e6), got ${priceE6}`,
   );
 }
 

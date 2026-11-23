@@ -162,7 +162,7 @@ export interface AssetGrowthV19 {
     /** Worst move between liquidation opportunities (bps). */
     rGapBps: number;
     version: number;
-    /** Raw `flags` byte 39 (bits 0..1 only; bit 1 requires bit 0: {@link growthFlagsOk}). */
+    /** Raw `flags` byte 39 (bits 0..2 only, bit 2 = leverage guard; bit 1 requires bit 0: {@link growthFlagsOk}). */
     flags: number;
     /** Item 2: the holding-fee rent kink u_k (bps, bytes 42..44). */
     rentKinkBps: number;
@@ -1321,12 +1321,14 @@ export declare const GROWTH_FLAG_R3_LAYOUT = 1;
 /** `GROWTH_FLAG_VOL_DATA`: `flags` bit 1, the variance has at least one sample (requires bit 0). */
 export declare const GROWTH_FLAG_VOL_DATA = 2;
 /**
- * Validator for the `flags` byte: only bits 0-1, and bit 1 only with bit 0 (0x00 / 0x01 / 0x03). Port of `growth_v19::growth_flags_ok`.
+ * Validator for the `flags` byte: only bits 0-2, and bit 1 only with bit 0 (bit 2 = the leverage guard tag 124 sets).
+ * Port of `growth_v19::growth_flags_ok` (prog bc657392).
  * @param flags  Byte 39.
  * @returns Whether the program accepts it (it refuses the whole record otherwise).
  * @example
  * ```ts
  * growthFlagsOk(0x02); // false
+ * growthFlagsOk(0x05); // true (R3 layout + leverage guard)
  * ```
  */
 export declare function growthFlagsOk(flags: number): boolean;

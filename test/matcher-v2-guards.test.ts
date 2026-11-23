@@ -4,7 +4,7 @@
  * exercises rejection paths and optional-field handling.
  */
 import { describe, it, expect } from "vitest";
-import { Keypair } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import {
   validateMatcherSetParams,
   encodeMatcherSetParams,
@@ -111,15 +111,28 @@ describe("defaultMatcherV2ConfigForKind2 clamps", () => {
 });
 
 describe("tag-5 configure guards", () => {
-  const proof = () => ({
-    wrapperProgramId: Keypair.generate().publicKey, market: Keypair.generate().publicKey,
-    lpPortfolio: Keypair.generate().publicKey, bump: 1,
-  });
+  // Fixed pubkeys: the encoders only read the 32 bytes, and Keypair.generate() (ed25519
+  // keygen, 3 per proof) was the cost: up to ~2.6 s under load. Bytes asserted below.
+  const W = new PublicKey(new Uint8Array(32).fill(0x11));
+  const M = new PublicKey(new Uint8Array(32).fill(0x22));
+  const L = new PublicKey(new Uint8Array(32).fill(0x33));
+  const proof = (bump = 1) => ({ wrapperProgramId: W, market: M, lpPortfolio: L, bump });
   it("backing fee cap range + bump range", () => {
     expect(() => encodeMatcherConfigureBackingFeeCap(proof(), 10_001)).toThrow(/capBps/);
     expect(() => encodeMatcherConfigureBackingFeeCap(proof(), -1)).toThrow(/capBps/);
-    expect(() => encodeMatcherConfigureBackingFeeCap({ ...proof(), bump: 256 }, 1)).toThrow(/bump/);
-    expect(encodeMatcherConfigureBackingFeeCap(proof(), 10_000).length).toBe(102);
+    expect(() => encodeMatcherConfigureBackingFeeCap(proof(), 1.5)).toThrow(/capBps/);
+    expect(() => encodeMatcherConfigureBackingFeeCap(proof(256), 1)).toThrow(/bump/);
+    expect(() => encodeMatcherConfigureBackingFeeCap(proof(-1), 1)).toThrow(/bump/);
+    const top = encodeMatcherConfigureBackingFeeCap(proof(255), 10_000);
+    expect(top.length).toBe(102);
+    expect(top[98]).toBe(255);
+    expect([top[100], top[101]]).toEqual([0x10, 0x27]);
+    const bottom = encodeMatcherConfigureBackingFeeCap(proof(0), 0);
+    expect(bottom[98]).toBe(0);
+    expect([bottom[100], bottom[101]]).toEqual([0, 0]);
+    expect(top[2]).toBe(0x11);
+    expect(top[34]).toBe(0x22);
+    expect(top[66]).toBe(0x33);
   });
   it("set params op validates params before encoding", () => {
     expect(() => encodeMatcherConfigureSetParams(proof(), { ...kind2(), kind: 9 as never })).toThrow(/kind/);

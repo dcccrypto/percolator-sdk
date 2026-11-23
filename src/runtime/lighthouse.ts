@@ -109,12 +109,19 @@ export function isLighthouseInstruction(ix: TransactionInstruction): boolean {
   return ix.programId.equals(LIGHTHOUSE_PROGRAM_ID);
 }
 
+/** Lighthouse log lines that show it ran, not that it failed. */
+const LIGHTHOUSE_BENIGN_LINE = new RegExp(
+  `Program ${LIGHTHOUSE_PROGRAM_ID_STR} (?:invoke \\[\\d+\\]|success|consumed \\d+ of \\d+ compute units)`,
+  "g",
+);
+
 /**
  * Check if an error message or error object indicates a Lighthouse assertion failure.
  *
  * Detects:
  * - `custom program error: 0x1900` (Lighthouse multi-assert AssertionFailed)
- * - References to the Lighthouse program ID in error text
+ * - References to the Lighthouse program ID in error text (not counting
+ *   invoke/consumed/success lines of a Lighthouse ix that completed)
  * - `"Custom": 6400` in JSON-encoded InstructionError
  * - Any code (LIGHTHOUSE_ERROR_CODES or other) when the
  *   failing program is Lighthouse (identified by program ID in logs)
@@ -145,8 +152,15 @@ export function isLighthouseError(error: unknown): boolean {
     return failed.some((m) => m[1] === LIGHTHOUSE_PROGRAM_ID_STR);
   }
 
-  // Direct program ID reference
-  if (msg.includes(LIGHTHOUSE_PROGRAM_ID_STR)) return true;
+  // Direct program ID reference. A Lighthouse ix that ran and returned success
+  // ("invoke [n]" ... "success") is not evidence it failed: ignore those
+  // lines unless some invoke is still unfinished.
+  if (msg.includes(LIGHTHOUSE_PROGRAM_ID_STR)) {
+    const invokes = msg.split(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke [`).length - 1;
+    const successes = msg.split(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} success`).length - 1;
+    const rest = msg.replace(LIGHTHOUSE_BENIGN_LINE, "");
+    if (invokes > successes || rest.includes(LIGHTHOUSE_PROGRAM_ID_STR)) return true;
+  }
 
   // 0x1900 hex error code (case-insensitive)
   if (/custom\s+program\s+error:\s*0x1900\b/i.test(msg)) return true;
