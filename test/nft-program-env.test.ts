@@ -83,6 +83,9 @@ describe("resolveNftProgramOverride exact-match contract", () => {
   it("an id sharing a prefix with an allowlisted id is NOT allowlisted", () => {
     const lookalike = PROGRAM_IDS_V17.nft.slice(0, 8) + FRESH_NFT.slice(8);
     expect(() => resolveNftProgramOverride(env({ NFT_PROGRAM_ID: lookalike }))).toThrow(UNKNOWN);
+    // whole-string match: an allowlisted id with a suffix, or truncated, is not allowlisted either
+    expect(() => resolveNftProgramOverride(env({ NFT_PROGRAM_ID: PROGRAM_IDS_V17.nft + "1" }))).toThrow(UNKNOWN);
+    expect(() => resolveNftProgramOverride(env({ NFT_PROGRAM_ID: PROGRAM_IDS_V17.nft.slice(0, -1) }))).toThrow(UNKNOWN);
   });
 
   // kills M10 (padded value returned raw) and M12 (trimStart only)
