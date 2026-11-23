@@ -72,7 +72,8 @@ describe("planCloseSlabAttempt with an unbacked fee pool (feeBackingAtoms = 0)",
 describe("unchanged when the pool backs the fees or the caller does not pass it", () => {
   it("feeBackingAtoms > 0 keeps every leg", () => {
     expect(tags(planCloseSlabAttempt({ ...base, protocolFee: fee, creatorFees: [payeeLeg], feeBackingAtoms: 1n }))).toContain(84);
-    expect(tags(planCloseSlabAttempt({ ...base, protocolFee: fee, creatorFees: [payeeLeg], feeBackingAtoms: 1n }))).toContain(90);
+    // tag 84 spends min(owed, pool) first, so tag 90 needs pool > protocol owed (see market-lifecycle-partial-fee-backing).
+    expect(tags(planCloseSlabAttempt({ ...base, protocolFee: fee, creatorFees: [payeeLeg], feeBackingAtoms: 101n }))).toContain(90);
     expect(() => planCloseSlabAttempt({
       ...base, feeBackingAtoms: 1n,
       creatorFees: [{ assetIndex: 3, route: "AdminSigned", owed: 9n, authorityEpoch: 0n }],

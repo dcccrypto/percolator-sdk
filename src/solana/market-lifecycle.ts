@@ -205,7 +205,9 @@ export interface CloseSlabAttemptArgs {
    * (saturating). When it is `0n`, CloseSlab no longer refuses for owed fees (`min(outstanding, pool) > 0` is false), but
    * tag 84 (transfer 0 → EngineLockActive) and tag 90 (no surplus) both refuse, and in the same transaction they would
    * sink the close. So at `0n` the planner adds no tag 84 / tag 90 and does not throw for an AdminSigned pot.
-   * Omit to keep the previous behaviour (every owed leg planned).
+   * Both claims spend this pool in plan order (tag 84 takes `min(owed, pool)`, tag 90 is an exact debit), so the planner
+   * spends it as a budget: tag 84 first, then each payee claim capped at what is left; once nothing is left the remaining
+   * legs are treated as at `0n`. Omit to keep the previous behaviour (every owed leg planned, no cap).
    */
   feeBackingAtoms?: bigint;
 }
@@ -224,7 +226,8 @@ export interface CloseSlabCreatorFeeLegV22 {
   vaultMint?: PublicKey;
   /**
    * Atoms to claim; default `owed`. Lower it only when the insurance surplus no longer backs the whole pot (tag 90
-   * refuses an amount above it; CloseSlab then treats the unbacked remainder as unpayable).
+   * refuses an amount above it; CloseSlab then treats the unbacked remainder as unpayable). With
+   * {@link CloseSlabAttemptArgs.feeBackingAtoms} set, the planner caps it at the backing left after tag 84.
    */
   amount?: bigint;
 }
@@ -266,11 +269,14 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
   if (a.feeBackingAtoms !== undefined && a.feeBackingAtoms < 0n) {
     throw new Error(`planCloseSlabAttempt: feeBackingAtoms must be >= 0 (got ${a.feeBackingAtoms})`);
   }
-  // Nothing backs the fee legs: CloseSlab will not refuse for them, and any tag 84 / tag 90 would fail and sink the tx.
-  const feesUnbacked = a.feeBackingAtoms === 0n;
+  // Tag 84 and tag 90 spend the same pool, in plan order. Once nothing is left, CloseSlab no longer refuses for the
+  // remaining legs, and any further tag 84 / tag 90 would fail and sink the tx. `undefined` = not tracked (no cap).
+  let backing = a.feeBackingAtoms;
   const [vaultAuthority] = deriveVaultAuthority(a.programId, a.market);
   const ixs: TransactionInstruction[] = [];
-  if (a.protocolFee && a.protocolFee.owed > 0n && !feesUnbacked) {
+  if (a.protocolFee && a.protocolFee.owed > 0n && backing !== 0n) {
+    // amount 0 = all: the program transfers min(owed, pool, vault).
+    if (backing !== undefined) backing -= a.protocolFee.owed < backing ? a.protocolFee.owed : backing;
     ixs.push(new TransactionInstruction({
       programId: a.programId,
       keys: buildAccountMetas(ACCOUNTS_WITHDRAW_PROTOCOL_FEE, {
@@ -291,7 +297,8 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
       data: Buffer.from(encodeWithdrawInsurance({ amount: a.insuranceRecredit.amount })),
     }));
   }
-  for (const leg of feesUnbacked ? [] : a.creatorFees ?? []) {
+  for (const leg of a.creatorFees ?? []) {
+    if (backing === 0n) break;
     if (leg.owed <= 0n || leg.route === "Refused") continue;
     // prog #651: after the grace this CloseSlab re-books the payee pot itself; a tag 90 that cannot land would sink the tx.
     if (leg.route === "Payee" && a.payeeGraceOver) continue;
@@ -303,9 +310,14 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
     if (!leg.payee || !leg.vaultMint) {
       throw new Error(`planCloseSlabAttempt: asset ${leg.assetIndex} routes its creator fee to a payee; pass payee and vaultMint`);
     }
-    const amount = leg.amount ?? leg.owed;
+    let amount = leg.amount ?? leg.owed;
     if (amount <= 0n || amount > leg.owed) {
       throw new Error(`planCloseSlabAttempt: asset ${leg.assetIndex} creator-fee claim ${amount} must be in (0, ${leg.owed}]`);
+    }
+    // tag 90 is an exact debit (no partial fill): cap it at what the pool still backs.
+    if (backing !== undefined) {
+      if (amount > backing) amount = backing;
+      backing -= amount;
     }
     ixs.push(...buildClaimCreatorFeeToPayeeIxsV22({
       programId: a.programId, market: a.market, caller: a.closer, assetIndex: leg.assetIndex, payee: leg.payee,
@@ -350,8 +362,14 @@ export function planPayeeGraceCloseSequenceV22(a: CloseSlabAttemptArgs): [Transa
   }
   const tx1 = planCloseSlabAttempt({ ...a, payeeGraceOver: true });
   // tx1's tag 84 (if any) took the protocol leg owed before; after the re-book the leg owes exactly the payee pots.
+  // tx1's tag 84 spent min(owed, pool) of the fee backing; tx2 sees only the rest.
+  const owed1 = a.protocolFee.owed > 0n ? a.protocolFee.owed : 0n;
+  const backing2 = a.feeBackingAtoms === undefined || a.feeBackingAtoms < 0n
+    ? a.feeBackingAtoms
+    : a.feeBackingAtoms - (owed1 < a.feeBackingAtoms ? owed1 : a.feeBackingAtoms);
   const tx2 = planCloseSlabAttempt({
     ...a,
+    feeBackingAtoms: backing2,
     payeeGraceOver: true,
     creatorFees: [],
     insuranceRecredit: undefined,
