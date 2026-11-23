@@ -31,7 +31,8 @@ import {
   decodeError,
   PERCOLATOR_ERRORS,
 } from "../src/abi/errors.js";
-import { detectSlabLayout } from "../src/solana/slab.js";
+import { detectSlabLayout, parseWrapperConfigV17 } from "../src/solana/slab.js";
+import v22DiscoveryFixture from "./fixtures/v22-discovery-memcmp-devnet.json";
 
 // ============================================================================
 // Slab fixture builder
@@ -162,19 +163,86 @@ function makeConnection(opts: {
         rentEpoch: 0,
       };
     },
-    getProgramAccounts: async (_programId: PublicKey, config?: unknown) => {
-      const accounts = opts.programAccounts ?? [];
-      // Filter-aware: honour the dataSize filter that discoverMarkets passes per-tier.
-      // Without this, every tier query returns all accounts, causing spurious duplicates
-      // and wrong-tier detection when the fixture size differs from the queried dataSize.
-      const cfg = config as { filters?: Array<{ dataSize?: number }> } | undefined;
-      const dataSizeFilter = cfg?.filters?.find(f => f.dataSize !== undefined)?.dataSize;
-      if (dataSizeFilter !== undefined) {
-        return accounts.filter(e => e.account.data.length === dataSizeFilter);
-      }
-      return accounts;
-    },
+    getProgramAccounts: async (programId: PublicKey, config?: unknown) =>
+      rpcGetProgramAccounts(opts.programAccounts ?? [], programId, config),
   } as unknown as Connection;
+}
+
+// ---- getProgramAccounts semantics, as an RPC node applies them ----
+
+type MockProgramAccount = NonNullable<Parameters<typeof makeConnection>[0]["programAccounts"]>[number];
+type GpaFilter = { dataSize?: number; memcmp?: { offset: number; bytes: string; encoding?: string } };
+type GpaConfig = { filters?: GpaFilter[]; dataSlice?: { offset: number; length: number } };
+
+const B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/** Strict base58 decode (leading '1' = leading 0x00 byte); throws on a non-alphabet char like the RPC does. */
+function base58Decode(s: string): Uint8Array {
+  let n = 0n;
+  for (const ch of s) {
+    const v = B58_ALPHABET.indexOf(ch);
+    if (v < 0) throw new Error(`mock RPC: invalid base58 character ${JSON.stringify(ch)}`);
+    n = n * 58n + BigInt(v);
+  }
+  const body: number[] = [];
+  while (n > 0n) { body.unshift(Number(n & 0xffn)); n >>= 8n; }
+  let zeros = 0;
+  while (zeros < s.length && s[zeros] === "1") zeros++;
+  return Uint8Array.from([...new Array(zeros).fill(0), ...body]);
+}
+
+/** memcmp `bytes` per its `encoding` — base58 when absent (the RPC default), else base64. */
+function memcmpBytes(m: { bytes: string; encoding?: string }): Uint8Array {
+  if (m.encoding === undefined || m.encoding === "base58") return base58Decode(m.bytes);
+  if (m.encoding === "base64") {
+    const b = Buffer.from(m.bytes, "base64");
+    if (b.toString("base64") !== m.bytes) throw new Error(`mock RPC: invalid base64 ${JSON.stringify(m.bytes)}`); // node rejects; Buffer skips bad chars
+    return new Uint8Array(b);
+  }
+  throw new Error(`mock RPC: unsupported memcmp encoding ${m.encoding}`);
+}
+
+function matchesFilter(data: Uint8Array, f: GpaFilter): boolean {
+  if (f.dataSize !== undefined) return data.length === f.dataSize;
+  if (f.memcmp !== undefined) {
+    const want = memcmpBytes(f.memcmp);
+    const { offset } = f.memcmp;
+    if (offset + want.length > data.length) return false; // node: out-of-range memcmp never matches
+    for (let i = 0; i < want.length; i++) if (data[offset + i] !== want[i]) return false;
+    return true;
+  }
+  throw new Error(`mock RPC: unknown filter ${JSON.stringify(f)}`);
+}
+
+/**
+ * getProgramAccounts as a node runs it: owner == programId, every filter ANDed against the FULL
+ * account data (dataSize = exact length, memcmp = offset + decoded bytes), then dataSlice cuts
+ * data[offset, offset+length) (clamped to the account, possibly empty). Filters never see the slice.
+ */
+function rpcGetProgramAccounts(accounts: MockProgramAccount[], programId: PublicKey, config?: unknown): MockProgramAccount[] {
+  const cfg = (config ?? {}) as GpaConfig;
+  const filters = cfg.filters ?? [];
+  return accounts
+    .filter(e => e.account.owner.equals(programId))
+    .filter(e => filters.every(f => matchesFilter(e.account.data, f)))
+    .map(e => {
+      if (!cfg.dataSlice) return e;
+      const { offset, length } = cfg.dataSlice;
+      return { ...e, account: { ...e.account, data: Buffer.from(e.account.data.subarray(offset, offset + length)) } };
+    });
+}
+
+// ---- Real v2.2 devnet fixture (address + slot in the JSON header) ----
+
+type DevnetFixtureAccount = { role: string; address: string; owner: string; lamports: number; data_length: number; version: number; kind: number; data_base64: string };
+const V22_DEVNET = v22DiscoveryFixture as { slot: number; program_id: string; accounts: DevnetFixtureAccount[] };
+
+function fixtureAccount(role: string): MockProgramAccount {
+  const a = V22_DEVNET.accounts.find(x => x.role === role)!;
+  return {
+    pubkey: new PublicKey(a.address),
+    account: { data: Buffer.from(a.data_base64, "base64"), owner: new PublicKey(a.owner), lamports: a.lamports, executable: false, rentEpoch: 0 },
+  };
 }
 
 const PROGRAM_ID = new PublicKey("EXsr2Tfz8ntWYP3vgCStdknFBoafvJQugJKAh4nFdo8f");
@@ -285,6 +353,115 @@ describe("discoverMarkets — mocked RPC (PERC-8339)", () => {
     // Each tier query returns both slabs — they will be deduplicated by address
     const addrs = new Set(markets.map(m => m.slabAddress.toBase58()));
     expect(addrs.size).toBe(2);
+  });
+});
+
+// ============================================================================
+// 1b. Mock RPC fidelity: memcmp + dataSlice applied like a node
+// ============================================================================
+
+describe("mock getProgramAccounts — memcmp/dataSlice semantics", () => {
+  const V22_PROGRAM = new PublicKey(V22_DEVNET.program_id);
+  const market = fixtureAccount("market");
+  const V17_MAGIC_LE = Buffer.from([0x00, 0x36, 0x31, 0x56, 0x43, 0x52, 0x45, 0x50]);
+
+  it("memcmp matches decoded bytes at the exact offset only (base64 and base58)", () => {
+    const accts = [market];
+    const at = (offset: number, bytes: string, encoding?: string) =>
+      rpcGetProgramAccounts(accts, V22_PROGRAM, { filters: [{ memcmp: { offset, bytes, encoding } }] }).length;
+    expect(at(0, V17_MAGIC_LE.toString("base64"), "base64")).toBe(1);
+    expect(at(1, V17_MAGIC_LE.toString("base64"), "base64")).toBe(0);
+    // base58 (the RPC default encoding when `encoding` is absent)
+    const pk = new PublicKey(market.account.data.subarray(16, 48)); // 32 bytes → base58 via PublicKey
+    expect(at(16, pk.toBase58())).toBe(1);
+    expect(at(17, pk.toBase58())).toBe(0);
+    // the legacy TALOCREP filter the SDK sends must not match a PERCV16 account
+    expect(at(0, "F6P2QNqpQV5")).toBe(0);
+    // out-of-range memcmp never matches
+    expect(at(market.account.data.length - 4, V17_MAGIC_LE.toString("base64"), "base64")).toBe(0);
+  });
+
+  it("base58 decode of the SDK's TALOCREP literal is the PERCOLAT LE magic", () => {
+    expect(Buffer.from(base58Decode("F6P2QNqpQV5")).toString("latin1")).toBe("TALOCREP");
+  });
+
+  it("filters see full data; dataSlice cuts [offset, offset+length) after filtering", () => {
+    const full = market.account.data;
+    const sliced = rpcGetProgramAccounts([market], V22_PROGRAM, {
+      filters: [{ dataSize: full.length }],
+      dataSlice: { offset: 8, length: 4 },
+    });
+    expect(sliced).toHaveLength(1);
+    expect(Buffer.from(sliced[0].account.data).equals(full.subarray(8, 12))).toBe(true);
+    // dataSize is checked against the full account, not the slice
+    expect(rpcGetProgramAccounts([market], V22_PROGRAM, { filters: [{ dataSize: 4 }], dataSlice: { offset: 8, length: 4 } })).toHaveLength(0);
+    // slice past the end clamps to empty, like the node
+    const past = rpcGetProgramAccounts([market], V22_PROGRAM, { dataSlice: { offset: full.length + 10, length: 16 } });
+    expect(past[0].account.data.length).toBe(0);
+    // the fixture itself is unchanged
+    expect(market.account.data.length).toBe(V22_DEVNET.accounts.find(x => x.role === "market")!.data_length);
+  });
+
+  it("only returns accounts owned by the queried program", () => {
+    expect(rpcGetProgramAccounts([market], PROGRAM_ID, {})).toHaveLength(0);
+    expect(rpcGetProgramAccounts([market], V22_PROGRAM, {})).toHaveLength(1);
+  });
+});
+
+// ============================================================================
+// 1c. discoverMarkets() — real v2.2 devnet accounts through the v17 memcmp branch
+// ============================================================================
+
+describe("discoverMarkets — real v2.2 devnet market via memcmp (fixture slot " + V22_DEVNET.slot + ")", () => {
+  const V22_PROGRAM = new PublicKey(V22_DEVNET.program_id);
+  const market = fixtureAccount("market");
+  const portfolio = fixtureAccount("portfolio");
+
+  it("fixture is a PERCV16 VERSION 19 kind-1 market and a kind-2 portfolio, both larger than the header slice", () => {
+    for (const a of [market, portfolio]) {
+      expect(a.account.data.subarray(0, 8).toString("hex")).toBe("0036315643524550");
+      expect(a.account.data.readUInt16LE(8)).toBe(19);
+      expect(a.account.data.length).toBeGreaterThan(1940);
+    }
+    expect(market.account.data[10]).toBe(1);
+    expect(portfolio.account.data[10]).toBe(2);
+  });
+
+  it("finds the market, filters out the portfolio, and parses the 1940-byte dataSlice", async () => {
+    const calls: Array<{ cfg: GpaConfig; returned: number[] }> = [];
+    const conn = {
+      getProgramAccounts: async (programId: PublicKey, config?: unknown) => {
+        const out = rpcGetProgramAccounts([market, portfolio], programId, config);
+        calls.push({ cfg: config as GpaConfig, returned: out.map(e => e.account.data.length) });
+        return out;
+      },
+    } as unknown as Connection;
+
+    const markets = await discoverMarkets(conn, V22_PROGRAM);
+
+    expect(markets).toHaveLength(1);
+    expect(markets[0].slabAddress.equals(market.pubkey)).toBe(true);
+    expect(markets[0].wrapperVersion).toBe(19);
+    expect(markets[0].configV17).toEqual(parseWrapperConfigV17(new Uint8Array(market.account.data)));
+
+    // Exactly one query matched anything: the v17 memcmp, returning both accounts sliced to 1940 bytes.
+    const hits = calls.filter(c => c.returned.length > 0);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].cfg.filters?.[0]?.memcmp?.offset).toBe(0);
+    expect(hits[0].returned).toEqual([1940, 1940]);
+  });
+
+  it("returns nothing for a portfolio-only program (kind gate, not the memcmp, drops it)", async () => {
+    let memcmpReturned = 0;
+    const conn = {
+      getProgramAccounts: async (programId: PublicKey, config?: unknown) => {
+        const out = rpcGetProgramAccounts([portfolio], programId, config);
+        if ((config as GpaConfig | undefined)?.filters?.some(f => f.memcmp)) memcmpReturned += out.length;
+        return out;
+      },
+    } as unknown as Connection;
+    expect(await discoverMarkets(conn, V22_PROGRAM)).toEqual([]);
+    expect(memcmpReturned).toBe(1); // the PERCV16 memcmp did hand the portfolio to discovery
   });
 });
 
