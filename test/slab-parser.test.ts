@@ -229,3 +229,126 @@ describe("readNonce / readLastThrUpdateSlot null-layout guard", () => {
     expect(() => readNonce(buf)).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Layout-detection killers (SDK-REPORT-SLABPARSERTESTMUT). Each block names the
+// slab.ts mutants it kills. Expected values are literal byte sizes / offsets
+// worked out from the struct constants, not recomputed with computeSlabSize.
+// V1D (SLAB_TIERS_V1D) uses the prog f7a2e8ab layout pinned in #708:
+// engine 456, bitmap at engine+576, postBitmap 18. V1D-legacy keeps 424 / 624 / 18.
+// ---------------------------------------------------------------------------
+
+const MAGIC_LE = [0x54, 0x41, 0x4c, 0x4f, 0x43, 0x52, 0x45, 0x50];
+
+/** Zeroed buffer with PERCOLAT magic and a u32 LE version at offset 8. */
+function slabWithVersion(len: number, version: number): Uint8Array {
+  const buf = new Uint8Array(len);
+  MAGIC_LE.forEach((b, i) => (buf[i] = b));
+  new DataView(buf.buffer).setUint32(8, version, true);
+  return buf;
+}
+
+// Kills M09 M10 M11 (TIERS), M23 M24 M25 (hardcoded maxAccounts), M32 M33 (V0 accountsOff).
+describe("tier tables — every tier resolves to its own geometry", () => {
+  const cases: Array<[string, number, number, number, number]> = [
+    // [family, dataLen, maxAccounts, engineOff, accountsOff]
+    ["V0 micro", 16_320, 64, 480, 960],
+    ["V0 small", 62_808, 256, 480, 1_368],
+    ["V0 medium", 248_760, 1024, 480, 3_000],
+    ["V0 large", 992_568, 4096, 480, 9_528],
+    ["V1D micro", 17_064, 64, 456, 1_192],
+    ["V1D small", 65_088, 256, 456, 1_600],
+    ["V1D medium", 257_184, 1024, 456, 3_232],
+    ["V1D large", 1_025_568, 4096, 456, 9_760],
+    ["V1D-legacy micro", 17_080, 64, 424, 1_208],
+    ["V1D-legacy small", 65_104, 256, 424, 1_616],
+    ["V1D-legacy medium", 257_200, 1024, 424, 3_248],
+    ["V1D-legacy large", 1_025_584, 4096, 424, 9_776],
+  ];
+  it.each(cases)("%s (%i bytes)", (_name, len, n, engineOff, accountsOff) => {
+    const l = detectSlabLayout(len);
+    expect(l).not.toBeNull();
+    expect(l!.maxAccounts).toBe(n);
+    expect(l!.bitmapWords).toBe(n / 64);
+    expect(l!.engineOff).toBe(engineOff);
+    expect(l!.accountsOff).toBe(accountsOff);
+    // The accounts array ends exactly at the slab end for these families.
+    expect(l!.accountsOff + n * l!.accountSize).toBe(len);
+  });
+});
+
+// Kills M19: near-miss sizes must be rejected, not snapped to a neighbouring tier.
+describe("near-miss sizes return null (no fallthrough tier)", () => {
+  it.each([65_080, 65_087, 65_089, 65_096, 65_112, 248_752, 248_768, 1_025_576])("%i -> null", (len) => {
+    expect(detectSlabLayout(len)).toBeNull();
+    expect(detectLayout(len)).toBeNull();
+  });
+});
+
+// Kills M14 M15 M16 M17 M40: the u32 version at offset 8 settles the V1D/V2 size collision.
+describe("V1D/V2 size collision is settled by the u32 version at offset 8", () => {
+  it("65088 with version=2 is V2 (engineOff 600)", () => {
+    const l = detectSlabLayout(65_088, slabWithVersion(65_088, 2))!;
+    expect(l.version).toBe(2);
+    expect(l.engineOff).toBe(600);
+  });
+  it("65088 with version=1 stays V1D (engineOff 456)", () => {
+    const l = detectSlabLayout(65_088, slabWithVersion(65_088, 1))!;
+    expect(l.version).toBe(1);
+    expect(l.engineOff).toBe(456);
+  });
+  it("version bytes outside offset 8 do not flip the layout", () => {
+    const buf = slabWithVersion(65_088, 1);
+    new DataView(buf.buffer).setUint32(12, 2, true);
+    expect(detectSlabLayout(65_088, buf)!.engineOff).toBe(456);
+  });
+  it("a 12-byte header probe is enough to see version=2", () => {
+    expect(detectSlabLayout(65_088, slabWithVersion(12, 2))!.engineOff).toBe(600);
+  });
+  it("a probe shorter than 12 bytes falls back to V1D", () => {
+    expect(detectSlabLayout(65_088, slabWithVersion(12, 2).subarray(0, 11))!.engineOff).toBe(456);
+  });
+  it("V2 micro (17064, version=2) is V2 too", () => {
+    expect(detectSlabLayout(17_064, slabWithVersion(17_064, 2))!.engineOff).toBe(600);
+  });
+});
+
+// Kills M30 M31: the descriptor fields parseEngine reads after the bitmap.
+describe("V1D descriptor fields used by parseEngine", () => {
+  it("V1D and V1D-legacy both report postBitmap 18; bitmap at 576 vs 624", () => {
+    const n = detectSlabLayout(65_088)!;
+    const l = detectSlabLayout(65_104)!;
+    expect(n.postBitmap).toBe(18);
+    expect(l.postBitmap).toBe(18);
+    expect(n.engineBitmapOff).toBe(576);
+    expect(l.engineBitmapOff).toBe(624);
+  });
+  it("V1D: num_used / next_account_id right after the bitmap are read (free_head is not)", () => {
+    const buf = slabWithVersion(65_088, 1);
+    const dv = new DataView(buf.buffer);
+    // engine 456 + bitmap 576 + 4 words * 8 = 1064 num_used, 1072 next_account_id, 1080 free_head
+    dv.setUint16(1064, 3, true);
+    dv.setBigUint64(1072, 9n, true);
+    dv.setUint16(1080, 0xbeef, true);
+    const e = parseEngine(buf);
+    expect(e.numUsedAccounts).toBe(3);
+    expect(e.nextAccountId).toBe(9n);
+  });
+  it("V1D-legacy: num_used right after the bitmap at 424 + 624 + 32 = 1080 is read", () => {
+    const buf = slabWithVersion(65_104, 1);
+    new DataView(buf.buffer).setUint16(1080, 7, true);
+    expect(parseEngine(buf).numUsedAccounts).toBe(7);
+  });
+});
+
+// Kills M38 M39: detectLayout's full return shape, not just accountsOff.
+describe("detectLayout returns the exact legacy triple", () => {
+  it.each([
+    [65_088, { bitmapWords: 4, accountsOff: 1_600, maxAccounts: 256 }],
+    [65_104, { bitmapWords: 4, accountsOff: 1_616, maxAccounts: 256 }],
+    [248_760, { bitmapWords: 16, accountsOff: 3_000, maxAccounts: 1024 }],
+    [16_320, { bitmapWords: 1, accountsOff: 960, maxAccounts: 64 }],
+  ])("%i", (len, want) => {
+    expect(detectLayout(len)).toEqual(want);
+  });
+});
