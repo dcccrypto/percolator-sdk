@@ -328,6 +328,13 @@ describe("parseErrorFromLogs attribution hardening", () => {
     ];
     expect(parseErrorFromLogs(logs)).toMatchObject({ code: 0x1f41, program: "matcher", programId: matcher });
   });
+  it("E12: a code is at most 8 hex digits (u32), even zero-padded", () => {
+    expect(parseErrorFromLogs(["custom program error: 0x00000008"])).toMatchObject({ code: 8 });
+    expect(parseErrorFromLogs(["custom program error: 0x000000008"])).toBeNull();
+  });
+  it("E15: the custom-error match is case-insensitive", () => {
+    expect(parseErrorFromLogs(["Custom Program Error: 0X8"])).toMatchObject({ code: 8, name: "Unauthorized" });
+  });
   it("E25: a non-string entry is skipped, not the end of the scan", () => {
     const r = parseErrorFromLogs([5 as unknown as string, "custom program error: 0x8"]);
     expect(r).toMatchObject({ code: 8, name: "Unauthorized" });
