@@ -16968,15 +16968,15 @@ function planCloseSlabAttempt(a) {
       data: Buffer.from(encodeWithdrawInsurance({ amount: a.insuranceRecredit.amount }))
     }));
   }
+  let adminOwed;
   for (const leg of a.creatorFees ?? []) {
-    if (backing === 0n) break;
     if (leg.owed <= 0n || leg.route === "Refused") continue;
-    if (leg.route === "Payee" && a.payeeGraceOver) continue;
     if (leg.route === "AdminSigned") {
-      throw new Error(
-        `planCloseSlabAttempt: asset ${leg.assetIndex} owes ${leg.owed} creator-fee atoms under a live asset_admin. Only that key can claim them (tag 90); CloseSlab refuses (71) until it does.`
-      );
+      adminOwed ??= leg;
+      continue;
     }
+    if (backing === 0n) continue;
+    if (a.payeeGraceOver) continue;
     if (!leg.payee || !leg.vaultMint) {
       throw new Error(`planCloseSlabAttempt: asset ${leg.assetIndex} routes its creator fee to a payee; pass payee and vaultMint`);
     }
@@ -16985,7 +16985,7 @@ function planCloseSlabAttempt(a) {
       throw new Error(`planCloseSlabAttempt: asset ${leg.assetIndex} creator-fee claim ${amount} must be in (0, ${leg.owed}]`);
     }
     if (backing !== void 0) {
-      if (amount > backing) amount = backing;
+      amount = leg.owed < backing ? leg.owed : backing;
       backing -= amount;
     }
     ixs.push(...buildClaimCreatorFeeToPayeeIxsV22({
@@ -17000,16 +17000,33 @@ function planCloseSlabAttempt(a) {
       authorityEpoch: leg.authorityEpoch
     }));
   }
+  if (adminOwed && backing !== 0n) {
+    throw new Error(
+      `planCloseSlabAttempt: asset ${adminOwed.assetIndex} owes ${adminOwed.owed} creator-fee atoms under a live asset_admin. Only that key can claim them (tag 90); CloseSlab refuses (71) until it does.`
+    );
+  }
+  const closeKeys = buildAccountMetas(ACCOUNTS_CLOSE_SLAB, {
+    dest: a.closer,
+    slab: a.market,
+    vault: a.vaultToken,
+    vaultAuthority,
+    destAta: a.closerDestToken,
+    tokenProgram
+  });
+  if (a.secondaryCollateral) {
+    closeKeys.push(
+      { pubkey: a.secondaryCollateral.vault, isSigner: false, isWritable: true },
+      { pubkey: a.secondaryCollateral.destAta, isSigner: false, isWritable: true }
+    );
+  }
+  if (a.residueEscheatDest && !a.residueMint) {
+    throw new Error("planCloseSlabAttempt: residueEscheatDest requires residueMint");
+  }
+  if (a.residueMint) closeKeys.push({ pubkey: a.residueMint, isSigner: false, isWritable: true });
+  if (a.residueEscheatDest) closeKeys.push({ pubkey: a.residueEscheatDest, isSigner: false, isWritable: true });
   ixs.push(new TransactionInstruction8({
     programId: a.programId,
-    keys: buildAccountMetas(ACCOUNTS_CLOSE_SLAB, {
-      dest: a.closer,
-      slab: a.market,
-      vault: a.vaultToken,
-      vaultAuthority,
-      destAta: a.closerDestToken,
-      tokenProgram
-    }),
+    keys: closeKeys,
     data: Buffer.from(encodeCloseSlab(a.closeAuthorityEpoch))
   }));
   return ixs;
