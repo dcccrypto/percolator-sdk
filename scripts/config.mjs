@@ -22,6 +22,10 @@ export function requireRpcUrl(environment = process.env) {
   if (url.username || url.password) {
     throw new Error("PERCOLATOR_RPC_URL must not contain user:password credentials (value not shown).");
   }
+  // web3.js's own endpoint pattern; `https:/host` parses above but Connection echoes it on failure.
+  if (!/^https?:\/\/([^:[]+|\[[^\]]+\])(:\d+)?/.test(value)) {
+    throw new Error("PERCOLATOR_RPC_URL must start with http:// or https:// (value not shown).");
+  }
   return value;
 }
 
