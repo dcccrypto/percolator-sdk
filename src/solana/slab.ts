@@ -149,6 +149,10 @@ export interface SlabLayout {
   hasInsuranceIsolation: boolean;
   engineInsuranceIsolatedOff: number;   // -1 if not present (V0)
   engineInsuranceIsolationBpsOff: number; // -1 if not present (V0)
+  // Engine-relative offset of insurance_fund.fee_revenue (U128) on layouts that have it but
+  // no isolation fields (V1D-pre306, engine a235a5f2: InsuranceFund = {balance, fee_revenue}).
+  // Undefined elsewhere; layouts with hasInsuranceIsolation read it at engineInsuranceOff + 16.
+  engineInsuranceFeeRevenueOff?: number;
 
   // Optional fallback for engines without a stored mark_price field (v12.17+):
   // absolute offset into the slab of `config.mark_ewma_e6` (u64 little-endian,
@@ -1370,6 +1374,7 @@ function buildLayoutV1DPre306(maxAccounts: number): SlabLayout {
     hasInsuranceIsolation: false,
     engineInsuranceIsolatedOff: -1,
     engineInsuranceIsolationBpsOff: -1,
+    engineInsuranceFeeRevenueOff: V1D_PRE306_ENGINE_INSURANCE_OFF + 16, // engine+32
   };
 }
 
@@ -3460,10 +3465,13 @@ export function parseEngine(data: Uint8Array): EngineState {
     vault: readU128LE(data, base),
     insuranceFund: {
       balance: readU128LE(data, base + layout.engineInsuranceOff),
-      // feeRevenue: only exists in percolator-core (80-byte InsuranceFund), not deployed (16-byte)
+      // feeRevenue: U128 right after balance on isolation layouts and on V1D-pre306
+      // (engine a235a5f2 InsuranceFund = {balance, fee_revenue}); 0n on other layouts.
       feeRevenue: layout.hasInsuranceIsolation
         ? readU128LE(data, base + layout.engineInsuranceOff + 16)
-        : 0n,
+        : layout.engineInsuranceFeeRevenueOff !== undefined
+          ? readU128LE(data, base + layout.engineInsuranceFeeRevenueOff)
+          : 0n,
       isolatedBalance: layout.hasInsuranceIsolation
         ? readU128LE(data, base + layout.engineInsuranceIsolatedOff)
         : 0n,
