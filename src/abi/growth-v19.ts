@@ -879,7 +879,7 @@ export function collateralDecimalsOf(storedP1: number): number {
   return storedP1 === 0 ? 6 : storedP1 - 1;
 }
 
-/** `whole_token_atoms`: `10^decimals` (decimals clamped to 18). */
+/** `whole_token_atoms`: `10^decimals` (decimals clamped to GROWTH_MAX_COLLATERAL_DECIMALS = 12). */
 export function wholeTokenAtoms(decimals: number): bigint {
   const d = Math.min(Math.max(decimals, 0), GROWTH_MAX_COLLATERAL_DECIMALS);
   const p = POW10_ATOMS[d];
