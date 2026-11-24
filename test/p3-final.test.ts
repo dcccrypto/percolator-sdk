@@ -110,15 +110,15 @@ describe("floored bound-vault NAV + share pricing", () => {
     expect(vaultPhysicalIdleBackingAtomsP3([1_999_999_999_999n, 1_000_000_000_000n])).toBe(2n); // floored per bucket
   });
   it("senior value + redemption = floor(shares * min(...) / S)", () => {
-    expect(boundVaultSeniorValueP3({ nav: 10n, seniorClaim: 8n, lpValue: 0n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: NO_LAG })).toBe(8n);
-    expect(boundVaultSeniorValueP3({ nav: 5n, seniorClaim: 8n, lpValue: 2n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: NO_LAG })).toBe(7n);
-    expect(boundVaultSeniorValueP3({ nav: 5n, seniorClaim: 8n, lpValue: 9n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: NO_LAG })).toBe(8n);
-    expect(boundVaultSeniorValueP3({ nav: 99n, seniorClaim: 8n, lpValue: 9n, resolved: true, physicalIdleBacking: 6n, lpEquityWorse: NO_LAG })).toBe(6n);
+    expect(boundVaultSeniorValueP3({ nav: 10n, seniorClaim: 8n, lpValue: 0n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: NO_LAG, backstopOutstandingAtoms: 0n })).toBe(8n);
+    expect(boundVaultSeniorValueP3({ nav: 5n, seniorClaim: 8n, lpValue: 2n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: NO_LAG, backstopOutstandingAtoms: 0n })).toBe(7n);
+    expect(boundVaultSeniorValueP3({ nav: 5n, seniorClaim: 8n, lpValue: 9n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: NO_LAG, backstopOutstandingAtoms: 0n })).toBe(8n);
+    expect(boundVaultSeniorValueP3({ nav: 99n, seniorClaim: 8n, lpValue: 9n, resolved: true, physicalIdleBacking: 6n, lpEquityWorse: NO_LAG, backstopOutstandingAtoms: 0n })).toBe(6n);
     expect(boundVaultRedemptionAtomsP3(3n, 7n, 10n)).toBe(4n); // floor(30/7)
     expect(boundVaultRedemptionAtomsP3(8n, 7n, 10n)).toBeNull();
   });
   it("deposit quote mirrors tag 75 bound branch", () => {
-    const base = { amount: 1_000n, totalShares: 3_000n, seniorClaim: 2_000n, harvestable: 0n, seniorFeeShareBps: 10_000, nav: 2_000n, lpValue: 0n , seniorDrawOutstandingAtoms: 0n, lpEquityBetter: 0n };
+    const base = { amount: 1_000n, totalShares: 3_000n, seniorClaim: 2_000n, harvestable: 0n, seniorFeeShareBps: 10_000, nav: 2_000n, lpValue: 0n , seniorDrawOutstandingAtoms: 0n, lpEquityBetter: 0n, lpEquityWorse: NO_LAG, backstopOutstandingAtoms: 0n };
     expect(boundVaultDepositQuoteP3(base)).toEqual({ ok: true, shares: 1_500n, minted: 1_500n, cEff: 2_000n });
     expect(boundVaultDepositQuoteP3({ ...base, harvestable: 10n })).toMatchObject({ ok: true, cEff: 2_010n, shares: 1_492n }); // floor(1000*3000/2010)
     expect(boundVaultDepositQuoteP3({ ...base, nav: 1_000n, lpValue: 500n })).toEqual({ ok: false, error: "VaultLpSeniorImpaired" });
@@ -234,18 +234,18 @@ describe("ede691b6 worse-of Earn pricing (vault_lp_equity_lag_bounds_ro)", () =>
     expect(vaultLpSeniorPricingClaimP3(1_000n, 300n, 200n)).toBe(900n);
     expect(vaultLpSeniorPricingClaimP3(100n, 300n, 0n)).toBe(0n);
     // 592a77e2 E-1: a negative bound also cuts the VALUE (nav − d), not only the claim (was min(nav, C') = 500)
-    expect(boundVaultSeniorValueP3({ nav: 500n, seniorClaim: 1_000n, lpValue: 900n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -300n })).toBe(200n);
-    expect(boundVaultSeniorValueP3({ nav: 1_200n, seniorClaim: 1_000n, lpValue: 0n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -300n })).toBe(900n);
-    expect(boundVaultSeniorValueP3({ nav: 500n, seniorClaim: 1_000n, lpValue: 900n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: 200n })).toBe(700n);
-    expect(boundVaultSeniorValueP3({ nav: 500n, seniorClaim: 1_000n, lpValue: 900n, resolved: true, physicalIdleBacking: 600n, lpEquityWorse: -300n })).toBe(600n);
+    expect(boundVaultSeniorValueP3({ nav: 500n, seniorClaim: 1_000n, lpValue: 900n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -300n, backstopOutstandingAtoms: 0n })).toBe(200n);
+    expect(boundVaultSeniorValueP3({ nav: 1_200n, seniorClaim: 1_000n, lpValue: 0n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -300n, backstopOutstandingAtoms: 0n })).toBe(900n);
+    expect(boundVaultSeniorValueP3({ nav: 500n, seniorClaim: 1_000n, lpValue: 900n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: 200n, backstopOutstandingAtoms: 0n })).toBe(700n);
+    expect(boundVaultSeniorValueP3({ nav: 500n, seniorClaim: 1_000n, lpValue: 900n, resolved: true, physicalIdleBacking: 600n, lpEquityWorse: -300n, backstopOutstandingAtoms: 0n })).toBe(600n);
   });
   it("75 entry: while a draw is outstanding, C_eff += min(value above C at the better bound, outstanding)", () => {
-    const q = { amount: 1_000n, totalShares: 1_000n, seniorClaim: 1_000n, harvestable: 0n, seniorFeeShareBps: 10_000, nav: 1_100n, lpValue: 500n };
-    expect(boundVaultDepositQuoteP3({ ...q, seniorDrawOutstandingAtoms: 300n, lpEquityBetter: 150n })).toMatchObject({ ok: true, cEff: 1_250n, shares: 800n });
-    expect(boundVaultDepositQuoteP3({ ...q, seniorDrawOutstandingAtoms: 300n, lpEquityBetter: 500n })).toMatchObject({ ok: true, cEff: 1_300n });
-    expect(boundVaultDepositQuoteP3({ ...q, seniorDrawOutstandingAtoms: 0n, lpEquityBetter: 500n })).toMatchObject({ ok: true, cEff: 1_000n });
+    const q = { amount: 1_000n, totalShares: 1_000n, seniorClaim: 1_000n, harvestable: 0n, seniorFeeShareBps: 10_000, nav: 1_100n, lpValue: 500n, backstopOutstandingAtoms: 0n };
+    expect(boundVaultDepositQuoteP3({ ...q, seniorDrawOutstandingAtoms: 300n, lpEquityBetter: 150n, lpEquityWorse: 150n })).toMatchObject({ ok: true, cEff: 1_250n, shares: 800n });
+    expect(boundVaultDepositQuoteP3({ ...q, seniorDrawOutstandingAtoms: 300n, lpEquityBetter: 500n, lpEquityWorse: 500n })).toMatchObject({ ok: true, cEff: 1_300n });
+    expect(boundVaultDepositQuoteP3({ ...q, seniorDrawOutstandingAtoms: 0n, lpEquityBetter: 500n, lpEquityWorse: 500n })).toMatchObject({ ok: true, cEff: 1_000n });
     // raised C_eff above nav + LP value → the program refuses (VaultLpSeniorImpaired)
-    expect(boundVaultDepositQuoteP3({ ...q, lpValue: 0n, seniorDrawOutstandingAtoms: 300n, lpEquityBetter: 150n })).toEqual({ ok: false, error: "VaultLpSeniorImpaired" });
+    expect(boundVaultDepositQuoteP3({ ...q, lpValue: 0n, seniorDrawOutstandingAtoms: 300n, lpEquityBetter: 150n, lpEquityWorse: 150n })).toEqual({ ok: false, error: "VaultLpSeniorImpaired" });
   });
 });
 
@@ -273,8 +273,8 @@ describe("592a77e2 E-1 live_exit_senior_value (the program's own unit-test vecto
     expect(liveExitSeniorValueP3(c, 1_200_000n, 0n, -300_000n)).toBe(900_000n);
   });
   it("boundVaultSeniorValueP3 routes Live through it (lpValue used only when worse >= 0)", () => {
-    expect(boundVaultSeniorValueP3({ nav: 800_000n, seniorClaim: 1_000_000n, lpValue: 200_000n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -100_000n })).toBe(700_000n);
-    expect(boundVaultSeniorValueP3({ nav: 800_000n, seniorClaim: 1_000_000n, lpValue: 200_000n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: 50_000n })).toBe(850_000n);
+    expect(boundVaultSeniorValueP3({ nav: 800_000n, seniorClaim: 1_000_000n, lpValue: 200_000n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: -100_000n, backstopOutstandingAtoms: 0n })).toBe(700_000n);
+    expect(boundVaultSeniorValueP3({ nav: 800_000n, seniorClaim: 1_000_000n, lpValue: 200_000n, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: 50_000n, backstopOutstandingAtoms: 0n })).toBe(850_000n);
   });
 });
 
