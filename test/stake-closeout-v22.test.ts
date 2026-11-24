@@ -41,6 +41,22 @@ describe("closeoutCreatorShare / closeoutSplit (Rust test_closeout_creator_share
     expect(closeoutCreatorShare(1n, 5_000_000n, 0n, 6_000_000n)).toBe(1n);
     expect(split(U64, U64, 0n, undefined, true)).toEqual({ creator: U64, stakers: 0n, unclaimed: 0n });
   });
+  // Exact values from Rust `closeout_creator_share` / `closeout_split`, checked against percolator-stake 53f5480 (the stake ref the
+  // rc23 prog pins; src/math.rs:592-603, 655-670), which is newer than the 3e39e14 named in the header.
+  // The grid below only checks invariants, and paying the creator 0 instead of 1 satisfies all of them.
+  it("one atom of room left: forwarded = seed - 1 pays the creator exactly 1", () => {
+    expect(closeoutCreatorShare(7_600n, 5_000n, 4_999n)).toBe(1n);
+    expect(split(7_600n, 5_000n, 4_999n, undefined, true)).toEqual({ creator: 1n, stakers: 7_599n, unclaimed: 0n });
+    expect(split(7_600n, 5_000n, 4_999n, undefined, false)).toEqual({ creator: 1n, stakers: 0n, unclaimed: 7_599n });
+    // differential vector vs the Rust oracle (a `room` check of entitled > forwarded + 1 pays 0 here)
+    expect(split(86_065_143_909n, 86_065_143_910n, 86_065_143_909n, undefined, false)).toEqual({ creator: 1n, stakers: 0n, unclaimed: 86_065_143_908n });
+  });
+  it("closeoutSplit passes creatorClassReleased through: the released cap applies on the split path too", () => {
+    expect(split(9_000_000n, 5_000_000n, 0n, 4_000_000n, true)).toEqual({ creator: 4_000_000n, stakers: 5_000_000n, unclaimed: 0n });
+    expect(split(9_000_000n, 5_000_000n, 0n, 0n, false)).toEqual({ creator: 0n, stakers: 0n, unclaimed: 9_000_000n });
+    // differential vector vs the Rust oracle: min(seed 13, released 1) - forwarded 2 saturates to 0 (dropping released pays 11)
+    expect(split(12n, 13n, 2n, 1n, false)).toEqual({ creator: 0n, stakers: 0n, unclaimed: 12n });
+  });
   // The grid proves, for every (surplus, seed, forwarded, creatorClassReleased, hasRealStakers):
   //   1. conservation: creator + stakers + unclaimed === surplus
   //   2. exclusivity: stakers === 0 || unclaimed === 0
