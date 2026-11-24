@@ -173,7 +173,8 @@ export declare function buildLevGuardLpStopIxV22(c: LevGuardCtxV22, caller: Publ
  * Append the leverage guard (writable, non-signer) as the LAST account of a TradeCpi (tag 10) or EvictAndTradeCpi (tag 119) instruction.
  * Without it a risk-increasing fill on a guarded market fails `Custom(132)`; reduce-only fills do not need it. Call it after every other
  * account is in place (after {@link buildEvictAndTradeCpiIxV22}, which prepends the victim, or before it: the guard stays last either way).
- * Idempotent: an instruction whose last key is already the guard is returned as is. The input is not mutated.
+ * Idempotent: an instruction whose only guard key is already last, writable and non-signer is returned as is; any other copy of the guard
+ * (not last, read-only, duplicated) is removed and one writable guard is appended last. The input is not mutated.
  *
  * @param ix      A TradeCpi or EvictAndTradeCpi instruction.
  * @param market  The market the trade is on (`ix.keys[1]` for TradeCpi, `ix.keys[2]` for EvictAndTradeCpi is checked against it).

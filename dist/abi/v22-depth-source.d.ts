@@ -238,7 +238,7 @@ export declare function isqrtU128(n: bigint): bigint;
 export declare function plus2PctDepthE6(r: bigint): bigint;
 /**
  * The reserve value `R` in collateral atoms. `quote-is-collateral`: the quote reserve. `base-at-mark`: `floor(base * mark / 10^(baseDecimals +
- * lotExp))` capped at u64::MAX (a cap only lowers the depth); `null` for a zero mark, decimals > 18 or `lotExp > 15`. Port of `reserve_value_e6`.
+ * lotExp))` capped at u64::MAX (a cap only lowers the depth); `null` for a zero mark, decimals > 18, `lotExp > 15`, or a decimals/lotExp that is not an integer in 0..255 (a Rust `u8`). Port of `reserve_value_e6`.
  *
  * @param path           Which side gives the value.
  * @param baseAtoms      The asset-side reserve.
