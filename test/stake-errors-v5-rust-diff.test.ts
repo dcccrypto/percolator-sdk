@@ -149,7 +149,7 @@ describe("the diff catches the drift it exists for", () => {
     expect(diffTable(rust, t)).toEqual({ missing: [29], extra: [49], wrongName: [] });
   });
 
-  it("a Rust enum with a new variant fails the parse-count check", () => {
+  it("a new Rust variant is reported as missing from the SDK tables", () => {
     const grown = src.replace(
       "    MultiAssetMarketNotSupported = 48,\n",
       "    MultiAssetMarketNotSupported = 48,\n    NewVariant = 49,\n",
