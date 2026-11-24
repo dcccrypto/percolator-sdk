@@ -635,7 +635,7 @@ export declare function growthCollateralDecimalsOk(decimals: number): boolean;
 export declare const DEPTH_BOOTSTRAP_DIV = 16n;
 /** `collateral_decimals_of`: byte 46 is decimals + 1; 0 = a record written before R2-L2, read as 6. */
 export declare function collateralDecimalsOf(storedP1: number): number;
-/** `whole_token_atoms`: `10^decimals` (decimals clamped to 18). */
+/** `whole_token_atoms`: `10^decimals` (decimals clamped to GROWTH_MAX_COLLATERAL_DECIMALS = 12). */
 export declare function wholeTokenAtoms(decimals: number): bigint;
 /** `DEPTH_RISE_STAMP_SLOTS`: the unit of the stored last-rise stamp (64 slots). */
 export declare const DEPTH_RISE_STAMP_SLOTS = 64n;
@@ -2036,7 +2036,7 @@ export declare function usersSideOiQ(oiEffSideQ: bigint, vaultLpEffQ: bigint, lo
 /**
  * N-2: the utilisation fee (bps) an open pays when it leaves its side's users OI at
  * `usersOiAfterQ`: 0 at or below the kink, `ceil(max * (u - u_k) / (1 - u_k))` above, capped at
- * `max`. Port of `growth_v19::utilisation_fee_bps`; `null` when `nCap == 0`.
+ * `max`. Port of `growth_v19::utilisation_fee_bps`; `null` when `nCap == 0`, or at a 100% kink above `N_cap` (Rust `None`).
  *
  * @param usersOiAfterQ  Users OI on the taker's side after the open (Q).
  * @param nCapQ          `N_cap` (Q).
@@ -2092,7 +2092,8 @@ export interface GrowthOpenFeePreview {
 /**
  * N-2 fee preview for a growth open on a BOUND asset (the vault LP is the counterparty): the
  * utilisation fee the wrapper will charge and the fee the taker must sign. Closes / reduces never
- * pay it. Evaluated at the CURRENT N_cap and users OI (the wrapper uses the same pre-fill numbers).
+ * pay it. Evaluated at the CURRENT N_cap and users OI (the wrapper uses the same pre-fill numbers); with `v22` input the N_cap is the
+ * G8 one ({@link nCapG8Q}: λ_eff and the depth cap), exactly the N_cap {@link quoteMaxLeverage} reports and the wrapper charges on.
  *
  * @param input        The quote inputs (see {@link QuoteMaxLeverageInput}).
  * @param takerEffQ    Taker's ADL-effective signed position on the asset (Q).
