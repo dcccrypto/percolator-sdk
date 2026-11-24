@@ -33,6 +33,7 @@ describe("requireRpcUrl never lets a bad RPC URL reach web3.js", () => {
     ["space in host", `https://rpc ${SECRET}.example.invalid/?api-key=${SECRET}`],
     ["user:pass credentials", `https://${SECRET}user:${SECRET}pass@rpc.example.invalid/?api-key=${SECRET}`],
     ["user-only credentials", `https://${SECRET}@rpc.example.invalid/?api-key=${SECRET}`],
+    ["password-only credentials", `https://:${SECRET}pass@rpc.example.invalid/?api-key=${SECRET}`],
   ])("rejects %s without echoing the URL", (_label, url) => {
     const error = thrown(() => config.requireRpcUrl({ PERCOLATOR_RPC_URL: url }));
     expect(error).toBeInstanceOf(Error);
