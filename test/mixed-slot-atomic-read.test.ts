@@ -69,6 +69,7 @@ function plantPot(m: Uint8Array, domain: number, freshAtoms: bigint): Uint8Array
 function plantPrices(m: Uint8Array, asset: number, effE6: bigint, targetE6: bigint): Uint8Array {
   u64(m, GEOM.engineOff(asset) + GEOM.layout.assetState.effectivePrice, effE6);
   u64(m, GEOM.engineOff(asset) + GEOM.layout.assetState.rawOracleTargetPrice, targetE6);
+  u64(m, GEOM.slotOff(asset) + 168, targetE6); // mark_ewma_e6: the next-crank target on a mark-oracle profile (#729)
   return m;
 }
 function ledgerBytes(domain: number, principal: bigint): Uint8Array {
