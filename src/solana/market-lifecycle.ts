@@ -192,11 +192,30 @@ export interface CloseSlabAttemptArgs {
    *   - route "Payee", `payeeGraceOver` (prog #651: 7 x 216,000 slots after `resolved_slot`): NO tag 90 (it may not land,
    *     e.g. a payee ATA with a delegate, and would sink the tx); this CloseSlab re-books the pot to the protocol leg and
    *     returns Ok WITHOUT closing; the next attempt claims it with tag 84 and closes ({@link planPayeeGraceCloseSequenceV22});
-   *   - route "AdminSigned": the planner THROWS (only the live asset_admin can claim; CloseSlab would refuse 71);
+   *   - route "AdminSigned": the planner THROWS (only the live asset_admin can claim; CloseSlab would refuse 71), unless
+   *     `feeBackingAtoms` is set and the protocol and payee claims (planned first, in any leg order) use it all up;
    *   - route "Refused": nothing to plan (CloseSlab re-books it to the protocol leg).
    * Omit to keep the pre-#587 plan (no creator-leg handling).
    */
   creatorFees?: readonly CloseSlabCreatorFeeLegV22[];
+  /**
+   * Market has a secondary collateral mint (`UpdateBaseUnitMints`, tag 60). `handle_close_slab` then reads two more
+   * writable accounts (indices 6, 7: secondary vault token + the closer's secondary-mint ATA) and fails
+   * NotEnoughAccountKeys without them (#381). Omit on single-collateral markets.
+   */
+  secondaryCollateral?: { vault: PublicKey; destAta: PublicKey };
+  /**
+   * The primary collateral mint, appended after the secondary pair (index 8, else 6). The handler requires it
+   * (writable) only when CloseSlab burns/escheats unbudgeted insurance residue; surplus accounts are ignored, so pass it
+   * whenever residue may exist.
+   */
+  residueMint?: PublicKey;
+  /**
+   * Wrapped-SOL (native) primary mint only: native residue cannot be burned, so the handler escheats it to the asset-0
+   * insurance authority's ATA, read at `residueMint` index + 1 (:26352, writable, must equal that canonical ATA).
+   * Requires `residueMint`.
+   */
+  residueEscheatDest?: PublicKey;
   /** prog #651: the payee grace is over (`readCreatorFeeClaimStateV22(data, i, nowSlot).payeeGraceOver`). Default false. */
   payeeGraceOver?: boolean;
   /**
@@ -206,7 +225,7 @@ export interface CloseSlabAttemptArgs {
    * tag 84 (transfer 0 → EngineLockActive) and tag 90 (no surplus) both refuse, and in the same transaction they would
    * sink the close. So at `0n` the planner adds no tag 84 / tag 90 and does not throw for an AdminSigned pot.
    * Both claims spend this pool in plan order (tag 84 takes `min(owed, pool)`, tag 90 is an exact debit), so the planner
-   * spends it as a budget: tag 84 first, then each payee claim capped at what is left; once nothing is left the remaining
+   * spends it as a budget: tag 84 first, then each payee claim takes exactly min(owed, what is left); once nothing is left the remaining
    * legs are treated as at `0n`. Omit to keep the previous behaviour (every owed leg planned, no cap).
    */
   feeBackingAtoms?: bigint;
@@ -227,7 +246,9 @@ export interface CloseSlabCreatorFeeLegV22 {
   /**
    * Atoms to claim; default `owed`. Lower it only when the insurance surplus no longer backs the whole pot (tag 90
    * refuses an amount above it; CloseSlab then treats the unbacked remainder as unpayable). With
-   * {@link CloseSlabAttemptArgs.feeBackingAtoms} set, the planner caps it at the backing left after tag 84.
+   * {@link CloseSlabAttemptArgs.feeBackingAtoms} set it is ignored (still validated): the planner claims exactly
+   * `min(owed, backing left after tag 84 and earlier payee claims)`, since any less leaves backed atoms owed and CloseSlab
+   * refuses 71.
    */
   amount?: bigint;
 }
@@ -247,7 +268,7 @@ export interface CloseSlabCreatorFeeLegV22 {
  *
  * @returns Ordered instructions (CloseSlab last).
  * @throws If `hasLpVault` is true (not retirable), a creator-fee leg is owed under a LIVE asset_admin (only that key can
- *   claim it; not thrown when `feeBackingAtoms` is 0n), `feeBackingAtoms` is negative, a payee leg lacks `payee` / `vaultMint`, or a claim amount is non-positive or above `owed`.
+ *   claim it; not thrown when `feeBackingAtoms` is 0n or the other claims use it all up), `feeBackingAtoms` is negative, a payee leg lacks `payee` / `vaultMint`, or a claim amount is non-positive or above `owed`.
  * @example
  * ```ts
  * const ixs = planCloseSlabAttempt({ programId, market, vaultToken, closer, closerDestToken, closeAuthorityEpoch,
@@ -297,16 +318,18 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
       data: Buffer.from(encodeWithdrawInsurance({ amount: a.insuranceRecredit.amount })),
     }));
   }
+  // Payee legs first, whatever their order in `creatorFees`: they may drain the pool, and then an AdminSigned pot no
+  // longer makes CloseSlab refuse (min(outstanding, 0) = 0). The AdminSigned check runs after the loop.
+  let adminOwed: CloseSlabCreatorFeeLegV22 | undefined;
   for (const leg of a.creatorFees ?? []) {
-    if (backing === 0n) break;
     if (leg.owed <= 0n || leg.route === "Refused") continue;
-    // prog #651: after the grace this CloseSlab re-books the payee pot itself; a tag 90 that cannot land would sink the tx.
-    if (leg.route === "Payee" && a.payeeGraceOver) continue;
     if (leg.route === "AdminSigned") {
-      throw new Error(
-        `planCloseSlabAttempt: asset ${leg.assetIndex} owes ${leg.owed} creator-fee atoms under a live asset_admin. Only that key can claim them (tag 90); CloseSlab refuses (71) until it does.`,
-      );
+      adminOwed ??= leg;
+      continue;
     }
+    if (backing === 0n) continue;
+    // prog #651: after the grace this CloseSlab re-books the payee pot itself; a tag 90 that cannot land would sink the tx.
+    if (a.payeeGraceOver) continue;
     if (!leg.payee || !leg.vaultMint) {
       throw new Error(`planCloseSlabAttempt: asset ${leg.assetIndex} routes its creator fee to a payee; pass payee and vaultMint`);
     }
@@ -314,9 +337,10 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
     if (amount <= 0n || amount > leg.owed) {
       throw new Error(`planCloseSlabAttempt: asset ${leg.assetIndex} creator-fee claim ${amount} must be in (0, ${leg.owed}]`);
     }
-    // tag 90 is an exact debit (no partial fill): cap it at what the pool still backs.
+    // tag 90 is an exact debit (no partial fill). With the pool known, claim exactly min(owed, backing left): less would
+    // leave backed atoms owed and CloseSlab refuses 71 (:26287-26291); more would make tag 90 refuse.
     if (backing !== undefined) {
-      if (amount > backing) amount = backing;
+      amount = leg.owed < backing ? leg.owed : backing;
       backing -= amount;
     }
     ixs.push(...buildClaimCreatorFeeToPayeeIxsV22({
@@ -324,11 +348,28 @@ export function planCloseSlabAttempt(a: CloseSlabAttemptArgs): TransactionInstru
       vaultMint: leg.vaultMint, vaultToken: a.vaultToken, amount, authorityEpoch: leg.authorityEpoch,
     }));
   }
+  if (adminOwed && backing !== 0n) {
+    throw new Error(
+      `planCloseSlabAttempt: asset ${adminOwed.assetIndex} owes ${adminOwed.owed} creator-fee atoms under a live asset_admin. Only that key can claim them (tag 90); CloseSlab refuses (71) until it does.`,
+    );
+  }
+  const closeKeys = buildAccountMetas(ACCOUNTS_CLOSE_SLAB, {
+    dest: a.closer, slab: a.market, vault: a.vaultToken, vaultAuthority, destAta: a.closerDestToken, tokenProgram,
+  });
+  if (a.secondaryCollateral) {
+    closeKeys.push(
+      { pubkey: a.secondaryCollateral.vault, isSigner: false, isWritable: true },
+      { pubkey: a.secondaryCollateral.destAta, isSigner: false, isWritable: true },
+    );
+  }
+  if (a.residueEscheatDest && !a.residueMint) {
+    throw new Error("planCloseSlabAttempt: residueEscheatDest requires residueMint");
+  }
+  if (a.residueMint) closeKeys.push({ pubkey: a.residueMint, isSigner: false, isWritable: true });
+  if (a.residueEscheatDest) closeKeys.push({ pubkey: a.residueEscheatDest, isSigner: false, isWritable: true });
   ixs.push(new TransactionInstruction({
     programId: a.programId,
-    keys: buildAccountMetas(ACCOUNTS_CLOSE_SLAB, {
-      dest: a.closer, slab: a.market, vault: a.vaultToken, vaultAuthority, destAta: a.closerDestToken, tokenProgram,
-    }),
+    keys: closeKeys,
     data: Buffer.from(encodeCloseSlab(a.closeAuthorityEpoch)),
   }));
   return ixs;

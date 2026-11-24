@@ -62,9 +62,9 @@ describe("planCloseSlabAttempt with a partially backed fee pool", () => {
     expect(tags(ixs)).toEqual([84, 90, 90, 13]);
   });
 
-  it("keeps an explicit smaller amount that fits", () => {
+  it("raises an explicit smaller amount to the backing left (15 would leave 5 backed and owed: CloseSlab refuses 71)", () => {
     const ixs = planCloseSlabAttempt({ ...base, protocolFee: fee, creatorFees: [payee(0, 40n, 15n)], feeBackingAtoms: 120n });
-    expect(tag90Amounts(ixs)).toEqual([15n]);
+    expect(tag90Amounts(ixs)).toEqual([20n]);
   });
 
   it("payee-only pot larger than the pool claims the pool (no tag 84 owed)", () => {
