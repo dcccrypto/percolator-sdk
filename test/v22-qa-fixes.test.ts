@@ -27,6 +27,7 @@ import {
   PROGRAM_IDS,
   PROGRAM_IDS_V17,
   PROGRAM_IDS_DEVNET_V22,
+  PROGRAM_IDS_DEVNET_V1,
   NFT_PROGRAM_IDS,
   getProgramId,
   getMatcherProgramId,
@@ -352,5 +353,50 @@ describe("staleResolveStatusV22 (permissionless resolve disabled / clock behind)
   it("matured: slotsRemaining is 0", () => {
     const v0 = staleResolveStatusV22(acct("solV0Market"), BigInt(FX.accounts.capturedAtSlot));
     expect(staleResolveStatusV22(acct("solV0Market"), v0.maturesAtSlot! + 5n).slotsRemaining).toBe(0n);
+  });
+});
+
+// ============================================================================
+// Mutation killers (SDK-REPORT-V22QAFIXESTESTMUT): each case kills a mutant that survived this file AND the
+// nearest sibling test files. The bracket names the mutant. Survivors already pinned elsewhere are not repeated.
+// ============================================================================
+describe("Q-2 built-in id map: every built-in stake deployment decodes with the stake table", () => {
+  const failLine = (id: string, hex: string) => [`Program ${id} failed: custom program error: 0x${hex}`];
+  it("[Q2-M12 Q2-M13] the mainnet stake id and the devnet v1 vault id are attributed to stake", () => {
+    for (const id of [STAKE_PROGRAM_IDS.mainnet, PROGRAM_IDS_DEVNET_V1.vault]) {
+      expect(parseErrorFromLogs(failLine(id, "21"))).toMatchObject({ program: "stake", programId: id, name: "ConsentRequired" });
+    }
+  });
+});
+
+describe("Q-1 matcher worst case and fee-to-sign boundaries", () => {
+  const base = { tradeFeeBaseBps: 30n, maxTradingFeeBps: 700n } as const;
+  it("[Q1-M2] matcher worst case is max_total + 1 (rounding slack) when below max_requested", () => {
+    expect(matcherFeeWorstCaseBpsV22({ ...base, maxRequestedFeeBps: 100, matcherMaxTotalBps: 60 })).toBe(61);
+    expect(computeTradeFeeBpsToSignV22({ ...base, maxRequestedFeeBps: 100, matcherMaxTotalBps: 60 }).feeBps).toBe(96n);
+  });
+  it("[Q1-M7] requested matcher fee is capped at the 1023 protocol maximum", () => {
+    expect(matcherFeeWorstCaseBpsV22({ ...base, maxTradingFeeBps: 5000n, maxRequestedFeeBps: 4000 })).toBe(1023);
+  });
+  it("[Q1-M5] a fee exactly at the worst case covers it (margin 0)", () => {
+    const r = computeTradeFeeBpsToSignV22({ ...base, maxRequestedFeeBps: 100, matcherMaxTotalBps: 100 }, { marginBps: 0 });
+    expect(r.feeBps).toBe(130n);
+    expect(r.worstCaseFeeBps).toBe(130n);
+    expect(r.coversWorstCase).toBe(true);
+  });
+  it("[Q1-M6] a quoted matcher fee above the worst case is clamped to it", () => {
+    const r = computeTradeFeeBpsToSignV22({ ...base, maxRequestedFeeBps: 100, matcherMaxTotalBps: 100 }, { expectedMatcherFeeBps: 500 });
+    expect(r.feeBps).toBe(135n);
+  });
+});
+
+describe("Q-5 tag 39 boundaries", () => {
+  it("[R-M1] U64_MAX itself is a valid now_slot", () => {
+    expect(Buffer.from(encodeResolveStalePermissionless((1n << 64n) - 1n)).toString("hex")).toBe("27ffffffffffffffff");
+  });
+  it("[R-M4] resolvable exactly at the maturity slot", () => {
+    const v0 = staleResolveStatusV22(acct("solV0Market"), BigInt(FX.accounts.capturedAtSlot));
+    const st = staleResolveStatusV22(acct("solV0Market"), v0.maturesAtSlot!);
+    expect(st).toMatchObject({ canResolve: true, refusalCode: null, slotsRemaining: 0n });
   });
 });
