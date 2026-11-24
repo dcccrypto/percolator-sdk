@@ -336,13 +336,16 @@ function setLegacy(d: Uint8Array, v: bigint): void {
   new DataView(d.buffer).setBigUint64(16 + 568, v, true); // v16.rs:133 HEADER_LEN + v16.rs:2785 WrapperConfig 568..576
 }
 /**
- * Engine `MarketGroupV16HeaderAccount` (percolator engine 2f05df8c src/v16.rs:9254, fields `mode: u8` :9295 and
- * `resolved_slot: V16PodU64` :9296): rustc `offset_of!` = 674 / 675, as emitted by
- * scripts/creator-fee-payee-parity/sdk_587_parity.rs:89 into test/fixtures/creator-fee-payee-parity.json `groupOffsets`.
+ * Engine `MarketGroupV16HeaderAccount` (percolator engine feat/v22-engine-rc23-2026-10-22 @ 282d7dc2 src/v16.rs:10772,
+ * fields `mode: u8` :10813 and `resolved_slot: V16PodU64` :10814). Every field is align-1 Pod, so
+ * mode = 32 (market_group_id) + 281 (`V16ConfigAccount`, src/v16.rs:9742, no `public_b_chunk_atoms` since upstream
+ * 083a0d08) + 340 (asset_slot_capacity .. current_slot) + 3 (three u8 flags) + 2 (`recovery_reason`) = 658,
+ * resolved_slot = 659. The old 674 / 675 (engine 2f05df8c, test/fixtures/creator-fee-payee-parity.json
+ * `groupOffsets`) had the 16-byte chunk field and is the variant-B header.
  * Literals here, not the SDK constants, so a wrong SDK offset fails this file.
  */
-const GROUP_MODE_OFF = 674;
-const GROUP_RESOLVED_SLOT_OFF = 675;
+const GROUP_MODE_OFF = 658;
+const GROUP_RESOLVED_SLOT_OFF = 659;
 function setGroup(d: Uint8Array, mode: number, resolvedSlot: bigint): void {
   d[LAYOUT_V22.marketGroupOff + GROUP_MODE_OFF] = mode;
   new DataView(d.buffer).setBigUint64(LAYOUT_V22.marketGroupOff + GROUP_RESOLVED_SLOT_OFF, resolvedSlot, true);
