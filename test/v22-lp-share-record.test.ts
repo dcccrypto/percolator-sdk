@@ -94,8 +94,8 @@ describe("parseLpShareMetadataRecordV22 edges", () => {
     expect(parseLpShareMetadataRecordV22(d)!.name).toBe("A\uFFFDB");
   });
 
-  it("a 52-byte record cut inside the mint is null without throwing, even when the rest looks like empty strings + tail", () => {
-    const d = cat(Uint8Array.of(4), new Uint8Array(32).fill(7), u32(0), u32(0), u32(0), Uint8Array.of(0, 0, 0, 0, 1)); // 1 + 32 + 19 < 65
+  it("a 50-byte record cut inside the mint is null without throwing, even when the rest looks like empty strings + tail", () => {
+    const d = cat(Uint8Array.of(4), new Uint8Array(32).fill(7), u32(0), u32(0), u32(0), Uint8Array.of(0, 0, 0, 0, 1)); // 1 + 32 + 17 = 50 < 65
     expect(() => parseLpShareMetadataRecordV22(d)).not.toThrow();
     expect(parseLpShareMetadataRecordV22(d)).toBeNull();
   });
