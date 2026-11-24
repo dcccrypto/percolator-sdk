@@ -134,7 +134,8 @@ for (let i = 0; i < B58_ALPHABET.length; i++) B58_MAP[B58_ALPHABET.charCodeAt(i)
 function base58PubkeyBytes(str: string): Uint8Array {
   let zeroes = 0;
   while (zeroes < str.length && str.charCodeAt(zeroes) === 49 /* "1" */) zeroes++;
-  // big-endian base256 digits of the non-leader part, at most ceil(n * log(58)/log(256)) bytes
+  // big-endian base256 digits of the non-leader part. 0.733 >= log(58)/log(256) (base-x's factor),
+  // so the buffer is never smaller than base-x's and its "Non-zero carry" case cannot happen.
   const size = (((str.length - zeroes) * 733) / 1000 + 1) >>> 0;
   const b256 = new Uint8Array(size);
   let length = 0;

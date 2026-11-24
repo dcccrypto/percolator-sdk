@@ -58,9 +58,11 @@ function reachablePackages(entry: string): Map<string, string[]> {
   return pkgs;
 }
 
-describe("runtime import graph: no @solana/web3.js", () => {
+// Static (top-level) imports only. instructions.ts keeps its existing lazy
+// `await import("@solana/web3.js")` inside derivePythPriceUpdateAccount; that runs only when called.
+describe("static runtime import graph: no @solana/web3.js", () => {
   for (const entry of ["abi/encode.ts", "abi/errors.ts", "abi/instructions.ts"]) {
-    it(`${entry} does not reach @solana/web3.js`, () => {
+    it(`${entry} has no static runtime path to @solana/web3.js`, () => {
       const pkgs = reachablePackages(entry);
       expect(pkgs.get("@solana/web3.js"), `path: ${pkgs.get("@solana/web3.js")?.join(" -> ")}`).toBeUndefined();
     }, 30_000);
