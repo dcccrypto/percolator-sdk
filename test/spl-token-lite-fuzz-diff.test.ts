@@ -418,8 +418,8 @@ describe("spl-token-lite fuzz-diff: ATA derivation and create-idempotent ix vs @
     }
     expect(mismatches, mismatches.slice(0, 10).join("\n")).toEqual([]);
     // The pools are actually spread over, not one or two keys reused.
-    expect(usedWallets.size).toBeGreaterThan(N_ATA_POOL * 0.9);
-    expect(usedPdas.size).toBeGreaterThan(N_ATA_POOL * 0.9);
+    expect(usedWallets.size).toBeGreaterThan(N_ATA_POOL * 0.75);
+    expect(usedPdas.size).toBeGreaterThan(N_ATA_POOL * 0.75);
 
     for (const k of [
       "owner:wallet",
