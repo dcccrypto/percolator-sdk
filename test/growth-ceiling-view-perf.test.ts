@@ -10,7 +10,8 @@
  * so machine speed and load cancel out. On the old src both sides are the same code: measured 0.97-0.99 for both, so both
  * checks fail there. With the change `curvePos` on a graduated depth measured 0.22-0.23 (bound 0.6) and `wholeTokenAtoms`
  * 0.13-0.14 (bound 0.4), at machine load ~20. Both bounds clear the old code by 1.6x+ and the new code by 2.6x+.
- * Under v8 coverage `wholeTokenAtoms` measures 0.39-0.41 and the old code 0.99-1.00, so that run uses 0.6 (COVERAGE_ON).
+ * Under v8 coverage `wholeTokenAtoms` measures 0.39-0.41 and the old code 0.99-1.00, so that run uses 0.6 (COVERAGE_ON):
+ * 1.6x below the old code, 1.45x above the new.
  */
 import { describe, it, expect } from "vitest";
 import { log2Q16, curvePos, wholeTokenAtoms, GROWTH_MAX_COLLATERAL_DECIMALS } from "../src/abi/growth-v19.js";
@@ -141,7 +142,7 @@ function medianRatio(work: (useNew: boolean) => number): { ratio: number } {
 /**
  * v8 coverage (the merge gate's coverage run) adds counters to every function and block, which taxes the 3-line new
  * `wholeTokenAtoms` far more than the old bigint pow it replaced: there the median ratio measured 0.39-0.41 (no coverage:
- * 0.14-0.15). So that run gets its own bound; it reads vitest's worker config and falls back to the strict bound.
+ * 0.14-0.15). So that run gets its own bound; it reads vitest's (internal, 4.1.12) worker config and falls back to the strict bound.
  */
 const COVERAGE_ON = (globalThis as { __vitest_worker__?: { config?: { coverage?: { enabled?: boolean } } } }).__vitest_worker__?.config?.coverage?.enabled === true;
 
