@@ -6,10 +6,11 @@
  *   - `wholeTokenAtoms` reads a 0..12 `10n ** d` table.
  *
  * Equality: every changed function is checked against a copy of the old code (`old*` below) on the same inputs.
- * Speed: each ratio times the SDK against that copy on the same input, in the same process, interleaved, best of 7,
+ * Speed: each ratio times the SDK against that copy on the same input, in the same process, interleaved, median of 15 per-round ratios,
  * so machine speed and load cancel out. On the old src both sides are the same code: measured 0.97-0.99 for both, so both
  * checks fail there. With the change `curvePos` on a graduated depth measured 0.22-0.23 (bound 0.6) and `wholeTokenAtoms`
  * 0.13-0.14 (bound 0.4), at machine load ~20. Both bounds clear the old code by 1.6x+ and the new code by 2.6x+.
+ * Under v8 coverage `wholeTokenAtoms` measures 0.39-0.41 and the old code 0.99-1.00, so that run uses 0.6 (COVERAGE_ON).
  */
 import { describe, it, expect } from "vitest";
 import { log2Q16, curvePos, wholeTokenAtoms, GROWTH_MAX_COLLATERAL_DECIMALS } from "../src/abi/growth-v19.js";
@@ -114,27 +115,41 @@ describe("growth-v19 perf change: outputs identical to the old code", () => {
   });
 });
 
-/** Best-of-7 ms of the new and the old function on the same work, interleaved. */
-function bestOf7(work: (useNew: boolean) => number): { newMs: number; oldMs: number; ratio: number } {
-  expect(work(true)).toBe(work(false)); // same answer, and a warm-up for both
-  let newMs = Infinity;
-  let oldMs = Infinity;
-  for (let r = 0; r < 7; r++) {
+/**
+ * Median over 15 rounds of the per-round new/old ms ratio, each round timing new then old back to back after 3 warm-ups.
+ * A per-round ratio cancels load that lasts a round; the median drops the rounds a burst hit on one side only.
+ */
+function medianRatio(work: (useNew: boolean) => number): { ratio: number } {
+  expect(work(true)).toBe(work(false)); // same answer
+  for (let w = 0; w < 3; w++) {
+    work(true);
+    work(false);
+  }
+  const ratios: number[] = [];
+  for (let r = 0; r < 15; r++) {
     let t = performance.now();
     work(true);
-    newMs = Math.min(newMs, performance.now() - t);
+    const newMs = performance.now() - t;
     t = performance.now();
     work(false);
-    oldMs = Math.min(oldMs, performance.now() - t);
+    ratios.push(newMs / (performance.now() - t));
   }
-  return { newMs, oldMs, ratio: newMs / oldMs };
+  ratios.sort((a, b) => a - b);
+  return { ratio: ratios[7]! };
 }
+
+/**
+ * v8 coverage (the merge gate's coverage run) adds counters to every function and block, which taxes the 3-line new
+ * `wholeTokenAtoms` far more than the old bigint pow it replaced: there the median ratio measured 0.39-0.41 (no coverage:
+ * 0.14-0.15). So that run gets its own bound; it reads vitest's worker config and falls back to the strict bound.
+ */
+const COVERAGE_ON = (globalThis as { __vitest_worker__?: { config?: { coverage?: { enabled?: boolean } } } }).__vitest_worker__?.config?.coverage?.enabled === true;
 
 describe("growth-v19 perf change: faster than the old code (ratio, same process)", () => {
   it("curvePos on a graduated market (default $25k / $100k / $500k thresholds) costs at most 0.6x the old code", () => {
     const th: Th = [25_000_000_000n, 100_000_000_000n, 500_000_000_000n];
     const depths = Array.from({ length: 4_000 }, (_, i) => 7_000_000_000n + BigInt(i) * 123_456_789n); // $7k .. $500k: segments 1-3
-    const { ratio } = bestOf7((useNew) => {
+    const { ratio } = medianRatio((useNew) => {
       let k = 0;
       for (const d of depths) k += (useNew ? curvePos(d, th) : oldCurvePos(d, th)).num;
       return k;
@@ -143,13 +158,14 @@ describe("growth-v19 perf change: faster than the old code (ratio, same process)
     expect(ratio).toBeLessThan(0.6);
   });
 
-  it("wholeTokenAtoms costs at most 0.4x the old code", () => {
-    const { ratio } = bestOf7((useNew) => {
+  // Old code measures ~1.0 with or without coverage, so both bounds still fail it.
+  it("wholeTokenAtoms costs at most 0.4x the old code (0.6x under v8 coverage)", () => {
+    const { ratio } = medianRatio((useNew) => {
       let k = 0n;
       for (let i = 0; i < 40_000; i++) k += useNew ? wholeTokenAtoms(i % 13) : oldWholeTokenAtoms(i % 13);
       return Number(k & 0xffffn);
     });
     console.info(`wholeTokenAtoms new/old ratio ${ratio.toFixed(3)}`);
-    expect(ratio).toBeLessThan(0.4);
+    expect(ratio).toBeLessThan(COVERAGE_ON ? 0.6 : 0.4);
   });
 });
