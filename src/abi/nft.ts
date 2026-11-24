@@ -504,15 +504,96 @@ export interface PositionNftState {
  * @returns      Signed BigInt in the range [-2^127, 2^127)
  */
 function readI128FromView(view: DataView, offset: number): bigint {
-  const lo = view.getBigUint64(offset, true);
-  const hi = view.getBigUint64(offset + 8, true);
-  const unsigned = (hi << 64n) | lo;
-  const SIGN_BIT = 1n << 127n;
-  if (unsigned >= SIGN_BIT) {
-    return unsigned - (1n << 128n);
-  }
-  return unsigned;
+  // The high half is read SIGNED, so `hi << 64n` already carries the i128 sign; its low 64 bits are
+  // zero, so OR-ing in the unsigned low half is exact. Same value as `unsigned >= 2^127 ? unsigned - 2^128
+  // : unsigned`, without allocating three extra BigInts per call.
+  return (view.getBigInt64(offset + 8, true) << 64n) | view.getBigUint64(offset, true);
 }
+
+// ---------------------------------------------------------------------------
+// Fast PublicKey decode (perf, J-20261122-SDK-PERF-NFTPARSEDECODE)
+// ---------------------------------------------------------------------------
+//
+// `new PublicKey(data.subarray(o, o + 32))` was ~30% of the parse profile: a subarray view, the Struct
+// and PublicKey constructors, bn.js's generic `_initArray` (which reads one byte past the start of the
+// view on every 32-byte key) and a redundant `byteLength() > 32` check. `pubkeyAt` builds the identical
+// object directly: a PublicKey whose only own property is `_bn`, a bn.js BN with the same `words` /
+// `length` / `negative` / `red` that `new BN(bytes)` (big-endian, 26-bit words) produces.
+//
+// It depends on bn.js internals, so it is self-checked once at load against `new PublicKey(bytes)` on
+// fixed patterns; if anything differs (a future web3.js / bn.js), every call falls back to the
+// constructor. test/nft-parse-identity.test.ts deep-equals the old and new parser on 5,000 buffers.
+
+type BnCtor = new (n: null) => { words: number[] | null; length: number };
+/** The BN class web3.js itself uses; read inside the self-check so a partial web3.js mock cannot break import. */
+let BN_CTOR: BnCtor;
+
+function pubkeyAtFast(data: Uint8Array, start: number): PublicKey {
+  // Same algorithm as bn.js `_initArray(bytes, 10, "be")` for a 32-byte input: 11 words of 26 bits.
+  const words: number[] = new Array(11);
+  for (let i = 0; i < 11; i++) words[i] = 0;
+  let j = 0;
+  let off = 0;
+  for (let i = start + 31; i >= start; i -= 3) {
+    // At i === start + 1 the third byte is before the key (bn.js reads `undefined` there, i.e. 0).
+    const w = data[i] | (data[i - 1] << 8) | (i - 2 >= start ? data[i - 2] << 16 : 0);
+    words[j] |= (w << off) & 0x3ffffff;
+    words[j + 1] = (w >>> (26 - off)) & 0x3ffffff;
+    off += 24;
+    if (off >= 26) {
+      off -= 26;
+      j++;
+    }
+  }
+  let length = 11;
+  while (length > 1 && words[length - 1] === 0) length--;
+  const bn = new BN_CTOR(null); // negative = 0, red = null; skips _init
+  bn.words = words;
+  bn.length = length;
+  const key = Object.create(PublicKey.prototype) as PublicKey & { _bn: unknown };
+  key._bn = bn;
+  return key;
+}
+
+function pubkeyAtSlow(data: Uint8Array, start: number): PublicKey {
+  return new PublicKey(data.subarray(start, start + 32));
+}
+
+function fastPubkeyMatchesConstructor(): boolean {
+  try {
+    BN_CTOR = (PublicKey.default as unknown as { _bn: { constructor: BnCtor } })._bn.constructor;
+    const patterns: Uint8Array[] = [new Uint8Array(32), new Uint8Array(32).fill(0xff)];
+    for (let s = 1; s <= 6; s++) {
+      const p = new Uint8Array(32);
+      for (let i = 0; i < 32; i++) p[i] = (i * 73 + s * 151) & 0xff;
+      for (let z = 0; z < s * 5 && z < 32; z++) p[z] = 0; // leading zeros exercise the strip
+      patterns.push(p);
+    }
+    const host = new Uint8Array(34);
+    for (const p of patterns) {
+      host.fill(0xa5);
+      host.set(p, 1); // non-zero byte before and after: the fast path must not read outside the key
+      const a = pubkeyAtFast(host, 1) as unknown as { _bn: { words: number[]; length: number; negative: number; red: unknown } };
+      const b = new PublicKey(p) as unknown as { _bn: { words: number[]; length: number; negative: number; red: unknown } };
+      if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
+      if (Object.keys(a).join() !== Object.keys(b).join()) return false;
+      if (Object.getPrototypeOf(a._bn) !== Object.getPrototypeOf(b._bn)) return false;
+      if (Object.keys(a._bn).join() !== Object.keys(b._bn).join()) return false;
+      if (a._bn.length !== b._bn.length || a._bn.negative !== b._bn.negative || a._bn.red !== b._bn.red) return false;
+      if (a._bn.words.length !== b._bn.words.length) return false;
+      for (let i = 0; i < b._bn.words.length; i++) if (a._bn.words[i] !== b._bn.words[i]) return false;
+      if ((a as unknown as PublicKey).toBase58() !== (b as unknown as PublicKey).toBase58()) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Decode the 32-byte public key at `data[start .. start + 32)`. Identical to `new PublicKey(subarray)`. */
+const pubkeyAt: (data: Uint8Array, start: number) => PublicKey = fastPubkeyMatchesConstructor()
+  ? pubkeyAtFast
+  : pubkeyAtSlow;
 
 /**
  * Parse a PositionNft account from raw bytes.
@@ -561,13 +642,13 @@ export function parsePositionNftAccount(data: Uint8Array): PositionNftState {
     );
   }
 
-  const positionOwnerAtMint = new PublicKey(data.subarray(127, 159));
+  const positionOwnerAtMint = pubkeyAt(data, 127);
 
   return {
     version,
     bump: data[9],
-    portfolioAccount: new PublicKey(data.subarray(10, 42)),
-    nftMint: new PublicKey(data.subarray(42, 74)),
+    portfolioAccount: pubkeyAt(data, 10),
+    nftMint: pubkeyAt(data, 42),
     assetIndex: view.getUint32(74, true),
     sideAtMint: data[78],
     basisPosQAtMint: readI128FromView(view, 79),
@@ -577,8 +658,8 @@ export function parsePositionNftAccount(data: Uint8Array): PositionNftState {
     positionOwnerAtMint,
     positionOwner: positionOwnerAtMint,
     mintedAt: view.getBigInt64(159, true),
-    lastHolder: new PublicKey(data.subarray(167, 199)),
-    portfolioMarketGroup: isLegacyV2 ? null : new PublicKey(data.subarray(199, 231)),
+    lastHolder: pubkeyAt(data, 167),
+    portfolioMarketGroup: isLegacyV2 ? null : pubkeyAt(data, 199),
     portfolioIdAtMint: isLegacyV2 ? null : view.getBigUint64(231, true),
     isLegacyV2,
   };
