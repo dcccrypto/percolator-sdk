@@ -879,10 +879,14 @@ export function collateralDecimalsOf(storedP1: number): number {
   return storedP1 === 0 ? 6 : storedP1 - 1;
 }
 
-/** `whole_token_atoms`: `10^decimals` (decimals clamped to 18). */
+/** `whole_token_atoms`: `10^decimals` (decimals clamped to GROWTH_MAX_COLLATERAL_DECIMALS = 12). */
 export function wholeTokenAtoms(decimals: number): bigint {
-  return 10n ** BigInt(Math.min(Math.max(decimals, 0), GROWTH_MAX_COLLATERAL_DECIMALS));
+  const d = Math.min(Math.max(decimals, 0), GROWTH_MAX_COLLATERAL_DECIMALS);
+  const p = POW10_ATOMS[d];
+  return p !== undefined ? p : 10n ** BigInt(d); // non-integer / NaN: the original BigInt() throw
 }
+/** `10n ** d` for d = 0..GROWTH_MAX_COLLATERAL_DECIMALS (perf: wholeTokenAtoms runs several times per growthCeilingView). */
+const POW10_ATOMS: readonly bigint[] = Array.from({ length: GROWTH_MAX_COLLATERAL_DECIMALS + 1 }, (_, i) => 10n ** BigInt(i));
 
 /** `DEPTH_RISE_STAMP_SLOTS`: the unit of the stored last-rise stamp (64 slots). */
 export const DEPTH_RISE_STAMP_SLOTS = 64n;
@@ -1616,7 +1620,7 @@ export const LOG2_FRAC_BITS = 16;
 /** `CURVE_ANCHOR0_DIV`: the implicit anchor 0 sits at `T1 / 4` and carries the tier-0 value of each table (launch, κ 0.5, λ 1x). */
 export const CURVE_ANCHOR0_DIV = 4n;
 
-const TWO_32 = 1n << 32n;
+const TWO_32 = 4_294_967_296; // 2^32 (log2Q16 runs on Numbers)
 
 /**
  * Fixed-point `log2(x)` in Q.16: `(floor(log2 x) << 16) | 16 fractional bits`, `null` for 0 (and, fail closed, for anything outside u64).
@@ -1634,15 +1638,21 @@ const TWO_32 = 1n << 32n;
  */
 export function log2Q16(x: bigint): number | null {
   if (x <= 0n || x > U64_MAX) return null;
-  const k = x.toString(2).length - 1; // 63 - leading_zeros
-  let m = k >= 31 ? x >> BigInt(k - 31) : x << BigInt(31 - k);
+  // The same integer algorithm on Numbers (perf: no per-step bigint). k = 63 - leading_zeros from the two 32-bit words.
+  const hi = Number(x >> 32n);
+  const k = hi !== 0 ? 63 - Math.clz32(hi) : 31 - Math.clz32(Number(x));
+  let m = Number(k >= 31 ? x >> BigInt(k - 31) : x << BigInt(31 - k)); // m in [2^31, 2^32)
   let frac = 0;
   for (let i = 0; i < LOG2_FRAC_BITS; i++) {
-    m = (m * m) >> 31n; // m < 2^32, so m * m < 2^64 (the Rust wrapping_mul never wraps)
+    // m = (m * m) >> 31 exactly (m * m < 2^64, so the Rust wrapping_mul never wraps): with m = a * 2^16 + b (a, b < 2^16),
+    // m * m >> 31 = 2a^2 + floor((2ab * 2^16 + b^2) / 2^31); every term is below 2^50, exact in a double.
+    const a = Math.floor(m / 65_536);
+    const b = m - a * 65_536;
+    m = 2 * a * a + Math.floor((2 * a * b * 65_536 + b * b) / 2_147_483_648);
     frac <<= 1;
     if (m >= TWO_32) {
       frac |= 1;
-      m >>= 1n;
+      m = Math.floor(m / 2);
     }
   }
   return k * 65_536 + frac;
@@ -1673,6 +1683,19 @@ export interface CurvePos {
   den: number;
 }
 
+/**
+ * {@link log2Q16} of a curve anchor (T1/4, T1, T2, T3, 4*T3): per-market constants, so memoised (perf). Bounded: cleared at 256 entries.
+ */
+const LOG2_ANCHOR_CACHE = new Map<bigint, number | null>();
+function log2Anchor(x: bigint): number | null {
+  const c = LOG2_ANCHOR_CACHE.get(x);
+  if (c !== undefined) return c;
+  const v = log2Q16(x);
+  if (LOG2_ANCHOR_CACHE.size >= 256) LOG2_ANCHOR_CACHE.clear();
+  LOG2_ANCHOR_CACHE.set(x, v);
+  return v;
+}
+
 /** `CURVE_POS_FAIL`: a failed computation; {@link curveValue} reads `t[0]` (launch, κ 0.5, λ 1x). */
 export const CURVE_POS_FAIL: Readonly<CurvePos> = Object.freeze({ seg: 0xff, num: 0, den: 0 });
 
@@ -1701,8 +1724,8 @@ export function curvePos(d: bigint, thresholdsE6: Triple<bigint>): CurvePos {
   const hi = a[seg] as bigint;
   if (hi === U64_MAX || hi <= lo) return { seg, num: 0, den: 0 };
   const ld = log2Q16(d);
-  const llo = log2Q16(lo);
-  const lhi = log2Q16(hi);
+  const llo = log2Anchor(lo);
+  const lhi = log2Anchor(hi);
   if (ld === null || llo === null || lhi === null) return { ...CURVE_POS_FAIL };
   const num = ld - llo;
   const den = lhi - llo;
@@ -1788,8 +1811,8 @@ export function curvePosLag(lead: CurvePos, d: bigint, thresholdsE6: Triple<bigi
       if (hi === U64_MAX || hi <= lo) return { seg: 3, num: 0, den: 0 };
       if (d >= hi) return { seg: 4, num: 0, den: 0 };
       const ld = log2Q16(d);
-      const llo = log2Q16(lo);
-      const lhi = log2Q16(hi);
+      const llo = log2Anchor(lo);
+      const lhi = log2Anchor(hi);
       if (ld === null || llo === null || lhi === null) return { ...CURVE_POS_FAIL };
       const num = ld - llo;
       const den = lhi - llo;
