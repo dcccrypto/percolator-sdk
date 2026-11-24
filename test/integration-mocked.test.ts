@@ -1133,7 +1133,6 @@ describe("v17 wrapper config fee/share fields through discoverMarkets (sentinel 
     u16(560, 1_100);    // creatorShareBps
     u16(562, 2_200);    // lpShareBps
     u16(564, 3_300);    // insuranceShareBps
-    u16(566, 0);        // _padding_split stays zero
     u64(568, 12_345n);  // creatorFeeClaimableAtoms
     return { ...base, account: { ...base.account, data } };
   }
@@ -1179,8 +1178,7 @@ describe("discovery tier filters on a mixed-layout program", () => {
 
   it("sequential mode finds the same two markets", async () => {
     const markets = await discoverMarkets(conn(mixed()), PROGRAM_ID, { sequential: true, interTierDelayMs: 0, rateLimitBackoffMs: [0, 0] });
-    expect(markets).toHaveLength(2);
-    expect(markets.some(m => m.slabAddress.equals(SLAB_KEY))).toBe(true);
+    expect(markets.map(m => m.slabAddress.toBase58()).sort()).toEqual([SLAB_KEY.toBase58(), fixtureAccount("market").pubkey.toBase58()].sort());
   });
 
   it("empty tier results fall back to the TALOCREP memcmp at offset 0 and still find the slab", async () => {
@@ -1214,6 +1212,7 @@ describe("ADL ranking across sides, LPs and zero capital", () => {
 
   it("ranks shorts descending, merges sides by pnlPct, skips LPs, treats capital=0 as 0 bps", () => {
     const r = rankAdlPositions(slab);
+    expect(r.longs.map(p => [p.idx, p.adlRank])).toEqual([[0, 0], [4, 1]]);
     expect(r.shorts.map(p => [p.idx, p.adlRank])).toEqual([[1, 0], [2, 1]]);
     expect(r.ranked.map(p => p.idx)).toEqual([1, 2, 0, 4]);
     expect(r.ranked.find(p => p.idx === 4)!.pnlPct).toBe(0n);
