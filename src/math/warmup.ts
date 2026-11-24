@@ -106,7 +106,8 @@ export function computeWarmupLeverageCap(
  * @param currentSlot        - The current on-chain slot.
  * @param warmupStartSlot    - Slot at which warmup started (0 = not started).
  * @param warmupPeriodSlots  - Total slots in the warmup period.
- * @returns Maximum position size in native units.
+ * @returns Maximum position size in native units (never negative; 0 when
+ *          capital is zero or negative).
  */
 export function computeWarmupMaxPositionSize(
   initialMarginBps: bigint,
@@ -122,5 +123,9 @@ export function computeWarmupMaxPositionSize(
     warmupStartSlot,
     warmupPeriodSlots,
   );
+  // computeWarmupUnlockedCapital passes non-positive capital straight through
+  // when warmup is off or not started. The program needs equity >= 0 for any
+  // new position, so the cap is 0 there, never a negative (short) size.
+  if (unlocked <= 0n) return 0n;
   return unlocked * maxLev;
 }

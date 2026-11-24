@@ -67,7 +67,7 @@ describe("warmup property: SDK vs reference model", () => {
       const l = computeWarmupLeverageCap(im, total, now, start, h);
       const m = computeWarmupMaxPositionSize(im, total, now, start, h);
       const ru = refUnlocked(total, now, start, h);
-      if (u !== ru || BigInt(l) !== refLev(im, total, now, start, h) || m !== ru * (10000n / im)) {
+      if (u !== ru || BigInt(l) !== refLev(im, total, now, start, h) || m !== (ru > 0n ? ru : 0n) * (10000n / im)) {
         mismatches++;
         if (!first) first = JSON.stringify({ total: String(total), now: String(now), start: String(start), h: String(h), im: String(im) });
       }
