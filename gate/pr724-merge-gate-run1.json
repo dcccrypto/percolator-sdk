@@ -1,0 +1,104 @@
+{
+ "tool": "merge-gate",
+ "version": "1.0",
+ "verdict": "FAIL",
+ "repo": "dcccrypto/percolator-sdk",
+ "pr": 724,
+ "expect_head": "5dc536ea8dcfb5374c8e9cc43a79fbb296096eb1",
+ "checks": {
+  "1": {
+   "result": "PASS",
+   "evidence": "fresh worktree /Users/khubair/agent-work/percolator-sdk.gate-pr724-head-2026-11-24T04232263-45248 @ 5dc536ea8dcf (not the author's) | `npx -y pnpm@10 run test --maxWorkers=4 --testTimeout=60000` exit 0 in 16s | 4191 passed / 0 failed / 2 skipped (vitest summary) | log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/02-head-suite.log"
+  },
+  "2": {
+   "result": "PASS",
+   "evidence": "`node --test /Users/khubair/agent-work/wt/J-20261124-SDK-GATE-PR724/gate/pr724-fail-before.test.mjs` | before (src package.json @ base tip 17393f87c9ac): exit 1, 2 passed/1 failed | after (head 5dc536ea8dcf): exit 0, 3 passed/0 failed | logs /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/03-fail-before.log, /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/04-pass-after.log"
+  },
+  "3": {
+   "result": "FAIL",
+   "evidence": "FAIL: head coverage unreadable (no coverage summary (exit 0, log n/a)) || head suite exit 0: 4191 passed / 0 failed | NOTE: PR edits the test config, so base/head coverage scopes may differ"
+  },
+  "4": {
+   "result": "PASS",
+   "evidence": "/Users/khubair/agent-work/wt/J-20261124-SDK-GATE-PR724/gate/pr724-review.txt | head 5dc536ea8dcfb5374c8e9cc43a79fbb296096eb1 | verdict APPROVE | findings {\"low\":1,\"nit\":1}"
+  },
+  "5": {
+   "result": "PASS",
+   "evidence": "https://github.com/dcccrypto/percolator-sdk/pull/724 | head 5dc536ea8dcf (expected 5dc536ea8dcfb5374c8e9cc43a79fbb296096eb1) | base feat/v22-sdk-growth@2f2c4d307c2f (default main) | OPEN | MERGEABLE/CLEAN | CI: CodeRabbit=SUCCESS | +23/-2 in 3 files | re-verified live at end of run"
+  },
+  "6": {
+   "result": "BLOCKED",
+   "evidence": "gate did not pass: do not merge"
+  }
+ },
+ "evidence": {
+  "pr": {
+   "url": "https://github.com/dcccrypto/percolator-sdk/pull/724",
+   "title": "perf(test): run the 8 tsx pre-steps in one process, ~6x less CPU (pre-steps 42-58 s -> 8 s wall under load); same output and exit codes",
+   "head": "5dc536ea8dcfb5374c8e9cc43a79fbb296096eb1",
+   "base": "feat/v22-sdk-growth",
+   "base_sha": "2f2c4d307c2f6cb9359febf9b2d6d645804467c1",
+   "default_branch": "main",
+   "state": "OPEN",
+   "mergeable": "MERGEABLE",
+   "merge_state": "CLEAN",
+   "ci": [
+    {
+     "name": "CodeRabbit",
+     "status": "SUCCESS",
+     "conclusion": null
+    }
+   ],
+   "files": [
+    "package.json",
+    "test/tsx-steps.ts",
+    "vitest.config.ts"
+   ]
+  },
+  "changed": {
+   "tests_or_docs_only": false,
+   "docs_only": false,
+   "src_files": [
+    "package.json"
+   ],
+   "test_files": [
+    "test/tsx-steps.ts",
+    "vitest.config.ts"
+   ],
+   "doc_files": []
+  },
+  "worktrees": {
+   "head": "/Users/khubair/agent-work/percolator-sdk.gate-pr724-head-2026-11-24T04232263-45248",
+   "head_sha": "5dc536ea8dcfb5374c8e9cc43a79fbb296096eb1",
+   "base_tip": "17393f87c9acf333a11b63fd5d868f6509cf1793",
+   "merge_base": "2f2c4d307c2f6cb9359febf9b2d6d645804467c1",
+   "behind_by": 2,
+   "merge_preview": "6ef926dcf33b92c2b105d27d036b38bb703721d3",
+   "logs": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248"
+  },
+  "repo_type": {
+   "kind": "vitest",
+   "pm": "pnpm",
+   "pnpm": "npx -y pnpm@10",
+   "prog": false,
+   "test_cmd": "npx -y pnpm@10 run test --maxWorkers=4 --testTimeout=60000",
+   "cov_cmd": "npx -y pnpm@10 exec vitest run --maxWorkers=4 --testTimeout=60000 --coverage.enabled=true --coverage.provider=v8 --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reportsDirectory=__COVDIR__",
+   "coverage_na": null
+  },
+  "coverage": {
+   "base": {
+    "error": "no coverage summary (exit 0, log n/a)"
+   },
+   "head": {
+    "error": "no coverage summary (exit 0, log n/a)"
+   },
+   "base_sha": "17393f87c9acf333a11b63fd5d868f6509cf1793",
+   "note": null
+  }
+ },
+ "merge_cmd": null,
+ "ledger_template": "- 2026-11-24T04:33Z MERGED dcccrypto/percolator-sdk#724 \"perf(test): run the 8 tsx pre-steps in one process, ~6x less CPU (pre-steps 42-58 s -> 8 s wall under load); same output and exit codes\" into feat/v22-sdk-growth: head 5dc536ea8dcf -> merge <MERGE_SHA>. Gate PASS (/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/result.json). Revert: git -C ~/agent-work/percolator-sdk fetch origin feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk switch -c revert-pr724 origin/feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk revert -m1 <MERGE_SHA> (then PR revert-pr724 into feat/v22-sdk-growth)",
+ "revert_cmd": "git revert -m1 <MERGE_SHA>",
+ "logs": "/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248",
+ "at": "2026-11-24T04:33:50.721Z"
+}

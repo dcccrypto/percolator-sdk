@@ -1,0 +1,47 @@
+[gate] head-install: exit 0 in 1s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/01-head-install.log
+[gate] lock-skip: 2026-11-24T04:23:30.511Z percolator-sdk#724 head 5dc536ea head-suite no skip: load 3.09/cpu >= 1.8; normal locked path
+[gate] waiting for /tmp/agent-full-suite-percolator-sdk.lock: older gate pid 39288 is ahead (FIFO)
+2026-11-24T04:28:30.645Z [gate] head-suite: waited 5 min for agent-full-suite-percolator-sdk.lock; queue position 2; holder: none (free; older gate ahead)
+[gate] lock wait 9 min credited back; total waited 9 min; deadline now 2026-11-24T05:32:37.895Z
+[gate] head-suite: exit 0 in 16s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/02-head-suite.log
+[gate] lock-skip: 2026-11-24T04:33:02.105Z percolator-sdk#724 head 5dc536ea head-coverage no skip: load 2.38/cpu >= 1.8; normal locked path
+[gate] lane percolator-sdk: load 2.38/cpu >= 2.0, waiting (max 15 min)
+[gate] lock wait for /tmp/agent-full-suite-percolator-sdk.lock (head-coverage) exceeded 10 min (total lock waits over 10 min); skipping local suite and relying on CI
+[gate] lock wait 1 min credited back; total waited 10 min; deadline now 2026-11-24T05:33:22.914Z
+2026-11-24T04:33:47.124Z [gate] head-coverage GIVE-UP-CI: waited 1 min for agent-full-suite-percolator-sdk.lock; queue position 1; holder: none (free; older gate ahead)
+[gate] lock-skip: 2026-11-24T04:33:47.124Z percolator-sdk#724 head 5dc536ea head-coverage SKIP lock: waited 1 min; relying on CI (not a code failure)
+[gate] fail-before: exit 1 in 1s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/03-fail-before.log
+[gate] pass-after: exit 0 in 1s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/04-pass-after.log
+[gate] base-install: exit 0 in 1s  log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/05-base-install.log
+[gate] lock-skip: 2026-11-24T04:33:50.178Z percolator-sdk#724 head 5dc536ea base-coverage no skip: load 2.10/cpu >= 1.8; normal locked path
+[gate] lock wait for /tmp/agent-full-suite-percolator-sdk.lock (base-coverage) exceeded 10 min (total lock waits over 10 min); skipping local suite and relying on CI
+[gate] lock wait 0 min credited back; total waited 10 min; deadline now 2026-11-24T05:33:22.914Z
+2026-11-24T04:33:50.178Z [gate] base-coverage GIVE-UP-CI: waited 0 min for agent-full-suite-percolator-sdk.lock; queue position 1; holder: none (free; older gate ahead)
+[gate] lock-skip: 2026-11-24T04:33:50.178Z percolator-sdk#724 head 5dc536ea base-coverage SKIP lock: waited 0 min; relying on CI (not a code failure)
+
+MERGE GATE FAIL  dcccrypto/percolator-sdk#724  head 5dc536ea8dcf  base feat/v22-sdk-growth  (2026-11-24T04:33:50.720Z)
++-----+----------------------------------------------+----------+
+| #   | Check                                        | Result   |
++-----+----------------------------------------------+----------+
+| 1   | Independent rerun (fresh worktree @ head)    | PASS     |
+| 2   | New test fails before / passes after         | PASS     |
+| 3   | Full suite passes + coverage not down        | FAIL     |
+| 4   | Fresh AI review: no high/medium              | PASS     |
+| 5   | Live PR state (gh)                           | PASS     |
+| 6   | Merge logged with revert                     | BLOCKED  |
++-----+----------------------------------------------+----------+
+Evidence:
+  [1] fresh worktree /Users/khubair/agent-work/percolator-sdk.gate-pr724-head-2026-11-24T04232263-45248 @ 5dc536ea8dcf (not the author's) | `npx -y pnpm@10 run test --maxWorkers=4 --testTimeout=60000` exit 0 in 16s | 4191 passed / 0 failed / 2 skipped (vitest summary) | log /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/02-head-suite.log
+  [2] `node --test /Users/khubair/agent-work/wt/J-20261124-SDK-GATE-PR724/gate/pr724-fail-before.test.mjs` | before (src package.json @ base tip 17393f87c9ac): exit 1, 2 passed/1 failed | after (head 5dc536ea8dcf): exit 0, 3 passed/0 failed | logs /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/03-fail-before.log, /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/04-pass-after.log
+  [3] FAIL: head coverage unreadable (no coverage summary (exit 0, log n/a)) || head suite exit 0: 4191 passed / 0 failed | NOTE: PR edits the test config, so base/head coverage scopes may differ
+  [4] /Users/khubair/agent-work/wt/J-20261124-SDK-GATE-PR724/gate/pr724-review.txt | head 5dc536ea8dcfb5374c8e9cc43a79fbb296096eb1 | verdict APPROVE | findings {"low":1,"nit":1}
+  [5] https://github.com/dcccrypto/percolator-sdk/pull/724 | head 5dc536ea8dcf (expected 5dc536ea8dcfb5374c8e9cc43a79fbb296096eb1) | base feat/v22-sdk-growth@2f2c4d307c2f (default main) | OPEN | MERGEABLE/CLEAN | CI: CodeRabbit=SUCCESS | +23/-2 in 3 files | re-verified live at end of run
+  [6] gate did not pass: do not merge
+
+Merge command: NONE (gate FAILED, do not merge)
+
+Ledger line template (check 6; use only after a gate PASS and the merge):
+  - 2026-11-24T04:33Z MERGED dcccrypto/percolator-sdk#724 "perf(test): run the 8 tsx pre-steps in one process, ~6x less CPU (pre-steps 42-58 s -> 8 s wall under load); same output and exit codes" into feat/v22-sdk-growth: head 5dc536ea8dcf -> merge <MERGE_SHA>. Gate PASS (/Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248/result.json). Revert: git -C ~/agent-work/percolator-sdk fetch origin feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk switch -c revert-pr724 origin/feat/v22-sdk-growth && git -C ~/agent-work/percolator-sdk revert -m1 <MERGE_SHA> (then PR revert-pr724 into feat/v22-sdk-growth)
+
+Logs: /Users/khubair/agent-worker/logs/gate/percolator-sdk-pr724-2026-11-24T04232263-45248
+GATE EXIT 1
