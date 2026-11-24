@@ -1,9 +1,8 @@
-import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
+import { readAdminSecretKey, requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 // Jupiter SOL -> USDC swap for admin wallet.
 // Authorized params: 0.85 SOL ExactIn, 1% slippage.
 
 import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
-import fs from 'fs';
 
 const RPC = requireRpcUrl();
 const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
@@ -15,7 +14,7 @@ const AMOUNT_LAMPORTS = 850_000_000; // 0.85 SOL
 const SLIPPAGE_BPS = 100;            // 1%
 
 const conn = new Connection(RPC, 'confirmed');
-const admin = Keypair.fromSecretKey(new Uint8Array(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, 'utf8'))));
+const admin = Keypair.fromSecretKey(new Uint8Array(readAdminSecretKey(ADMIN_KEYPAIR_PATH)));
 
 console.log(`Admin: ${admin.publicKey.toBase58()}`);
 const balLam = await conn.getBalance(admin.publicKey);

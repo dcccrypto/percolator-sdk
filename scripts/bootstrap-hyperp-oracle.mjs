@@ -1,4 +1,4 @@
-import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
+import { readAdminSecretKey, requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 // Bootstrap fix: send UpdateHyperpMark on its own (no Crank bundled) so the
 // new market's oracle picks up a fresh slot timestamp. After this lands,
 // the keeper's bundled UpdateHyperpMark+Crank tx should pass freshness check.
@@ -8,7 +8,6 @@ import {
   sendAndConfirmTransaction, ComputeBudgetProgram, SYSVAR_CLOCK_PUBKEY,
 } from '@solana/web3.js';
 import { encodeUpdateHyperpMark } from '../dist/index.js';
-import fs from 'fs';
 
 const RPC = requireRpcUrl();
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
@@ -17,7 +16,7 @@ const POOL = new PublicKey('3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv');
 const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
 
 const conn = new Connection(RPC, 'confirmed');
-const admin = Keypair.fromSecretKey(new Uint8Array(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, 'utf8'))));
+const admin = Keypair.fromSecretKey(new Uint8Array(readAdminSecretKey(ADMIN_KEYPAIR_PATH)));
 
 console.log('Sending solo UpdateHyperpMark...');
 
