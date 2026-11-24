@@ -253,6 +253,7 @@ describe("h-lock edge cases", () => {
 
 // Mutation killers for the 6 real survivors in the P2b lock-exit mutation report (M38/M47/M57/M60/M63/M65).
 // M48 (`>= end` vs `> end`) and M54 (`d < 8` on a u8) are equivalent mutants and have no killer.
+// Rust line refs: percolator-prog feat/v22-rc23-2026-10-22 @3b256d49, percolator feat/v22-engine-rc23-2026-10-22 @282d7dc2.
 describe("p2b mutation-survivor killers", () => {
   // M38: prog v16_program.rs:3405 `adl_episode_since_slot: u64`
   it("sinceSlot is read unsigned (u64 top bit)", () => {
