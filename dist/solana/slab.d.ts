@@ -53,6 +53,7 @@ export interface SlabLayout {
     hasInsuranceIsolation: boolean;
     engineInsuranceIsolatedOff: number;
     engineInsuranceIsolationBpsOff: number;
+    engineInsuranceFeeRevenueOff?: number;
     configMarkEwmaOff?: number;
 }
 export declare const ENGINE_OFF = 600;
