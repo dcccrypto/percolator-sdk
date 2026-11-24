@@ -87,4 +87,28 @@ describe("parseLpShareMetadataRecordV22 edges", () => {
     for (let i = 0; i < b.length; i++) expect(parseLpShareMetadataRecordV22(b.subarray(0, i))).toBeNull();
     expect(parseLpShareMetadataRecordV22(rec({ key: 0 }))).toBeNull();
   });
+
+  it("invalid UTF-8 in a string does not throw and decodes with U+FFFD", () => {
+    const d = rec({ name: Uint8Array.of(0x41, 0xff, 0x42) });
+    expect(() => parseLpShareMetadataRecordV22(d)).not.toThrow();
+    expect(parseLpShareMetadataRecordV22(d)!.name).toBe("A\uFFFDB");
+  });
+
+  it("a 52-byte record cut inside the mint is null without throwing, even when the rest looks like empty strings + tail", () => {
+    const d = cat(Uint8Array.of(4), new Uint8Array(32).fill(7), u32(0), u32(0), u32(0), Uint8Array.of(0, 0, 0, 0, 1)); // 1 + 32 + 19 < 65
+    expect(() => parseLpShareMetadataRecordV22(d)).not.toThrow();
+    expect(parseLpShareMetadataRecordV22(d)).toBeNull();
+  });
+
+  it("a uri whose declared length runs past the data is null even if the leftover bytes look like a tail", () => {
+    const b = rec();
+    const uriAt = 65 + 4 + 5 + 4 + 3;
+    const d = cat(b.subarray(0, uriAt), u32(20), new Uint8Array(10));
+    expect(parseLpShareMetadataRecordV22(d)).toBeNull();
+  });
+
+  it("creators option tag 2 followed by a valid-looking empty vector is null; the same bytes with tag 1 parse", () => {
+    expect(parseLpShareMetadataRecordV22(rec({ creators: { tag: 2, count: 0 } }))).toBeNull();
+    expect(parseLpShareMetadataRecordV22(rec({ creators: { tag: 1, count: 0 } }))).not.toBeNull();
+  });
 });
