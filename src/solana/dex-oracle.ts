@@ -611,6 +611,7 @@ function dlmmSquares(binStep: number, topBit: number): bigint[] {
   let t = DLMM_SQ.get(binStep);
   if (t !== undefined && t.length > topBit) return t;
   if (t === undefined) {
+    if (DLMM_SQ.size >= DLMM_SQ_MAX) dlmmEvict(DLMM_SQ.keys().next().value as number);
     t = [1_000_000_000_000_000_000n + (BigInt(binStep) * 1_000_000_000_000_000_000n) / 10_000n];
     DLMM_SQ.set(binStep, t);
   } else {
@@ -621,14 +622,18 @@ function dlmmSquares(binStep: number, topBit: number): bigint[] {
     t.push((last * last) / 1_000_000_000_000_000_000n);
   }
   dlmmSqTotalBits += dlmmTableBits(binStep, t.length);
-  // Evict oldest first, skipping the table being returned.
-  for (const [k, kt] of DLMM_SQ) {
-    if (DLMM_SQ.size <= DLMM_SQ_MAX && dlmmSqTotalBits <= DLMM_SQ_MAX_BITS) break;
-    if (k === binStep) continue;
-    dlmmSqTotalBits -= dlmmTableBits(k, kt.length);
-    DLMM_SQ.delete(k);
+  if (dlmmSqTotalBits > DLMM_SQ_MAX_BITS) {
+    // Over the byte cap: evict oldest first, skipping the table being returned.
+    for (const k of DLMM_SQ.keys()) {
+      if (dlmmSqTotalBits <= DLMM_SQ_MAX_BITS) break;
+      if (k !== binStep) dlmmEvict(k);
+    }
   }
   return t;
+}
+function dlmmEvict(binStep: number): void {
+  dlmmSqTotalBits -= dlmmTableBits(binStep, (DLMM_SQ.get(binStep) as bigint[]).length);
+  DLMM_SQ.delete(binStep);
 }
 
 /** Read a little-endian u64 from a DataView. */
