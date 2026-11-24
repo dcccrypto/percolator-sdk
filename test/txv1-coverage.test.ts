@@ -31,13 +31,13 @@ const payerKp = Keypair.fromSeed(new Uint8Array(32).fill(7));
 const payer = payerKp.publicKey;
 const PROG = new PublicKey(new Uint8Array(32).fill(9));
 
-function ix(nAccts: number, dataLen: number, seed = 1): TransactionInstruction {
+function ix(nAccts: number, dataLen: number, seed = 1, fill = 0xab): TransactionInstruction {
   const keys = Array.from({ length: nAccts }, (_, i) => ({
     pubkey: new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? seed : j === 1 ? i + 1 : 3))),
     isSigner: false,
     isWritable: i % 2 === 0,
   }));
-  return new TransactionInstruction({ programId: PROG, keys, data: Buffer.alloc(dataLen, 0xab) });
+  return new TransactionInstruction({ programId: PROG, keys, data: Buffer.alloc(dataLen, fill) });
 }
 
 const base = { payer, recentBlockhash: BH, config: { computeUnitLimit: 1000 } };
@@ -134,37 +134,39 @@ describe("txv1 measureTxBytes + packing at the byte limits", () => {
     expect(() => measureTxBytes("v1", payer, [], budget)).toThrow(/at least one instruction/);
   });
 
+  // Zero-filled payloads: bs58-encoding ~1100 non-zero bytes (done on every compile) cost 1-7 s under v8 coverage;
+  // leading zeros encode in linear time and the size arithmetic is identical.
   /** Find a data length for which the legacy tx is exactly `target` bytes. */
   function dataLenForLegacy(target: number): number {
     // 200 is in the same 2-byte shortvec length range as the ~1100-byte payload we solve for
-    const probe = measureTxBytes("legacy", payer, [ix(0, 200)], budget);
+    const probe = measureTxBytes("legacy", payer, [ix(0, 200, 1, 0)], budget);
     return 200 + (target - probe);
   }
 
   it("legacy packer accepts a single group of exactly 1232 bytes and refuses 1233", () => {
     const exactLen = dataLenForLegacy(TX_LEGACY_MAX_BYTES);
-    const exact = ix(0, exactLen);
+    const exact = ix(0, exactLen, 1, 0);
     expect(measureTxBytes("legacy", payer, [exact], budget)).toBe(TX_LEGACY_MAX_BYTES);
     const plan = packInstructionGroups([{ instructions: [exact], computeUnits: 1000 }], { format: "legacy", payer });
     expect(plan).toHaveLength(1);
     expect(plan[0]!.bytes).toBe(TX_LEGACY_MAX_BYTES);
-    const over = ix(0, exactLen + 1);
+    const over = ix(0, exactLen + 1, 1, 0);
     expect(measureTxBytes("legacy", payer, [over], budget)).toBe(TX_LEGACY_MAX_BYTES + 1);
     expect(() => packInstructionGroups([{ instructions: [over], computeUnits: 1000 }], { format: "legacy", payer })).toThrow(/does not fit/);
   });
 
   it("v0 packer has the same 1232 cap: one byte over a lone group is refused, and a third group opens a new tx", () => {
-    const probe = measureTxBytes("v0", payer, [ix(0, 200)], budget);
+    const probe = measureTxBytes("v0", payer, [ix(0, 200, 1, 0)], budget);
     const exactLen = 200 + (TX_LEGACY_MAX_BYTES - probe);
-    expect(measureTxBytes("v0", payer, [ix(0, exactLen)], budget)).toBe(TX_LEGACY_MAX_BYTES);
-    expect(() => packInstructionGroups([{ instructions: [ix(0, exactLen + 1)], computeUnits: 1000 }], { format: "v0", payer })).toThrow(/does not fit/);
+    expect(measureTxBytes("v0", payer, [ix(0, exactLen, 1, 0)], budget)).toBe(TX_LEGACY_MAX_BYTES);
+    expect(() => packInstructionGroups([{ instructions: [ix(0, exactLen + 1, 1, 0)], computeUnits: 1000 }], { format: "v0", payer })).toThrow(/does not fit/);
     // 3 x ~612 bytes: two fit together (1016), the third forces a second tx
-    const half = ix(0, 400);
+    const half = ix(0, 400, 1, 0);
     const plan = packInstructionGroups(
       [
         { instructions: [half], computeUnits: 1000 },
-        { instructions: [ix(0, 400, 2)], computeUnits: 1000 },
-        { instructions: [ix(0, 400, 3)], computeUnits: 1000 },
+        { instructions: [ix(0, 400, 2, 0)], computeUnits: 1000 },
+        { instructions: [ix(0, 400, 3, 0)], computeUnits: 1000 },
       ],
       { format: "v0", payer },
     );
