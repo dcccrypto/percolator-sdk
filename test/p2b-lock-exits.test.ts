@@ -12,6 +12,7 @@ import { PERCOLATOR_ERRORS } from "../src/abi/errors.js";
 import { assetRiskLimitsAccountOffsetP1, ASSET_RISK_LIMITS_LEN_P1 } from "../src/abi/risk-limits-p1.js";
 import { V17_MARKET_GROUP_OFF, V17_MARKET_GROUP_LEN, V17_MARKET_ASSET_SLOT_LEN } from "../src/solana/slab.js";
 import { stampMarket } from "./helpers/stamp.js";
+import { LAYOUTS_BY_VERSION } from "../src/abi/layout.js";
 
 const hex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
 
@@ -247,5 +248,53 @@ describe("h-lock edge cases", () => {
     expect(decodeBankruptcyHlock(0b1111_1111)).toEqual({ active: true, unattributed: false, domains: [0, 1, 2, 3, 4, 5, 6] });
     for (const even of [2, 4, 254]) expect(() => decodeBankruptcyHlock(even)).toThrow("bit 0 clear");
     expect(isBankruptcyHlockActive(255)).toBe(true);
+  });
+});
+
+// Mutation killers for the 6 real survivors in the P2b lock-exit mutation report (M38/M47/M57/M60/M63/M65).
+// M48 (`>= end` vs `> end`) and M54 (`d < 8` on a u8) are equivalent mutants and have no killer.
+// Rust line refs: percolator-prog feat/v22-rc23-2026-10-22 @3b256d49, percolator feat/v22-engine-rc23-2026-10-22 @282d7dc2.
+describe("p2b mutation-survivor killers", () => {
+  // M38: prog v16_program.rs:3405 `adl_episode_since_slot: u64`
+  it("sinceSlot is read unsigned (u64 top bit)", () => {
+    const rec = new Uint8Array(64);
+    new DataView(rec.buffer).setBigUint64(48, 1n << 63n, true);
+    expect(decodeAdlEpisodeRecord(rec).sinceSlot).toBe(1n << 63n);
+  });
+  // M47: prog v16_program.rs:24941 `(epoch_long as u32) ^ mix`
+  it("episode key truncates a >2^53 epoch to its low 32 bits", () => {
+    const [kl] = adlEpisodeKey(1n, (1n << 53n) + 1n, 0n);
+    expect(kl).toBe((1 ^ 0x9e3779b1) >>> 0);
+  });
+  // M57: the length guard itself, not the 64-byte record check behind it
+  it("market one byte short of asset 0's record -> 'market account too short'", () => {
+    const off = assetRiskLimitsAccountOffsetP1(0);
+    const m = stampMarket(new Uint8Array(off + 63));
+    expect(() => decodeAdlEpisode(m, 0)).toThrow("market account too short for asset 0");
+    const ok = stampMarket(new Uint8Array(off + 64));
+    expect(decodeAdlEpisode(ok, 0).effectiveMaxEpisodeSlots).toBe(9000);
+  });
+  // M60: each of 120/121/122 carries its own hint
+  it("120/121/122 hints describe their own code", () => {
+    expect(PERCOLATOR_ERRORS[120].hint).toMatch(/close-only/i);
+    expect(PERCOLATOR_ERRORS[121].hint).toMatch(/refresh/i);
+    expect(PERCOLATOR_ERRORS[122].hint).toMatch(/under-backed/i);
+    expect(PERCOLATOR_ERRORS[120].hint).not.toBe(PERCOLATOR_ERRORS[121].hint);
+  });
+  // M63: a VERSION 19 (v2.2) market uses its own slot geometry, not the v2.1 default
+  it("v2.2 (VERSION 19) market: episode read at the v2.2 asset offset", () => {
+    const L = LAYOUTS_BY_VERSION.get(19)!;
+    const m = stampMarket(new Uint8Array(L.marketGroupOff + L.marketGroupLen + 2 * L.assetSlotStride), 19);
+    const o1 = assetRiskLimitsAccountOffsetP1(1, L);
+    expect(o1).not.toBe(assetRiskLimitsAccountOffsetP1(1));
+    const v = new DataView(m.buffer);
+    v.setUint32(o1 + 44, 77, true);
+    v.setBigUint64(o1 + 48, 4242n, true);
+    expect(decodeAdlEpisode(m, 1)).toMatchObject({ maxEpisodeSlots: 77, sinceSlot: 4242n });
+  });
+  // M65: engine v16.rs:30456 `bankruptcy_hlock_is_active(wire) = wire != 0`
+  it("h-lock active iff non-zero, even for a malformed even byte", () => {
+    expect(isBankruptcyHlockActive(2)).toBe(true);
+    expect(isBankruptcyHlockActive(4)).toBe(true);
   });
 });
