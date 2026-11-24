@@ -1,4 +1,4 @@
-import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
+import { readAdminSecretKey, requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 /**
  * close-market-v3.ts
  *
@@ -24,13 +24,12 @@ import { buildIx } from '../src/runtime/tx.js';
 import { parseConfig, parseEngine, parseHeader, parseUsedIndices } from '../src/solana/slab.js';
 import { deriveVaultAuthority } from '../src/solana/pda.js';
 import { deriveKeeperFund } from './pda.mjs';
-import fs from 'fs';
 
 const RPC = requireRpcUrl();
 const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
 const conn = new Connection(RPC, 'confirmed');
 const admin = Keypair.fromSecretKey(
-  Buffer.from(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, 'utf8')))
+  Buffer.from(readAdminSecretKey(ADMIN_KEYPAIR_PATH))
 );
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
 const SLAB = new PublicKey('12o3bXwBm9TxrMboFwNN2C9nzCuuCkwBthrjV2NQobQd');
