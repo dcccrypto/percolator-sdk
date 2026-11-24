@@ -1161,6 +1161,13 @@ export interface StakePoolState {
      * `totalReturned` — see `state.rs@c5a901f` lines 133-159.
      */
     totalRecoveredFromWrapper: bigint | null;
+    /**
+     * stake v5 pools only (`version === 5`, 480 bytes): the pool's risk mode at absolute 408 (0 legacy, 1 FIRST_LOSS,
+     * 2 FEE_ONLY). `undefined` on v1..v4 pools. Pass it to {@link depositAccounts} / {@link withdrawAccounts}: a FIRST_LOSS
+     * pool takes the 14-account v5 lists. The other v5 fields (consent version, deploy target, ...) are only decoded by
+     * `decodeStakePoolV5` (v22-stake module).
+     */
+    riskMode?: 0 | 1 | 2;
 }
 /**
  * Size of StakePool on-chain (bytes) — v1 layout.
@@ -1282,7 +1289,10 @@ export declare const STAKE_POOL_CURRENT_VERSION = 4;
  * bytes, adds `total_recovered_from_wrapper: u64` at the struct tail,
  * offset 384..392 — outside `_reserved`, which stays at [320..384] in both
  * v2 and v3), and v4 (408 bytes, promoting the two #242 cooldown-timelock
- * fields out of `_reserved` into real struct fields at 392 and 400).
+ * fields out of `_reserved` into real struct fields at 392 and 400), and v5
+ * (480 bytes, version 5: the v4 prefix unchanged plus the first-loss fields
+ * from 408; this decoder reads the prefix and `riskMode` only, use
+ * `decodeStakePoolV5` for the rest).
  * The layout version is detected from the data length before reading the
  * discriminator.
  *
@@ -1309,6 +1319,25 @@ export interface StakeDepositState {
     user: PublicKey;
     lastDepositSlot: bigint;
     lpAmount: bigint;
+}
+/**
+ * Optional stake v5 routing inputs for {@link depositAccounts} / {@link withdrawAccounts}.
+ *
+ * Set `riskMode` from the pool (`decodeStakePool(..).riskMode` or `decodeStakePoolV5(..).riskMode`). `riskMode: 1`
+ * (FIRST_LOSS) switches to the 14-account v5 lists (`ACCOUNTS_STAKE_DEPOSIT_V5` / `ACCOUNTS_STAKE_WITHDRAW_V5`): the
+ * stake program CPIs the wrapper's tag-116 refresh there, and the 12 / 11-account legacy lists fail `NotEnoughAccountKeys`
+ * (devnet, 2026-11-20). FEE_ONLY (2), legacy (0) and unset keep the legacy lists, which the program accepts.
+ */
+export interface StakeV5RouteAccounts {
+    /**
+     * The pool's risk mode: 0 legacy, 1 FIRST_LOSS, 2 FEE_ONLY (typed `number` so `decodeStakePoolV5(..).riskMode` passes
+     * straight in; any other value throws). Leave unset on a v1..v4 pool.
+     */
+    riskMode?: number;
+    /** The wrapper program (`pool.percolatorProgram`). REQUIRED when `riskMode` is 1. */
+    wrapperProgram?: PublicKey;
+    /** Override for the wrapper `InsuranceUnitsV20` PDA (`["ins_units", slab]` under `wrapperProgram`); derived when unset. */
+    insuranceUnits?: PublicKey;
 }
 /**
  * Decode a StakeDeposit PDA account from raw data.
@@ -1354,7 +1383,7 @@ export interface StakeAccounts {
          * it. Sent at account index 11. v18.1 stake ignores the extra trailing account.
          */
         slab: PublicKey;
-    };
+    } & StakeV5RouteAccounts;
     /** Withdraw accounts */
     withdraw: {
         user: PublicKey;
@@ -1373,9 +1402,10 @@ export interface StakeAccounts {
          *
          * OMIT it (leave undefined) after the market has been retired by CloseSlab:
          * a CloseSlab tombstone at index 10 fails `InvalidAccount` (F-9 / #290).
+         * REQUIRED on a FIRST_LOSS pool (`riskMode: 1`): the v5 list sends it writable at [10].
          */
         slab?: PublicKey;
-    };
+    } & StakeV5RouteAccounts;
     /** AccrueFees accounts (tag 12, permissionless) */
     accrueFees: {
         /** Any signer; the program only checks `is_signer`. */
@@ -1414,36 +1444,12 @@ export declare function initPoolAccounts(a: StakeAccounts['initPool'], tokenProg
     isSigner: boolean;
     isWritable: boolean;
 }[];
-/**
- * Build account keys for the Deposit (tag 1) and DepositJunior (tag 16)
- * instructions — both share one account shape.
- *
- * 12 accounts. Index 11 is the pool's wrapper market (`pool.slab`), added by
- * percolator-stake #290 (v18.2), which rejects a mode-0 deposit without it.
- * v18.1 stake reads only the first 11 and ignores the trailing account.
- *
- * @param a - Named accounts for the Deposit instruction.
- * @param tokenProgramId - Token program. Defaults to classic SPL Token, the ONLY program the
- *   stake program accepts (#352: Token-2022 collateral is not supported; passing it throws).
- * @throws Error if `tokenProgramId` is not the classic SPL Token program.
- * @returns Account metas in the order the program parses them.
- * @example
- * ```ts
- * const pool = decodeStakePool(poolInfo.data);
- * const keys = depositAccounts({ user, pool: poolPda, userCollateralAta, vault: pool.vault,
- *   lpMint: pool.lpMint, userLpAta, vaultAuth, depositPda, slab: pool.slab });
- * new TransactionInstruction({ programId, keys, data: encodeStakeDeposit(amount) });
- * ```
- */
-export declare function depositAccounts(a: StakeAccounts['deposit'], tokenProgramId?: PublicKey): {
-    pubkey: PublicKey;
-    isSigner: boolean;
-    isWritable: boolean;
-}[];
+export declare function depositAccounts(a: StakeAccounts['deposit'], tokenProgramId?: PublicKey): import("@solana/web3.js").AccountMeta[];
 /**
  * Build account keys for DepositJunior (tag 16). Identical to
  * {@link depositAccounts}: percolator-stake documents it as "same as Deposit,
- * including the #290 wrapper market at index 11".
+ * including the #290 wrapper market at index 11". Not on a stake v5 FIRST_LOSS pool: the program refuses tag 16 there
+ * (`NotSupportedOnFirstLoss`, 41), so `riskMode: 1` throws.
  *
  * @param a - Named accounts (same shape as Deposit).
  * @param tokenProgramId - Token program. Classic SPL Token only (#352); anything else throws.
@@ -1454,11 +1460,7 @@ export declare function depositAccounts(a: StakeAccounts['deposit'], tokenProgra
  * new TransactionInstruction({ programId, keys, data: encodeStakeDepositJunior(amount) });
  * ```
  */
-export declare function depositJuniorAccounts(a: StakeAccounts['deposit'], tokenProgramId?: PublicKey): {
-    pubkey: PublicKey;
-    isSigner: boolean;
-    isWritable: boolean;
-}[];
+export declare function depositJuniorAccounts(a: StakeAccounts['deposit'], tokenProgramId?: PublicKey): import("@solana/web3.js").AccountMeta[];
 /**
  * Build account keys for Withdraw instruction.
  *
@@ -1469,22 +1471,25 @@ export declare function depositJuniorAccounts(a: StakeAccounts['deposit'], token
  * `slab` undefined: 10 accounts, because a tombstone there fails `InvalidAccount`.
  * v18.1 stake ignores the trailing account.
  *
+ * stake v5 FIRST_LOSS pools (`riskMode: 1`): 14 accounts, exactly `ACCOUNTS_STAKE_WITHDRAW_V5` (staker writable, market
+ * REQUIRED and writable at [10], `["ins_units", market]` at [11], wrapper program at [12], System program at [13]).
+ * The 11-account list fails `NotEnoughAccountKeys` there. FEE_ONLY v5 pools take the legacy list.
+ *
  * @param a - Named accounts for the Withdraw instruction.
  * @param tokenProgramId - Token program. Defaults to classic SPL Token, the ONLY program the
  *   stake program accepts (#352: Token-2022 collateral is not supported; passing it throws).
  * @throws Error if `tokenProgramId` is not the classic SPL Token program.
  * @returns Account metas in the order the program parses them.
+ * @throws Error if `riskMode` is 1 and `wrapperProgram` or `slab` is missing, or `riskMode` is not 0, 1, 2 or unset.
  * @example
  * ```ts
+ * const pool = decodeStakePool(poolInfo.data);
  * const keys = withdrawAccounts({ user, pool: poolPda, userLpAta, lpMint: pool.lpMint,
- *   vault: pool.vault, userCollateralAta, vaultAuth, depositPda, slab: pool.slab });
+ *   vault: pool.vault, userCollateralAta, vaultAuth, depositPda, slab: pool.slab,
+ *   riskMode: pool.riskMode, wrapperProgram: pool.percolatorProgram });
  * ```
  */
-export declare function withdrawAccounts(a: StakeAccounts['withdraw'], tokenProgramId?: PublicKey): {
-    pubkey: PublicKey;
-    isSigner: boolean;
-    isWritable: boolean;
-}[];
+export declare function withdrawAccounts(a: StakeAccounts['withdraw'], tokenProgramId?: PublicKey): import("@solana/web3.js").AccountMeta[];
 /**
  * Build account keys for AccrueFees (tag 12, permissionless).
  *

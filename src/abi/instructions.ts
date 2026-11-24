@@ -4831,8 +4831,17 @@ function requirePositiveU64(value: bigint | string, field: string): void {
     throw new Error(`${field} must be > 0`);
   }
 }
+/** Program mark gate (`valid_engine_oracle_price`, PushAuthMark / PushEwmaMark): 0 < mark_e6 <= MAX_ORACLE_PRICE (1e12). */
+function requireMarkE6(value: bigint | string, field: string): void {
+  requirePositiveU64(value, field);
+  const n = typeof value === "string" ? BigInt(value) : value;
+  if (n > MAX_ORACLE_PRICE_E6) {
+    throw new Error(`${field} must be <= MAX_ORACLE_PRICE (${MAX_ORACLE_PRICE_E6}), got ${n}`);
+  }
+}
+const MAX_ORACLE_PRICE_E6 = 1_000_000_000_000n;
 export function encodeConfigureEwmaMark(args: ConfigureEwmaMarkArgs): Uint8Array {
-  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
+  requireMarkE6(args.initialMarkE6, "initialMarkE6");
   requirePositiveU64(args.markEwmaHalflifeSlots, "markEwmaHalflifeSlots");
 
   return concatBytes(
@@ -4888,7 +4897,7 @@ export interface PushEwmaMarkArgs {
 }
 
 export function encodePushEwmaMark(args: PushEwmaMarkArgs): Uint8Array {
-  requirePositiveU64(args.markE6, "markE6");
+  requireMarkE6(args.markE6, "markE6");
 
   return concatBytes(
     encU8(IX_TAG.PushEwmaMark),
@@ -4939,7 +4948,7 @@ export interface ConfigureAuthMarkArgs {
 }
 
 export function encodeConfigureAuthMark(args: ConfigureAuthMarkArgs): Uint8Array {
-  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
+  requireMarkE6(args.initialMarkE6, "initialMarkE6");
 
   return concatBytes(
     encU8(IX_TAG.ConfigureAuthMark),
@@ -5004,7 +5013,7 @@ export const PUSH_AUTH_MARK_LEN = 35;
 export const PUSH_AUTH_MARK_DEPTH_LEN = 44;
 
 export function encodePushAuthMark(args: PushAuthMarkArgs): Uint8Array {
-  requirePositiveU64(args.markE6, "markE6");
+  requireMarkE6(args.markE6, "markE6");
   const head = concatBytes(
     encU8(IX_TAG.PushAuthMark),
     encU16(args.assetIndex),

@@ -54,9 +54,9 @@ export declare function getErrorName(code: number): string;
  */
 export declare function getErrorHint(code: number): string | undefined;
 /** Which program a custom error was attributed to. */
-export type ErrorProgramKind = "wrapper" | "stake" | "nft" | "matcher" | "token" | "unknown";
+export type ErrorProgramKind = "wrapper" | "stake" | "nft" | "matcher" | "token" | "system" | "unknown";
 /** Program ids to attribute errors to, in addition to the SDK's known deployments. */
-export type ErrorProgramIds = Partial<Record<Exclude<ErrorProgramKind, "token" | "unknown">, readonly (PublicKey | string)[]>>;
+export type ErrorProgramIds = Partial<Record<Exclude<ErrorProgramKind, "token" | "system" | "unknown">, readonly (PublicKey | string)[]>>;
 /**
  * What the caller was doing, so a code with several meanings can get the right line.
  * `openLegs` is the number of open positions on the account (e.g. from parsePortfolioV17).
@@ -114,7 +114,8 @@ export declare function getContextualErrorHint(code: number, context?: ErrorCont
  * The FIRST `Program <id> failed: custom program error: 0x..` line is used (the innermost failing
  * program of a CPI chain). The id on that line selects the error table: the wrapper's
  * (PERCOLATOR_ERRORS), the stake program's (STAKE_ERRORS + STAKE_ERRORS_V5), the NFT program's
- * (NFT_ERRORS), the matcher's (MATCHER_V2_ERRORS) or SPL Token's. Ids are the SDK's known
+ * (NFT_ERRORS), the matcher's (MATCHER_V2_ERRORS), SPL Token's or the System program's
+ * (SYSTEM_PROGRAM_ERRORS). Ids are the SDK's known
  * deployments (devnet v2.2 / v1, mainnet) plus `opts.programIds`. A program the SDK does not know,
  * or a log line without an id, falls back to the wrapper table (the legacy behaviour) and is
  * reported as `program: "unknown"`.

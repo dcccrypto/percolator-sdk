@@ -14,9 +14,23 @@ import { parseChainlinkPrice } from "../src/solana/oracle.js";
 
 const NOW = 1_800_000_000;
 
+// Header fields the program checks (percolator-prog rc23 read_chainlink_price_e12,
+// v16_program.rs:12799-12816): discriminator, version, latest_round_id,
+// live_length == 1, transmission slot.
+const CL_DISC = [96, 179, 69, 66, 128, 129, 73, 117];
+function writeHeader(b: Uint8Array): void {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  b.set(CL_DISC, 0);
+  b[8] = 1; // version
+  dv.setUint32(143, 1, true); // latest_round_id
+  dv.setUint32(148, 1, true); // live_length
+  dv.setBigUint64(200, 1n, true); // transmission slot
+}
+
 function feed(ts: number): Uint8Array {
   const b = new Uint8Array(248);
   const dv = new DataView(b.buffer);
+  writeHeader(b);
   b[138] = 8;
   dv.setUint32(208, ts, true);
   dv.setBigUint64(216, 100_000_000n, true);
