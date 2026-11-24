@@ -26,6 +26,7 @@ import {
 } from "./slab.js";
 import { getStaticMarkets, type StaticMarketEntry } from "./static-markets.js";
 import { type Network } from "../config/program-ids.js";
+import { redactUrl } from "./redact-url.js";
 
 /** V1 bitmap offset within engine struct (updated for PERC-120/121/122 struct changes) */
 const ENGINE_BITMAP_OFF = 656; // Updated for PERC-299 (608 + 24 emergency OI fields)
@@ -37,7 +38,7 @@ const ENGINE_BITMAP_OFF_V0 = 320;
  */
 export interface DiscoveredMarket {
   slabAddress: PublicKey;
-  /** v17-line markets: the wrapper VERSION (18 = v2.1, 19 = v2.2); decode with `LAYOUTS_BY_VERSION.get(wrapperVersion)`. */
+  /** v17-line markets: the wrapper VERSION (18 = v2.1, 19 = v2.2); decode market bytes with `resolveMarketGeometry` (VERSION 19 has two header lengths; `LAYOUTS_BY_VERSION.get(19)` is only the default row). */
   wrapperVersion?: number;
   /** The program that owns this slab account */
   programId: PublicKey;
@@ -129,14 +130,13 @@ export const SLAB_TIERS_V0 = {
 } as const;
 
 /**
- * V1D slab sizes — actually-deployed devnet V1 program (ENGINE_OFF=424, BITMAP_OFF=624).
+ * V1D slab sizes — version-1 devnet program (prog f7a2e8ab + engine a235a5f2; slab.ts V1D_PRE306_*).
  * PR #1200 added V1D layout detection in slab.ts but discovery.ts ALL_TIERS was missing
  * these sizes, causing V1D slabs to fall through to the memcmp fallback with wrong dataSize
  * hints → detectSlabLayout returning null → parse failure (GH#1205).
  *
- * Sizes computed via computeSlabSize(ENGINE_OFF=424, BITMAP_OFF=624, ACCOUNT_SIZE=248, N, postBitmap=2):
- *   The V1D deployed program uses postBitmap=2 (free_head u16 only — no num_used/pad/next_account_id).
- *   This is 16 bytes smaller per tier than the SDK default (postBitmap=18). GH#1234.
+ * Sizes = computeSlabSize(ENGINE_OFF=456, BITMAP_OFF=576, ACCOUNT_SIZE=248, N, postBitmap=18), which
+ *   equals the older (424, 624, postBitmap=2) model GH#1234 used. 16 bytes smaller per tier than V1D legacy.
  *   micro  =  17,064  (64 slots)
  *   small  =  65,088  (256 slots)
  *   medium = 257,184  (1,024 slots)
@@ -1210,7 +1210,7 @@ export async function discoverMarketsViaApi(
 
   if (!response.ok) {
     throw new Error(
-      `[discoverMarketsViaApi] API returned ${response.status} ${response.statusText} from ${url}`,
+      `[discoverMarketsViaApi] API returned ${response.status} ${response.statusText} from ${redactUrl(url)}`,
     );
   }
 

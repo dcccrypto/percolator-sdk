@@ -88,7 +88,7 @@ export declare const ASSET_VAULT_LP_P2B_FLAGS_OFF_P3 = 91;
  * `MARKET_GROUP_OFF + MARKET_GROUP_LEN + i·MARKET_ASSET_SLOT_LEN + 896` (= 2246 + 2325·i).
  *
  * @param assetIndex  Asset slot index.
- * @param layout      Layout table of the account's VERSION (default {@link LAYOUT_V21}; pass `LAYOUT_V22` for v2.2).
+ * @param layout      Layout table of the account (default {@link LAYOUT_V21}). For a v2.2 market pass `resolveMarketGeometry(data).layout`: VERSION 19 has two header lengths (806 / 790).
  * @returns Byte offset.
  * @example
  * ```ts

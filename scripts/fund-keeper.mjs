@@ -1,10 +1,9 @@
-import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
+import { readAdminSecretKey, requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 // Authorized one-shot SOL transfer: admin -> keeper wallet, 0.2 SOL.
 import {
   Connection, Keypair, PublicKey, Transaction,
   SystemProgram, sendAndConfirmTransaction,
 } from '@solana/web3.js';
-import fs from 'fs';
 
 const RPC = requireRpcUrl();
 const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
@@ -12,7 +11,7 @@ const KEEPER_PUBKEY = new PublicKey('8y7sXswvGo6fWa4daCnxaE3znaFoBs6QJXLTzCLYXot
 const AMOUNT_LAMPORTS = 200_000_000; // 0.2 SOL
 
 const conn = new Connection(RPC, 'confirmed');
-const admin = Keypair.fromSecretKey(new Uint8Array(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, 'utf8'))));
+const admin = Keypair.fromSecretKey(new Uint8Array(readAdminSecretKey(ADMIN_KEYPAIR_PATH)));
 
 console.log(`Admin:  ${admin.publicKey.toBase58()}`);
 console.log(`Keeper: ${KEEPER_PUBKEY.toBase58()}`);

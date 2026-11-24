@@ -30,7 +30,7 @@ describe("checkRpcHealth response branches", () => {
   it("reports HTTP status when response is not ok", async () => {
     mockFetch(async () => ({ ok: false, status: 503 }));
     const r = await checkRpcHealth(URL_A);
-    expect(r).toMatchObject({ endpoint: URL_A, healthy: false, slot: 0, error: "HTTP 503" });
+    expect(r).toMatchObject({ endpoint: `${URL_A}/`, healthy: false, slot: 0, error: "HTTP 503" }); // redactUrl-normalised
   });
 
   it("surfaces the JSON-RPC error message", async () => {

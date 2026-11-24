@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   recoverTerminalInsuranceAccounts, adminCloseSlabAccounts, initPoolAccounts, depositAccounts, depositJuniorAccounts,
   withdrawAccounts, accrueFeesAccounts, bindInsuranceAuthorityAccounts, rotateInsuranceAccounts, burnAssetAdminAccounts,
@@ -22,12 +23,14 @@ const S = pk();
 type M = { pubkey: PublicKey; isSigner: boolean; isWritable: boolean };
 /** [name, signer, writable] per index. */
 type Spec = ReadonlyArray<readonly [string, boolean, boolean]>;
+/** A "token" row is always the classic SPL Token program (verify_token_program, processor.rs:4153 / 4492). */
 function pin(keys: M[], spec: Spec, named: Record<string, PublicKey>) {
+  const keyed: Record<string, PublicKey> = { token: TOKEN_PROGRAM_ID, ...named };
   expect(keys.length).toBe(spec.length);
   spec.forEach(([name, s, w], i) => {
     expect(keys[i]!.isSigner, `${name}[${i}] signer`).toBe(s);
     expect(keys[i]!.isWritable, `${name}[${i}] writable`).toBe(w);
-    if (named[name]) expect(keys[i]!.pubkey.toBase58(), `${name}[${i}] key`).toBe(named[name]!.toBase58());
+    if (keyed[name]) expect(keys[i]!.pubkey.toBase58(), `${name}[${i}] key`).toBe(keyed[name]!.toBase58());
   });
 }
 
@@ -39,6 +42,11 @@ describe("tag 29 RecoverTerminalInsurance (processor.rs:4139-4151, 4224-4260)", 
     pin(recoverTerminalInsuranceAccounts({ ...base, riskMode: 0 }), head, base);
     const stray = pk();
     pin(recoverTerminalInsuranceAccounts({ ...base, stray }), [...head, ["stray", false, true]], { stray });
+  });
+  it("legacy: refuses insuranceUnits and creatorToken (units on a legacy pool hit IllegalOwner, processor.rs:4240-4243)", () => {
+    expect(() => recoverTerminalInsuranceAccounts({ ...base, riskMode: 0, insuranceUnits: pk(), creatorToken: pk() })).toThrow(/legacy/);
+    expect(() => recoverTerminalInsuranceAccounts({ ...base, riskMode: 0, insuranceUnits: pk() })).toThrow(/legacy/);
+    expect(() => recoverTerminalInsuranceAccounts({ ...base, riskMode: 0, creatorToken: pk() })).toThrow(/legacy/);
   });
   it("FIRST_LOSS: [9] units (w) [10] creator (w) [11] stray (w); refuses a short list", () => {
     const insuranceUnits = pk(), creatorToken = pk(), stray = pk();
@@ -54,11 +62,15 @@ describe("tag 29 RecoverTerminalInsurance (processor.rs:4139-4151, 4224-4260)", 
     expect(() => recoverTerminalInsuranceAccounts({ ...base, riskMode: 2 })).toThrow(/creatorToken/);
     expect(() => recoverTerminalInsuranceAccounts({ ...base, riskMode: 2, creatorToken, insuranceUnits: pk() })).toThrow(/FEE_ONLY/);
   });
-  it("buildRecoverTerminalInsuranceIx forwards the tail", () => {
-    const creatorToken = pk();
-    const ix = buildRecoverTerminalInsuranceIx({ ...base, stakeProgram: S, riskMode: 2, creatorToken }, 7n);
-    expect(ix.keys).toHaveLength(10);
-    expect(ix.keys[9]!.pubkey.equals(creatorToken)).toBe(true);
+  it("buildRecoverTerminalInsuranceIx targets the stake program and forwards the exact list, tail included", () => {
+    const creatorToken = pk(), stray = pk();
+    const a = { ...base, stakeProgram: S, riskMode: 2 as const, creatorToken, stray };
+    const ix = buildRecoverTerminalInsuranceIx(a, 7n);
+    expect(ix.programId.toBase58()).toBe(S.toBase58());
+    expect(ix.keys).toHaveLength(11);
+    expect(ix.keys[10]!.pubkey.equals(creatorToken)).toBe(true);
+    const flat = (ks: M[]) => ks.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]);
+    expect(flat(ix.keys)).toEqual(flat(recoverTerminalInsuranceAccounts(a)));
   });
 });
 

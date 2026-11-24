@@ -338,10 +338,24 @@ const BAND_RENT_V22: BandRentOffsets = Object.freeze({
   vaultLp: Object.freeze({ lpNetQ: 32, flags: 90 }),
 });
 
+/**
+ * Toly's upstream engine 083a0d08 (ported to v2.2) drops the 16-byte `public_b_chunk_atoms` config field (it sat at
+ * config offset 182, right after `asset_activation_cooldown_slots`): `V16ConfigAccount` 297 -> 281 B, every config field
+ * from 182 on moves -16. Measured with `offset_of!` on engine agent/1123-layout2-percolator.
+ */
+const BAND_RENT_V22_C: BandRentOffsets = Object.freeze({
+  ...BAND_RENT_V22,
+  configLen: 281,
+  config: Object.freeze({ maxAccrualDtSlots: 118, maxPriceMoveBpsPerSlot: 142, bandBps: 233, bandMaxEpochSlots: 241, bandMaxPinSlots: 249, rentMaxE9PerSlot: 257, bandMaxPositionsPerSide: 265, bandMinLegNotional: 273 }),
+});
+
 function v22Row(o: {
   name: string; source: string; slotStride: number; engineSlotLen: number; portfolioLen: number; legStride: number;
   leg: LegOffsets; receiptOff: number; engineDiscriminator: number;
+  /** Engine header without the 16-byte `public_b_chunk_atoms` config field (upstream 083a0d08). */
+  noChunkField?: boolean;
 }): LayoutTable {
+  const d = o.noChunkField ? 16 : 0;
   return Object.freeze({
     name: o.name,
     status: "PROVISIONAL" as const,
@@ -351,15 +365,15 @@ function v22Row(o: {
     headerLen: 16,
     wrapperConfigLen: 576,
     marketGroupOff: 592,
-    marketGroupLen: 806,
+    marketGroupLen: 806 - d,
     assetSlotStride: o.slotStride,
     wrapperSlotLen: 1024,
     engineSlotLen: o.engineSlotLen,
     assetStateLen: 627,
     group: Object.freeze({
-      config: 32, maxMarketSlotsInConfig: 2, assetSlotCapacity: 329, vault: 333, insurance: 349, cTot: 365,
-      sourceInsuranceCreditReservedTotalAtoms: 493, insuranceDomainBudgetRemainingTotal: 509,
-      materializedPortfolioCount: 565, currentSlot: 661, mode: 674,
+      config: 32, maxMarketSlotsInConfig: 2, assetSlotCapacity: 329 - d, vault: 333 - d, insurance: 349 - d, cTot: 365 - d,
+      sourceInsuranceCreditReservedTotalAtoms: 493 - d, insuranceDomainBudgetRemainingTotal: 509 - d,
+      materializedPortfolioCount: 565 - d, currentSlot: 661 - d, mode: 674 - d,
     }),
     assetState: Object.freeze({ rawOracleTargetPrice: 17, effectivePrice: 25, oiEffLongQ: 289, oiEffShortQ: 305 }),
     engineSlot: Object.freeze({
@@ -384,7 +398,7 @@ function v22Row(o: {
       leg: Object.freeze(o.leg),
     }),
     accounts: STANDALONE_V22,
-    bandRent: BAND_RENT_V22,
+    bandRent: o.noChunkField ? BAND_RENT_V22_C : BAND_RENT_V22,
   });
 }
 
@@ -428,16 +442,43 @@ export const LAYOUT_V22_VARIANT_B: LayoutTable = v22Row({
   },
 });
 
-/** The named v2.2 rows. */
-export const LAYOUT_V22_ROWS = Object.freeze({ stageA: LAYOUT_V22_STAGE_A, variantB: LAYOUT_V22_VARIANT_B } as const);
+/**
+ * Wrapper VERSION 19, VARIANT C: variant B plus Toly's upstream engine 083a0d08 / prog c8ddbb6e, ported to v2.2. The public
+ * B chunk is the engine constant `PUBLIC_B_CHUNK_ATOMS` and the 16-byte `public_b_chunk_atoms` config field is gone, so the
+ * engine header is 790 B (was 806) and every header field after the config moves -16 (vault 317, insurance 333, mode 658).
+ * Slots, portfolios and the wrapper config do not move. VERSION and the engine discriminator do not change, so a variant-B
+ * market is told apart only by its length: `resolveMarketGeometry` picks variant B for an account that variant C does
+ * not tile (the two lengths never coincide), so markets created before the port still decode.
+ */
+export const LAYOUT_V22_VARIANT_C: LayoutTable = v22Row({
+  name: "v2.2 variant C (PROVISIONAL, upstream 083a0d08 layout)",
+  source: "percolator-prog agent/1123-layout2-percolator-prog on engine agent/1123-layout2-percolator (upstream 083a0d08 + c8ddbb6e)",
+  slotStride: 2661, engineSlotLen: 1637, portfolioLen: 10607, legStride: 217, receiptOff: 10409, engineDiscriminator: 20,
+  leg: LAYOUT_V22_VARIANT_B.portfolio.leg,
+  noChunkField: true,
+});
 
-/** The v2.2 layout every default uses: variant B (the launch candidate). Swap the alias to change the default. */
-export const LAYOUT_V22: LayoutTable = LAYOUT_V22_VARIANT_B;
+/** The named v2.2 rows. */
+export const LAYOUT_V22_ROWS = Object.freeze({ stageA: LAYOUT_V22_STAGE_A, variantB: LAYOUT_V22_VARIANT_B, variantC: LAYOUT_V22_VARIANT_C } as const);
+
+/**
+ * The v2.2 layout every default uses: variant C (variant B with the 790-byte engine header of upstream 083a0d08, which
+ * the v2.2 engine and wrapper now ship). Swap the alias to change the default.
+ */
+export const LAYOUT_V22: LayoutTable = LAYOUT_V22_VARIANT_C;
 
 /** Every layout this SDK can decode, keyed on the wrapper VERSION. */
 export const LAYOUTS_BY_VERSION: ReadonlyMap<number, LayoutTable> = new Map<number, LayoutTable>([
   [LAYOUT_V21.version, LAYOUT_V21],
   [LAYOUT_V22.version, LAYOUT_V22],
+]);
+
+/**
+ * Other rows that share a VERSION with the default and differ only in the market header length. Chosen by
+ * {@link resolveMarketGeometry} when the default row does not tile the account. Portfolios are identical across them.
+ */
+export const SAME_VERSION_MARKET_ROWS: ReadonlyMap<number, readonly LayoutTable[]> = new Map<number, readonly LayoutTable[]>([
+  [LAYOUT_V22.version, [LAYOUT_V22_VARIANT_B]],
 ]);
 
 /** Wrapper account magic (`"PERCV16\0"` little-endian). */
@@ -600,6 +641,17 @@ export function resolveMarketGeometry(data: Uint8Array, opts: MarketGeometryOpti
       throw new UnknownLayoutError(e.code, opts.parser, `${e.code === "WRONG_KIND" ? `not a market account (kind ${e.kind}); ` : ""}not a v17 market account (bad magic, version, or kind): ${e.message.slice(opts.parser.length + 2)}`, { version: e.version, kind: e.kind });
     }
     throw e;
+  }
+  // VERSION 19 has two market headers (variant B 806 B, variant C 790 B since the upstream 083a0d08 port) and no byte
+  // that tells them apart. Their lengths never coincide (592 + 806 + n x 2661 vs 592 + 790 + m x 2661), so when the
+  // default row does not tile the account exactly, use the same-VERSION row that does. Default registry only.
+  if (opts.registry === undefined) {
+    const fits = (t: LayoutTable) => data.length >= t.marketGroupOff + t.marketGroupLen
+      && (data.length - t.marketGroupOff - t.marketGroupLen) % t.assetSlotStride === 0;
+    if (!fits(layout)) {
+      const alt = (SAME_VERSION_MARKET_ROWS.get(layout.version) ?? []).find(fits);
+      if (alt) layout = alt;
+    }
   }
   const groupOff = layout.marketGroupOff;
   const slotsBase = groupOff + layout.marketGroupLen;

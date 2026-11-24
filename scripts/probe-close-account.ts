@@ -1,4 +1,4 @@
-import { requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
+import { readAdminSecretKey, requireAdminKeypairPath, requireRpcUrl } from "./config.mjs";
 /**
  * Probe CloseAccount with various oracle account options.
  * The slab has indexFeedId=zeros (SystemProgram) and oracleAuthority=admin with authorityPriceE6 set.
@@ -10,12 +10,11 @@ import { ACCOUNTS_CLOSE_ACCOUNT, buildAccountMetas } from '../src/abi/accounts.j
 import { buildIx } from '../src/runtime/tx.js';
 import { parseConfig } from '../src/solana/slab.js';
 import { deriveVaultAuthority } from '../src/solana/pda.js';
-import fs from 'fs';
 
 const RPC = requireRpcUrl();
 const ADMIN_KEYPAIR_PATH = requireAdminKeypairPath();
 const conn = new Connection(RPC, 'confirmed');
-const admin = Keypair.fromSecretKey(Buffer.from(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, 'utf8'))));
+const admin = Keypair.fromSecretKey(Buffer.from(readAdminSecretKey(ADMIN_KEYPAIR_PATH)));
 const PROGRAM_ID = new PublicKey('ESa89R5Es3rJ5mnwGybVRG1GrNt9etP11Z5V2QWD4edv');
 const SLAB = new PublicKey('FkNmxZJUmr2bF7kwsBDtKoHeajrNdSEQokgGmmzn69vC');
 const USDC = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');

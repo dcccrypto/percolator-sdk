@@ -1,12 +1,11 @@
 import { Connection, PublicKey } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "./spl-token-lite.js";
 
 /**
  * Token2022 (Token Extensions) program ID.
+ * (Defined in the local spl-token shim so the SDK has a single instance.)
  */
-export const TOKEN_2022_PROGRAM_ID = new PublicKey(
-  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-);
+export { TOKEN_2022_PROGRAM_ID };
 
 /**
  * Detect which token program owns a given mint account.

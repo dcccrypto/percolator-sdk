@@ -38,4 +38,6 @@ describe("parseBackingBucketsV17 decode parity", () => {
   });
 });
 
-const EXPECTED = "71787f2d7e18c7754aff2bf9c4f97fe41e467374c74fc1ad6879a94a4cdf1116";
+// 083a0d08 port: LAYOUT_V22 is now the 790-byte header, so the seeded buffer is 16 B shorter and every slot starts 16 B
+// earlier; the decoder is unchanged. Was 71787f2d... on the 806-byte header.
+const EXPECTED = "ce05dcb91f5f9b03010451d5426a17f84a24608d6d9d09a2ab5bc6a1116b0cd8";

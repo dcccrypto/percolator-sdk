@@ -10,7 +10,7 @@
  */
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import type { AccountMeta } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "./spl-token-lite.js";
 import { ACCOUNTS_LP_VAULT_DEPOSIT, buildAccountMetas } from "../abi/accounts.js";
 import { encodeDepositToLpVault, encodeLpVaultCrankFees } from "../abi/instructions.js";
 import { parseErrorFromLogs } from "../abi/errors.js";
@@ -58,6 +58,7 @@ import type { LayoutTable } from "../abi/layout.js";
 import { deriveInsuranceLpMint, deriveLpBackingLedger, deriveLpEscrow, deriveLpRedemption, deriveLpVaultRegistry, deriveVaultAuthority } from "./pda.js";
 import { buildWithdrawJuniorTrancheIxP3, deriveProgramDataAddressP3, deriveVaultLpStateP3, withBoundVaultLpTailP3 } from "./p3-vault-lp.js";
 import { V17_WRAPPER_HEAP_FRAME_BYTES } from "../runtime/tx.js";
+import { assertUintNumber } from "../validation.js";
 import { NAV_FLOW_COMPUTE_UNITS_V22, withNavFlowTailV22 } from "./v22-nav-flow.js";
 import { TX_LEGACY_MAX_BYTES, TX_V1_MAX_BYTES, computeBudgetInstructions, measureTxBytes } from "../runtime/txv1.js";
 import type { BudgetParams, TxFormat } from "../runtime/txv1.js";
@@ -858,13 +859,16 @@ export function buildLaunchBundleV22(i: LaunchBundleInputV22): LaunchBundlePlanV
  * @param programId   The wrapper program id.
  * @param layout      Layout table (default {@link LAYOUT_V22}).
  * @returns The createAccount instruction.
+ * @throws If `lamports` or `layout.portfolio.accountLen` is not a safe non-negative integer.
  * @example
  * ```ts
  * const ix = buildCreateLpPortfolioIxV22(payer, lpKp.publicKey, lamports, programId);
  * ```
  */
 export function buildCreateLpPortfolioIxV22(payer: PublicKey, portfolio: PublicKey, lamports: number, programId: PublicKey, layout: LayoutTable = LAYOUT_V22): TransactionInstruction {
-  return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
+  assertUintNumber("lamports", lamports);
+  const space = assertUintNumber("layout.portfolio.accountLen", layout.portfolio.accountLen);
+  return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space, programId });
 }
 
 /**
@@ -878,13 +882,16 @@ export function buildCreateLpPortfolioIxV22(payer: PublicKey, portfolio: PublicK
  * @param programId  The wrapper program id.
  * @param layout     Layout row (default {@link LAYOUT_V22}).
  * @returns The createAccount instruction.
+ * @throws If `lamports` or `layout.portfolio.accountLen` is not a safe non-negative integer.
  * @example
  * ```ts
  * const ix = buildCreatePortfolioAccountIxV22(payer, kp.publicKey, await conn.getMinimumBalanceForRentExemption(portfolioAccountLenV22()), programId);
  * ```
  */
 export function buildCreatePortfolioAccountIxV22(payer: PublicKey, portfolio: PublicKey, lamports: number, programId: PublicKey, layout: LayoutTable = LAYOUT_V22): TransactionInstruction {
-  return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space: layout.portfolio.accountLen, programId });
+  assertUintNumber("lamports", lamports);
+  const space = assertUintNumber("layout.portfolio.accountLen", layout.portfolio.accountLen);
+  return SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: portfolio, lamports, space, programId });
 }
 
 /**

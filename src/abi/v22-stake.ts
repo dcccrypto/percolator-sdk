@@ -16,10 +16,11 @@
  */
 import { PublicKey, SYSVAR_CLOCK_PUBKEY, SystemProgram } from "@solana/web3.js";
 import type { AccountMeta } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "../solana/spl-token-lite.js";
 import { concatBytes, encU16, encU64, encU8 } from "./encode.js";
 import type { ErrorInfo } from "./errors.js";
 import { STAKE_FLOOR_FLAGS_RESERVED_INDEX } from "./stake-dead-lp.js";
+import { STAKE_ERRORS_V5 } from "./v22-stake-errors.js";
 
 // ============================================================================
 // Constants
@@ -511,45 +512,7 @@ export function commitSlotForPendingTargetV5(pool: Pick<StakePoolV5, "pendingTar
 // Errors 33..48 (stable names from percolator-stake src/error.rs, one calm line each)
 // ============================================================================
 
-/**
- * StakeError codes 33 to 48 (v5), with the stable Rust variant name and a calm one-line user message.
- * Codes 0 to 32 are the v2.1 table (`STAKE_ERRORS`); {@link decodeStakeErrorV5} covers all of them. Note
- * `STAKE_ERRORS[32]` still says "VERSION 18": on a v2.2 stake it pins VERSION 19 (see the PR notes).
- */
-export const STAKE_ERRORS_V5: Readonly<Record<number, ErrorInfo>> = Object.freeze({
-  33: { name: "ConsentRequired", hint: "Please review and accept the current risk text, then try again." },
-  34: { name: "DeprecatedV5", hint: "This action was removed in stake v5; deployment now happens through the automatic sync." },
-  35: { name: "InsuranceUnitsInvalid", hint: "The market's insurance record is not available right now; try again in a moment." },
-  36: { name: "LiquidityBufferExhausted", hint: "This withdrawal is larger than the liquid part of the pool; the rest returns after the next sync." },
-  37: { name: "SyncCooldownActive", hint: "The pool was synced a moment ago; try again shortly." },
-  38: { name: "InvalidDeployConfig", hint: "These deployment settings are not allowed for this pool." },
-  39: { name: "NotProtocolAuthority", hint: "Raising the deployment target needs the protocol authority." },
-  40: { name: "NoPendingDeployTarget", hint: "There is no pending target to apply yet, or its waiting period has not ended." },
-  41: { name: "NotSupportedOnFirstLoss", hint: "This feature is not available on a first-loss pool." },
-  42: { name: "AssetAdminNotBurned", hint: "The market admin must be burned before this pool can deploy into insurance." },
-  43: { name: "NothingToSync", hint: "Nothing to sync: the pool is already close to its target." },
-  44: { name: "InsuranceReadingsDiverged", hint: "The market's insurance is lent out right now; deposits and syncs wait until it is repaid. When binding a pool: the market has unsettled positions; crank and refresh every open position in the same transaction as the bind, or bind before the market has positions." },
-  45: { name: "InsuranceUnitsMismatch", hint: "The market's insurance record did not update as expected; nothing was changed." },
-  46: { name: "CreatorAccountRequired", hint: "The market creator's token account is needed to return their insurance seed." },
-  47: { name: "InsuranceCustodyNotBound", hint: "The pool must hold the market's insurance authority and operator before the market admin can be burned; bind the pool first." },
-  48: { name: "MultiAssetMarketNotSupported", hint: "A staking pool can only bind a single-asset market; this market can no longer take one. Bind before a second asset can be added." },
-}) as Readonly<Record<number, ErrorInfo>>;
-
-/**
- * Stable Rust variant names of StakeError 0..32 (percolator-stake `src/error.rs` @ aebbff6), for
- * attributing a stake failure by name. The user-facing text for these codes is `STAKE_ERRORS`.
- */
-export const STAKE_ERROR_NAMES: Readonly<Record<number, string>> = Object.freeze({
-  0: "AlreadyInitialized", 1: "NotInitialized", 2: "Unauthorized", 3: "CooldownNotElapsed",
-  4: "InsufficientLpTokens", 5: "ZeroAmount", 6: "Overflow", 7: "InvalidMint", 8: "MarketResolved",
-  9: "DepositCapExceeded", 10: "InvalidPda", 11: "DeprecatedAdminAlreadyTransferred",
-  12: "DeprecatedAdminNotTransferred", 13: "InsufficientVaultBalance", 14: "InvalidPercolatorProgram",
-  15: "CpiFailed", 16: "InvalidAccount", 17: "InvalidPoolMode", 18: "WithdrawalBelowHwmFloor",
-  19: "TrancheNotEnabled", 20: "JuniorBalanceInsufficient", 21: "WrongTranche", 22: "ZeroSharesMinted",
-  23: "NoPendingAdmin", 24: "InsuranceLossOutstanding", 25: "CooldownIncreaseRequiresTimelock",
-  26: "TimelockNotElapsed", 27: "NoPendingCooldownProposal", 28: "DepositBelowMinimumLiquidity",
-  29: "NoRealLpHolders", 30: "MarketNotTerminal", 31: "NothingToRecover", 32: "UnsupportedWrapperLayout",
-}) as Readonly<Record<number, string>>;
+export { STAKE_ERRORS_V5, STAKE_ERROR_NAMES } from "./v22-stake-errors.js";
 
 /**
  * Decode a stake error code (0..48) for a v5 program. Codes 33..48 come from {@link STAKE_ERRORS_V5}; the
@@ -683,9 +646,12 @@ export interface StakeWithdrawQuoteV5 {
  * @param userLp        The staker's LP balance.
  * @param liveInsurance OPTIONAL live market insurance (`min(Σ decodeTerminalInsuranceCapacity(marketData).domains[].withdrawCapacity, .insurance)`, the wrapper's `ins_units_readings_view` free reading). `units.snapInsuranceFreeAtoms`
  *                      is only refreshed when someone touches the units account, so after an insurance loss it is STALE-HIGH and over-quotes
- *                      (devnet FGSFL 2026-10-20: quote 10.96M, program paid 8.35M). The program re-reads the live free reading inside the withdraw
- *                      and free = min(withdraw capacity, gross insurance), so the exit reading is clamped to `min(exitInsurance, liveInsurance)`: never higher than what the
- *                      program will use. A stale-LOW snapshot only under-quotes (safe).
+ *                      (devnet FGSFL 2026-10-20: quote 10.96M, program paid 8.35M). Withdraw refreshes the snapshot to the live free reading
+ *                      before pricing (stake `process_withdraw` -> `v5_read_units` -> `cpi_refresh_ins_units`, then priced from `snap_free`),
+ *                      so when given, `liveInsurance` replaces `exitInsurance` in BOTH directions. A stale-LOW snapshot is not safe: a lower
+ *                      pool value makes `maxLpNow` a bigger burn, which the program prices at live and refuses with 36. The decoded reading
+ *                      can only sit above the program's (it omits the engine's hidden K/F loss reservation), which gives a smaller burn.
+ *                      `maxLpNow` sits exactly on the liquid limit when `capBinds`, so trim it if the pool can grow between the read and the send.
  * @returns The quote, or `null` where the program fails closed (see {@link stakePoolValue}) or the pool has no LP supply.
  * @example
  * ```ts
@@ -701,7 +667,7 @@ export function quoteStakeWithdrawNowV5(
   userLp: bigint,
   liveInsurance?: bigint,
 ): StakeWithdrawQuoteV5 | null {
-  const exit = liveInsurance !== undefined && liveInsurance < exitInsurance ? liveInsurance : exitInsurance;
+  const exit = liveInsurance ?? exitInsurance;
   const v = stakePoolValue(pool, insUnits, exit, vaultBalance);
   if (!v || v.withdrawableNow === undefined) return null;
   const redeemable = collateralForLpV5(userLp, pool.totalLpSupply, v.total);

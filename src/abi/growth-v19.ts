@@ -195,7 +195,7 @@ export interface AssetGrowthV19 {
   /** Worst move between liquidation opportunities (bps). */
   rGapBps: number;
   version: number;
-  /** Raw `flags` byte 39 (bits 0..1 only; bit 1 requires bit 0: {@link growthFlagsOk}). */
+  /** Raw `flags` byte 39 (bits 0..2 only, bit 2 = leverage guard; bit 1 requires bit 0: {@link growthFlagsOk}). */
   flags: number;
   /** Item 2: the holding-fee rent kink u_k (bps, bytes 42..44). */
   rentKinkBps: number;
@@ -320,7 +320,7 @@ export function decodeAssetGrowthFromSlotV19(slot: Uint8Array): AssetGrowthV19 |
  * (the same slot base as `AssetRiskLimitsV17` at slot + 608, see `assetRiskLimitsAccountOffsetP1`).
  *
  * @param assetIndex  Asset slot index.
- * @param layout      Layout table of the account's VERSION (default LAYOUT_V21; LAYOUT_V22 for v2.2).
+ * @param layout      Layout table of the account (default LAYOUT_V21). For a v2.2 market pass `resolveMarketGeometry(data).layout`: VERSION 19 has two header lengths (806 / 790).
  * @returns Byte offset into the market account.
  * @example
  * ```ts
@@ -879,10 +879,14 @@ export function collateralDecimalsOf(storedP1: number): number {
   return storedP1 === 0 ? 6 : storedP1 - 1;
 }
 
-/** `whole_token_atoms`: `10^decimals` (decimals clamped to 18). */
+/** `whole_token_atoms`: `10^decimals` (decimals clamped to GROWTH_MAX_COLLATERAL_DECIMALS = 12). */
 export function wholeTokenAtoms(decimals: number): bigint {
-  return 10n ** BigInt(Math.min(Math.max(decimals, 0), GROWTH_MAX_COLLATERAL_DECIMALS));
+  const d = Math.min(Math.max(decimals, 0), GROWTH_MAX_COLLATERAL_DECIMALS);
+  const p = POW10_ATOMS[d];
+  return p !== undefined ? p : 10n ** BigInt(d); // non-integer / NaN: the original BigInt() throw
 }
+/** `10n ** d` for d = 0..GROWTH_MAX_COLLATERAL_DECIMALS (perf: wholeTokenAtoms runs several times per growthCeilingView). */
+const POW10_ATOMS: readonly bigint[] = Array.from({ length: GROWTH_MAX_COLLATERAL_DECIMALS + 1 }, (_, i) => 10n ** BigInt(i));
 
 /** `DEPTH_RISE_STAMP_SLOTS`: the unit of the stored last-rise stamp (64 slots). */
 export const DEPTH_RISE_STAMP_SLOTS = 64n;
@@ -1616,7 +1620,7 @@ export const LOG2_FRAC_BITS = 16;
 /** `CURVE_ANCHOR0_DIV`: the implicit anchor 0 sits at `T1 / 4` and carries the tier-0 value of each table (launch, κ 0.5, λ 1x). */
 export const CURVE_ANCHOR0_DIV = 4n;
 
-const TWO_32 = 1n << 32n;
+const TWO_32 = 4_294_967_296; // 2^32 (log2Q16 runs on Numbers)
 
 /**
  * Fixed-point `log2(x)` in Q.16: `(floor(log2 x) << 16) | 16 fractional bits`, `null` for 0 (and, fail closed, for anything outside u64).
@@ -1634,15 +1638,21 @@ const TWO_32 = 1n << 32n;
  */
 export function log2Q16(x: bigint): number | null {
   if (x <= 0n || x > U64_MAX) return null;
-  const k = x.toString(2).length - 1; // 63 - leading_zeros
-  let m = k >= 31 ? x >> BigInt(k - 31) : x << BigInt(31 - k);
+  // The same integer algorithm on Numbers (perf: no per-step bigint). k = 63 - leading_zeros from the two 32-bit words.
+  const hi = Number(x >> 32n);
+  const k = hi !== 0 ? 63 - Math.clz32(hi) : 31 - Math.clz32(Number(x));
+  let m = Number(k >= 31 ? x >> BigInt(k - 31) : x << BigInt(31 - k)); // m in [2^31, 2^32)
   let frac = 0;
   for (let i = 0; i < LOG2_FRAC_BITS; i++) {
-    m = (m * m) >> 31n; // m < 2^32, so m * m < 2^64 (the Rust wrapping_mul never wraps)
+    // m = (m * m) >> 31 exactly (m * m < 2^64, so the Rust wrapping_mul never wraps): with m = a * 2^16 + b (a, b < 2^16),
+    // m * m >> 31 = 2a^2 + floor((2ab * 2^16 + b^2) / 2^31); every term is below 2^50, exact in a double.
+    const a = Math.floor(m / 65_536);
+    const b = m - a * 65_536;
+    m = 2 * a * a + Math.floor((2 * a * b * 65_536 + b * b) / 2_147_483_648);
     frac <<= 1;
     if (m >= TWO_32) {
       frac |= 1;
-      m >>= 1n;
+      m = Math.floor(m / 2);
     }
   }
   return k * 65_536 + frac;
@@ -1673,6 +1683,19 @@ export interface CurvePos {
   den: number;
 }
 
+/**
+ * {@link log2Q16} of a curve anchor (T1/4, T1, T2, T3, 4*T3): per-market constants, so memoised (perf). Bounded: cleared at 256 entries.
+ */
+const LOG2_ANCHOR_CACHE = new Map<bigint, number | null>();
+function log2Anchor(x: bigint): number | null {
+  const c = LOG2_ANCHOR_CACHE.get(x);
+  if (c !== undefined) return c;
+  const v = log2Q16(x);
+  if (LOG2_ANCHOR_CACHE.size >= 256) LOG2_ANCHOR_CACHE.clear();
+  LOG2_ANCHOR_CACHE.set(x, v);
+  return v;
+}
+
 /** `CURVE_POS_FAIL`: a failed computation; {@link curveValue} reads `t[0]` (launch, κ 0.5, λ 1x). */
 export const CURVE_POS_FAIL: Readonly<CurvePos> = Object.freeze({ seg: 0xff, num: 0, den: 0 });
 
@@ -1701,8 +1724,8 @@ export function curvePos(d: bigint, thresholdsE6: Triple<bigint>): CurvePos {
   const hi = a[seg] as bigint;
   if (hi === U64_MAX || hi <= lo) return { seg, num: 0, den: 0 };
   const ld = log2Q16(d);
-  const llo = log2Q16(lo);
-  const lhi = log2Q16(hi);
+  const llo = log2Anchor(lo);
+  const lhi = log2Anchor(hi);
   if (ld === null || llo === null || lhi === null) return { ...CURVE_POS_FAIL };
   const num = ld - llo;
   const den = lhi - llo;
@@ -1788,8 +1811,8 @@ export function curvePosLag(lead: CurvePos, d: bigint, thresholdsE6: Triple<bigi
       if (hi === U64_MAX || hi <= lo) return { seg: 3, num: 0, den: 0 };
       if (d >= hi) return { seg: 4, num: 0, den: 0 };
       const ld = log2Q16(d);
-      const llo = log2Q16(lo);
-      const lhi = log2Q16(hi);
+      const llo = log2Anchor(lo);
+      const lhi = log2Anchor(hi);
       if (ld === null || llo === null || lhi === null) return { ...CURVE_POS_FAIL };
       const num = ld - llo;
       const den = lhi - llo;
@@ -1986,17 +2009,22 @@ export const GROWTH_FLAG_R3_LAYOUT = 0x01;
 /** `GROWTH_FLAG_VOL_DATA`: `flags` bit 1, the variance has at least one sample (requires bit 0). */
 export const GROWTH_FLAG_VOL_DATA = 0x02;
 
+/** `GROWTH_FLAG_LEV_GUARD` (`flags` bit 2): set once by tag 124 op 0 and never cleared (same value as `GROWTH_FLAG_LEV_GUARD_V22`). */
+const GROWTH_FLAG_LEV_GUARD_BIT = 0x04;
+
 /**
- * Validator for the `flags` byte: only bits 0-1, and bit 1 only with bit 0 (0x00 / 0x01 / 0x03). Port of `growth_v19::growth_flags_ok`.
+ * Validator for the `flags` byte: only bits 0-2, and bit 1 only with bit 0 (bit 2 = the leverage guard tag 124 sets).
+ * Port of `growth_v19::growth_flags_ok` (prog bc657392).
  * @param flags  Byte 39.
  * @returns Whether the program accepts it (it refuses the whole record otherwise).
  * @example
  * ```ts
  * growthFlagsOk(0x02); // false
+ * growthFlagsOk(0x05); // true (R3 layout + leverage guard)
  * ```
  */
 export function growthFlagsOk(flags: number): boolean {
-  return (flags & ~(GROWTH_FLAG_R3_LAYOUT | GROWTH_FLAG_VOL_DATA) & 0xff) === 0 && ((flags & GROWTH_FLAG_VOL_DATA) === 0 || (flags & GROWTH_FLAG_R3_LAYOUT) !== 0);
+  return (flags & ~(GROWTH_FLAG_R3_LAYOUT | GROWTH_FLAG_VOL_DATA | GROWTH_FLAG_LEV_GUARD_BIT) & 0xff) === 0 && ((flags & GROWTH_FLAG_VOL_DATA) === 0 || (flags & GROWTH_FLAG_R3_LAYOUT) !== 0);
 }
 
 /**
@@ -3001,11 +3029,7 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
     return out({ imrBps: e, maxLeverageX100: lev(e) });
   }
   const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
-  const v = input.v22;
-  const stress = v ? stressLevel(v.drawOutstanding === true, realAdl(v.modeLong ?? 0, v.modeShort ?? 0), input.bankruptcyHlockActive) : STRESS_NONE;
-  const view = v
-    ? growthCeilingView(g, v.bandBps, v.nowSlot, cM, stress, v.vol ? { engineImrBps: e, liquidationFeeBps: v.vol.liquidationFeeBps, bandMaxEpochSlots: v.vol.bandMaxEpochSlots } : undefined, { rc23Caps: v.rc23Caps !== false })
-    : null;
+  const view = quoteCeilingView(input, g, cM);
   const lCeil = view ? view.ceilingX100 : Math.min(g.lLaunchX100, g.lTierX100);
   meta = {
     ceilingX100: lCeil, tier: view?.tier ?? 0, venueTier: view?.venueTier ?? 0, bookTier: view?.bookTier ?? 0, capDepthE6: view?.capDepthE6 ?? null,
@@ -3016,9 +3040,7 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   if (base === null) return closed("invalid-config");
   // N-1: growth opens only against the asset's BOUND vault LP (wrapper 97 / 95 otherwise).
   if (!input.assetBound) return closed("not-bound", { headroomQ: 0n });
-  const nCap = view
-    ? nCapG8Q({ clamp: view.clampEnforced, cM, lambdaBps: g.lambdaBps, tier: view.tier, capDepth: view.capDepthE6, priceE6: input.priceE6, posScale: input.posScale, dials: view.dials })
-    : nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
+  const nCap = quoteNCapQ(input, g, cM, view);
   // N-1: utilisation is the USERS' open interest on this side (the engine OI minus the vault
   // LP's own leg on it), the same number the wrapper gates on (`users_side_oi_q`).
   const usersOi = usersSideOiQ(side === "long" ? input.oiEffLongQ : input.oiEffShortQ, lp, side === "long");
@@ -3035,6 +3057,21 @@ export function quoteMaxLeverage(input: QuoteMaxLeverageInput, side: "long" | "s
   const dyn = dynImrBps(usersOi, nCap, base, g.kinkBps);
   if (dyn === null) return closed("capacity-full", { ...info, headroomQ: 0n });
   return out({ ...info, imrBps: dyn, maxLeverageX100: lev(dyn), headroomQ: nCap - usersOi, utilisationFeeBps });
+}
+
+/** The v2.2 ceiling view of a quote input (`null` without `v22` input: the growth-1 quote). */
+function quoteCeilingView(input: QuoteMaxLeverageInput, g: AssetGrowthV19, cM: bigint): GrowthCeilingView | null {
+  const v = input.v22;
+  if (!v) return null;
+  const stress = stressLevel(v.drawOutstanding === true, realAdl(v.modeLong ?? 0, v.modeShort ?? 0), input.bankruptcyHlockActive);
+  return growthCeilingView(g, v.bandBps, v.nowSlot, cM, stress, v.vol ? { engineImrBps: input.engineImrBps, liquidationFeeBps: v.vol.liquidationFeeBps, bandMaxEpochSlots: v.vol.bandMaxEpochSlots } : undefined, { rc23Caps: v.rc23Caps !== false });
+}
+
+/** The `N_cap` the wrapper gates, clips and prices the utilisation fee with (`growth_clip_n_cap_view`: G8 with the view, growth-1 without). */
+function quoteNCapQ(input: QuoteMaxLeverageInput, g: AssetGrowthV19, cM: bigint, view: GrowthCeilingView | null): bigint | null {
+  return view
+    ? nCapG8Q({ clamp: view.clampEnforced, cM, lambdaBps: g.lambdaBps, tier: view.tier, capDepth: view.capDepthE6, priceE6: input.priceE6, posScale: input.posScale, dials: view.dials })
+    : nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
 }
 
 /**
@@ -3060,7 +3097,7 @@ export function usersSideOiQ(oiEffSideQ: bigint, vaultLpEffQ: bigint, longSide: 
 /**
  * N-2: the utilisation fee (bps) an open pays when it leaves its side's users OI at
  * `usersOiAfterQ`: 0 at or below the kink, `ceil(max * (u - u_k) / (1 - u_k))` above, capped at
- * `max`. Port of `growth_v19::utilisation_fee_bps`; `null` when `nCap == 0`.
+ * `max`. Port of `growth_v19::utilisation_fee_bps`; `null` when `nCap == 0`, or at a 100% kink above `N_cap` (Rust `None`).
  *
  * @param usersOiAfterQ  Users OI on the taker's side after the open (Q).
  * @param nCapQ          `N_cap` (Q).
@@ -3077,6 +3114,8 @@ export function utilisationFeeBps(usersOiAfterQ: bigint, nCapQ: bigint, kinkBps:
   const lhs = usersOiAfterQ * 10_000n;
   const rhs = BigInt(kinkBps) * nCapQ;
   if (lhs <= rhs || maxFeeBps === 0) return 0;
+  // kink 100% above N_cap: zero denominator -> Rust `mul_div_ceil_u128` returns None
+  if (kinkBps === 10_000) return null;
   const fee = divCeil(BigInt(maxFeeBps) * (lhs - rhs), nCapQ * BigInt(10_000 - kinkBps));
   return fee > BigInt(maxFeeBps) ? maxFeeBps : Number(fee);
 }
@@ -3137,7 +3176,8 @@ export interface GrowthOpenFeePreview {
 /**
  * N-2 fee preview for a growth open on a BOUND asset (the vault LP is the counterparty): the
  * utilisation fee the wrapper will charge and the fee the taker must sign. Closes / reduces never
- * pay it. Evaluated at the CURRENT N_cap and users OI (the wrapper uses the same pre-fill numbers).
+ * pay it. Evaluated at the CURRENT N_cap and users OI (the wrapper uses the same pre-fill numbers); with `v22` input the N_cap is the
+ * G8 one ({@link nCapG8Q}: λ_eff and the depth cap), exactly the N_cap {@link quoteMaxLeverage} reports and the wrapper charges on.
  *
  * @param input        The quote inputs (see {@link QuoteMaxLeverageInput}).
  * @param takerEffQ    Taker's ADL-effective signed position on the asset (Q).
@@ -3160,7 +3200,8 @@ export function previewGrowthOpenFee(input: QuoteMaxLeverageInput, takerEffQ: bi
   let utilFeeBps = 0;
   if (g !== null && input.assetBound && openingQ > 0n) {
     const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
-    const nCap = nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
+    // the wrapper prices on the G8 N_cap (v16_program.rs `GrowthUtilIn.n_cap_q` = `growth_clip_n_cap_view`), as the quote does
+    const nCap = quoteNCapQ(input, g, cM, quoteCeilingView(input, g, cM));
     const f = nCap === null ? 0 : (utilisationFeeBps(usersOiAfterQ, nCap, g.kinkBps, utilFeeMaxEffectiveBps(g.utilFeeMaxBps)) ?? 0);
     const fill = sizeQ < 0n ? -sizeQ : sizeQ;
     const o = openingQ > fill ? fill : openingQ;

@@ -1,0 +1,300 @@
+use bytemuck::{Pod, Zeroable};
+use solana_program::pubkey::Pubkey;
+
+/// 8-byte discriminator for StakePool accounts ("SPOOL_V1")
+pub const STAKE_POOL_DISCRIMINATOR: [u8; 8] = [0x53, 0x50, 0x4F, 0x4F, 0x4C, 0x5F, 0x56, 0x31];
+/// 8-byte discriminator for StakeDeposit accounts ("SDEP_V1\0")
+pub const STAKE_DEPOSIT_DISCRIMINATOR: [u8; 8] = [0x53, 0x44, 0x45, 0x50, 0x5F, 0x56, 0x31, 0x00];
+
+/// N7 (CONSOLIDATED-PLAN §2.2): dead-share floor locked at the pool's true genesis
+/// deposit (`total_lp_supply == 0`, whether reached via `Deposit` or
+/// `DepositJunior` — see `processor.rs::apply_minimum_liquidity_lock`, the single
+/// shared choke point both bootstrap paths route through). `MINIMUM_LIQUIDITY`
+/// worth of LP is counted into `pool.total_lp_supply` but NEVER actually
+/// SPL-minted to any account — it is permanently unredeemable "dead" supply, the
+/// classic Uniswap-V2-style anti-inflation floor. This forces the genesis
+/// depositor (who would otherwise hold 100% of a brand-new pool and could donate
+/// raw collateral + crank `AccrueFees` to inflate the tracked share price at
+/// near-zero cost) to permanently sacrifice a fixed amount of real value with
+/// every pool they bootstrap, in addition to the `VIRTUAL_SHARES`/`VIRTUAL_ASSETS`
+/// offset in `math.rs` (defense-in-depth, not a substitute for it — the offset
+/// bounds the COST of each donate-then-accrue round; the dead-share floor bounds
+/// how cheaply a genesis position can be established in the first place).
+/// Value chosen to match collateral tokens with 6-9 decimals (SPL norm, e.g.
+/// USDC=6, SOL=9) without materially raising the practical minimum pool size.
+pub const MINIMUM_LIQUIDITY: u64 = 1_000;
+
+/// R-1 floor flag: the senior sub-pool supply holds a MINIMUM_LIQUIDITY dead floor.
+pub const FLOOR_SENIOR: u8 = 0x01;
+/// R-1 floor flag: `junior_total_lp` holds a MINIMUM_LIQUIDITY dead floor.
+pub const FLOOR_JUNIOR: u8 = 0x02;
+
+/// Stake pool state — one per slab (market).
+/// PDA seeds: [b"stake_pool", slab_pubkey]
+///
+/// This PDA serves dual purpose:
+/// 1. Holds the pool state (deposits, LP supply, config)
+/// 2. Its pubkey becomes the ADMIN of the wrapper slab (via TransferAdmin)
+///
+/// The wrapper reads header.admin to authorize admin operations.
+/// Since header.admin == this PDA's pubkey, the stake program can
+/// invoke_signed any admin instruction on the wrapper.
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+pub struct StakePool {
+    /// Whether the pool is initialized (1 = yes, 0 = no)
+    pub is_initialized: u8,
+
+    /// Bump seed for the pool PDA
+    pub bump: u8,
+
+    /// Bump seed for the vault authority PDA
+    pub vault_authority_bump: u8,
+
+    /// Whether wrapper admin has been transferred to this PDA (1 = yes)
+    pub admin_transferred: u8,
+
+    /// Padding for alignment
+    pub _padding: [u8; 4],
+
+    /// The slab (market) this pool manages
+    pub slab: [u8; 32],
+
+    /// Pool creator/admin (can update config, trigger admin CPI)
+    pub admin: [u8; 32],
+
+    /// Collateral mint (must match slab's collateral mint)
+    pub collateral_mint: [u8; 32],
+
+    /// LP token mint (owned by vault_authority PDA)
+    pub lp_mint: [u8; 32],
+
+    /// Vault holding deposited collateral buffer (owned by vault_authority PDA)
+    /// Users deposit here; FlushToInsurance moves funds to wrapper insurance
+    pub vault: [u8; 32],
+
+    /// Total collateral deposited by users (lifetime, in base token units)
+    pub total_deposited: u64,
+
+    /// Total LP tokens in circulation
+    pub total_lp_supply: u64,
+
+    /// Cooldown period in slots before withdrawal is allowed
+    pub cooldown_slots: u64,
+
+    /// Maximum total deposit cap (0 = uncapped)
+    pub deposit_cap: u64,
+
+    /// Total collateral flushed to percolator insurance fund via CPI
+    /// Tracks how much has been moved from stake vault → wrapper insurance
+    pub total_flushed: u64,
+
+    /// Total collateral returned from insurance (via WithdrawInsurance after resolution)
+    pub total_returned: u64,
+
+    /// Total withdrawn by users (lifetime, in base token units)
+    pub total_withdrawn: u64,
+
+    /// Percolator wrapper program ID (for CPI)
+    pub percolator_program: [u8; 32],
+
+    // ========================================
+    // PERC-272: LP Vault Fee Yield & OI Cap
+    // ========================================
+    /// Total trading fees earned by this vault (accrued from percolator engine).
+    /// Increases pool value — LP share price appreciates as fees accrue.
+    pub total_fees_earned: u64,
+
+    /// Last slot when fees were accrued. Currently informational only —
+    /// no rate-limiting enforced (AccrueFees is idempotent via balance delta).
+    /// Reserved for future slot-based rate limiting if needed.
+    pub last_fee_accrual_slot: u64,
+
+    /// #290 fee-attribution cursor (mode-0 pools only). Offset 272, same bytes as
+    /// the field formerly named `last_vault_snapshot`.
+    ///
+    /// The cumulative number of atoms of the wrapper's tag-87 insurance-leg payouts
+    /// (`WrapperConfigV16::insurance_reserve_withdrawn_atoms`) that this pool has
+    /// already booked into `total_fees_earned`. A mode-0 accrual books at most
+    /// `wrapper_counter - mode0_fees_attributed` of vault surplus, so a raw SPL
+    /// donation, which advances no wrapper counter, can never be booked as fees.
+    ///
+    /// Meaningful only once `fee_attribution_armed()` is set (`_reserved[60]`).
+    /// Before #290 these bytes held a write-only vault-balance snapshot (#255: read by
+    /// no accounting path), so an un-armed pool's value is ignored and replaced on
+    /// the first attributed accrual. See `processor::accrue_fees_inner`.
+    pub mode0_fees_attributed: u64,
+
+    /// Pool mode: 0 = insurance LP (legacy), 1 = trading LP vault (PERC-272)
+    /// Trading LP vault earns trading fees and gates OI.
+    pub pool_mode: u8,
+
+    /// Padding for alignment
+    pub _mode_padding: [u8; 7],
+
+    /// Two-step admin rotation (v2): the proposed next admin. Zero = no pending
+    /// proposal. ProposeAdmin (current admin signs) sets it; AcceptAdmin
+    /// (pending_admin signs) consumes it (admin = pending_admin; pending = 0).
+    /// Proposing zero cancels an outstanding proposal.
+    ///
+    /// This is a real struct field (offset 288), NOT carved from `_reserved`:
+    /// only 13 bytes [51..64] were free there, < 32. Adding it grows
+    /// STAKE_POOL_SIZE 352 -> 384 and is why CURRENT_VERSION bumps 1 -> 2.
+    /// Fresh-start cutover: no v1 pools exist, so no migration is needed.
+    pub pending_admin: [u8; 32],
+
+    /// Reserved for future use
+    pub _reserved: [u8; 64],
+
+    /// H-1 re-review fix: cumulative collateral actually recovered from the
+    /// WRAPPER via the tag-57 `WithdrawInsuranceAsset` CPI in
+    /// `process_recover_flushed_insurance` — the ONLY mechanism that pulls
+    /// flushed insurance back out of the wrapper. Incremented exclusively at
+    /// that one CPI success site.
+    ///
+    /// This is deliberately a SEPARATE counter from `total_returned`, which is
+    /// also bumped by two mechanisms that do NOT recover funds from the
+    /// wrapper: `process_return_insurance` (tag 10, the admin's own wallet
+    /// tokens transferred into `pool.vault` — no wrapper CPI) and the #161
+    /// last-junior-exit phantom write-off (`realized_junior_loss`, zero token
+    /// movement). Gating market-resolution on `total_returned` therefore let
+    /// an admin satisfy the H-1 gate via `ReturnInsurance` alone while leaving
+    /// flushed capital permanently stranded in the wrapper post-resolution
+    /// (tag 57 rejects with EngineLockActive once the market is no longer
+    /// mode 0). The resolve-gate in `process_admin_resolve_market` and
+    /// `process_set_market_resolved` must compare `total_flushed` against
+    /// THIS counter, not `total_returned`.
+    ///
+    /// Real struct field (offset 384), NOT carved from `_reserved`: every byte
+    /// of `_reserved`'s 64 bytes is already claimed by PERC-303 tranche state,
+    /// PERC-313 HWM state, and the #242 cooldown-timelock fields, leaving no
+    /// contiguous 8-byte gap for a u64. Adding it grows STAKE_POOL_SIZE
+    /// 384 -> 392 and is why CURRENT_VERSION bumps 2 -> 3. Fresh-start
+    /// cutover: pools are being re-seeded, so no on-chain migration path is
+    /// needed — SDK decoders must add this field for version-3 pools.
+    pub total_recovered_from_wrapper: u64,
+
+    /// #242 timelock (v4): the `cooldown_slots` INCREASE awaiting commit.
+    /// Meaningful only while `cooldown_proposed_at_slot != 0`.
+    ///
+    /// Real struct field (offset 392), NOT carved from `_reserved`. The original
+    /// #242 packing put this at `_reserved[10..18]`, whose comment claimed
+    /// `[10..32]` was "previously-free" — but PERC-313 HWM already owns that
+    /// entire range (`hwm_enabled` at [10], `hwm_floor_bps` at [11..13],
+    /// `epoch_high_water_tvl` at [16..24], `hwm_last_epoch` at [24..32]). The two
+    /// features therefore aliased each other on the DEPLOYED v3 program: proposing
+    /// a cooldown flipped `hwm_enabled` off and rewrote `hwm_floor_bps`, and an HWM
+    /// refresh rewrote the proposal slot — the latter reading as a long-elapsed
+    /// timelock, i.e. a bypass of the very delay that protects stakers from the
+    /// admin. See `tests/poc_cooldown_timelock_hwm_overlap.rs`.
+    pub pending_cooldown_slots: u64,
+
+    /// #242 timelock (v4): the slot at which the pending cooldown increase was
+    /// proposed. `0` = no active proposal (the sentinel; a live slot is never 0).
+    /// Real struct field (offset 400) — see [`StakePool::pending_cooldown_slots`]
+    /// for why these are no longer packed into `_reserved`.
+    pub cooldown_proposed_at_slot: u64,
+
+    // ════════════════════════════════════════════════════════════════
+    // v5 (Phase 4 item 6, 2026-10-05): staking as real first-loss insurance.
+    //
+    // APPENDED real fields (408..480), NOT carved from `_reserved`: every byte of
+    // `_reserved[64]` is already owned (discriminator/version, PERC-303 tranche
+    // state, PERC-313 HWM, #290 attribution flag). The design note's v5 map put
+    // these in `_reserved[0..64]`, which would have repeated the #242/PERC-313
+    // aliasing bug (see `tests/poc_cooldown_timelock_hwm_overlap.rs`).
+    // ════════════════════════════════════════════════════════════════
+    /// 0 = legacy (pre-v5, never created by this build), 1 = FIRST_LOSS (stake is
+    /// deployed into the market's insurance and absorbs losses pro rata through the
+    /// wrapper's `InsuranceUnitsV20`; earns the 16% insurance fee leg), 2 = FEE_ONLY
+    /// (never deployed; earns nothing: the wrapper pays tag 87 to first-loss pools only).
+    pub risk_mode: u8, // 408
+    /// The consent version a first-loss deposit must carry (`RISK_TEXT_V*` in the
+    /// app: the version of the one-paragraph risk text the staker signs over).
+    pub consent_version: u8, // 409
+    /// Share of pool value kept deployed in the wrapper's insurance (bps, <= 8,000).
+    pub deploy_target_bps: u16, // 410..412
+    /// Share of pool value kept liquid in the vault by a sync top-up (bps).
+    pub liquid_buffer_bps: u16, // 412..414
+    /// No sync while |deployed - target| <= hysteresis (bps of pool value).
+    pub hysteresis_bps: u16, // 414..416
+    /// Slot of the last `SyncInsuranceDeployment` (rate limit).
+    pub last_sync_slot: u64, // 416..424
+    /// Proposed `deploy_target_bps` awaiting commit (meaningful while
+    /// `pending_target_slot != 0`).
+    pub pending_target_bps: u64, // 424..432
+    /// Slot of the pending proposal; 0 = none.
+    pub pending_target_slot: u64, // 432..440
+    /// Minimum slots between two syncs.
+    pub sync_cooldown_slots: u64, // 440..448
+    /// S1 (builds before the close-out rule): creator-class insurance value the wrapper paid
+    /// into this vault at terminal that was forwarded to `admin` in full. The close-out rule no
+    /// longer advances it (it forwards through bytes 464..472 and caps the creator at the seed);
+    /// it is still counted in `creator_total_forwarded_atoms`. Never decreases.
+    pub creator_forwarded_atoms: u64, // 448..456
+    pub _v5_reserved: [u8; 24], // 456..480
+}
+
+/// Size of StakePool in bytes
+pub const STAKE_POOL_SIZE: usize = core::mem::size_of::<StakePool>();
+
+// ════════════════════════════════════════════════════════════════════════════
+// CROSS-PROGRAM LAYOUT CONTRACT (O5) — DO NOT WEAKEN
+//
+// The percolator wrapper does NOT link this crate. Its tag-87 handler
+// (`WithdrawInsuranceReserveToStake`) validates a `StakePool` account by
+// reading RAW BYTES at hardcoded offsets, mirrored in
+// `percolator-prog/src/v16_program.rs` as `constants::STAKE_POOL_OFF_*`.
+// Those offsets decide WHERE TAG-87 FUNDS LAND.
+//
+// A total-size assertion alone (`test_stake_pool_size`, 392) is NOT enough:
+// ANY same-size field reorder — swapping `vault` with `collateral_mint`, say —
+// keeps the size at 392, passes every test in BOTH repos, and silently
+// redirects the insurance-reserve payout to an attacker-chosen token account.
+//
+// These const assertions pin every offset the wrapper depends on, so a reorder
+// is a COMPILE ERROR in the program that owns the struct — the only place that
+// can notice. If one of these fires, you must update
+// `percolator-prog/src/v16_program.rs::constants::STAKE_POOL_OFF_*` in the
+// SAME change, and re-deploy both programs together.
+// ════════════════════════════════════════════════════════════════════════════
+const _: () = {
+    use core::mem::offset_of;
+    // STAKE_POOL_OFF_IS_INITIALIZED — pool must be live (byte == 1).
+    assert!(offset_of!(StakePool, is_initialized) == 0);
+    // STAKE_POOL_OFF_SLAB — the wrapper market this pool is bound to.
+    assert!(offset_of!(StakePool, slab) == 8);
+    // STAKE_POOL_OFF_VAULT — THE DESTINATION. The only legal tag-87 sink.
+    assert!(offset_of!(StakePool, vault) == 136);
+    // STAKE_POOL_OFF_PERCOLATOR_PROGRAM — the wrapper this pool CPIs.
+    assert!(offset_of!(StakePool, percolator_program) == 224);
+    // STAKE_POOL_OFF_MODE — 0 = insurance-LP, the only mode owed this leg.
+    assert!(offset_of!(StakePool, pool_mode) == 280);
+    // The wrapper reads the discriminator at 320 and the version at 328. Both
+    // are carved out of `_reserved` (see the PERC-303 layout map below):
+    // `_reserved[0..8]` = discriminator, `_reserved[8]` = version. Pin the base
+    // AND the derived offsets so recarving `_reserved` also trips this.
+    assert!(offset_of!(StakePool, _reserved) == 320);
+    assert!(offset_of!(StakePool, _reserved) + 8 == 328);
+    // Total size — the wrapper's `STAKE_POOL_LEN` minimum-length gate.
+    //
+    // v4 grows this 392 -> 408 by APPENDING the two #242 timelock fields after
+    // `total_recovered_from_wrapper` (384). Every offset the wrapper reads is
+    // <= 328 and therefore unmoved, and its gate is `data.len() < STAKE_POOL_LEN`
+    // — a minimum — so a 408-byte account still passes it.
+    //
+    // BUT the wrapper also checks the version byte EXACTLY
+    // (`percolator-prog/src/v16_program.rs`: `STAKE_POOL_VERSION: u8 = 3`,
+    // `data[STAKE_POOL_OFF_VERSION] != STAKE_POOL_VERSION` -> InvalidInstruction).
+    // Shipping v4 therefore REQUIRES a coordinated wrapper bump to
+    // STAKE_POOL_VERSION = 4 / STAKE_POOL_LEN = 408 and a wrapper redeploy, or
+    // tag-87 stops paying the insurance fee leg to every stake pool.
+    // v5 appends 72 bytes (408 -> 480). The wrapper reads `risk_mode` at 408 to pay the
+    // tag-87 insurance fee leg to FIRST_LOSS pools only, and checks VERSION == 5 and
+    // LEN >= 480 (`percolator-prog` `constants::STAKE_POOL_*`). Deploy together.
+    assert!(offset_of!(StakePool, risk_mode) == 408);
+    assert!(offset_of!(StakePool, deploy_target_bps) == 410);
+    assert!(offset_of!(StakePool, last_sync_slot) == 416);
+    assert!(offset_of!(StakePool, creator_forwarded_atoms) == 448);
+    assert!(STAKE_POOL_SIZE == 480);
+};

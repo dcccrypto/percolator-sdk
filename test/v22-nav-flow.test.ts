@@ -225,3 +225,29 @@ describe("compute-unit limits (always explicit for the flow tags)", () => {
       .toEqual([250_000, 300_000, 400_000, 300_000, 600_000, 600_000, 600_000, 600_000]);
   });
 });
+
+describe("withNavFlowTailV22: a full-count ix with read-only guard / ext goes out writable (the program writes both)", () => {
+  // slot positions from the Rust handlers (guard_idx / ext_idx), written out by hand
+  const full: Record<number, { n: number; guard: number; ext: number }> = {
+    96: { n: 9, guard: 7, ext: 8 },
+    97: { n: 14, guard: 13, ext: 11 },
+    98: { n: 10, guard: 9, ext: 8 },
+    102: { n: 14, guard: 13, ext: 12 },
+    103: { n: 11, guard: 10, ext: 7 },
+    108: { n: 15, guard: 14, ext: 13 },
+    110: { n: 15, guard: 14, ext: 13 },
+  };
+  for (const [tag, f] of Object.entries(full)) {
+    it(`tag ${tag}: guard [${f.guard}] and ext [${f.ext}] forced writable`, () => {
+      const metas: AccountMeta[] = Array.from({ length: f.n }, () => ({ pubkey: pk(), isSigner: false, isWritable: false }));
+      metas[f.guard] = { pubkey: GUARD, isSigner: false, isWritable: false };
+      metas[f.ext] = { pubkey: EXT, isSigner: false, isWritable: false };
+      const ix = S.withNavFlowTailV22(new TransactionInstruction({ programId: P, keys: metas, data: Buffer.from([Number(tag), 0]) }), MARKET);
+      expect(ix.keys).toHaveLength(f.n);
+      expect(at(ix, f.guard).isWritable).toBe(true);
+      expect(at(ix, f.ext).isWritable).toBe(true);
+      expect(at(ix, f.guard).pubkey.equals(GUARD)).toBe(true);
+      expect(at(ix, f.ext).pubkey.equals(EXT)).toBe(true);
+    });
+  }
+});

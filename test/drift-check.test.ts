@@ -3,7 +3,7 @@
  *
  * Comprehensive tests verifying no drift between the SDK and the on-chain program.
  * Covers:
- *   1. encodeInitMarket — v17 219-byte payload u128 roundtrip (the legacy 344/352 B layout suite was deleted, AUD-T3-2)
+ *   1. encodeInitMarket — v17 203-byte payload u128 roundtrip (the legacy 344/352 B layout suite was deleted, AUD-T3-2)
  *   2. KeeperCrank / DepositCollateral / WithdrawCollateral — tag + field encoding
  *   3. V12_1 slab parsing — ENGINE_OFF, ACCOUNT_SIZE, BITMAP_OFF, per-field offsets, i64 fundingIndex
  *   4. STAKE_PROGRAM_ID — mainnet/devnet addresses
@@ -846,7 +846,7 @@ describe("encoding roundtrip — manual decode verifies no endianness or off-by-
     }
   });
 
-  it("encodeInitMarket: u128 fields survive bigint→bytes→bigint roundtrip (v17: 219-byte payload)", () => {
+  it("encodeInitMarket: u128 fields survive bigint→bytes→bigint roundtrip (v17: 203-byte payload)", () => {
     const MM_REQ = 12345678901234567890n;
     const IM_REQ = 340282366920938463463374607431768211455n; // u128 max
     const data = encodeInitMarket({
@@ -874,11 +874,11 @@ describe("encoding roundtrip — manual decode verifies no endianness or off-by-
       minNonzeroMmReq: MM_REQ.toString(),
       minNonzeroImReq: IM_REQ.toString(),
     });
-    // v17: fixed 219-byte payload (INIT_MARKET_V17_LEN).
+    // v17: fixed 203-byte payload (INIT_MARKET_V17_LEN).
     // v17 wire layout: tag(1) + maxPortfolioAssets(2) + hMin(8) + hMax(8) + initialPrice(8)
     //   + minNonzeroMmReq(16) + minNonzeroImReq(16) + ...
     // minNonzeroMmReq is at offset 1+2+8+8+8 = 27, minNonzeroImReq at offset 43.
-    expect(data.length).toBe(219);
+    expect(data.length).toBe(203);
     expect(readU128LE(data, 27)).toBe(MM_REQ);
     expect(readU128LE(data, 43)).toBe(IM_REQ);
   });

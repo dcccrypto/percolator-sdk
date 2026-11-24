@@ -37,9 +37,9 @@ const unhex = (s: string): Uint8Array => Uint8Array.from(Buffer.from(s, "hex"));
 const pk = (): PublicKey => Keypair.generate().publicKey;
 
 describe("pinned oracle", () => {
-  it("is prog rc23 bbaa0e7b (#644 + #645 + #651) on engine 2f05df8c", () => {
-    expect(FX.prog).toBe("bbaa0e7b0edb59a545b592488acfaea8ca18da9b");
-    expect(FX.engine).toBe("2f05df8c8c1edd85734120e1322420621fc33cf0");
+  it("is prog 9a0ff591 (rc23 incl. #644 + #645 + #651, InitMarket without public_b_chunk_atoms) on engine 0eed1705 (header 790)", () => {
+    expect(FX.prog).toBe("9a0ff591b1d0894fa665e94b45e18c2804eef201");
+    expect(FX.engine).toBe("0eed170526e891ba88e2ca50b007ea5dfcb99bc2");
   });
 });
 

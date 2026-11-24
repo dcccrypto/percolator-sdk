@@ -660,25 +660,21 @@ export interface InitMarketArgs {
 export declare const HEX_RE: RegExp;
 export declare function encodeFeedId(feedId: string): Uint8Array;
 /**
- * Default value for `publicBChunkAtoms` matching the engine's `MAX_VAULT_TVL`
- * (10_000_000_000_000_000 — effectively unlimited).
- *
- * WARNING: Using a small value (e.g. 1_000_000) stalls deep liquidations.
- * When a bankrupt position's liability exceeds `public_b_chunk_atoms`, the
- * engine returns `RecoveryRequired` and refuses further liquidation until
- * the insurance fund covers the residual. Production markets MUST use this
- * constant (or the engine's own `MAX_VAULT_TVL`) unless a deliberate chunk
- * limit is intended AND the insurance fund is sized accordingly.
+ * The public B chunk: the most collateral atoms one B-settlement step or one
+ * bankruptcy-residual booking step moves. Since engine 083a0d08 (Toly's batch
+ * 12, ported to v2.2) it is the engine constant `PUBLIC_B_CHUNK_ATOMS` =
+ * `MAX_VAULT_TVL` (1e16 atoms), not a market setting, and InitMarket no longer
+ * carries it.
  *
  * @example
  * ```ts
- * import { PUBLIC_B_CHUNK_ATOMS_UNLIMITED, encodeInitMarket } from "@percolator/sdk";
- * const data = encodeInitMarket({
- *   ...otherParams,
- *   publicBChunkAtoms: PUBLIC_B_CHUNK_ATOMS_UNLIMITED,
- *   maintenanceFeePerSlot: 0n,
- * });
+ * import { PUBLIC_B_CHUNK_ATOMS } from "@percolator/sdk";
+ * PUBLIC_B_CHUNK_ATOMS === 10_000_000_000_000_000n; // true
  * ```
+ */
+export declare const PUBLIC_B_CHUNK_ATOMS = 10000000000000000n;
+/**
+ * @deprecated The chunk is the engine constant {@link PUBLIC_B_CHUNK_ATOMS}; kept as an alias.
  */
 export declare const PUBLIC_B_CHUNK_ATOMS_UNLIMITED = 10000000000000000n;
 /**
@@ -701,7 +697,7 @@ export declare const PUBLIC_B_CHUNK_ATOMS_UNLIMITED = 10000000000000000n;
  *   max_abs_funding_e9_per_slot, min_funding_lifetime_slots,
  *   max_account_b_settlement_chunks, max_bankrupt_close_chunks,
  *   max_bankrupt_close_lifetime_slots,
- *   public_b_chunk_atoms, maintenance_fee_per_slot.
+ *   maintenance_fee_per_slot.
  */
 export interface InitMarketV17Args {
     /** Max number of portfolios (u16). Must be > 0 and <= WRAPPER_MAX_PORTFOLIO_ASSETS. */
@@ -745,23 +741,18 @@ export interface InitMarketV17Args {
     /** Maximum bankrupt-close lifetime in slots (u64). */
     maxBankruptCloseLifetimeSlots: bigint | string;
     /**
-     * Public-B chunk size in atoms (u128).
-     *
-     * WARNING: A small value (e.g. 1_000_000) can stall deep liquidations —
-     * the engine returns `RecoveryRequired` when the bankrupt position's
-     * liability exceeds this limit and insurance is insufficient to cover it.
-     * Use `PUBLIC_B_CHUNK_ATOMS_UNLIMITED` (= engine's `MAX_VAULT_TVL` =
-     * 10_000_000_000_000_000) unless you have a specific chunk-limit requirement
-     * and a funded insurance pool.
+     * @deprecated Ignored by {@link encodeInitMarket}: the public B chunk is the engine constant
+     * {@link PUBLIC_B_CHUNK_ATOMS} and is no longer encoded. Only {@link encodeInitMarketPre083a0d08}
+     * (for programs built before the upstream 083a0d08 port) still writes it.
      */
-    publicBChunkAtoms: bigint | string;
+    publicBChunkAtoms?: bigint | string;
     /** Maintenance fee per slot in absolute units (u128). Must be <= MAX_PROTOCOL_FEE_ABS. */
     maintenanceFeePerSlot: bigint | string;
 }
 /**
  * Encode InitMarket instruction data (v17 wire format).
  *
- * Produces a 219-byte payload: tag(1) + market parameter fields (218 bytes).
+ * Produces a 203-byte payload: tag(1) + market parameter fields (202 bytes).
  * admin and collateralMint go into account metas (accounts[0] and accounts[2]).
  *
  * The old v12.x `InitMarketArgs` interface is accepted for source-compat via
@@ -771,7 +762,7 @@ export interface InitMarketV17Args {
  * minInitialDeposit) are silently ignored — provide `InitMarketV17Args` instead.
  *
  * @param args  v17 market parameters (InitMarketV17Args)
- * @returns 227-byte Uint8Array
+ * @returns 203-byte Uint8Array
  *
  * @example
  * ```ts
@@ -796,12 +787,28 @@ export interface InitMarketV17Args {
  *   maxAccountBSettlementChunks: 10n,
  *   maxBankruptCloseChunks: 10n,
  *   maxBankruptCloseLifetimeSlots: 500n,
- *   publicBChunkAtoms: PUBLIC_B_CHUNK_ATOMS_UNLIMITED,  // use engine's MAX_VAULT_TVL; small values stall deep liquidations
  *   maintenanceFeePerSlot: 0n,
  * });
  * ```
  */
 export declare function encodeInitMarket(args: InitMarketV17Args | InitMarketArgs): Uint8Array;
+/** Length of the InitMarket wire before the upstream 083a0d08 port (with `public_b_chunk_atoms`). */
+export declare const INIT_MARKET_PRE_083A0D08_LEN: number;
+/**
+ * Encode InitMarket in the 219-byte form a wrapper built BEFORE the upstream 083a0d08 / c8ddbb6e port expects
+ * (v2.1, and a v2.2 program not yet redeployed with the 790-byte header): the {@link encodeInitMarket} payload with
+ * `public_b_chunk_atoms` (u128) put back before `maintenance_fee_per_slot`. A ported program refuses this form, and a
+ * pre-port program refuses the 203-byte one, so pick the encoder that matches the program you send to.
+ *
+ * @param args  Same as {@link encodeInitMarket}.
+ * @param publicBChunkAtoms  The chunk to encode (default `args.publicBChunkAtoms`, else {@link PUBLIC_B_CHUNK_ATOMS}).
+ * @returns 219-byte Uint8Array
+ * @example
+ * ```ts
+ * const data = encodeInitMarketPre083a0d08(args); // for the pre-port v2.2 devnet program
+ * ```
+ */
+export declare function encodeInitMarketPre083a0d08(args: InitMarketV17Args | InitMarketArgs, publicBChunkAtoms?: bigint | string): Uint8Array;
 /**
  * InitPortfolio / InitUser instruction data.
  *
