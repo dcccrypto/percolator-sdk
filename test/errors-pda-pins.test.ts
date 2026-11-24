@@ -28,6 +28,10 @@ import {
   deriveMatcherDelegate,
   derivePythPushOraclePDA,
 } from "../src/solana/pda.js";
+import { STAKE_ERRORS } from "../src/solana/stake.js";
+
+// Deterministic keys, so bump checks see the same bumps every run.
+const fixedKey = (i: number) => new PublicKey(Uint8Array.from({ length: 32 }, (_, j) => (i * 31 + j * 7 + 1) & 0xff));
 
 // Pinned from percolator-prog feat/v22-rc23-2026-10-22 src/v16_program.rs `pub enum PercolatorError` (implicit discriminants count up; codes 100+ are explicit in the prog).
 export const PROG_RC23_ERROR_TABLE: ReadonlyArray<readonly [number, string]> = [
@@ -207,6 +211,12 @@ describe("getContextualErrorHint", () => {
     expect(getContextualErrorHint(19, { action: "resolve" })).toMatch(/clock is behind/);
     expect(getContextualErrorHint(9999, { action: "resolve" })).toBeUndefined();
   });
+  // Mutants E07 (`mins >= 1` -> `> 1`) and E08 (Math.ceil -> floor) in the stale-resolve wait text.
+  it("stale-resolve wait rounding: 150 slots is about 1 min, 149 is under a minute, 200 rounds up to 2 min", () => {
+    expect(getContextualErrorHint(27, { action: "resolve", staleSlotsRemaining: 150 })).toMatch(/150 more slots \(about 1 min\)/);
+    expect(getContextualErrorHint(27, { action: "resolve", staleSlotsRemaining: 149 })).toMatch(/under a minute/);
+    expect(getContextualErrorHint(27, { action: "resolve", staleSlotsRemaining: 200 })).toMatch(/200 more slots \(about 2 min\)/);
+  });
 });
 
 describe("parseErrorFromLogs attribution", () => {
@@ -272,6 +282,65 @@ describe("parseErrorFromLogs attribution", () => {
   });
 });
 
+// Each test names the hand mutant it kills (SDK-REPORT-ERRORSPDAPINSMUT). The wider suite's differential covers these
+// too; these make the pins file catch them on its own.
+describe("parseErrorFromLogs attribution hardening", () => {
+  const wrapper = String(PROGRAM_IDS.devnet.percolator);
+  const matcher = String(PROGRAM_IDS.devnet.matcher);
+  const failLine = (pid: string, hex: string) => `Program ${pid} failed: custom program error: 0x${hex}`;
+
+  it("E14: a program's own log line cannot claim another program id", () => {
+    const r = parseErrorFromLogs([`Program log: ${failLine(wrapper, "9")}`]);
+    expect(r).toMatchObject({ code: 9, program: "unknown" });
+    expect(r).not.toHaveProperty("programId");
+  });
+  it("E16: context hints apply only to the wrapper table (stake 9 keeps the stake hint)", () => {
+    const stake = fixedKey(202).toBase58();
+    const r = parseErrorFromLogs([failLine(stake, "9")], { programIds: { stake: [stake] }, context: { action: "trade" } });
+    expect(r?.program).toBe("stake");
+    expect(r?.hint).toBe(STAKE_ERRORS[9]);
+    expect(r?.hint).not.toMatch(/Trade refused/);
+  });
+  it("E17: a line with no program id still gets the wrapper context hint", () => {
+    const r = parseErrorFromLogs(["custom program error: 0x9"], { context: { action: "trade" } });
+    expect(r?.program).toBe("unknown");
+    expect(r?.hint).toMatch(/Trade refused/);
+  });
+  it("E18: caller-declared ids win over the built-in sets", () => {
+    const r = parseErrorFromLogs([failLine(wrapper, "0")], { programIds: { stake: [wrapper] } });
+    expect(r?.program).toBe("stake");
+    expect(r?.name).toBe("AlreadyInitialized");
+  });
+  it("E21: SPL Token errors decode with the token table, not the wrapper table", () => {
+    const r = parseErrorFromLogs([failLine("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "1")]);
+    expect(r).toMatchObject({ program: "token", name: "InsufficientFunds" });
+  });
+  it("E28: Token-2022 is attributed to token too", () => {
+    const r = parseErrorFromLogs([failLine("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", "1")]);
+    expect(r).toMatchObject({ program: "token", name: "InsufficientFunds" });
+  });
+  it("E23: in a CPI chain the FIRST failing line (innermost program) is attributed", () => {
+    const logs = [
+      `Program ${wrapper} invoke [1]`,
+      `Program ${matcher} invoke [2]`,
+      failLine(matcher, "1f41"),
+      failLine(wrapper, "1f41"),
+    ];
+    expect(parseErrorFromLogs(logs)).toMatchObject({ code: 0x1f41, program: "matcher", programId: matcher });
+  });
+  it("E12: a code is at most 8 hex digits (u32), even zero-padded", () => {
+    expect(parseErrorFromLogs(["custom program error: 0x00000008"])).toMatchObject({ code: 8 });
+    expect(parseErrorFromLogs(["custom program error: 0x000000008"])).toBeNull();
+  });
+  it("E15: the custom-error match is case-insensitive", () => {
+    expect(parseErrorFromLogs(["Custom Program Error: 0X8"])).toMatchObject({ code: 8, name: "Unauthorized" });
+  });
+  it("E25: a non-string entry is skipped, not the end of the scan", () => {
+    const r = parseErrorFromLogs([5 as unknown as string, "custom program error: 0x8"]);
+    expect(r).toMatchObject({ code: 8, name: "Unauthorized" });
+  });
+});
+
 const k = () => Keypair.generate().publicKey;
 const enc = (s: string) => new TextEncoder().encode(s);
 const find = (seeds: (Uint8Array | Buffer)[], p: PublicKey) => PublicKey.findProgramAddressSync(seeds, p);
@@ -330,5 +399,44 @@ describe("PDA seeds pinned to percolator-prog rc23 derivations", () => {
     expect(derivePythPushOraclePDA(`0X${hex.toUpperCase()}`)).toEqual(exp);
     expect(() => derivePythPushOraclePDA("abcd")).toThrow(/4 chars/);
     expect(() => derivePythPushOraclePDA("zz".repeat(32))).toThrow(/non-hexadecimal/);
+  });
+  // Mutant P26 (FEED_HEX_RE `^` anchor dropped).
+  it("pyth feed id is exactly 64 hex digits: a longer string whose last 64 chars are hex is rejected", () => {
+    const hex = "ab".repeat(32);
+    expect(() => derivePythPushOraclePDA(`00${hex}`)).toThrow(/66 chars/);
+    expect(() => derivePythPushOraclePDA(`g${hex}`)).toThrow(/feedIdHex must be 64 hex digits/);
+  });
+});
+
+// The random keys above give bump 255 about half the time, so a "bump dropped / wrong bump" regression was only caught
+// by luck (P03: 2 of 8 runs). These fixed keys check the same bumps every run.
+describe("PDA bumps are the real ones on fixed keys (P03, P08)", () => {
+  const PROG = fixedKey(200);
+  const MINT = fixedKey(201);
+  const MARKETS = Array.from({ length: 24 }, (_, i) => fixedKey(i));
+  it("deriveVaultAuthority returns the canonical bump, including keys whose bump is below 255", () => {
+    let below255 = 0;
+    for (const m of MARKETS) {
+      const exp = find([enc("vault"), m.toBytes()], PROG);
+      expect(deriveVaultAuthority(PROG, m)).toEqual(exp);
+      if (exp[1] < 255) below255++;
+    }
+    expect(below255).toBeGreaterThan(0); // the fixture really exercises a non-255 bump
+  });
+  it("deriveMarketVaultAccounts keeps the authority bump and the vault bump apart", () => {
+    let differ = 0;
+    for (const m of MARKETS) {
+      const [auth, authBump] = find([enc("vault"), m.toBytes()], PROG);
+      const [vault, vaultBump] = find(
+        [auth.toBytes(), PERCOLATOR_VAULT_TOKEN_PROGRAM_ID.toBytes(), MINT.toBytes()],
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
+      const v = deriveMarketVaultAccounts(PROG, m, MINT);
+      expect(v.vaultAuthorityBump).toBe(authBump);
+      expect(v.vaultTokenBump).toBe(vaultBump);
+      expect(v.vaultToken.equals(vault)).toBe(true);
+      if (authBump !== vaultBump) differ++;
+    }
+    expect(differ).toBeGreaterThan(0); // the fixture really exercises unequal bumps
   });
 });
