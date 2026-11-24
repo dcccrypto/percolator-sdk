@@ -17931,9 +17931,9 @@ function requiredConfirmationRank(commitment) {
       return CONFIRMATION_RANK.processed;
   }
 }
-function meetsCommitment(observed, required) {
+function meetsCommitment(observed, required2) {
   if (!observed) return false;
-  return CONFIRMATION_RANK[observed] >= requiredConfirmationRank(required);
+  return CONFIRMATION_RANK[observed] >= requiredConfirmationRank(required2);
 }
 function buildIx(params) {
   return new TransactionInstruction12({
@@ -19437,6 +19437,221 @@ function buildCatchUpAndRefreshIxsV22(input) {
   return { txs, gapSlots: gap, maxAccrualDtSlots: dt, totalObserveCranks: total2 };
 }
 
+// src/solana/atomic-read.ts
+var ATOMIC_READ_MAX_KEYS = 100;
+async function readAccountsAtomic(connection, keys, opts = {}) {
+  if (keys.length === 0) throw new Error("readAccountsAtomic: no keys");
+  if (keys.length > ATOMIC_READ_MAX_KEYS) {
+    throw new Error(`readAccountsAtomic: ${keys.length} keys > ${ATOMIC_READ_MAX_KEYS}; one getMultipleAccounts call cannot read them at one slot`);
+  }
+  const config = {};
+  if (opts.commitment !== void 0) config.commitment = opts.commitment;
+  if (opts.minContextSlot !== void 0) config.minContextSlot = opts.minContextSlot;
+  const res = await connection.getMultipleAccountsInfoAndContext([...keys], config);
+  const slot = res.context.slot;
+  if (res.value.length !== keys.length) {
+    throw new Error(`readAccountsAtomic: RPC returned ${res.value.length} accounts for ${keys.length} keys`);
+  }
+  if (opts.minContextSlot !== void 0 && slot < opts.minContextSlot) {
+    throw new Error(`readAccountsAtomic: RPC answered at slot ${slot} < minContextSlot ${opts.minContextSlot}`);
+  }
+  return { slot, accounts: res.value };
+}
+var bytesOf = (a) => a ? new Uint8Array(a.data.buffer, a.data.byteOffset, a.data.byteLength) : null;
+function required(a, what, key3) {
+  const d = bytesOf(a);
+  if (!d) throw new Error(`${what} account ${key3.toBase58()} does not exist`);
+  return d;
+}
+function splAmount(d, what) {
+  if (d.length < 72) throw new Error(`${what}: not a token account (${d.length} bytes)`);
+  return new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(64, true);
+}
+async function fetchStakeWithdrawQuoteV5(connection, accounts, opts = {}) {
+  const keys = [accounts.pool, accounts.insuranceUnits, accounts.vault, accounts.userLp];
+  if (accounts.market) keys.push(accounts.market);
+  const { slot, accounts: a } = await readAccountsAtomic(connection, keys, opts);
+  const pool = decodeStakePoolV5(required(a[0], "stake pool", accounts.pool));
+  if (!pool.vault.equals(accounts.vault)) throw new Error(`vault ${accounts.vault.toBase58()} is not pool.vault ${pool.vault.toBase58()}`);
+  const insuranceUnits = decodeInsuranceUnitsV20(required(a[1], "insurance units", accounts.insuranceUnits));
+  const vaultBalance = splAmount(required(a[2], "pool vault", accounts.vault), "pool vault");
+  const lpData = bytesOf(a[3]);
+  const userLp = lpData ? splAmount(lpData, "user LP") : 0n;
+  let liveInsurance;
+  if (accounts.market) {
+    const cap = decodeTerminalInsuranceCapacity(required(a[4], "market", accounts.market), accounts.assetIndex ?? 0);
+    const w3 = cap.domains[0].withdrawCapacity + cap.domains[1].withdrawCapacity;
+    liveInsurance = w3 < cap.insurance ? w3 : cap.insurance;
+  }
+  const free = insuranceUnits.snapInsuranceFreeAtoms;
+  const q = quoteStakeWithdrawNowV5(pool, insuranceUnits, free, vaultBalance, userLp, liveInsurance);
+  if (!q) return null;
+  const exitInsurance = liveInsurance !== void 0 && liveInsurance < free ? liveInsurance : free;
+  return { ...q, slot, pool, insuranceUnits, vaultBalance, userLp, exitInsurance };
+}
+async function fetchNonboundVaultPricingP2b(connection, programId, market, opts = {}) {
+  const [registry] = deriveLpVaultRegistry(programId, market);
+  let domain = opts.domain;
+  if (domain === void 0) {
+    const pre = await readAccountsAtomic(connection, [registry], opts);
+    domain = parseLpVaultRegistry(required(pre.accounts[0], "LP-vault registry", registry)).domain;
+  }
+  const [own] = deriveLpBackingLedger(programId, market, domain);
+  const [sibling] = deriveLpBackingLedger(programId, market, domain ^ 1);
+  const { slot, accounts: a } = await readAccountsAtomic(connection, [market, registry, own, sibling], opts);
+  const marketData = required(a[0], "market", market);
+  const registryData = required(a[1], "LP-vault registry", registry);
+  if (isLpVaultRegistryBoundP3(registryData)) {
+    throw new Error("fetchNonboundVaultPricingP2b: the registry is bound to a vault LP; use fetchBoundVaultExitQuoteP3");
+  }
+  const reg = parseLpVaultRegistry(registryData);
+  if (reg.domain !== domain) throw new Error(`fetchNonboundVaultPricingP2b: registry domain ${reg.domain} != expected ${domain}`);
+  const p = nonboundVaultPricingFromAccountsP2b({
+    marketData,
+    registryDomain: reg.domain,
+    feeShareBps: reg.feeShareBps,
+    ownLedgerData: bytesOf(a[2]),
+    siblingLedgerData: bytesOf(a[3])
+  });
+  return { ...p, slot, registry, domain: reg.domain, feeShareBps: reg.feeShareBps, totalLpSharesOutstanding: reg.totalLpSharesOutstanding };
+}
+async function resolveBoundVaultKeysP3(connection, programId, market, opts = {}) {
+  const [vaultLpState] = deriveVaultLpStateP3(programId, market);
+  const [registry] = deriveLpVaultRegistry(programId, market);
+  const { accounts: a } = await readAccountsAtomic(connection, [vaultLpState, registry], opts);
+  const st = decodeVaultLpStateP3(required(a[0], "VaultLpState", vaultLpState));
+  const registryData = required(a[1], "LP-vault registry", registry);
+  if (!st.registry.equals(registry)) throw new Error(`VaultLpState names registry ${st.registry.toBase58()}, expected ${registry.toBase58()}`);
+  if (!isLpVaultRegistryBoundP3(registryData)) throw new Error("the LP-vault registry is not bound to a vault LP; use fetchNonboundVaultPricingP2b");
+  const { domain } = parseLpVaultRegistry(registryData);
+  return {
+    vaultLpState,
+    registry,
+    lpPortfolio: st.lpPortfolio,
+    domain,
+    ownLedger: deriveLpBackingLedger(programId, market, domain)[0],
+    siblingLedger: deriveLpBackingLedger(programId, market, domain ^ 1)[0]
+  };
+}
+var HEALTH_CERT_TO_RECEIPT = 121 + 4 + 184;
+function readHealthCertP3(portfolio) {
+  const g = resolvePortfolioLayout(portfolio, { parser: "fetchBoundVaultExitQuoteP3" }).portfolio;
+  const off = g.sourceDomainsOff + g.sourceDomainCap * g.sourceDomainStride;
+  if (off + HEALTH_CERT_TO_RECEIPT !== g.resolvedPayoutReceiptOff) throw new Error("vault-LP portfolio: health-certificate offset does not match the layout");
+  if (portfolio.length < off + 123) throw new Error("vault-LP portfolio too short for its health certificate");
+  const v = new DataView(portfolio.buffer, portfolio.byteOffset, portfolio.byteLength);
+  const lo = v.getBigUint64(off, true);
+  const hi = v.getBigInt64(off + 8, true);
+  return {
+    certifiedEquity: hi << 64n | lo,
+    bitmapAtCert: v.getBigUint64(off + 112, true),
+    valid: portfolio[off + 120] === 1,
+    stale: portfolio[off + 121] !== 0 || portfolio[off + 122] !== 0
+  };
+}
+function potTerms(d) {
+  const l = d && d.length > 0 ? decodeBackingDomainLedgerP2b(d) : null;
+  return {
+    totalPrincipalAtoms: l?.totalPrincipalAtoms ?? 0n,
+    totalEarningsAtoms: l?.totalEarningsAtoms ?? 0n,
+    totalEarningsWithdrawnAtoms: l?.totalEarningsWithdrawnAtoms ?? 0n,
+    cumulativeLossAtoms: l?.cumulativeLossAtoms ?? 0n,
+    cumulativeRecoveryAtoms: l?.cumulativeRecoveryAtoms ?? 0n
+  };
+}
+function liveExitSeniorValueNetBackstop(c, nav, lpValueAtEff, worse, backstop) {
+  if (backstop === 0n) return liveExitSeniorValueP3(c, nav, lpValueAtEff, worse);
+  const sat3 = (a, b) => a > b ? a - b : 0n;
+  const min2 = (a, b) => a < b ? a : b;
+  if (worse >= 0n) return min2(sat3(nav + min2(lpValueAtEff, worse), backstop), c);
+  const d = -worse;
+  return min2(sat3(sat3(nav, d), backstop), vaultLpSeniorPricingClaimP3(c, d, sat3(nav, c)));
+}
+async function fetchBoundVaultExitQuoteP3(connection, programId, market, opts) {
+  const keys = opts.keys ?? await resolveBoundVaultKeysP3(connection, programId, market, opts);
+  const { slot, accounts: a } = await readAccountsAtomic(
+    connection,
+    [market, keys.registry, keys.vaultLpState, keys.ownLedger, keys.siblingLedger, keys.lpPortfolio],
+    opts
+  );
+  const marketData = required(a[0], "market", market);
+  const registryData = required(a[1], "LP-vault registry", keys.registry);
+  const st = decodeVaultLpStateP3(required(a[2], "VaultLpState", keys.vaultLpState));
+  const lpData = required(a[5], "vault-LP portfolio", keys.lpPortfolio);
+  if (!isLpVaultRegistryBoundP3(registryData)) throw new Error("the LP-vault registry is not bound to a vault LP");
+  const reg = parseLpVaultRegistry(registryData);
+  if (reg.domain !== keys.domain) throw new Error(`registry domain ${reg.domain} != cached ${keys.domain}`);
+  if (!st.registry.equals(keys.registry) || !st.lpPortfolio.equals(keys.lpPortfolio)) throw new Error("VaultLpState no longer matches the cached keys");
+  const g = resolveMarketGeometry(marketData, { parser: "fetchBoundVaultExitQuoteP3", strictLength: false });
+  const resolved = marketData[g.groupOff + g.layout.group.mode] === 1;
+  const ownRec = readPotEngineRecordsP2b(marketData, reg.domain);
+  const sibRec = readPotEngineRecordsP2b(marketData, reg.domain ^ 1);
+  const { nav } = boundVaultNavFlooredP3(potTerms(bytesOf(a[3])), potTerms(bytesOf(a[4])), reg.feeShareBps, {
+    own: vaultPotHeldAtomsP3(ownRec),
+    sibling: vaultPotHeldAtomsP3(sibRec)
+  });
+  const pf = parsePortfolioV17(lpData);
+  const cert = readHealthCertP3(lpData);
+  const legs = pf.legs.filter((l) => l.active).map((l) => ({ basisPosQ: l.basisPosQ, ...readAssetPricesP3(marketData, l.assetIndex) }));
+  const { worse, better } = vaultLpEquityLagBoundsP3({ legs, certifiedEquity: cert.certifiedEquity, capital: pf.capital, pnl: pf.pnl, feeCredits: pf.feeCredits });
+  const certUsable = cert.valid && !cert.stale && cert.bitmapAtCert === pf.activeBitmap;
+  let lpValueAtEff;
+  if (certUsable) lpValueAtEff = cert.certifiedEquity > 0n ? cert.certifiedEquity : 0n;
+  else if (pf.activeBitmap === 0n) lpValueAtEff = worse;
+  else lpValueAtEff = null;
+  let seniorValue;
+  if (resolved) {
+    seniorValue = vaultPhysicalIdleBackingAtomsP3([ownRec.freshUnlienedBackingNum, sibRec.freshUnlienedBackingNum]);
+    if (seniorValue > st.seniorClaimAtoms) seniorValue = st.seniorClaimAtoms;
+  } else if (lpValueAtEff === null) {
+    seniorValue = null;
+  } else {
+    seniorValue = liveExitSeniorValueNetBackstop(st.seniorClaimAtoms, nav, worse >= 0n ? lpValueAtEff : 0n, worse, st.backstopOutstandingAtoms);
+  }
+  const redemptionAtoms = seniorValue === null ? null : boundVaultRedemptionAtomsP3(opts.shares, reg.totalLpSharesOutstanding, seniorValue);
+  return {
+    slot,
+    keys,
+    resolved,
+    totalShares: reg.totalLpSharesOutstanding,
+    seniorClaim: st.seniorClaimAtoms,
+    nav,
+    certifiedEquity: cert.certifiedEquity,
+    certUsable,
+    lpEquityWorse: worse,
+    lpEquityBetter: better,
+    lpValueAtEff,
+    backstopOutstandingAtoms: st.backstopOutstandingAtoms,
+    seniorDrawOutstandingAtoms: st.seniorDrawOutstandingAtoms,
+    seniorValue,
+    redemptionAtoms
+  };
+}
+async function fetchDexSpotPriceE6(connection, dexType, pool, decimals, opts = {}) {
+  if (dexType !== "pumpswap") {
+    const { slot: slot2, accounts: a2 } = await readAccountsAtomic(connection, [pool], opts);
+    return { priceE6: computeDexSpotPriceE6(dexType, required(a2[0], "DEX pool", pool), void 0, decimals, opts.solPriceE6), slot: slot2 };
+  }
+  let vaults = opts.vaults;
+  if (!vaults) {
+    const pre = await readAccountsAtomic(connection, [pool], opts);
+    const p2 = parseDexPool("pumpswap", pool, required(pre.accounts[0], "DEX pool", pool));
+    vaults = { baseVault: p2.baseVault, quoteVault: p2.quoteVault };
+  }
+  const { slot, accounts: a } = await readAccountsAtomic(connection, [pool, vaults.baseVault, vaults.quoteVault], opts);
+  const poolData = required(a[0], "DEX pool", pool);
+  const p = parseDexPool("pumpswap", pool, poolData);
+  if (!p.baseVault.equals(vaults.baseVault) || !p.quoteVault.equals(vaults.quoteVault)) throw new Error("PumpSwap pool no longer names the cached vaults");
+  const priceE6 = computeDexSpotPriceE6(
+    "pumpswap",
+    poolData,
+    { base: required(a[1], "PumpSwap base vault", vaults.baseVault), quote: required(a[2], "PumpSwap quote vault", vaults.quoteVault) },
+    decimals,
+    opts.solPriceE6
+  );
+  return { priceE6, slot };
+}
+
 // src/runtime/lighthouse.ts
 import { PublicKey as PublicKey36, Transaction as Transaction3 } from "@solana/web3.js";
 var LIGHTHOUSE_PROGRAM_ID = new PublicKey36(
@@ -20201,6 +20416,7 @@ export {
   ASSET_VAULT_LP_SLOT_OFF_P3,
   ASSET_WRAPPER_SLOT_LEN,
   ASSOCIATED_TOKEN_PROGRAM_ID2 as ASSOCIATED_TOKEN_PROGRAM_ID,
+  ATOMIC_READ_MAX_KEYS,
   ATTESTED_MAX_TIER_DEFAULT,
   AccountKind,
   BACKING_BUCKET_FIELD_OFF_P2B,
@@ -21337,8 +21553,12 @@ export {
   favourableCloseRefusedV22,
   fetchAdlRankedPositions,
   fetchAdlRankings,
+  fetchBoundVaultExitQuoteP3,
+  fetchDexSpotPriceE6,
   fetchMintDecimals,
+  fetchNonboundVaultPricingP2b,
   fetchSlab,
+  fetchStakeWithdrawQuoteV5,
   fetchTokenAccount,
   fetchVaultLpExtP2b,
   findExpirableBackingDomains,
@@ -21544,6 +21764,7 @@ export {
   rankAdlPositions,
   ratchetCeilingX100,
   rc23CapDials,
+  readAccountsAtomic,
   readAssetPricesP3,
   readBandRentViewV22,
   readCreatorFeeClaimStateV22,
@@ -21573,6 +21794,7 @@ export {
   rescueClaimDeltaV22,
   rescueSharesV22,
   reserveValueE6,
+  resolveBoundVaultKeysP3,
   resolveLayout,
   resolveMarketGeometry,
   resolveNftProgramOverride,
