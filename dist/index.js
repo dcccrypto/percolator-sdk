@@ -3701,6 +3701,19 @@ var TOKEN_PROGRAM_IDS = [
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 ];
+var SYSTEM_PROGRAM_ID = "11111111111111111111111111111111";
+var SYSTEM_PROGRAM_ERRORS = Object.freeze({
+  0: { name: "AccountAlreadyInUse", hint: "An account with this address already exists." },
+  1: { name: "ResultWithNegativeLamports", hint: "The paying account does not have enough SOL for this transfer or account rent. Fund the payer and retry." },
+  2: { name: "InvalidProgramId", hint: "Cannot assign the account to this program id." },
+  3: { name: "InvalidAccountDataLength", hint: "Cannot allocate an account with this data length." },
+  4: { name: "MaxSeedLengthExceeded", hint: "The seed is longer than the maximum allowed length." },
+  5: { name: "AddressWithSeedMismatch", hint: "The address does not match the one derived from the seed." },
+  6: { name: "NonceNoRecentBlockhashes", hint: "Advancing a stored nonce needs a non-empty recent blockhashes list." },
+  7: { name: "NonceBlockhashNotExpired", hint: "The stored nonce is still in the recent blockhashes list; wait and retry." },
+  8: { name: "NonceUnexpectedBlockhashValue", hint: "The specified nonce does not match the stored nonce." }
+});
+for (const v of Object.values(SYSTEM_PROGRAM_ERRORS)) Object.freeze(v);
 var BUILTIN_PROGRAM_IDS;
 function builtinProgramIds() {
   if (BUILTIN_PROGRAM_IDS) return BUILTIN_PROGRAM_IDS;
@@ -3716,6 +3729,7 @@ function builtinProgramIds() {
   add("stake", [STAKE_PROGRAM_IDS.devnet, STAKE_PROGRAM_IDS.mainnet, PROGRAM_IDS_DEVNET_V22.vault, PROGRAM_IDS_DEVNET_V1.vault]);
   add("nft", [NFT_PROGRAM_IDS.devnet, NFT_PROGRAM_IDS.mainnet, PROGRAM_IDS_DEVNET_V22.nft, PROGRAM_IDS_DEVNET_V1.nft]);
   add("token", TOKEN_PROGRAM_IDS);
+  add("system", [SYSTEM_PROGRAM_ID]);
   return BUILTIN_PROGRAM_IDS = m;
 }
 function knownProgramIds(extra) {
@@ -3745,6 +3759,8 @@ function decodeForProgram(kind, code) {
       return MATCHER_V2_ERRORS[code];
     case "token":
       return SPL_TOKEN_ERRORS[code];
+    case "system":
+      return SYSTEM_PROGRAM_ERRORS[code];
     case "wrapper":
     case "unknown":
       return PERCOLATOR_ERRORS[code];
@@ -15516,8 +15532,18 @@ function decodeStakePool(data) {
   requireDiscriminator("StakePool", data, reservedOffset, STAKE_POOL_DISCRIMINATOR);
   const version = data[reservedOffset + 8];
   const expectedVersion = isV4 ? 4 : isV3 ? 3 : isV2 ? 2 : 1;
-  if (version !== expectedVersion) {
-    throw new Error(`StakePool unsupported version: ${version} !== ${expectedVersion}`);
+  const isV5 = version === STAKE_POOL_VERSION_V5 && data.length >= STAKE_POOL_SIZE_V5;
+  if (version !== expectedVersion && !isV5) {
+    const v5Hint = version === STAKE_POOL_VERSION_V5 || data.length >= STAKE_POOL_SIZE_V5 ? ` (stake v5 pools are ${STAKE_POOL_SIZE_V5} bytes with version ${STAKE_POOL_VERSION_V5}; got ${data.length} bytes. For the v5 fields use decodeStakePoolV5)` : "";
+    throw new Error(`StakePool unsupported version: ${version} !== ${expectedVersion}${v5Hint}`);
+  }
+  let riskMode;
+  if (isV5) {
+    const rm = data[STAKE_POOL_FIELD_OFF_V5.riskMode];
+    if (rm > STAKE_RISK_MODE.FeeOnly) {
+      throw new Error(`StakePool v5 risk mode ${rm} is outside 0..2 (decodeStakePoolV5 refuses it too)`);
+    }
+    riskMode = rm;
   }
   const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
   let off = 0;
@@ -15628,7 +15654,8 @@ function decodeStakePool(data) {
     cooldownProposedAtSlot,
     realizedJuniorLoss,
     assetAdminBurned,
-    totalRecoveredFromWrapper
+    totalRecoveredFromWrapper,
+    ...riskMode !== void 0 ? { riskMode } : {}
   };
 }
 var STAKE_DEPOSIT_SIZE = 152;
@@ -15665,8 +15692,41 @@ function initPoolAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID) {
     { pubkey: SYSVAR_RENT_PUBKEY2, isSigner: false, isWritable: false }
   ];
 }
+function isFirstLoss(fn, riskMode) {
+  if (riskMode !== void 0 && riskMode !== 0 && riskMode !== 1 && riskMode !== 2) {
+    throw new Error(`${fn}: riskMode ${riskMode} is not 0 (legacy), 1 (FIRST_LOSS) or 2 (FEE_ONLY)`);
+  }
+  return riskMode === STAKE_RISK_MODE.FirstLoss;
+}
+function firstLossTail(fn, a, slab) {
+  if (!a.wrapperProgram) {
+    throw new Error(`${fn}: a FIRST_LOSS pool (riskMode 1) needs wrapperProgram (pool.percolatorProgram) for the v5 account list`);
+  }
+  if (!slab) {
+    throw new Error(`${fn}: a FIRST_LOSS pool (riskMode 1) needs slab (pool.slab, the wrapper market) for the v5 account list`);
+  }
+  return {
+    market: slab,
+    wrapperProgram: a.wrapperProgram,
+    insuranceUnits: a.insuranceUnits ?? deriveInsuranceUnitsV22(a.wrapperProgram, slab)[0]
+  };
+}
 function depositAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID) {
   assertClassicTokenProgram(tokenProgramId);
+  if (isFirstLoss("depositAccounts", a.riskMode)) {
+    return stakeMetasV5(ACCOUNTS_STAKE_DEPOSIT_V5, {
+      user: a.user,
+      pool: a.pool,
+      userCollateral: a.userCollateralAta,
+      vault: a.vault,
+      lpMint: a.lpMint,
+      userLp: a.userLpAta,
+      vaultAuthority: a.vaultAuth,
+      deposit: a.depositPda,
+      tokenProgram: tokenProgramId,
+      ...firstLossTail("depositAccounts", a, a.slab)
+    });
+  }
   return [
     // [0] staker: signer AND writable. stake 0f88ff1 `process_deposit` / `process_deposit_junior` make it the rent
     // payer of the per-user deposit PDA (`create_or_adopt_pda(deposit_pda, user, ..)`, a System transfer that debits
@@ -15687,10 +15747,27 @@ function depositAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID) {
   ];
 }
 function depositJuniorAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID) {
+  if (isFirstLoss("depositJuniorAccounts", a.riskMode)) {
+    throw new Error("depositJuniorAccounts: DepositJunior (tag 16) is refused on a FIRST_LOSS pool (riskMode 1): stake NotSupportedOnFirstLoss (41)");
+  }
   return depositAccounts(a, tokenProgramId);
 }
 function withdrawAccounts(a, tokenProgramId = TOKEN_PROGRAM_ID) {
   assertClassicTokenProgram(tokenProgramId);
+  if (isFirstLoss("withdrawAccounts", a.riskMode)) {
+    return stakeMetasV5(ACCOUNTS_STAKE_WITHDRAW_V5, {
+      user: a.user,
+      pool: a.pool,
+      userLp: a.userLpAta,
+      lpMint: a.lpMint,
+      vault: a.vault,
+      userCollateral: a.userCollateralAta,
+      vaultAuthority: a.vaultAuth,
+      deposit: a.depositPda,
+      tokenProgram: tokenProgramId,
+      ...firstLossTail("withdrawAccounts", a, a.slab)
+    });
+  }
   return [
     // [0] staker: signer, read-only. stake 0f88ff1 `process_withdraw` debits no lamports from it on this (legacy /
     // FEE_ONLY, <= 11 account) layout. A FIRST_LOSS withdrawal needs the v5 list (`ACCOUNTS_STAKE_WITHDRAW_V5`), where
