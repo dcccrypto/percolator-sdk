@@ -33,6 +33,16 @@ import { safeEnv, PROGRAM_IDS_DEVNET_V1, PROGRAM_IDS_DEVNET_V22 } from '../confi
 import { concatBytes } from '../abi/encode.js';
 import { STAKE_FLOOR_FLAGS_RESERVED_INDEX } from '../abi/stake-dead-lp.js';
 import { STAKE_PROGRAM_IDS } from './stake-errors.js';
+import {
+  ACCOUNTS_STAKE_DEPOSIT_V5,
+  ACCOUNTS_STAKE_WITHDRAW_V5,
+  STAKE_POOL_FIELD_OFF_V5,
+  STAKE_POOL_SIZE_V5,
+  STAKE_POOL_VERSION_V5,
+  STAKE_RISK_MODE,
+  stakeMetasV5,
+} from '../abi/v22-stake.js';
+import { deriveInsuranceUnitsV22 } from '../abi/v22-wire.js';
 
 /**
  * Guard: the stake program supports ONLY the classic SPL Token program (percolator-stake
@@ -1696,6 +1706,13 @@ export interface StakePoolState {
    * `totalReturned` — see `state.rs@c5a901f` lines 133-159.
    */
   totalRecoveredFromWrapper: bigint | null;
+  /**
+   * stake v5 pools only (`version === 5`, 480 bytes): the pool's risk mode at absolute 408 (0 legacy, 1 FIRST_LOSS,
+   * 2 FEE_ONLY). `undefined` on v1..v4 pools. Pass it to {@link depositAccounts} / {@link withdrawAccounts}: a FIRST_LOSS
+   * pool takes the 14-account v5 lists. The other v5 fields (consent version, deploy target, ...) are only decoded by
+   * `decodeStakePoolV5` (v22-stake module).
+   */
+  riskMode?: 0 | 1 | 2;
 }
 
 /**
@@ -1823,7 +1840,10 @@ export const STAKE_POOL_CURRENT_VERSION = 4;
  * bytes, adds `total_recovered_from_wrapper: u64` at the struct tail,
  * offset 384..392 — outside `_reserved`, which stays at [320..384] in both
  * v2 and v3), and v4 (408 bytes, promoting the two #242 cooldown-timelock
- * fields out of `_reserved` into real struct fields at 392 and 400).
+ * fields out of `_reserved` into real struct fields at 392 and 400), and v5
+ * (480 bytes, version 5: the v4 prefix unchanged plus the first-loss fields
+ * from 408; this decoder reads the prefix and `riskMode` only, use
+ * `decodeStakePoolV5` for the rest).
  * The layout version is detected from the data length before reading the
  * discriminator.
  *
@@ -1839,6 +1859,8 @@ export const STAKE_POOL_CURRENT_VERSION = 4;
  * Uses DataView for all u64/u16 reads — browser-safe.
  */
 export function decodeStakePool(data: Uint8Array): StakePoolState {
+  // v5 (480 bytes) keeps the v4 prefix byte for byte (`STAKE_POOL_FIELD_OFF_V5`: the v5 fields start at 408), so a v5
+  // pool decodes with the v4 rules below plus `riskMode`. A >= 408-byte buffer still accepts version 4 as before.
   const isV4 = data.length >= STAKE_POOL_SIZE_V4;
   const isV3 = !isV4 && data.length >= STAKE_POOL_SIZE_V3;
   const isV2 = !isV4 && !isV3 && data.length >= STAKE_POOL_SIZE_V2;
@@ -1853,8 +1875,20 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
   requireDiscriminator("StakePool", data, reservedOffset, STAKE_POOL_DISCRIMINATOR);
   const version = data[reservedOffset + 8];
   const expectedVersion = isV4 ? 4 : isV3 ? 3 : isV2 ? 2 : 1;
-  if (version !== expectedVersion) {
-    throw new Error(`StakePool unsupported version: ${version} !== ${expectedVersion}`);
+  const isV5 = version === STAKE_POOL_VERSION_V5 && data.length >= STAKE_POOL_SIZE_V5;
+  if (version !== expectedVersion && !isV5) {
+    const v5Hint = version === STAKE_POOL_VERSION_V5 || data.length >= STAKE_POOL_SIZE_V5
+      ? ` (stake v5 pools are ${STAKE_POOL_SIZE_V5} bytes with version ${STAKE_POOL_VERSION_V5}; got ${data.length} bytes. For the v5 fields use decodeStakePoolV5)`
+      : '';
+    throw new Error(`StakePool unsupported version: ${version} !== ${expectedVersion}${v5Hint}`);
+  }
+  let riskMode: 0 | 1 | 2 | undefined;
+  if (isV5) {
+    const rm = data[STAKE_POOL_FIELD_OFF_V5.riskMode];
+    if (rm > STAKE_RISK_MODE.FeeOnly) {
+      throw new Error(`StakePool v5 risk mode ${rm} is outside 0..2 (decodeStakePoolV5 refuses it too)`);
+    }
+    riskMode = rm as 0 | 1 | 2;
   }
 
   const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
@@ -1998,6 +2032,7 @@ export function decodeStakePool(data: Uint8Array): StakePoolState {
     realizedJuniorLoss,
     assetAdminBurned,
     totalRecoveredFromWrapper,
+    ...(riskMode !== undefined ? { riskMode } : {}),
   };
 }
 
@@ -2018,6 +2053,26 @@ export interface StakeDepositState {
   user: PublicKey;
   lastDepositSlot: bigint;
   lpAmount: bigint;
+}
+
+/**
+ * Optional stake v5 routing inputs for {@link depositAccounts} / {@link withdrawAccounts}.
+ *
+ * Set `riskMode` from the pool (`decodeStakePool(..).riskMode` or `decodeStakePoolV5(..).riskMode`). `riskMode: 1`
+ * (FIRST_LOSS) switches to the 14-account v5 lists (`ACCOUNTS_STAKE_DEPOSIT_V5` / `ACCOUNTS_STAKE_WITHDRAW_V5`): the
+ * stake program CPIs the wrapper's tag-116 refresh there, and the 12 / 11-account legacy lists fail `NotEnoughAccountKeys`
+ * (devnet, 2026-11-20). FEE_ONLY (2), legacy (0) and unset keep the legacy lists, which the program accepts.
+ */
+export interface StakeV5RouteAccounts {
+  /**
+   * The pool's risk mode: 0 legacy, 1 FIRST_LOSS, 2 FEE_ONLY (typed `number` so `decodeStakePoolV5(..).riskMode` passes
+   * straight in; any other value throws). Leave unset on a v1..v4 pool.
+   */
+  riskMode?: number;
+  /** The wrapper program (`pool.percolatorProgram`). REQUIRED when `riskMode` is 1. */
+  wrapperProgram?: PublicKey;
+  /** Override for the wrapper `InsuranceUnitsV20` PDA (`["ins_units", slab]` under `wrapperProgram`); derived when unset. */
+  insuranceUnits?: PublicKey;
 }
 
 /**
@@ -2082,7 +2137,7 @@ export interface StakeAccounts {
      * it. Sent at account index 11. v18.1 stake ignores the extra trailing account.
      */
     slab: PublicKey;
-  };
+  } & StakeV5RouteAccounts;
   /** Withdraw accounts */
   withdraw: {
     user: PublicKey;
@@ -2101,9 +2156,10 @@ export interface StakeAccounts {
      *
      * OMIT it (leave undefined) after the market has been retired by CloseSlab:
      * a CloseSlab tombstone at index 10 fails `InvalidAccount` (F-9 / #290).
+     * REQUIRED on a FIRST_LOSS pool (`riskMode: 1`): the v5 list sends it writable at [10].
      */
     slab?: PublicKey;
-  };
+  } & StakeV5RouteAccounts;
   /** AccrueFees accounts (tag 12, permissionless) */
   accrueFees: {
     /** Any signer; the program only checks `is_signer`. */
@@ -2166,24 +2222,61 @@ export function initPoolAccounts(
  * percolator-stake #290 (v18.2), which rejects a mode-0 deposit without it.
  * v18.1 stake reads only the first 11 and ignores the trailing account.
  *
+ * stake v5 FIRST_LOSS pools (`riskMode: 1`): 14 accounts, exactly `ACCOUNTS_STAKE_DEPOSIT_V5` (market writable at
+ * [11], the wrapper `["ins_units", market]` PDA at [12], the wrapper program at [13]). The 12-account list fails
+ * `NotEnoughAccountKeys` there. FEE_ONLY v5 pools take the 12-account list. A FIRST_LOSS deposit also needs the consent
+ * wire (`encodeStakeDepositWithConsentV5`), not `encodeStakeDeposit`.
+ *
  * @param a - Named accounts for the Deposit instruction.
  * @param tokenProgramId - Token program. Defaults to classic SPL Token, the ONLY program the
  *   stake program accepts (#352: Token-2022 collateral is not supported; passing it throws).
  * @throws Error if `tokenProgramId` is not the classic SPL Token program.
  * @returns Account metas in the order the program parses them.
+ * @throws Error if `riskMode` is 1 and `wrapperProgram` is missing, or `riskMode` is not 0, 1, 2 or unset.
  * @example
  * ```ts
- * const pool = decodeStakePool(poolInfo.data);
+ * const pool = decodeStakePool(poolInfo.data); // v1..v5; riskMode is set on v5 pools only
  * const keys = depositAccounts({ user, pool: poolPda, userCollateralAta, vault: pool.vault,
- *   lpMint: pool.lpMint, userLpAta, vaultAuth, depositPda, slab: pool.slab });
- * new TransactionInstruction({ programId, keys, data: encodeStakeDeposit(amount) });
+ *   lpMint: pool.lpMint, userLpAta, vaultAuth, depositPda, slab: pool.slab,
+ *   riskMode: pool.riskMode, wrapperProgram: pool.percolatorProgram });
+ * // FIRST_LOSS (riskMode 1): data = encodeStakeDepositWithConsentV5(...); otherwise encodeStakeDeposit(amount)
+ * new TransactionInstruction({ programId, keys, data });
  * ```
  */
+/** True when the v5 FIRST_LOSS list applies; throws on a risk mode the stake program does not define. */
+function isFirstLoss(fn: string, riskMode: number | undefined): boolean {
+  if (riskMode !== undefined && riskMode !== 0 && riskMode !== 1 && riskMode !== 2) {
+    throw new Error(`${fn}: riskMode ${riskMode} is not 0 (legacy), 1 (FIRST_LOSS) or 2 (FEE_ONLY)`);
+  }
+  return riskMode === STAKE_RISK_MODE.FirstLoss;
+}
+
+function firstLossTail(fn: string, a: StakeV5RouteAccounts, slab: PublicKey | undefined) {
+  if (!a.wrapperProgram) {
+    throw new Error(`${fn}: a FIRST_LOSS pool (riskMode 1) needs wrapperProgram (pool.percolatorProgram) for the v5 account list`);
+  }
+  if (!slab) {
+    throw new Error(`${fn}: a FIRST_LOSS pool (riskMode 1) needs slab (pool.slab, the wrapper market) for the v5 account list`);
+  }
+  return {
+    market: slab,
+    wrapperProgram: a.wrapperProgram,
+    insuranceUnits: a.insuranceUnits ?? deriveInsuranceUnitsV22(a.wrapperProgram, slab)[0],
+  };
+}
+
 export function depositAccounts(
   a: StakeAccounts['deposit'],
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
   assertClassicTokenProgram(tokenProgramId);
+  if (isFirstLoss('depositAccounts', a.riskMode)) {
+    return stakeMetasV5(ACCOUNTS_STAKE_DEPOSIT_V5, {
+      user: a.user, pool: a.pool, userCollateral: a.userCollateralAta, vault: a.vault, lpMint: a.lpMint,
+      userLp: a.userLpAta, vaultAuthority: a.vaultAuth, deposit: a.depositPda, tokenProgram: tokenProgramId,
+      ...firstLossTail('depositAccounts', a, a.slab),
+    });
+  }
   return [
     // [0] staker: signer AND writable. stake 0f88ff1 `process_deposit` / `process_deposit_junior` make it the rent
     // payer of the per-user deposit PDA (`create_or_adopt_pda(deposit_pda, user, ..)`, a System transfer that debits
@@ -2207,7 +2300,8 @@ export function depositAccounts(
 /**
  * Build account keys for DepositJunior (tag 16). Identical to
  * {@link depositAccounts}: percolator-stake documents it as "same as Deposit,
- * including the #290 wrapper market at index 11".
+ * including the #290 wrapper market at index 11". Not on a stake v5 FIRST_LOSS pool: the program refuses tag 16 there
+ * (`NotSupportedOnFirstLoss`, 41), so `riskMode: 1` throws.
  *
  * @param a - Named accounts (same shape as Deposit).
  * @param tokenProgramId - Token program. Classic SPL Token only (#352); anything else throws.
@@ -2222,6 +2316,9 @@ export function depositJuniorAccounts(
   a: StakeAccounts['deposit'],
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
+  if (isFirstLoss('depositJuniorAccounts', a.riskMode)) {
+    throw new Error('depositJuniorAccounts: DepositJunior (tag 16) is refused on a FIRST_LOSS pool (riskMode 1): stake NotSupportedOnFirstLoss (41)');
+  }
   return depositAccounts(a, tokenProgramId);
 }
 
@@ -2235,15 +2332,22 @@ export function depositJuniorAccounts(
  * `slab` undefined: 10 accounts, because a tombstone there fails `InvalidAccount`.
  * v18.1 stake ignores the trailing account.
  *
+ * stake v5 FIRST_LOSS pools (`riskMode: 1`): 14 accounts, exactly `ACCOUNTS_STAKE_WITHDRAW_V5` (staker writable, market
+ * REQUIRED and writable at [10], `["ins_units", market]` at [11], wrapper program at [12], System program at [13]).
+ * The 11-account list fails `NotEnoughAccountKeys` there. FEE_ONLY v5 pools take the legacy list.
+ *
  * @param a - Named accounts for the Withdraw instruction.
  * @param tokenProgramId - Token program. Defaults to classic SPL Token, the ONLY program the
  *   stake program accepts (#352: Token-2022 collateral is not supported; passing it throws).
  * @throws Error if `tokenProgramId` is not the classic SPL Token program.
  * @returns Account metas in the order the program parses them.
+ * @throws Error if `riskMode` is 1 and `wrapperProgram` or `slab` is missing, or `riskMode` is not 0, 1, 2 or unset.
  * @example
  * ```ts
+ * const pool = decodeStakePool(poolInfo.data);
  * const keys = withdrawAccounts({ user, pool: poolPda, userLpAta, lpMint: pool.lpMint,
- *   vault: pool.vault, userCollateralAta, vaultAuth, depositPda, slab: pool.slab });
+ *   vault: pool.vault, userCollateralAta, vaultAuth, depositPda, slab: pool.slab,
+ *   riskMode: pool.riskMode, wrapperProgram: pool.percolatorProgram });
  * ```
  */
 export function withdrawAccounts(
@@ -2251,6 +2355,13 @@ export function withdrawAccounts(
   tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
 ) {
   assertClassicTokenProgram(tokenProgramId);
+  if (isFirstLoss('withdrawAccounts', a.riskMode)) {
+    return stakeMetasV5(ACCOUNTS_STAKE_WITHDRAW_V5, {
+      user: a.user, pool: a.pool, userLp: a.userLpAta, lpMint: a.lpMint, vault: a.vault,
+      userCollateral: a.userCollateralAta, vaultAuthority: a.vaultAuth, deposit: a.depositPda, tokenProgram: tokenProgramId,
+      ...firstLossTail('withdrawAccounts', a, a.slab),
+    });
+  }
   return [
     // [0] staker: signer, read-only. stake 0f88ff1 `process_withdraw` debits no lamports from it on this (legacy /
     // FEE_ONLY, <= 11 account) layout. A FIRST_LOSS withdrawal needs the v5 list (`ACCOUNTS_STAKE_WITHDRAW_V5`), where

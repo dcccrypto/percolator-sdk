@@ -379,7 +379,8 @@ describe("parseErrorFromLogs", () => {
   it("parses hex error code 0x8 (Unauthorized)", () => {
     const logs = [
       "Program log: Instruction: TradeNoCpi",
-      "Program 11111111111111111111111111111111 failed: custom program error: 0x8",
+      // An id the SDK does not know (not the System program, which has its own error table) falls back to the wrapper table.
+      "Program Unknown111111111111111111111111111111111111 failed: custom program error: 0x8",
     ];
     const result = parseErrorFromLogs(logs);
     expect(result).not.toBeNull();
