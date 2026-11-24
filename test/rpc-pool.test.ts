@@ -583,7 +583,7 @@ describe("checkRpcHealth", () => {
     expect(result.healthy).toBe(false);
     expect(result.slot).toBe(0);
     expect(result.error).toBeDefined();
-    expect(result.endpoint).toBe("https://does-not-exist.invalid");
+    expect(result.endpoint).toBe("https://does-not-exist.invalid/"); // redactUrl-normalised (no secret here)
   });
 
   it("returns latencyMs as a number", async () => {

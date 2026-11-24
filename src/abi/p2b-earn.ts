@@ -481,7 +481,8 @@ export function vaultLpDeallocP2b(allocated: bigint, recalled: bigint): bigint {
 
 /**
  * `vault_lp_v18::vault_lp_alloc_split`: how tag 103 takes `moved` from the two pots, proportional
- * to each pot's drawable backing with the floor on the SMALLER pot. `null` if `moved` exceeds both pots.
+ * to each pot's drawable backing with the floor on the SMALLER pot. `null` if `moved` exceeds both pots,
+ * or (like the Rust `checked_add` / `mul_div_floor`) if `dEven + dOdd` or `moved * dSmall` overflows u128.
  * @param moved   Atoms moved.
  * @param dEven   Even-domain drawable.
  * @param dOdd    Odd-domain drawable.
@@ -493,10 +494,12 @@ export function vaultLpDeallocP2b(allocated: bigint, recalled: bigint): bigint {
  */
 export function vaultLpAllocSplitP2b(moved: bigint, dEven: bigint, dOdd: bigint): [bigint, bigint] | null {
   const total = dEven + dOdd;
+  if (total > U128) return null;
   if (moved > total) return null;
   if (moved === 0n) return [0n, 0n];
   const smallIsOdd = dOdd <= dEven;
   const [dSmall, dLarge] = smallIsOdd ? [dOdd, dEven] : [dEven, dOdd];
+  if (moved * dSmall > U128) return null;
   let takeSmall = (moved * dSmall) / total;
   if (takeSmall > dSmall) takeSmall = dSmall;
   const takeLarge = moved - takeSmall;
@@ -546,14 +549,16 @@ export function liveBoundPrincipalPortionP2b(atomsOut: bigint, available: bigint
  * @param cushionTargetBps   Ext target.
  * @param cEff               Effective senior claim.
  * @param juniorLevel        `V - C_eff` excluding this leg.
- * @returns `[senior, cushion]`, summing to `available`.
+ * @returns `[senior, cushion]`, summing to `available`; null (Rust `None`) when both dials are
+ *          non-zero and either is above 10,000 bps.
  * @example
  * ```ts
  * cushionSplitP2b(1_000n, 5_000, 1_000, 10_000n, 900n); // [900n, 100n]
  * ```
  */
-export function cushionSplitP2b(available: bigint, cushionShareBps: number, cushionTargetBps: number, cEff: bigint, juniorLevel: bigint): [bigint, bigint] {
+export function cushionSplitP2b(available: bigint, cushionShareBps: number, cushionTargetBps: number, cEff: bigint, juniorLevel: bigint): [bigint, bigint] | null {
   if (cushionShareBps === 0 || cushionTargetBps === 0) return [available, 0n];
+  if (cushionShareBps > 10_000 || cushionTargetBps > 10_000) return null;
   const need = sat(bpsCeil(cEff, cushionTargetBps), juniorLevel);
   const share = bpsFloor(available, cushionShareBps);
   const cushion = share < need ? share : need;
@@ -565,13 +570,14 @@ export function cushionSplitP2b(available: bigint, cushionShareBps: number, cush
  * @param cushionAccrued    `VaultLpExtV19.cushion_accrued_atoms`.
  * @param cEff              Effective senior claim.
  * @param cushionTargetBps  Ext target.
- * @returns Locked atoms.
+ * @returns Locked atoms; null (Rust `None`) when the target is above 10,000 bps.
  * @example
  * ```ts
  * cushionLockedP2b(5_000n, 10_000n, 1_000); // 1000n
  * ```
  */
-export function cushionLockedP2b(cushionAccrued: bigint, cEff: bigint, cushionTargetBps: number): bigint {
+export function cushionLockedP2b(cushionAccrued: bigint, cEff: bigint, cushionTargetBps: number): bigint | null {
+  if (cushionTargetBps > 10_000) return null;
   const target = bpsCeil(cEff, cushionTargetBps);
   return cushionAccrued < target ? cushionAccrued : target;
 }
@@ -583,7 +589,7 @@ export function cushionLockedP2b(cushionAccrued: bigint, cEff: bigint, cushionTa
  * @param cEff              Effective senior claim.
  * @param cushionShareBps   Ext share.
  * @param cushionTargetBps  Ext target.
- * @returns Vested?
+ * @returns Vested? False (fail closed, as the Rust) when the cushion is on with a target above 10,000 bps.
  * @example
  * ```ts
  * creatorFeeVestedP2b(999n, 10_000n, 5_000, 1_000); // false
@@ -591,6 +597,7 @@ export function cushionLockedP2b(cushionAccrued: bigint, cEff: bigint, cushionTa
  */
 export function creatorFeeVestedP2b(juniorLevel: bigint, cEff: bigint, cushionShareBps: number, cushionTargetBps: number): boolean {
   if (cushionShareBps === 0 || cushionTargetBps === 0) return true;
+  if (cushionTargetBps > 10_000) return false;
   return juniorLevel >= bpsCeil(cEff, cushionTargetBps);
 }
 

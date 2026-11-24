@@ -3,6 +3,7 @@ import {
   type Commitment,
   type ConnectionConfig,
 } from "@solana/web3.js";
+import { redactUrl } from "./redact-url.js";
 
 // ---------------------------------------------------------------------------
 // Configuration Types
@@ -229,6 +230,8 @@ export async function checkRpcHealth(
   // Connection instantiates a WebSocket RPC client; creating one per health probe (e.g.
   // in a polling loop) accumulated WS clients/sockets → file-descriptor exhaustion. A
   // plain fetch holds no persistent resources and is auto-aborted by AbortSignal.timeout.
+  // Never return the raw endpoint: it may carry an API key (same redaction as RpcPool.status()).
+  const safeEndpoint = redactUrl(endpoint);
   const start = performance.now();
   try {
     const res = await fetch(endpoint, {
@@ -244,23 +247,23 @@ export async function checkRpcHealth(
     });
     const latencyMs = Math.round(performance.now() - start);
     if (!res.ok) {
-      return { endpoint, healthy: false, latencyMs, slot: 0, error: `HTTP ${res.status}` };
+      return { endpoint: safeEndpoint, healthy: false, latencyMs, slot: 0, error: `HTTP ${res.status}` };
     }
     const json = (await res.json()) as { result?: unknown; error?: { message?: string } };
     if (json?.error || typeof json?.result !== "number") {
       return {
-        endpoint,
+        endpoint: safeEndpoint,
         healthy: false,
         latencyMs,
         slot: 0,
         error: json?.error?.message ?? "invalid getSlot response",
       };
     }
-    return { endpoint, healthy: true, latencyMs, slot: json.result };
+    return { endpoint: safeEndpoint, healthy: true, latencyMs, slot: json.result };
   } catch (err) {
     const latencyMs = Math.round(performance.now() - start);
     return {
-      endpoint,
+      endpoint: safeEndpoint,
       healthy: false,
       latencyMs,
       slot: 0,
@@ -392,55 +395,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/** Placeholder returned when a URL cannot be parsed: never echo the raw string. */
-const REDACTED_URL_PLACEHOLDER = "[unparseable-url]";
-
-/** An opaque secret-looking token: 20+ chars of a URL-safe alphabet (API keys, JWT segments, base58/hex tokens). */
-const OPAQUE_TOKEN = /^[A-Za-z0-9_\-.~%]{20,}$/;
-
-/**
- * Redact credentials from a URL so it is safe for logging / `status()` output (#350).
- *
- * - `username` / `password` (userinfo) are removed.
- * - Query parameters whose name looks like a credential (`api-key`, `token`, `secret`, `key`,
- *   `password`, ...) are replaced with `***`, as are query values that look like opaque tokens.
- * - Path segments that look like opaque tokens (Alchemy `/v2/<key>`, QuickNode `/<key>/`, Helius
- *   `/<key>`) are replaced with `***`.
- * - The fragment is dropped.
- * - If the input is not a parseable http(s)/ws(s) URL a fixed placeholder is returned, NEVER the raw string.
- *
- * @param raw - Endpoint URL as configured.
- * @returns A redacted URL string, or `"[unparseable-url]"`.
- * @example
- * ```ts
- * redactUrl("https://user:pw@rpc.example.com/v2/abcdefghijklmnopqrstuv?api-key=zzz");
- * // "https://rpc.example.com/v2/***?api-key=***"
- * ```
- */
-function redactUrl(raw: string): string {
-  try {
-    const u = new URL(raw);
-    // `new URL("user:pass@host/x")` parses as an opaque "user:" scheme and would echo the secret.
-    if (!/^(https?|wss?):$/.test(u.protocol)) return REDACTED_URL_PLACEHOLDER;
-    u.username = "";
-    u.password = "";
-    u.hash = "";
-    const sensitive = /^(api[-_]?key|access[-_]?token|auth[-_]?token|token|secret|key|password|bearer|credential|jwt)$/i;
-    for (const [k, v] of [...u.searchParams.entries()]) {
-      if (sensitive.test(k) || OPAQUE_TOKEN.test(v)) {
-        u.searchParams.set(k, "***");
-      }
-    }
-    u.pathname = u.pathname
-      .split("/")
-      .map((seg) => (OPAQUE_TOKEN.test(seg) ? "***" : seg))
-      .join("/");
-    return u.toString();
-  } catch {
-    return REDACTED_URL_PLACEHOLDER;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // RpcPool
 // ---------------------------------------------------------------------------
@@ -463,6 +417,19 @@ interface EndpointState {
    * time-based auto-recovery logic in `selectEndpoint`.
    */
   unhealthySince?: number;
+  /**
+   * Start-order stamps for health writes. Every `call()` attempt and every
+   * `healthCheck()` probe takes `++opSeq` before it awaits. A late success cannot
+   * revive an endpoint that a newer attempt or probe marked down (`seq > downSeq`),
+   * and a late bad probe cannot mark it down if a success that started after the
+   * probe has been recorded (`seq > lastOkSeq`). Recovery paths leave these alone:
+   * later attempts always get a higher `seq`, so recovery is never blocked.
+   */
+  opSeq: number;
+  /** `seq` of the attempt or probe that last took the endpoint from healthy to unhealthy. */
+  downSeq: number;
+  /** Highest `seq` of a success that was applied. */
+  lastOkSeq: number;
 }
 
 /**
@@ -541,6 +508,9 @@ export class RpcPool {
         failures: 0,
         healthy: true,
         lastLatencyMs: -1,
+        opSeq: 0,
+        downSeq: 0,
+        lastOkSeq: 0,
       };
     });
   }
@@ -596,16 +566,21 @@ export class RpcPool {
 
       const timeout = rejectAfter<T>(this.requestTimeoutMs, `RPC request timed out after ${this.requestTimeoutMs}ms (${ep.label})`);
       const ac = new AbortController();
+      const seq = ++ep.opSeq;
       try {
         const result = await Promise.race([
           fn(ep.connection, ac.signal),
           timeout.promise,
         ]);
 
-        // Success — reset failure count
-        ep.failures = 0;
-        ep.healthy = true;
-        ep.unhealthySince = undefined;
+        // Success — reset failure count, unless the endpoint was marked down after
+        // this attempt started (a stale success must not revive it).
+        if (ep.healthy || seq > ep.downSeq) {
+          ep.failures = 0;
+          ep.healthy = true;
+          ep.unhealthySince = undefined;
+          ep.lastOkSeq = Math.max(ep.lastOkSeq, seq);
+        }
         return result;
       } catch (err) {
         lastError = err;
@@ -616,6 +591,7 @@ export class RpcPool {
         }
 
         if (ep.failures >= RpcPool.UNHEALTHY_THRESHOLD) {
+          if (ep.healthy) ep.downSeq = seq;
           ep.healthy = false;
           ep.unhealthySince = ep.unhealthySince ?? Date.now();
           if (this.verbose) {
@@ -717,18 +693,26 @@ export class RpcPool {
   async healthCheck(timeoutMs: number = 5_000): Promise<RpcHealthResult[]> {
     const results = await Promise.all(
       this.endpoints.map(async (ep) => {
+        const seq = ++ep.opSeq;
         const result = await checkRpcHealth(ep.config.url, timeoutMs);
         ep.lastLatencyMs = result.latencyMs;
-        ep.healthy = result.healthy;
+        // Skip the health write if it would undo a newer recorded state: a healthy
+        // answer cannot revive an endpoint marked down after the probe started, and
+        // an unhealthy answer cannot override a success that started after it.
         if (result.healthy) {
-          ep.failures = 0;
-          ep.unhealthySince = undefined;
-        } else {
+          if (ep.healthy || seq > ep.downSeq) {
+            ep.healthy = true;
+            ep.failures = 0;
+            ep.unhealthySince = undefined;
+            ep.lastOkSeq = Math.max(ep.lastOkSeq, seq);
+          }
+        } else if (seq > ep.lastOkSeq) {
+          if (ep.healthy) ep.downSeq = seq;
+          ep.healthy = false;
           // Start the recovery clock, otherwise selectEndpoint's time-based
           // recovery never restores an endpoint that healthCheck marked down.
           ep.unhealthySince = ep.unhealthySince ?? Date.now();
         }
-        result.endpoint = redactUrl(result.endpoint);
         return result;
       }),
     );

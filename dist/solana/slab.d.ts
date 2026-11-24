@@ -59,7 +59,7 @@ export declare const ENGINE_MARK_PRICE_OFF = 400;
 /**
  * V2 slab tier sizes (small and large) for discovery.
  * V2 uses ENGINE_OFF=600, BITMAP_OFF=432, ACCOUNT_SIZE=248, postBitmap=18.
- * Sizes overlap with V1D (postBitmap=2) — disambiguation requires reading the version field.
+ * Sizes overlap with V1D — disambiguation requires reading the version field.
  */
 export declare const SLAB_TIERS_V2: Readonly<{
     readonly small: {

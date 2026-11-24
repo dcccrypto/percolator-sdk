@@ -248,7 +248,7 @@ describe("formatResult optional sections", () => {
     const lines = formatResult(r, false).split("\n");
     expect(lines[0]).toBe("Error: Boom (0x1)");
     expect(lines).toContain("Hint: try again");
-    expect(lines).toContain(`Compute Units: ${(1234567).toLocaleString()}`);
+    expect(lines).toContain(`Compute Units: 1,234,567`);
     expect(lines).toContain("Logs:");
     expect(lines).toContain("  l1");
     expect(lines).toContain("  l2");
@@ -264,6 +264,6 @@ describe("formatResult optional sections", () => {
       { signature: "(simulated)", slot: 3, err: null, logs: [], unitsConsumed: 5000 },
       false,
     );
-    expect(text).toBe(`Signature: (simulated)\nSlot: 3\nCompute Units: ${(5000).toLocaleString()}`);
+    expect(text).toBe(`Signature: (simulated)\nSlot: 3\nCompute Units: 5,000`);
   });
 });

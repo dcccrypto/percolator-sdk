@@ -136,7 +136,7 @@ export const ASSET_RISK_LIMITS_SLOT_OFF_P1 = 608;
 /**
  * Account offset of asset `i`'s record: 592 + 758 + 2325·i + 608 = 1958 + 2325·i.
  * @param assetIndex  Asset slot.
- * @param layout      Layout table of the account's VERSION (default LAYOUT_V21; LAYOUT_V22 for v2.2).
+ * @param layout      Layout table of the account (default LAYOUT_V21). For a v2.2 market pass `resolveMarketGeometry(data).layout`: VERSION 19 has two header lengths (806 / 790).
  * @returns Byte offset.
  * @example
  * ```ts

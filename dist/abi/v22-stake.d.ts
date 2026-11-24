@@ -312,17 +312,7 @@ export declare function decodeStakePoolV5(data: Uint8Array): StakePoolV5;
  * ```
  */
 export declare function commitSlotForPendingTargetV5(pool: Pick<StakePoolV5, "pendingTargetSlot" | "cooldownSlots">): bigint | null;
-/**
- * StakeError codes 33 to 48 (v5), with the stable Rust variant name and a calm one-line user message.
- * Codes 0 to 32 are the v2.1 table (`STAKE_ERRORS`); {@link decodeStakeErrorV5} covers all of them. Note
- * `STAKE_ERRORS[32]` still says "VERSION 18": on a v2.2 stake it pins VERSION 19 (see the PR notes).
- */
-export declare const STAKE_ERRORS_V5: Readonly<Record<number, ErrorInfo>>;
-/**
- * Stable Rust variant names of StakeError 0..32 (percolator-stake `src/error.rs` @ aebbff6), for
- * attributing a stake failure by name. The user-facing text for these codes is `STAKE_ERRORS`.
- */
-export declare const STAKE_ERROR_NAMES: Readonly<Record<number, string>>;
+export { STAKE_ERRORS_V5, STAKE_ERROR_NAMES } from "./v22-stake-errors.js";
 /**
  * Decode a stake error code (0..48) for a v5 program. Codes 33..48 come from {@link STAKE_ERRORS_V5}; the
  * rest are looked up by the caller in `STAKE_ERRORS` (returned as `undefined` here).
@@ -420,9 +410,12 @@ export interface StakeWithdrawQuoteV5 {
  * @param userLp        The staker's LP balance.
  * @param liveInsurance OPTIONAL live market insurance (`min(Σ decodeTerminalInsuranceCapacity(marketData).domains[].withdrawCapacity, .insurance)`, the wrapper's `ins_units_readings_view` free reading). `units.snapInsuranceFreeAtoms`
  *                      is only refreshed when someone touches the units account, so after an insurance loss it is STALE-HIGH and over-quotes
- *                      (devnet FGSFL 2026-10-20: quote 10.96M, program paid 8.35M). The program re-reads the live free reading inside the withdraw
- *                      and free = min(withdraw capacity, gross insurance), so the exit reading is clamped to `min(exitInsurance, liveInsurance)`: never higher than what the
- *                      program will use. A stale-LOW snapshot only under-quotes (safe).
+ *                      (devnet FGSFL 2026-10-20: quote 10.96M, program paid 8.35M). Withdraw refreshes the snapshot to the live free reading
+ *                      before pricing (stake `process_withdraw` -> `v5_read_units` -> `cpi_refresh_ins_units`, then priced from `snap_free`),
+ *                      so when given, `liveInsurance` replaces `exitInsurance` in BOTH directions. A stale-LOW snapshot is not safe: a lower
+ *                      pool value makes `maxLpNow` a bigger burn, which the program prices at live and refuses with 36. The decoded reading
+ *                      can only sit above the program's (it omits the engine's hidden K/F loss reservation), which gives a smaller burn.
+ *                      `maxLpNow` sits exactly on the liquid limit when `capBinds`, so trim it if the pool can grow between the read and the send.
  * @returns The quote, or `null` where the program fails closed (see {@link stakePoolValue}) or the pool has no LP supply.
  * @example
  * ```ts

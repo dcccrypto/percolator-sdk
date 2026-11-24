@@ -14,11 +14,16 @@
  *  6. size: `|LP after| > |LP before|` and `|LP after| > n_eff` -> `size`;
  *  7. short (taker after < 0): users' short notional `> longs·min(1, MMR/m) + β·C_m/m` -> `short_dump_cap`.
  * Each is a separate refusal, so the limit in force is the tightest of all of them.
+ *
+ * D12 fail-tight (#620, `95e4345d`; checked against `bc657392`): on a non-devnet build the overlay reads an unproven guard's
+ * authorities as live (`perm_for_gate`); pass `permProofRequired: true` for such a build.
  */
 import type { LevAgeBandV22, LevGuardV22 } from "./lev-guard-v22.js";
 import type { LevReportAgeV22 } from "./lev-guard-v22.js";
 /** `growth_v19::GROWTH_FLAG_LEV_GUARD`: growth `flags` bit 2, set by tag 124 op 0 INIT. */
 export declare const GROWTH_FLAG_LEV_GUARD_V22 = 4;
+/** `lev_guard_v22::GUARD_FLAG_PERM_PROVEN`: guard `flags` bit 2, set once op 3 TIGHTEN has read the mint authorities (D12). */
+export declare const LEV_GUARD_FLAG_PERM_PROVEN_V22 = 4;
 export declare const LEV_SLOTS_PER_HOUR = 9000n;
 export declare const LEV_SLOTS_PER_DAY = 216000n;
 export declare const LEV_J_DUMP_DEFAULT_DAY_BPS = 3500;
@@ -142,6 +147,13 @@ export interface LevGuardOpenInputV22 {
     /** The LP's effective signed position BEFORE the fill (Q). */
     lpEffQ: bigint;
     posScale?: bigint;
+    /**
+     * The program build has `LEV_GUARD_PERM_PROOF_REQUIRED` (every non-`devnet` build). D12 fail-tight (`perm_for_gate`): a guard
+     * whose authorities op 3 never proved (flags bit 2 clear) then reads BOTH authorities live, so `l_cap 1` / `n_mult 0` (the
+     * L_floor / N_floor clamp) apply. Default `false`: the devnet build, which reads the stored bits. A caller quoting a
+     * non-devnet build MUST pass `true`, or the limits are looser than the program's.
+     */
+    permProofRequired?: boolean;
 }
 export type LevGuardBlockV22 = "guard-missing" | "age-under-6h";
 /** What the guard allows for a risk-increasing open right now (`applies` false = no guard rules on this market). */

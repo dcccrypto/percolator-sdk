@@ -86,11 +86,7 @@ export declare const MATCHER_V2_BLOCK_LEN = 78;
 export declare const MATCHER_V2_BLOCK_VERSION = 1;
 /** v2 config flag bit0 `STALE_ALLOW_REDUCING` (`V2_FLAG_STALE_ALLOW_REDUCING`). */
 export declare const MATCHER_V2_FLAG_STALE_ALLOW_REDUCING = 1;
-/** Matcher v2 custom error codes (`src/v2.rs`), attributed to the MATCHER program id. */
-export declare const MATCHER_V2_ERRORS: Readonly<Record<number, {
-    name: string;
-    hint: string;
-}>>;
+export { MATCHER_V2_ERRORS } from "./matcher-v2-errors.js";
 /**
  * Look up a matcher v2 custom error.
  *
@@ -383,6 +379,7 @@ export declare const WRAPPER_BATCH_MAX_LEGS = 4;
  * @param takerReducing      Leg only reduces the taker.
  * @param acceptsFeeRequest  Fee-request channel (the wrapper passes false in batches).
  * @returns 24 bytes.
+ * @throws If `mode` is not 0 or 1 (the wrapper refuses any other `matcher_ext_mode`).
  * @example
  * ```ts
  * encodeWrapperMatcherCallExt(1, 505_000_000n, 1_000_000n, 300, false, false);
@@ -408,6 +405,7 @@ export interface MatcherBatchLeg {
  * @param legs         1..=16 legs (the wrapper sends at most 4 since #546).
  * @param exts         Optional per-leg 24-byte extensions (must match `legs.length`).
  * @returns Instruction data for the matcher program.
+ * @throws If a leg's `assetIndex` is not an integer in 0..=65535.
  * @example
  * ```ts
  * encodeMatcherBatchCall(7n, lpId, [{ assetIndex: 0, oraclePriceE6: 1_000_000n, reqSize: 5n }], [encodeWrapperMatcherCallExt(1, slot, 5n, 300, false, false)]);

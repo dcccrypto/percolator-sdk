@@ -527,6 +527,7 @@ export declare function buildLaunchBundleV22(i: LaunchBundleInputV22): LaunchBun
  * @param programId   The wrapper program id.
  * @param layout      Layout table (default {@link LAYOUT_V22}).
  * @returns The createAccount instruction.
+ * @throws If `lamports` or `layout.portfolio.accountLen` is not a safe non-negative integer.
  * @example
  * ```ts
  * const ix = buildCreateLpPortfolioIxV22(payer, lpKp.publicKey, lamports, programId);
@@ -544,6 +545,7 @@ export declare function buildCreateLpPortfolioIxV22(payer: PublicKey, portfolio:
  * @param programId  The wrapper program id.
  * @param layout     Layout row (default {@link LAYOUT_V22}).
  * @returns The createAccount instruction.
+ * @throws If `lamports` or `layout.portfolio.accountLen` is not a safe non-negative integer.
  * @example
  * ```ts
  * const ix = buildCreatePortfolioAccountIxV22(payer, kp.publicKey, await conn.getMinimumBalanceForRentExemption(portfolioAccountLenV22()), programId);

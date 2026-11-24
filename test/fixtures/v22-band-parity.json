@@ -1,15 +1,15 @@
 {
- "prog": "178fedc4082beaeec63fe9b28e76800d47302d10",
- "engine": "2f05df8c8c1edd85734120e1322420621fc33cf0",
+ "prog": "9a0ff591b1d0894fa665e94b45e18c2804eef201",
+ "engine": "0eed170526e891ba88e2ca50b007ea5dfcb99bc2",
  "config": {
   "maxAccrualDtSlots": 118,
   "maxPriceMoveBpsPerSlot": 142,
-  "bandBps": 249,
-  "bandMaxEpochSlots": 257,
-  "bandMaxPinSlots": 265,
-  "rentMaxE9PerSlot": 273,
-  "bandMaxPositionsPerSide": 281,
-  "bandMinLegNotional": 289
+  "bandBps": 233,
+  "bandMaxEpochSlots": 241,
+  "bandMaxPinSlots": 249,
+  "rentMaxE9PerSlot": 257,
+  "bandMaxPositionsPerSide": 265,
+  "bandMinLegNotional": 273
  },
  "assetState": {
   "bandAnchorPrice": 515,
@@ -35,7 +35,7 @@
   "lpNetQ": 32,
   "flags": 90
  },
- "configLen": 297,
+ "configLen": 281,
  "assetStateLen": 627,
  "rows": [
   {

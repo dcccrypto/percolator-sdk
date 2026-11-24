@@ -1,3 +1,42 @@
+## 9.0.0-candidate: planCloseSlabAttempt spends a partially backed fee pool in order
+
+- **Fixed:** tag 84 (`amount 0` = all) and tag 90 draw from the same unbudgeted insurance pool, and the planner puts both in the CloseSlab transaction. Tag 84 transfers `min(owed, pool)`, and tag 90 is an exact debit that refuses (`EngineLockActive`) above what is left. With `0 < feeBackingAtoms < protocol owed + payee claim` (e.g. pool 100, protocol 100, payee 40) the plan `[84, ATA, 90, 13]` always failed, although `[84, 13]` closes the market. The planner now spends `feeBackingAtoms` as a budget: tag 84 first, then each payee claim capped at what is left. A leg with nothing left behind it is handled like the `0n` case, so no tag 90 and no AdminSigned throw. `planPayeeGraceCloseSequenceV22` tx2 sees only the backing left after tx1's tag 84. Omitted `feeBackingAtoms` and `0n` are unchanged.
+- **Tests:** `test/market-lifecycle-partial-fee-backing.test.ts` (prog `handle_withdraw_protocol_fee` / `handle_withdraw_creator_fee`, engine `withdraw_insurance_surplus_delta`). One assertion in `test/market-lifecycle-unbacked-fee.test.ts` expected tag 90 at a 1-atom pool behind a 100-atom protocol fee, which is exactly this bug. It now uses 101.
+
+## 9.0.0-candidate: lev-guard open limits model D12 fail-tight (unproven authorities read live)
+
+- **Fixed:** on a program build with `LEV_GUARD_PERM_PROOF_REQUIRED` (every non-devnet build), `lev_trade_post` treats a guard whose mint/freeze authorities op 3 never proved (flags bit 2 clear) as having both authorities live (`perm_for_gate`, prog #620). That clamps leverage to L_floor (2x) and size to N_floor ($200). `levGuardOpenLimitsV22` read only the stored bits, so it quoted full limits and `levGuardRefusalV22` admitted opens the program refuses. Over 20,000 seeded scenarios on the proof-required build, 88 verdicts differed; in 60 of them the SDK said ok where the program refuses. New optional input `permProofRequired` (default `false` = the devnet build, unchanged) and constant `LEV_GUARD_FLAG_PERM_PROVEN_V22`. Callers quoting a non-devnet build must pass `true`.
+- **Tests:** `test/lev-guard-limits-perm-proof-v22.test.ts`. A scratch differential against a transcription of prog `bc657392` (fixed seed, 20,000 scenarios, run twice) now shows 0 verdict mismatches on both builds.
+
+## 9.0.0-candidate: PumpSwap WSOL-quoted price floors once
+
+- **Fixed:** `computeDexSpotPriceE6("pumpswap", …, solPriceE6)` floored token/SOL to e6 before multiplying by the SOL price, so a WSOL-quoted USD price came out low by up to 1 / (token/SOL e6). On real mainnet pool reserves at SOL $150: chillhouse 1500 → 1548 (was -3.10%), swordcat 4950 → 5029 (was -1.57%); ANSEM snapshot 300730 → 300793. A token under 1e-6 SOL whose USD price is above 1e-6 was refused; it is now priced. Non-WSOL quotes, Raydium CLMM and Meteora DLMM are unchanged.
+- **Tests:** `test/dex-pumpswap-wsol-precision.test.ts` (real reserves, sub-1e-6-SOL token, 5,000 seeded draws against the one-floor formula). `test/dex-oracle.test.ts` ANSEM asserts updated to the exact value.
+
+## 9.0.0-candidate: previewGrowthOpenFee prices on the wrapper's G8 N_cap (it under-quoted the utilisation fee)
+
+- **Fixed:** with `v22` input, `previewGrowthOpenFee` priced the utilisation fee on growth-1 `nCapQ(C_m, stored λ)`. The wrapper prices it on the G8 N_cap (`growth_clip_n_cap_view`: λ_eff = min(stored λ, λ_depth) and the κ depth cap). That N_cap is never larger, so the preview was at or below the charge: 11 bps charged vs 4 previewed (stored λ 3x on a tier-0 market), and 321 vs 0 with a binding depth cap. A 0 preview also reported `batchAllowed: true` for a leg the wrapper refuses (99). The preview now uses the same N_cap as `quoteMaxLeverage`. Without `v22` input nothing changes.
+- **Fixed:** `utilisationFeeBps` returns null (Rust `None`) at a 100% kink with users OI above N_cap. It used to throw `RangeError: Division by zero`, e.g. when previewing a flip on a kink-100% market.
+- **Tests:** `test/growth-open-fee-vs-prog.test.ts` (prog bc657392 `v16_program.rs:47900`, `:48075-48103`, `growth_v19.rs:693`).
+
+## 9.0.0-candidate: p2b alloc split and G6 cushion fns fail closed like vault_lp_v18.rs - BREAKING (types)
+
+- **Fixed:** on inputs the program refuses, four ports returned a value. `vaultLpAllocSplitP2b` now returns null when `dEven + dOdd` or `moved * dSmall` overflows u128 (Rust `checked_add` / `mul_div_floor`). With both dials on and a bps above 10,000, `cushionSplitP2b` returns null (it used to return a negative senior leg) and `cushionLockedP2b` returns null when the target is above 10,000. `creatorFeeVestedP2b` returns false (fail closed) for a target above 10,000 when the cushion is on.
+- **Changed (BREAKING types):** `cushionSplitP2b` returns `[bigint, bigint] | null` and `cushionLockedP2b` returns `bigint | null`. Valid dials (0..10,000, which the program's validator enforces) give the same values as before.
+- **Tests:** `test/p2b-alloc-cushion-rust-diff.test.ts` diffs all 11 alloc/cushion fns against a quoted BigInt port of prog `vault_lp_v18.rs` (bc657392) on boundary rows plus 10,000 seeded cases each. 0 mismatches.
+
+## 9.0.0-candidate: redactUrl no longer leaks base64 / sub-delim keys or auth, x-api-key, dkey values
+
+- **Fixed:** `redactUrl` (used in RpcPool status/healthCheck, checkRpcHealth, discoverMarketsViaApi and fetchAdlRankings errors) masked only 20+ char values of `[A-Za-z0-9_-.~%]`. A key containing `+ / = ( ) $ & , ; : @`, or a short key under `auth`, `x-api-key` or dRPC's `dkey`, came back unchanged (1506 of 10,000 seeded provider URLs leaked). Any 20+ char path segment or query value is now masked, and those three names are credential names.
+- **Behaviour note:** long readable values with punctuation (e.g. a 20+ char `?redirect=` URL) are now shown as `***` in diagnostics.
+- **Tests:** `test/redact-url-providers.test.ts` covers 20 documented provider URL shapes (fake keys) and a seeded 10k-URL fuzz test (replay with `REDACT_URL_FUZZ_SEED`).
+
+## 9.0.0-candidate: no runtime @solana/spl-token (cold import about half the cost)
+
+- **Changed:** the SDK no longer imports `@solana/spl-token` at runtime; it is now a devDependency. The six helpers the SDK used (`TOKEN_PROGRAM_ID`, `TOKEN_2022_PROGRAM_ID`, `ASSOCIATED_TOKEN_PROGRAM_ID`, `getAssociatedTokenAddress[Sync]`, `createAssociatedTokenAccountIdempotentInstruction`, `getAccount`) are ported in `src/solana/spl-token-lite.ts`. Public exports, ATA addresses, instruction bytes and `fetchTokenAccount` results are unchanged.
+- **Behaviour note:** errors thrown by `getAta`, `getAtaSync` and `fetchTokenAccount` are SDK-local classes with the same `name` and message as spl-token's (`TokenOwnerOffCurveError`, `TokenAccountNotFoundError`, `TokenInvalidAccountOwnerError`, `TokenInvalidAccountSizeError`, `TokenInvalidAccountError`). `err instanceof` spl-token's classes is now false; check `err.name` instead.
+- **Tests:** `test/spl-token-lite-parity.test.ts` checks each helper byte for byte against `@solana/spl-token@0.4.14` on fixed and seeded random inputs, and guards that neither `src/` nor `dist/` (JS and .d.ts) imports it.
+
 ## 9.0.0-candidate: computeMarkPnl matches the v2.2 engine linear floor - BREAKING (units)
 
 - **Fixed (BREAKING):** `computeMarkPnl(size, entry, oracle)` returned the coin-margined inverse `diff*|q|/oracle` (coin units). The v2.2 engine settles price PnL linearly (percolator `v16.rs:16412` + `:29481`): `floor(|q| * dP / 1e6)` in quote units, no division by oracle. 81% of the grid mismatched (3,200 distinct price/size points x 7 lot_exp values = 22,400 rows; no sign flips; worst gap about 1.1e6x at oracle 1e12). Now returns the engine value, flooring toward -infinity. Callers that converted coin units (`computePnlPercent` inputs, app display) must use the quote-unit result. `computeLiqPrice` was already linear.

@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import type { PublicKey } from "@solana/web3.js";
 
 const U8_MAX = 0xFF;
 const U16_MAX = 0xFFFF;
@@ -120,6 +120,45 @@ export function encI128(val: bigint | string): Uint8Array {
   return buf;
 }
 
+const B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const B58_MAP = new Uint8Array(256).fill(255);
+for (let i = 0; i < B58_ALPHABET.length; i++) B58_MAP[B58_ALPHABET.charCodeAt(i)] = i;
+
+/**
+ * Decode a base58 public key string to its 32 bytes, without @solana/web3.js.
+ *
+ * Same result and same errors as `new PublicKey(str).toBytes()` in web3.js v1
+ * (bs58 / base-x 3 decode, then the 32-byte length check), so this file does not
+ * pull web3.js into a bundle just to read a string key.
+ */
+function base58PubkeyBytes(str: string): Uint8Array {
+  let zeroes = 0;
+  while (zeroes < str.length && str.charCodeAt(zeroes) === 49 /* "1" */) zeroes++;
+  // big-endian base256 digits of the non-leader part. 0.733 >= log(58)/log(256) (base-x's factor),
+  // so the buffer is never smaller than base-x's and its "Non-zero carry" case cannot happen.
+  const size = (((str.length - zeroes) * 733) / 1000 + 1) >>> 0;
+  const b256 = new Uint8Array(size);
+  let length = 0;
+  for (let p = zeroes; p < str.length; p++) {
+    const c = str.charCodeAt(p);
+    let carry = c > 255 ? 255 : B58_MAP[c];
+    if (carry === 255) throw new Error("Non-base58 character");
+    let i = 0;
+    for (let k = size - 1; (carry !== 0 || i < length) && k !== -1; k--, i++) {
+      carry += 58 * b256[k];
+      b256[k] = carry % 256;
+      carry = (carry / 256) >>> 0;
+    }
+    length = i;
+  }
+  let start = size - length;
+  while (start !== size && b256[start] === 0) start++;
+  if (zeroes + (size - start) !== 32) throw new Error("Invalid public key input");
+  const out = new Uint8Array(32);
+  out.set(b256.subarray(start), zeroes);
+  return out;
+}
+
 /**
  * Encode a Solana public key into its fixed-width 32-byte ABI representation.
  *
@@ -132,7 +171,8 @@ export function encI128(val: bigint | string): Uint8Array {
  */
 export function encPubkey(val: PublicKey | string): Uint8Array {
   try {
-    const pk = typeof val === "string" ? new PublicKey(val) : val;
+    if (typeof val === "string") return base58PubkeyBytes(val);
+    const pk = val;
 
     if (pk == null || typeof (pk as { toBytes?: unknown }).toBytes !== "function") {
       throw new Error("value must be a PublicKey or base58 string");

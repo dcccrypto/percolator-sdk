@@ -3,7 +3,7 @@
  * G(d), the extended quoteMaxLeverage, PushAuthMark 44 B, stakePoolValue. Vectors are hand-computed (see comments) from the
  * spec v22-growth-overnight-2026-10-14 section 1.1-1.3 and the Rust formulas in growth_v19.rs / band_rent.rs.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import {
   decodeAssetGrowthRecordV19, ASSET_GROWTH_LEN, ASSET_GROWTH_FIELD_OFF, ASSET_GROWTH_DEPTH_FIELD_OFF, ASSET_GROWTH_LEGACY_FIELD_OFF, effectiveDepthE6, bandRGapBps, clampEnforced,
   DEPTH_MAX_AGE_SLOTS, encodePushAuthMark, IX_TAG, stakePoolValue, collateralForLpV5, creatorCollateralAtaV5, decodeError, PERCOLATOR_ERRORS,
@@ -155,11 +155,18 @@ describe("stakePoolValue (release checklist 5.4: pool value includes deployed in
     expect(collateralForLpV5(100n, 1_100n, 760n)).toBe(69n);
     expect(collateralForLpV5(1n, 0n, 760n)).toBeNull();
   });
-  it("creator ATA is the pool mint ATA of pool.admin", async () => {
-    const { Keypair } = await import("@solana/web3.js");
-    const admin = Keypair.generate().publicKey; const mint = Keypair.generate().publicKey;
-    const { getAssociatedTokenAddressSync } = await import("@solana/spl-token");
-    expect(creatorCollateralAtaV5({ admin, collateralMint: mint }).equals(getAssociatedTokenAddressSync(mint, admin, true))).toBe(true);
+  // Cold-start cost (measured: spl-token import ~6 s, first Keypair.generate ~2 s, ATA derivation <40 ms) is paid once here,
+  // under a generous hook timeout, so the case below only times the derivation it asserts on.
+  let web3: typeof import("@solana/web3.js");
+  let spl: typeof import("@solana/spl-token");
+  beforeAll(async () => {
+    web3 = await import("@solana/web3.js");
+    spl = await import("@solana/spl-token");
+    web3.Keypair.generate();
+  }, 60_000);
+  it("creator ATA is the pool mint ATA of pool.admin", () => {
+    const admin = web3.Keypair.generate().publicKey; const mint = web3.Keypair.generate().publicKey;
+    expect(creatorCollateralAtaV5({ admin, collateralMint: mint }).equals(spl.getAssociatedTokenAddressSync(mint, admin, true))).toBe(true);
   });
   it("negative control: the pre-fix value (liquid only) understates by exactly the deployed part", () => {
     const v = stakePoolValue(pool, { unitsStake: 250n, unitsTotal: 1000n }, 400n)!;

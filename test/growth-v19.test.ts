@@ -105,7 +105,7 @@ describe("AssetGrowthV19 decoder", () => {
       ...common, flags: 3, cLaunchAtoms: 0n, r3Layout: true, volHasData: true, volVarX100: 2_500, rentStamp64: 101,
       depthTw: { curTokens: 400, prevTokens: 0xffff_ffff, bucketP1: 7 },
     });
-    expect([growthFlagsOk(0), growthFlagsOk(1), growthFlagsOk(3), growthFlagsOk(2), growthFlagsOk(4)]).toEqual([true, true, true, false, false]);
+    expect([growthFlagsOk(0), growthFlagsOk(1), growthFlagsOk(3), growthFlagsOk(2), growthFlagsOk(4), growthFlagsOk(8)]).toEqual([true, true, true, false, true, false]);
     expect(depthTwWindowOk(h.depthTw)).toBe(true);
     expect(depthTwWindowOk(g.depthTw)).toBe(false);
     // bit 0 set but no data (migrated by a rent stamp only): variance readable, volHasData false
@@ -257,7 +257,7 @@ describe("encoders", () => {
     maintenanceMarginBps: 500n, initialMarginBps: 1_000n, maxTradingFeeBps: 100n, tradeFeeBaseBps: 10n, liquidationFeeBps: 50n,
     liquidationFeeCap: 1_000_000n, minLiquidationAbs: 100n, maxPriceMoveBpsPerSlot: 4n, maxAccrualDtSlots: 100n,
     maxAbsFundingE9PerSlot: 1_000n, minFundingLifetimeSlots: 0n, maxAccountBSettlementChunks: 10n, maxBankruptCloseChunks: 10n,
-    maxBankruptCloseLifetimeSlots: 500n, publicBChunkAtoms: 1_000_000n, maintenanceFeePerSlot: 0n,
+    maxBankruptCloseLifetimeSlots: 500n, maintenanceFeePerSlot: 0n,
   } as InitMarketV17Args;
   it("tag 0 trailer = legacy bytes + r_gap u16 + l_launch u16, with the L-2 floor and MMR rule", () => {
     const legacy = encodeInitMarket(initArgs);

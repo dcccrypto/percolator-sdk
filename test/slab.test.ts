@@ -470,7 +470,8 @@ console.log("\n✅ All slab tests passed!");
   const layoutNoData = detectSlabLayout(V2_SIZE);
   assert(layoutNoData !== null, "detectSlabLayout(65088) without data should return non-null");
   assert(layoutNoData!.version === 1, `Without data, version should be 1 (V1D), got ${layoutNoData!.version}`);
-  assert(layoutNoData!.engineOff === 424, `Without data, engineOff should be 424 (V1D), got ${layoutNoData!.engineOff}`);
+  // 65088 B V1D = prog f7a2e8ab (CONFIG_LEN 352) → engine at 456 (was pinned at 424)
+  assert(layoutNoData!.engineOff === 456, `Without data, engineOff should be 456 (V1D), got ${layoutNoData!.engineOff}`);
   console.log("  ✓ detectSlabLayout without data returns V1D (backward compat)");
 
   // With data containing version=2, should return V2 layout
@@ -510,7 +511,7 @@ console.log("\n✅ All slab tests passed!");
   const layoutV1D = detectSlabLayout(V2_SIZE, v1dBuf);
   assert(layoutV1D !== null, "detectSlabLayout with V1D data should return non-null");
   assert(layoutV1D!.version === 1, `With V1D data, version should be 1, got ${layoutV1D!.version}`);
-  assert(layoutV1D!.engineOff === 424, `With V1D data, engineOff should be 424, got ${layoutV1D!.engineOff}`);
+  assert(layoutV1D!.engineOff === 456, `With V1D data, engineOff should be 456 (prog f7a2e8ab), got ${layoutV1D!.engineOff}`);
   console.log("  ✓ detectSlabLayout with version=1 data returns V1D layout");
 
   // V2 large slab size = 1025568 (same as V1D large)

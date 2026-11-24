@@ -147,3 +147,57 @@ describe("regression: staker != fee payer (compiled message + runtime privilege 
     expect(privilegeOk(compileWithSeparatePayer(ix, user), user, true, true)).toBe(true); // why QA only passed with staker == payer
   });
 });
+
+// Mutation follow-up (J-20261123-SDK-REPORT-STAKESTAKERSIGNERMETAMUT): the flag checks above pin [isSigner, isWritable] per
+// index but not WHICH pubkey sits there, so a swap of two same-flag accounts survived (M05 M09 M10 M11 M19 M21 M24 M26 M29).
+// These pin the exact pubkey order the stake handlers parse (percolator-stake 0f88ff1 processor.rs).
+const keysOf = (m: readonly AccountMeta[]): string[] => m.map((x) => x.pubkey.toBase58());
+const b58 = (xs: PublicKey[]): string[] => xs.map((x) => x.toBase58());
+const TOK = TOKEN_PROGRAM_ID, CLK = SYSVAR_CLOCK_PUBKEY, SYS = SystemProgram.programId;
+
+describe("exact pubkey order (kills same-flag swaps)", () => {
+  it("legacy Deposit / DepositJunior: process_deposit order", () => {
+    const want = b58([user, pool, userCollateral, vault, lpMint, userLp, vaultAuth, deposit, TOK, CLK, SYS, market]);
+    expect(keysOf(depositAccounts(legacyDeposit))).toEqual(want);
+    expect(keysOf(depositJuniorAccounts(legacyDeposit))).toEqual(want);
+  });
+
+  it("legacy Withdraw: process_withdraw order, with and without slab", () => {
+    const base = [user, pool, userLp, lpMint, vault, userCollateral, vaultAuth, deposit, TOK, CLK];
+    expect(keysOf(withdrawAccounts(legacyWithdraw))).toEqual(b58([...base, market]));
+    expect(keysOf(withdrawAccounts({ ...legacyWithdraw, slab: undefined }))).toEqual(b58(base));
+  });
+
+  it("v5 Deposit FIRST_LOSS (14 accounts): order", () => {
+    expect(keysOf(K.stakeMetasV5(K.ACCOUNTS_STAKE_DEPOSIT_V5, v5Keys)))
+      .toEqual(b58([user, pool, userCollateral, vault, lpMint, userLp, vaultAuth, deposit, TOK, CLK, SYS, market, insuranceUnits, wrapperProgram]));
+  });
+
+  it("v5 Withdraw FIRST_LOSS (14 accounts): order", () => {
+    expect(keysOf(K.stakeMetasV5(K.ACCOUNTS_STAKE_WITHDRAW_V5, v5Keys)))
+      .toEqual(b58([user, pool, userLp, lpMint, vault, userCollateral, vaultAuth, deposit, TOK, CLK, market, insuranceUnits, wrapperProgram, SYS]));
+  });
+
+  it("RecoverTerminalInsurance: order of the 9 fixed accounts", () => {
+    const caller = pk(), poolVault = pk();
+    const metas = recoverTerminalInsuranceAccounts({ caller, pool, poolVault, vaultAuth, market, wrapperVault, wrapperVaultAuthority, wrapperProgram });
+    expect(keysOf(metas.slice(0, 9))).toEqual(b58([caller, pool, poolVault, vaultAuth, market, wrapperVault, wrapperVaultAuthority, TOK, wrapperProgram]));
+  });
+});
+
+describe("compiled message: the staker, and only the staker, signs (separate fee payer)", () => {
+  const feePayer = pk();
+  const cases: [string, AccountMeta[]][] = [
+    ["legacy Deposit", depositAccounts(legacyDeposit)],
+    ["legacy Withdraw", withdrawAccounts(legacyWithdraw)],
+    ["v5 Deposit", K.stakeMetasV5(K.ACCOUNTS_STAKE_DEPOSIT_V5, v5Keys)],
+    ["v5 Withdraw", K.stakeMetasV5(K.ACCOUNTS_STAKE_WITHDRAW_V5, v5Keys)],
+  ];
+  for (const [name, keys] of cases) {
+    it(`${name}: signers are exactly {feePayer, staker}`, () => {
+      const msg = compileWithSeparatePayer(new TransactionInstruction({ programId: STAKE, keys, data: Buffer.alloc(9) }), feePayer);
+      const signers = msg.accountKeys.filter((_, i) => msg.isAccountSigner(i)).map((k) => k.toBase58()).sort();
+      expect(signers).toEqual([feePayer.toBase58(), user.toBase58()].sort());
+    });
+  }
+});

@@ -27,10 +27,12 @@
  *   - v12.x errors 28-65 are entirely removed.
  */
 import type { PublicKey } from "@solana/web3.js";
-import { PROGRAM_IDS, PROGRAM_IDS_DEVNET_V1, PROGRAM_IDS_DEVNET_V22, NFT_PROGRAM_IDS } from "../config/program-ids.js";
-import { STAKE_ERRORS, STAKE_PROGRAM_IDS } from "../solana/stake.js";
-import { STAKE_ERRORS_V5, STAKE_ERROR_NAMES } from "./v22-stake.js";
-import { MATCHER_V2_ERRORS } from "./matcher-v2.js";
+// Error tables come from their web3-free modules (not program-ids.ts / stake.ts / v22-stake.ts /
+// matcher-v2.ts) so parsing errors does not pull @solana/web3.js into a bundle.
+import { PROGRAM_IDS, PROGRAM_IDS_DEVNET_V1, PROGRAM_IDS_DEVNET_V22, NFT_PROGRAM_IDS } from "../config/program-id-strings.js";
+import { STAKE_ERRORS, STAKE_PROGRAM_IDS } from "../solana/stake-errors.js";
+import { STAKE_ERRORS_V5, STAKE_ERROR_NAMES } from "./v22-stake-errors.js";
+import { MATCHER_V2_ERRORS } from "./matcher-v2-errors.js";
 import { NFT_ERRORS, SPL_TOKEN_ERRORS } from "./nft-errors.js";
 
 export interface ErrorInfo {

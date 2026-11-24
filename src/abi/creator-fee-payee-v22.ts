@@ -309,8 +309,12 @@ export function creatorFeeClaimRouteV22(assetAdmin: PublicKey | Uint8Array, paye
 
 /** prog #651: the payee's grace after resolution (`CREATOR_PAYEE_GRACE_SLOTS` = 7 x 216,000 slots). */
 export const CREATOR_PAYEE_GRACE_SLOTS_V22 = 1_512_000n;
-/** prog #651 anchor: the engine header's `resolved_slot` (u64 LE), relative to the market-group header (rustc `offset_of!`). */
-export const MARKET_GROUP_RESOLVED_SLOT_OFF_V22 = 675;
+/**
+ * prog #651 anchor: the engine header's `resolved_slot` (u64 LE), relative to the market-group header (rustc `offset_of!`),
+ * the byte after `mode`. 659 since the upstream 083a0d08 port (675 on variant B). Default row only: for a market read off
+ * chain use `resolveMarketGeometry(data).layout.group.mode + 1`, which is right for both header lengths.
+ */
+export const MARKET_GROUP_RESOLVED_SLOT_OFF_V22 = LAYOUT_V22.group.mode + 1;
 
 /**
  * prog #651 (`payee_grace_elapsed`): the payee's grace is over when the market is Resolved and the Clock slot is at or past

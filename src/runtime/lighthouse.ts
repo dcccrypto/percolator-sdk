@@ -2,7 +2,7 @@
  * @module lighthouse
  * Lighthouse v2 (Blowfish / Phantom wallet middleware) detection and mitigation.
  *
- * Lighthouse (program L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95) is an Anchor-based
+ * Lighthouse (program L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95) is a native (non-Anchor)
  * wallet guard injected by Phantom and other Solana wallets via the Blowfish transaction
  * scanning service. It adds assertion instructions to transactions that verify account
  * state expectations (e.g., "this account should be empty" or "this account should have
@@ -11,7 +11,7 @@
  * **Problem:** Lighthouse doesn't understand Percolator's slab accounts. When a slab
  * (e.g., ESa89R5 with 323,312 bytes) is passed as a TradeCpi account, Lighthouse injects
  * an assertion like `StateInvalidAddress` that expects `data_len == 0` (uninitialised).
- * The slab IS initialised, so the assertion fails with error 0x1900 (Anchor ConstraintAddress
+ * The slab IS initialised, so a multi-assert instruction fails with error 0x1900 (Lighthouse multi-assert AssertionFailed
  * = 6400 decimal). This causes the transaction to revert even though the Percolator program
  * logic is correct.
  *
@@ -44,7 +44,7 @@ import { PublicKey, TransactionInstruction, Transaction } from "@solana/web3.js"
 /**
  * Lighthouse v2 program ID (Blowfish/Phantom wallet guard).
  *
- * This is an immutable Anchor program deployed at slot 294,179,293.
+ * This is an immutable native program deployed at slot 294,179,293.
  * Wallets like Phantom inject instructions from this program into user
  * transactions to enforce Blowfish security assertions.
  */
@@ -55,36 +55,44 @@ export const LIGHTHOUSE_PROGRAM_ID = new PublicKey(
 /** Base58 string form for fast comparison without PublicKey instantiation. */
 export const LIGHTHOUSE_PROGRAM_ID_STR = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
 
+// Log-line prefixes used by isLighthouseFailureInLogs, built once.
+const LH_LOG_INVOKE = `Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke`;
+const LH_LOG_SUCCESS = `Program ${LIGHTHOUSE_PROGRAM_ID_STR} success`;
+const LH_LOG_FAILED = `Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed`;
+
 /**
- * Anchor error code for ConstraintAddress (0x1900 = 6400 decimal).
- * This is NOT a Percolator error — it comes from Lighthouse's Anchor framework
- * when an account constraint check fails.
+ * Lighthouse multi-assert AssertionFailed at assertion index 0 (0x1900 = 6400).
+ * Lighthouse maps a failed assertion i of a multi-assert instruction to
+ * Custom(0x1900 + i) (`map_multi_err`). It is NOT an Anchor code and NOT a
+ * Percolator error. (Name kept for compatibility.)
  */
 export const LIGHTHOUSE_CONSTRAINT_ADDRESS = 0x1900;
 
 /**
- * Known Lighthouse/Anchor error codes that may appear in transaction logs.
- * All are in the Anchor error range (0x1770–0x1900+).
+ * Lighthouse's own custom error codes: `LighthouseError` 6000..6016 plus
+ * 0x1900 (multi-assert index 0; index i is 0x1900 + i). Lighthouse is a native
+ * program, not Anchor. Source: Jac0xb/lighthouse@4c579479
+ * programs/lighthouse/src/error.rs:23-78.
  */
 export const LIGHTHOUSE_ERROR_CODES = new Set([
-  0x1770, // InstructionMissing
-  0x1771, // InstructionFallbackNotFound
-  0x1772, // InstructionDidNotDeserialize
-  0x1773, // InstructionDidNotSerialize
-  0x1780, // IdlInstructionStub
-  0x1790, // ConstraintMut
-  0x1791, // ConstraintHasOne
-  0x1792, // ConstraintSigner
-  0x1793, // ConstraintRaw
-  0x1794, // ConstraintOwner
-  0x1795, // ConstraintRentExempt
-  0x1796, // ConstraintSeeds
-  0x1797, // ConstraintExecutable
-  0x1798, // ConstraintState
-  0x1799, // ConstraintAssociated
-  0x179a, // ConstraintAssociatedInit
-  0x179b, // ConstraintClose
-  0x1900, // ConstraintAddress (the one we hit most often)
+  0x1770, // 6000 InvalidInstructionData
+  0x1771, // 6001 AssertionFailed (single assertion)
+  0x1772, // 6002 NotEnoughAccounts
+  0x1773, // 6003 BumpNotFound
+  0x1774, // 6004 AccountBorrowFailed
+  0x1775, // 6005 RangeOutOfBounds
+  0x1776, // 6006 IndexOutOfBounds
+  0x1777, // 6007 FailedToDeserialize
+  0x1778, // 6008 FailedToSerialize
+  0x1779, // 6009 AccountOwnerMismatch
+  0x177a, // 6010 AccountKeyMismatch
+  0x177b, // 6011 AccountNotInitialized
+  0x177c, // 6012 AccountOwnerValidationFailed
+  0x177d, // 6013 AccountFundedValidationFailed
+  0x177e, // 6014 AccountDiscriminatorValidationFailed
+  0x177f, // 6015 AccountValidationFailed
+  0x1780, // 6016 CrossProgramInvokeViolation
+  0x1900, // 6400 AssertionFailed, multi-assert index 0 (the one we hit most often)
 ] as const);
 
 // ============================================================================
@@ -106,14 +114,21 @@ export function isLighthouseInstruction(ix: TransactionInstruction): boolean {
   return ix.programId.equals(LIGHTHOUSE_PROGRAM_ID);
 }
 
+/** Lighthouse log lines that show it ran, not that it failed. */
+const LIGHTHOUSE_BENIGN_LINE = new RegExp(
+  `Program ${LIGHTHOUSE_PROGRAM_ID_STR} (?:invoke \\[\\d+\\]|success|consumed \\d+ of \\d+ compute units)`,
+  "g",
+);
+
 /**
  * Check if an error message or error object indicates a Lighthouse assertion failure.
  *
  * Detects:
- * - `custom program error: 0x1900` (Anchor ConstraintAddress from Lighthouse)
- * - References to the Lighthouse program ID in error text
+ * - `custom program error: 0x1900` (Lighthouse multi-assert AssertionFailed)
+ * - References to the Lighthouse program ID in error text (not counting
+ *   invoke/consumed/success lines of a Lighthouse ix that completed)
  * - `"Custom": 6400` in JSON-encoded InstructionError
- * - Any Anchor error code in the LIGHTHOUSE_ERROR_CODES range when the
+ * - Any code (LIGHTHOUSE_ERROR_CODES or other) when the
  *   failing program is Lighthouse (identified by program ID in logs)
  *
  * @param error - An Error object, error message string, or transaction logs array.
@@ -134,8 +149,26 @@ export function isLighthouseError(error: unknown): boolean {
   const msg = extractErrorMessage(error);
   if (!msg) return false;
 
-  // Direct program ID reference
-  if (msg.includes(LIGHTHOUSE_PROGRAM_ID_STR)) return true;
+  // A 0x1900 / 6400 code attributed to another program (e.g. Anchor
+  // ConstraintAddress in a stake/matcher/DEX program) is not Lighthouse.
+  // If the message names failing programs, only Lighthouse failing counts.
+  // The regex needs the literal "failed", so skip the scan when it is absent.
+  const failed = msg.includes("failed")
+    ? [...msg.matchAll(/Program\s+([1-9A-HJ-NP-Za-km-z]{32,44})\s+failed/g)]
+    : [];
+  if (failed.length > 0) {
+    return failed.some((m) => m[1] === LIGHTHOUSE_PROGRAM_ID_STR);
+  }
+
+  // Direct program ID reference. A Lighthouse ix that ran and returned success
+  // ("invoke [n]" ... "success") is not evidence it failed: ignore those
+  // lines unless some invoke is still unfinished.
+  if (msg.includes(LIGHTHOUSE_PROGRAM_ID_STR)) {
+    const invokes = msg.split(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke [`).length - 1;
+    const successes = msg.split(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} success`).length - 1;
+    const rest = msg.replace(LIGHTHOUSE_BENIGN_LINE, "");
+    if (invokes > successes || rest.includes(LIGHTHOUSE_PROGRAM_ID_STR)) return true;
+  }
 
   // 0x1900 hex error code (case-insensitive)
   if (/custom\s+program\s+error:\s*0x1900\b/i.test(msg)) return true;
@@ -163,21 +196,23 @@ export function isLighthouseFailureInLogs(logs: string[]): boolean {
 
   for (const line of logs) {
     if (typeof line !== "string") continue;
+    // Every check below needs the program ID in the line.
+    if (!line.includes(LIGHTHOUSE_PROGRAM_ID_STR)) continue;
 
     // Track Lighthouse program invocation depth
-    if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} invoke`)) {
+    if (line.includes(LH_LOG_INVOKE)) {
       lighthouseDepth++;
       continue;
     }
 
     // Lighthouse program returned success — decrement depth
-    if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} success`)) {
+    if (line.includes(LH_LOG_SUCCESS)) {
       if (lighthouseDepth > 0) lighthouseDepth--;
       continue;
     }
 
     // Only report failure when the Lighthouse program itself explicitly fails
-    if (line.includes(`Program ${LIGHTHOUSE_PROGRAM_ID_STR} failed`)) {
+    if (line.includes(LH_LOG_FAILED)) {
       return true;
     }
   }
@@ -265,12 +300,27 @@ export function stripLighthouseFromTransaction(
   const clean = new Transaction();
   clean.recentBlockhash = transaction.recentBlockhash;
   clean.feePayer = transaction.feePayer;
-
+  // Preserve expiry / durable-nonce context so retries can still confirm.
+  clean.lastValidBlockHeight = transaction.lastValidBlockHeight;
+  clean.nonceInfo = transaction.nonceInfo;
+  clean.minNonceContextSlot = transaction.minNonceContextSlot;
+  // Old signatures sign the pre-strip message and are invalid now; keep the
+  // signer slots (unsigned) so callers know who must re-sign.
   for (const ix of transaction.instructions) {
     if (!isLighthouseInstruction(ix)) {
       clean.add(ix);
     }
   }
+  // Only keep slots still required by the remaining message (web3.js throws
+  // "unknown signer" otherwise).
+  const needed = (pk: PublicKey) =>
+    !!clean.feePayer?.equals(pk) ||
+    clean.instructions.some((ix) =>
+      ix.keys.some((k) => k.isSigner && k.pubkey.equals(pk)),
+    );
+  clean.signatures = transaction.signatures
+    .filter((s) => needed(s.publicKey))
+    .map((s) => ({ publicKey: s.publicKey, signature: null }));
 
   return clean;
 }

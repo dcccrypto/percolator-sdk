@@ -23,7 +23,7 @@ export const P2B_INIT_MARKET_ARGS = {
   maintenanceMarginBps: 500n, initialMarginBps: 1_000n, maxTradingFeeBps: 100n, tradeFeeBaseBps: 10n, liquidationFeeBps: 50n,
   liquidationFeeCap: 1_000_000n, minLiquidationAbs: 100n, maxPriceMoveBpsPerSlot: 4n, maxAccrualDtSlots: 100n,
   maxAbsFundingE9PerSlot: 1_000n, minFundingLifetimeSlots: 0n, maxAccountBSettlementChunks: 10n, maxBankruptCloseChunks: 10n,
-  maxBankruptCloseLifetimeSlots: 500n, publicBChunkAtoms: 1_000_000n, maintenanceFeePerSlot: 0n,
+  maxBankruptCloseLifetimeSlots: 500n, maintenanceFeePerSlot: 0n,
 } as unknown as InitMarketV17Args;
 
 export type P2bVectorInput =

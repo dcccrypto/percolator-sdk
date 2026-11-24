@@ -107,7 +107,7 @@ const INIT_MARKET_SPEC =
   "maintenanceMarginBps:u64 initialMarginBps:u64 maxTradingFeeBps:u64 tradeFeeBaseBps:u64 liquidationFeeBps:u64 " +
   "liquidationFeeCap:u128 minLiquidationAbs:u128 maxPriceMoveBpsPerSlot:u64 maxAccrualDtSlots:u64 " +
   "maxAbsFundingE9PerSlot:u64 minFundingLifetimeSlots:u64 maxAccountBSettlementChunks:u64 " +
-  "maxBankruptCloseChunks:u64 maxBankruptCloseLifetimeSlots:u64 publicBChunkAtoms:u128 maintenanceFeePerSlot:u128";
+  "maxBankruptCloseChunks:u64 maxBankruptCloseLifetimeSlots:u64 maintenanceFeePerSlot:u128";
 const initArgs = (o: any) => o;
 
 /** InitMarket base with values the growth/band encoders accept (r_gap floor = move x 50, MMR >= r_gap + liq fee). */
@@ -135,12 +135,12 @@ const TRADE_ACCTS = "accountAPortfolioId:u64 accountAPositionEpoch:u64 accountBP
 
 export const ROWS: Row[] = [
   { tag: 0, name: "InitMarket", prog: 10057, form: "base", spec: INIT_MARKET_SPEC, enc: (o) => ix.encodeInitMarket(initArgs(o)) },
-  { tag: 0, name: "InitMarketV19", prog: 10057, form: "base + growth(4) = 223 B", spec: `${INIT_OK} ${GROWTH}`, enc: (o) => gv.encodeInitMarketV19(o, o.rGapBps, o.lLaunchX100) },
-  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + lot(1) = 224 B", spec: `${INIT_OK} ${GROWTH} ${LOT}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
-  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + rent(6) = 229 B", spec: `${INIT_OK} ${GROWTH} ${RENT}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
-  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + lot(1) + rent(6) = 230 B", spec: `${INIT_OK} ${GROWTH} ${LOT} ${RENT}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
-  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + rent(6) + band(18) = 247 B", spec: `${INIT_OK} ${GROWTH} ${RENT} ${BAND}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
-  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + lot(1) + rent(6) + band(18) = 248 B", spec: `${INIT_OK} ${GROWTH} ${LOT} ${RENT} ${BAND}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
+  { tag: 0, name: "InitMarketV19", prog: 10057, form: "base + growth(4) = 207 B", spec: `${INIT_OK} ${GROWTH}`, enc: (o) => gv.encodeInitMarketV19(o, o.rGapBps, o.lLaunchX100) },
+  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + lot(1) = 208 B", spec: `${INIT_OK} ${GROWTH} ${LOT}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
+  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + rent(6) = 213 B", spec: `${INIT_OK} ${GROWTH} ${RENT}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
+  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + lot(1) + rent(6) = 214 B", spec: `${INIT_OK} ${GROWTH} ${LOT} ${RENT}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
+  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + rent(6) + band(18) = 231 B", spec: `${INIT_OK} ${GROWTH} ${RENT} ${BAND}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
+  { tag: 0, name: "InitMarketV22", prog: 10057, form: "base + growth(4) + lot(1) + rent(6) + band(18) = 232 B", spec: `${INIT_OK} ${GROWTH} ${LOT} ${RENT} ${BAND}`, enc: (o) => w22.encodeInitMarketV22(o, trailer(o)) },
   { tag: 30, name: "CloseResolved", prog: 10313, form: "permissionless form via buildCloseResolvedUnsignedIxP3 (fee_rate = 0)", spec: "feeRatePerSlot:u128=0", enc: () => closeResolvedData() },
   { tag: 46, name: "ClaimResolvedPayoutTopup", prog: 10521, form: "bare via buildClaimResolvedPayoutTopupIxP3", spec: "", enc: () => claimData() },
   { tag: 1, name: "InitPortfolio", prog: 10157, form: "bare", spec: "", enc: () => ix.encodeInitUser() },

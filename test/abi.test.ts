@@ -752,7 +752,7 @@ console.log("\nTesting instruction encoders...\n");
   console.log("✓ encodeInitLP rejects removed tag 2 (v17)");
 }
 
-// Test InitMarket encoding (219 bytes total: v17 wire)
+// Test InitMarket encoding (203 bytes total: v17 wire)
 // v17 wire layout: tag(1) + max_portfolio_assets(u16=2) +
 //   h_min(u64) + h_max(u64) + initial_price(u64) +
 //   min_nonzero_mm_req(u128) + min_nonzero_im_req(u128) +
@@ -763,8 +763,9 @@ console.log("\nTesting instruction encoders...\n");
 //   max_abs_funding_e9_per_slot(u64) + min_funding_lifetime_slots(u64) +
 //   max_account_b_settlement_chunks(u64) + max_bankrupt_close_chunks(u64) +
 //   max_bankrupt_close_lifetime_slots(u64) +
-//   public_b_chunk_atoms(u128) + maintenance_fee_per_slot(u128)
-// Sizes: 1 + 2 + u64×15(120) + u128×6(96) = 219 bytes total
+//   maintenance_fee_per_slot(u128)
+// Sizes: 1 + 2 + u64×15(120) + u128×5(80) = 203 bytes total
+// (public_b_chunk_atoms(u128) was dropped by engine 083a0d08 / prog c8ddbb6e: the chunk is a constant)
 //
 // BREAKING vs v12.x: admin, collateralMint, feedId, staleness, conf, invert,
 // unitScale and the 66-byte extended tail are NOT in the v17 wire. Those fields
@@ -803,17 +804,17 @@ console.log("\nTesting instruction encoders...\n");
     minNonzeroMmReq: "1000",
     minNonzeroImReq: "2000",
   });
-  // v17 wire: 219 bytes (tag + 22 risk-param fields; no header block, no extended tail).
-  assert(data.length === 219, `InitMarket length: expected 219 (v17 wire), got ${data.length}`);
+  // v17 wire: 203 bytes (tag + 21 risk-param fields; no header block, no extended tail).
+  assert(data.length === 203, `InitMarket length: expected 203 (v17 wire), got ${data.length}`);
   assert(data[0] === IX_TAG.InitMarket, "InitMarket tag byte");
   // #310: the v12 compat shim must NOT zero the B-settlement / bankruptcy-recovery fields
-  // (publicBChunkAtoms etc.) — zeroing them permanently disables permissionless bankruptcy
-  // recovery. Decode them from the wire and assert functional defaults.
+  // — zeroing them permanently disables permissionless bankruptcy recovery. Decode them from
+  // the wire and assert functional defaults. (The public B chunk is now an engine constant.)
   const dv = new DataView(data.buffer, data.byteOffset, data.length);
   const maxAccountBSettlementChunks = dv.getBigUint64(163, true); // u64 @ offset 163
-  const publicBChunkAtoms = dv.getBigUint64(187, true); // low 64 bits of u128 @ offset 187
+  const maintenanceFeePerSlot = dv.getBigUint64(187, true); // low 64 bits of u128 @ offset 187
   assert(maxAccountBSettlementChunks === 10n, "#310: v12 shim maxAccountBSettlementChunks must default to 10, not 0");
-  assert(publicBChunkAtoms === 1_000_000n, "#310: v12 shim publicBChunkAtoms must default to 1_000_000, not 0 (else bankruptcy recovery is disabled)");
+  assert(maintenanceFeePerSlot === 100n, "maintenanceFeePerSlot follows maxBankruptCloseLifetimeSlots at offset 187");
   console.log("✓ encodeInitMarket (v12 shim keeps bankruptcy recovery enabled, #310)");
 }
 

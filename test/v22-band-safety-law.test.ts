@@ -97,6 +97,16 @@ describe("Band Safety Law pre-check: the decided settings", () => {
     expect(k).toMatchObject({ ok: false, code: 106, rule: "rent-block" });
   });
 
+  it("base config: maxPortfolioAssets above the engine cap (16) is refused, 16 and 0 behave like the engine", () => {
+    const { rent: _r, band: _b, ...plain } = seedPilot;
+    expect(checkBandSafetyLawV22({ ...plain, maxPortfolioAssets: 16 }).ok).toBe(true);
+    expect(checkBandSafetyLawV22({ ...plain, maxPortfolioAssets: 17 })).toMatchObject({ ok: false, code: null, rule: "base-config" });
+    expect(checkBandSafetyLawV22({ ...plain, maxPortfolioAssets: 0xffff })).toMatchObject({ ok: false, rule: "base-config" });
+    expect(checkBandSafetyLawV22({ ...plain, maxPortfolioAssets: 0 })).toMatchObject({ ok: false, rule: "base-config" });
+    const rentOnly = { ...plain, rent: seedPilot.rent };
+    expect(checkBandSafetyLawV22({ ...rentOnly, maxPortfolioAssets: 17 })).toMatchObject({ ok: false, rule: "base-config" });
+  });
+
   it("no rent block and no band: nothing to check", () => {
     const { rent: _r, band: _b, ...plain } = seedPilot;
     expect(checkBandSafetyLawV22(plain).ok).toBe(true);
@@ -154,4 +164,4 @@ describe("Band Safety Law pre-check: the decided settings", () => {
 });
 
 /** Pinned: the app (`app/lib/v22/sdk/v22-band-safety-law.ts`) and the seed kit (`relaunch/v22/v22-band-safety-law.ts`) carry this exact file. */
-const V22_BSL_SHA256 = "6103c6a85eff49a5d632093e90a3b7c98a7f4efe6fc0a68981238fc923e3254d";
+const V22_BSL_SHA256 = "9f94a69cb973b0c9078d77237b00005f2f2205f2d1cdeb4330b54ff627e5f0f5";

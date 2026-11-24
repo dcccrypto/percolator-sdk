@@ -10,7 +10,7 @@ import { PublicKey } from "@solana/web3.js";
 import {
   DEPTH_DEX_PINNED, DEPTH_EVER, DEPTH_PREV_REAL, DEPTH_MODE, DEPTH_SOURCE, DEPTH_SOURCE_MASK, DEPTH_TW_ABSENT, GROWTH_FLAG_R3_LAYOUT,
   depthDexPinned, depthPushModeAllowed, depthSourceByteOk, depthSourceOf, depthTwLayoutOk, isDexPinned, decodeAssetGrowthRecordV19,
-  assetGrowthAccountOffsetV19, LAYOUT_V22, ASSET_GROWTH_DEPTH_FIELD_OFF, ACCOUNTS_SET_DEPTH_SOURCE_V22, buildSetDepthSourceIxV22, buildClearDepthSourceIxV22, decodeError,
+  assetGrowthAccountOffsetV19, LAYOUT_V22, LAYOUT_V22_ROWS, ASSET_GROWTH_DEPTH_FIELD_OFF, ACCOUNTS_SET_DEPTH_SOURCE_V22, buildSetDepthSourceIxV22, buildClearDepthSourceIxV22, decodeError,
 } from "../src/index.js";
 
 interface Rec { accountOffset: number; byte44: string; hex: string }
@@ -90,7 +90,9 @@ describe("LiteSVM-produced growth records (death2-build1.so)", () => {
     expect(decodeError(129)?.name).toBe("DepthSourceInvalid");
   });
   it("the LiteSVM record offset equals the SDK's v2.2 growth offset (assetGrowthAccountOffsetV19(0, LAYOUT_V22))", () => {
-    for (const r of Object.values(FX.records)) expect(r.accountOffset).toBe(assetGrowthAccountOffsetV19(0, LAYOUT_V22));
+    // The fixture was produced on the 806-byte header (variant B); since the 083a0d08 port the default row is 16 B shorter.
+    for (const r of Object.values(FX.records)) expect(r.accountOffset).toBe(assetGrowthAccountOffsetV19(0, LAYOUT_V22_ROWS.variantB));
+    expect(assetGrowthAccountOffsetV19(0, LAYOUT_V22)).toBe(assetGrowthAccountOffsetV19(0, LAYOUT_V22_ROWS.variantB) - 16);
   });
   it("NEGATIVE CONTROL: masking bit 6 out of the fixture turns the decoder and the guard back to 'unpinned'", () => {
     const bytes = rec(FX.records.pinned_after_mode2);
