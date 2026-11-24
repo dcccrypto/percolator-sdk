@@ -15,9 +15,10 @@ import {
   lambdaDepthBps, kappaDepthBps, lambdaEffBps, depthNotionalCapE6, depthCapQ, nCapG8Q, growthMatcherCapsG8, nCapQ, growthMatcherCapsV3,
   targetCeilingX100, ceilingInForceX100, ratchetCeilingX100, graduationRatchet, graduationFallOnly, graduationOn, clampEnforced,
   growthCeilingView, quoteMaxLeverage, encodeInitVaultLpV22Tiers, encodeSetAssetRiskLimitsV22Tiers, encodeInitVaultLpV19,
-  decodeError, STRESS_NONE, STRESS_DRAW, STRESS_ADL, STRESS_HLOCK, DEPTH_TW_BUCKET_SLOTS, depthTwBucketP1, depthTwMinAtoms,
-} from "../src/index.js";
-import type { AssetGrowthV19, QuoteMaxLeverageInput, DepthState } from "../src/index.js";
+  STRESS_NONE, STRESS_DRAW, STRESS_ADL, STRESS_HLOCK, DEPTH_TW_BUCKET_SLOTS, depthTwBucketP1, depthTwMinAtoms,
+} from "../src/abi/growth-v19.js";
+import { decodeError } from "../src/abi/errors.js";
+import type { AssetGrowthV19, QuoteMaxLeverageInput, DepthState } from "../src/abi/growth-v19.js";
 
 const T1 = 25_000_000_000n, T2 = 100_000_000_000n, T3 = 500_000_000_000n;
 const M = 1_000_000n;
