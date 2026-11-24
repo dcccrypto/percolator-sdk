@@ -1027,7 +1027,7 @@ export interface VaultLpLegPricesP3 {
   basisPosQ: bigint;
   /** The leg's asset `effective_price` ({@link readAssetPricesP3}). */
   effectivePriceE6: bigint;
-  /** The leg's asset `raw_oracle_target_price` ({@link readAssetPricesP3}). */
+  /** The leg's asset raw target as the NEXT crank commits it ({@link readAssetPricesP3}; rc23 `asset_next_crank_raw_target_view`). */
   rawOracleTargetPriceE6: bigint;
 }
 
