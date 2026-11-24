@@ -256,9 +256,12 @@ describe("ata.ts vs spl-token: ATA derivation on 1,000 seeded (owner, mint) pair
     it(`${label}: getAtaSync(owner, mint) == spl.getAssociatedTokenAddressSync(mint, owner) for ${N} pairs`, async () => {
       const { theirs, sync } = await derived.get(label)!;
       expect(theirs).toHaveLength(N);
+      // The worker reports throws as "ERR:..." strings; spl throwing on any pair fails here, as before.
+      expect(theirs.filter((t) => t.startsWith("ERR:"))).toEqual([]);
       expect(sync).toHaveLength(N);
       for (let i = 0; i < N; i++) expect(sync[i]).toBe(theirs[i]);
-      // And the main-thread (vitest-transformed) getAtaSync agrees on a spot check.
+      // And the main-thread (vitest-transformed) getAtaSync agrees on a spot check. Calls inside the
+      // workers are invisible to v8 coverage, so these two spot checks also keep ata.ts lines covered.
       const [o, m] = pairs[N - 1];
       expect(hex(getAtaSync(o, m, false, program))).toBe(theirs[N - 1]);
     });

@@ -1,5 +1,6 @@
 /**
- * worker_threads shard for test/ata-vs-spltoken.test.ts (booted by the test with tsx's ESM loader registered).
+ * worker_threads shard for test/ata-vs-spltoken.test.ts. The test boots it with Node's native type
+ * stripping plus a `.js` -> `.ts` resolve hook, or with tsx's ESM loader on older Node.
  *
  * For each (owner, mint) pair it runs the same three derivations the test used to run on the main
  * thread: spl.getAssociatedTokenAddressSync(mint, owner, false, program) (the reference), our
