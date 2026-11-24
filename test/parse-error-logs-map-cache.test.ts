@@ -26,7 +26,8 @@ function countMapsBuilt(fn: () => void): number {
 afterEach(() => vi.unstubAllGlobals());
 
 const WRAPPER = String(PROGRAM_IDS.devnet.percolator);
-const OTHER = "11111111111111111111111111111111";
+// Not a built-in id (the System program id is built in since it got its own error table).
+const OTHER = "Unknown111111111111111111111111111111111111";
 const wrapperLogs = [`Program ${WRAPPER} failed: custom program error: 0x13`];
 
 describe("parseErrorFromLogs program-id map cache", () => {
