@@ -225,7 +225,7 @@ export interface CloseSlabAttemptArgs {
    * tag 84 (transfer 0 → EngineLockActive) and tag 90 (no surplus) both refuse, and in the same transaction they would
    * sink the close. So at `0n` the planner adds no tag 84 / tag 90 and does not throw for an AdminSigned pot.
    * Both claims spend this pool in plan order (tag 84 takes `min(owed, pool)`, tag 90 is an exact debit), so the planner
-   * spends it as a budget: tag 84 first, then each payee claim capped at what is left; once nothing is left the remaining
+   * spends it as a budget: tag 84 first, then each payee claim takes exactly min(owed, what is left); once nothing is left the remaining
    * legs are treated as at `0n`. Omit to keep the previous behaviour (every owed leg planned, no cap).
    */
   feeBackingAtoms?: bigint;
