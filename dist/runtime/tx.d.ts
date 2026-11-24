@@ -32,6 +32,25 @@ export interface SimulateOrSendParams {
      * multiple of 1024 in [32768, 262144].
      */
     heapFrameBytes?: number;
+    /**
+     * Abort the whole call when this signal fires (e.g. the signal `RpcPool.call` hands to `fn`).
+     * Default: none.
+     */
+    signal?: AbortSignal;
+    /**
+     * Overall deadline for the whole call (blockhash, simulate or send, confirm, log fetch), in ms.
+     * Default: none. Before the send, passing it throws {@link RpcDeadlineError} (blockhash) or returns
+     * it as `err` (simulate). After the send, the result keeps the real signature and says the outcome is
+     * unknown, as for any other confirm failure.
+     */
+    timeoutMs?: number;
+    /**
+     * Deadline for the confirmation step alone, in ms. Default: {@link DEFAULT_CONFIRM_TIMEOUT_MS} (120 s).
+     * On a healthy RPC confirmation ends well before this (it confirms, or the blockhash expires after
+     * about 60-90 s). It only fires when the RPC stops serving `getBlockHeight` too, where web3.js would
+     * otherwise poll forever.
+     */
+    confirmTimeoutMs?: number;
 }
 /**
  * The v17 wrapper's installed heap-frame size. EVERY transaction that touches the wrapper

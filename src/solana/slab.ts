@@ -1,6 +1,7 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { ACCOUNT_KIND, LAYOUTS_BY_VERSION, resolveLayout, resolveMarketGeometry, resolvePortfolioLayout } from "../abi/layout.js";
 import type { LayoutTable } from "../abi/layout.js";
+import { withRpcDeadline, type RpcDeadlineOptions } from "../runtime/deadline.js";
 
 // =============================================================================
 // Browser-compatible read helpers using DataView
@@ -2577,12 +2578,19 @@ export interface Account {
 // Fetch
 // =============================================================================
 
+/**
+ * Fetch a slab account's data.
+ *
+ * @param deadline - Optional `signal` / `timeoutMs` for the read; rejects with `RpcDeadlineError`
+ *   when it passes. Default: none.
+ */
 export async function fetchSlab(
   connection: Connection,
   slabPubkey: PublicKey,
-  expectedOwner?: PublicKey
+  expectedOwner?: PublicKey,
+  deadline?: RpcDeadlineOptions,
 ): Promise<Uint8Array> {
-  const info = await connection.getAccountInfo(slabPubkey);
+  const info = await withRpcDeadline("fetchSlab", deadline, () => connection.getAccountInfo(slabPubkey));
   if (!info) {
     throw new Error(`Slab account not found: ${slabPubkey.toBase58()}`);
   }

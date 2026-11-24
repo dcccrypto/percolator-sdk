@@ -2,6 +2,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { type SlabHeader, type MarketConfig, type EngineState, type RiskParams, type SlabLayout, type WrapperConfigV17 } from "./slab.js";
 import { type StaticMarketEntry } from "./static-markets.js";
 import { type Network } from "../config/program-ids.js";
+import { type RpcDeadlineOptions } from "../runtime/deadline.js";
 /**
  * A discovered Percolator market from on-chain program accounts.
  */
@@ -267,7 +268,7 @@ export declare function validateSlabTierMatch(dataSize: number, programSlabLen: 
  */
 export declare function parseEngineLight(data: Uint8Array, layout: SlabLayout | null, maxAccounts?: number): EngineState;
 /** Options for `discoverMarkets`. */
-export interface DiscoverMarketsOptions {
+export interface DiscoverMarketsOptions extends RpcDeadlineOptions {
     /**
      * Run tier queries sequentially with per-tier retry on HTTP 429 instead of
      * firing all in parallel.  Reduces RPC rate-limit pressure at the cost of
@@ -352,16 +353,28 @@ export interface DiscoverMarketsOptions {
     network?: Network;
 }
 /**
+ * Thrown by {@link discoverMarkets} when no discovery source answered at all: every RPC query failed
+ * and the REST API / static bundle fallbacks were not configured or failed too. An empty list is only
+ * returned when some source actually answered "no markets".
+ */
+export declare class DiscoveryFailedError extends Error {
+    constructor(message: string, cause?: unknown);
+}
+/**
  * Discover all Percolator markets owned by the given program.
  * Uses getProgramAccounts with dataSize filter + dataSlice to download only ~1400 bytes per slab.
  *
  * @param options.sequential - Run tier queries sequentially with 429 retry (PERC-1650).
+ * @param options.signal / options.timeoutMs - Optional deadline for the whole scan; rejects with
+ *   `RpcDeadlineError` when it passes. Default: none.
+ * @throws {DiscoveryFailedError} When every RPC query failed and no fallback (REST API, static
+ *   bundle) answered either. A dead RPC is an error, not an empty market list.
  */
 export declare function discoverMarkets(connection: Connection, programId: PublicKey, options?: DiscoverMarketsOptions): Promise<DiscoveredMarket[]>;
 /**
  * Options for `getMarketsByAddress`.
  */
-export interface GetMarketsByAddressOptions {
+export interface GetMarketsByAddressOptions extends RpcDeadlineOptions {
     /**
      * Maximum number of addresses per `getMultipleAccounts` RPC call.
      * Solana limits a single call to 100 accounts; callers may lower this
@@ -391,7 +404,8 @@ export interface GetMarketsByAddressOptions {
  * @param connection - Solana RPC connection
  * @param programId - The Percolator program that owns these slabs
  * @param addresses - Array of slab account public keys to fetch
- * @param options   - Optional batching/delay configuration
+ * @param options   - Optional batching/delay configuration, and an optional `signal` / `timeoutMs`
+ *                    deadline for the whole fetch (rejects with `RpcDeadlineError`; default none)
  * @returns Parsed markets for all valid slab accounts; invalid/missing accounts are silently skipped.
  *
  * @example
