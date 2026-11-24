@@ -50,6 +50,7 @@ export declare function computeWarmupLeverageCap(initialMarginBps: bigint, total
  * @param currentSlot        - The current on-chain slot.
  * @param warmupStartSlot    - Slot at which warmup started (0 = not started).
  * @param warmupPeriodSlots  - Total slots in the warmup period.
- * @returns Maximum position size in native units.
+ * @returns Maximum position size in native units (never negative; 0 when
+ *          capital is zero or negative).
  */
 export declare function computeWarmupMaxPositionSize(initialMarginBps: bigint, totalCapital: bigint, currentSlot: bigint, warmupStartSlot: bigint, warmupPeriodSlots: bigint): bigint;

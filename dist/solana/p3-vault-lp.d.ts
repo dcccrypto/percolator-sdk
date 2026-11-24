@@ -118,11 +118,16 @@ export declare const ASSET_STATE_EFFECTIVE_PRICE_OFF_P3 = 25;
 /** Engine `POS_SCALE` (position quantity scale). */
 export declare const POS_SCALE_P3 = 1000000n;
 /**
- * Read asset `assetIndex`'s engine prices: the lagging `effective_price` and the pending oracle
- * `raw_oracle_target_price` (the inputs of the `ede691b6` worse-of Earn pricing).
+ * Read asset `assetIndex`'s engine prices: the lagging `effective_price` and the raw target the
+ * NEXT crank commits (the inputs of the worse-of Earn pricing, `vault_lp_equity_lag_bounds_ro`).
+ * The target mirrors rc23 `asset_next_crank_raw_target_view` (#666): on a Live market (header
+ * mode 0) with the asset Active or DrainOnly and an AuthMark / EwmaMark oracle profile it is the
+ * profile's `mark_ewma_e6` (a pushed mark no crank has committed yet); otherwise it is the
+ * engine's committed `raw_oracle_target_price`. The program also refuses an invalid oracle
+ * profile (InvalidAccountData); this reader does not re-validate it.
  * @param marketData  Market (slab) account data.
  * @param assetIndex  Asset slot index.
- * @returns `{ effectivePriceE6, rawOracleTargetPriceE6 }`.
+ * @returns `{ effectivePriceE6, rawOracleTargetPriceE6 }` (`rawOracleTargetPriceE6` = next-crank target).
  * @throws If the account is too short.
  * @example
  * ```ts
@@ -688,7 +693,7 @@ export interface VaultLpLegPricesP3 {
     basisPosQ: bigint;
     /** The leg's asset `effective_price` ({@link readAssetPricesP3}). */
     effectivePriceE6: bigint;
-    /** The leg's asset `raw_oracle_target_price` ({@link readAssetPricesP3}). */
+    /** The leg's asset raw target as the NEXT crank commits it ({@link readAssetPricesP3}; rc23 `asset_next_crank_raw_target_view`). */
     rawOracleTargetPriceE6: bigint;
 }
 /**
@@ -738,15 +743,19 @@ export declare function vaultLpSeniorPricingClaimP3(c: bigint, undrawn: bigint, 
  * Resolved → `min(physicalIdleBacking, C)`. Live (`592a77e2`, E-1) → {@link liveExitSeniorValueP3}
  * (always at the worse-for-the-vault price; a negative bound cuts both the claim and the value).
  * `lpEquityWorse` = {@link vaultLpEquityLagBoundsP3}`.worse` (ignored when resolved).
+ * Live, rc23 G9 (`f8d65221`): the vault value is net of `backstopOutstandingAtoms` (the tag-111
+ * backstop is senior to Earn seniors), as `p4_rescue_ins::live_exit_senior_value_net_backstop`.
  * Live precondition (`d119eebd`): the vault LP has NO undrawn deficit; otherwise the program
  * refuses 75/77 with 87 VaultLpSeniorDrawRequired (pass the vault LP writable, or crank it).
  * @param a  `nav` (floored, {@link boundVaultNavFlooredP3}), `seniorClaim` (C), `lpValue`,
  *           `resolved`, `physicalIdleBacking` (Σ fresh_unliened_backing_num / 1e12, Resolved only),
- *           `lpEquityWorse` (worse-of vault-LP equity; pass 0n when resolved).
+ *           `lpEquityWorse` (worse-of vault-LP equity; pass 0n when resolved),
+ *           `backstopOutstandingAtoms` ({@link VaultLpStateP3}`.backstopOutstandingAtoms`; required in Live).
  * @returns Senior tranche value (atoms).
+ * @throws If Live and `backstopOutstandingAtoms` is not a bigint (omitting it would over-quote the payout).
  * @example
  * ```ts
- * const senior = boundVaultSeniorValueP3({ nav, seniorClaim: st.seniorClaimAtoms, lpValue, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: worse });
+ * const senior = boundVaultSeniorValueP3({ nav, seniorClaim: st.seniorClaimAtoms, lpValue, resolved: false, physicalIdleBacking: 0n, lpEquityWorse: worse, backstopOutstandingAtoms: st.backstopOutstandingAtoms });
  * ```
  */
 export declare function boundVaultSeniorValueP3(a: {
@@ -756,23 +765,27 @@ export declare function boundVaultSeniorValueP3(a: {
     resolved: boolean;
     physicalIdleBacking: bigint;
     lpEquityWorse: bigint;
+    backstopOutstandingAtoms: bigint;
 }): bigint;
 /**
  * `vault_lp_v18::live_exit_senior_value` (percolator-prog `592a77e2`, security fix E-1): the Live 77
  * senior value, ALWAYS at the price worse for the vault (no `nav >= C` shortcut).
- *   worse >= 0: min(nav + min(lpValueAtEff, worse), C)
- *   worse <  0: d = −worse; C' = vaultLpSeniorPricingClaimP3(C, d, max(0, nav − C)); min(max(0, nav − d), C')
+ *   worse >= 0: min(max(0, nav + min(lpValueAtEff, worse) − b), C)
+ *   worse <  0: d = −worse; C' = vaultLpSeniorPricingClaimP3(C, d, max(0, nav − C)); min(max(0, nav − d − b), C')
+ * where b = the G9 backstop receivable (`p4_rescue_ins::live_exit_senior_value_net_backstop`, rc23
+ * `f8d65221`). With b = 0 this is exactly `vault_lp_v18::live_exit_senior_value`.
  * @param c              Senior claim C (after the 87 undrawn check).
  * @param nav            Floored bound-vault NAV.
  * @param lpValueAtEff   Vault-LP value at effective prices (0 when worse < 0).
  * @param lpEquityWorse  {@link vaultLpEquityLagBoundsP3}`.worse`.
+ * @param backstopOutstandingAtoms  {@link VaultLpStateP3}`.backstopOutstandingAtoms` (default 0n = the un-netted E-1 value).
  * @returns Senior value.
  * @example
  * ```ts
  * liveExitSeniorValueP3(1_000_000n, 800_000n, 200_000n, -100_000n); // 700_000n
  * ```
  */
-export declare function liveExitSeniorValueP3(c: bigint, nav: bigint, lpValueAtEff: bigint, lpEquityWorse: bigint): bigint;
+export declare function liveExitSeniorValueP3(c: bigint, nav: bigint, lpValueAtEff: bigint, lpEquityWorse: bigint, backstopOutstandingAtoms?: bigint): bigint;
 /**
  * Tag-77 payout for `shares` on a bound vault: `floor(shares · senior / S)` (null when S == 0 or
  * shares > S — the program fails closed). Requires harvestable == 0 (bundle tag 78 first).
@@ -787,15 +800,25 @@ export declare function liveExitSeniorValueP3(c: bigint, nav: bigint, lpValueAtE
  */
 export declare function boundVaultRedemptionAtomsP3(shares: bigint, totalShares: bigint, seniorValue: bigint): bigint | null;
 /**
- * Tag-75 deposit quote on a bound vault: `C_eff = C + floor(H · senior_fee_share / 10000)`;
- * refused (VaultLpSeniorImpaired) when `nav + H < C_eff` and `nav + H + lpValue < C_eff`;
- * genesis (S == 0) refused (VaultLpHarvestPending) while H > 0, else 1:1 minus the 1000 dead
- * shares; otherwise `floor(amount · S / C_eff)`.
- * @param a  amount, totalShares (S), seniorClaim (C), harvestable (H), seniorFeeShareBps, nav (floored), lpValue.
+ * Tag-75 deposit quote on a bound vault (percolator-prog rc23 `f27c32f3`):
+ * genesis (S == 0) refused (VaultLpHarvestPending) while H > 0;
+ * `C_eff = C + floor(H · senior_fee_share / 10000)` (`seniorFeeShareBps` > 10000 → EngineArithmeticOverflow);
+ * while a draw is outstanding `C_eff += min(max(0, V_better − C_eff − b), outstanding)`;
+ * refused (VaultLpSeniorImpaired) when `vault_value_worse(nav + H, lpValue, worse) − b < C_eff` (#570),
+ * where b = the G9 backstop receivable and `vault_value_worse` = `nav + H + min(lpValue, worse)` for
+ * worse >= 0, else `max(0, nav + H − |worse|)`;
+ * shares = 1:1 at genesis (minus the 1000 dead shares), else `floor(amount · S / C_eff)`;
+ * a mint above u64::MAX → EngineArithmeticOverflow.
+ * @param a  amount, totalShares (S), seniorClaim (C), harvestable (H), seniorFeeShareBps, nav (floored), lpValue,
+ *           seniorDrawOutstandingAtoms, lpEquityBetter, lpEquityWorse ({@link vaultLpEquityLagBoundsP3}),
+ *           backstopOutstandingAtoms ({@link VaultLpStateP3}).
  * @returns `{ ok: true, shares, minted, cEff }` or `{ ok: false, error }`.
+ * @throws If `lpEquityWorse` / `backstopOutstandingAtoms` is not a bigint, or `seniorFeeShareBps` is not a non-negative integer.
  * @example
  * ```ts
- * const q = boundVaultDepositQuoteP3({ amount, totalShares, seniorClaim, harvestable, seniorFeeShareBps: 10_000, nav, lpValue });
+ * const { worse, better } = vaultLpEquityLagBoundsP3(lag);
+ * const q = boundVaultDepositQuoteP3({ amount, totalShares, seniorClaim: st.seniorClaimAtoms, harvestable, seniorFeeShareBps: st.seniorFeeShareBps, nav, lpValue,
+ *   seniorDrawOutstandingAtoms: st.seniorDrawOutstandingAtoms, lpEquityBetter: better, lpEquityWorse: worse, backstopOutstandingAtoms: st.backstopOutstandingAtoms });
  * ```
  */
 export declare function boundVaultDepositQuoteP3(a: {
@@ -810,6 +833,10 @@ export declare function boundVaultDepositQuoteP3(a: {
     seniorDrawOutstandingAtoms: bigint;
     /** {@link vaultLpEquityLagBoundsP3}`.better` (used only while a draw is outstanding). */
     lpEquityBetter: bigint;
+    /** {@link vaultLpEquityLagBoundsP3}`.worse`: the entry is refused if the senior is impaired at this price (#570). */
+    lpEquityWorse: bigint;
+    /** {@link VaultLpStateP3}`.backstopOutstandingAtoms`: netted off the vault value before seniors (G9). */
+    backstopOutstandingAtoms: bigint;
 }): {
     ok: true;
     shares: bigint;
@@ -817,7 +844,7 @@ export declare function boundVaultDepositQuoteP3(a: {
     cEff: bigint;
 } | {
     ok: false;
-    error: "VaultLpHarvestPending" | "VaultLpSeniorImpaired" | "LpVaultDepositBelowMinimumLiquidity" | "LpVaultZeroSharesMinted" | "EngineInvalidConfig";
+    error: "VaultLpHarvestPending" | "VaultLpSeniorImpaired" | "LpVaultDepositBelowMinimumLiquidity" | "LpVaultZeroSharesMinted" | "EngineInvalidConfig" | "EngineArithmeticOverflow";
 };
 /** Inputs for {@link planResolvedVaultLpExitP3}. */
 export interface ResolvedVaultLpExitArgsP3 {

@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import type { PublicKey } from "@solana/web3.js";
 /**
  * Instruction tags — exact match to Rust ix::Instruction::decode arm in the
  * v2.2 wrapper (percolator-prog @feat/v22-rc23-2026-10-22, source

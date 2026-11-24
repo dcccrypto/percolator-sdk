@@ -312,17 +312,7 @@ export declare function decodeStakePoolV5(data: Uint8Array): StakePoolV5;
  * ```
  */
 export declare function commitSlotForPendingTargetV5(pool: Pick<StakePoolV5, "pendingTargetSlot" | "cooldownSlots">): bigint | null;
-/**
- * StakeError codes 33 to 48 (v5), with the stable Rust variant name and a calm one-line user message.
- * Codes 0 to 32 are the v2.1 table (`STAKE_ERRORS`); {@link decodeStakeErrorV5} covers all of them. Note
- * `STAKE_ERRORS[32]` still says "VERSION 18": on a v2.2 stake it pins VERSION 19 (see the PR notes).
- */
-export declare const STAKE_ERRORS_V5: Readonly<Record<number, ErrorInfo>>;
-/**
- * Stable Rust variant names of StakeError 0..32 (percolator-stake `src/error.rs` @ aebbff6), for
- * attributing a stake failure by name. The user-facing text for these codes is `STAKE_ERRORS`.
- */
-export declare const STAKE_ERROR_NAMES: Readonly<Record<number, string>>;
+export { STAKE_ERRORS_V5, STAKE_ERROR_NAMES } from "./v22-stake-errors.js";
 /**
  * Decode a stake error code (0..48) for a v5 program. Codes 33..48 come from {@link STAKE_ERRORS_V5}; the
  * rest are looked up by the caller in `STAKE_ERRORS` (returned as `undefined` here).

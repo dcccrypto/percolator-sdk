@@ -96,11 +96,21 @@ export interface AdlRankingResult {
      * percolator-prog@19d5d932 emits no target_side log and exposes no tie rule.
      */
     dominantSide: AdlSide | null;
+    /**
+     * Set when the slab is not a layout this ranking understands (for example a
+     * v2.2 / VERSION 19 market), in which case `ranked`, `longs` and `shorts` are
+     * empty. Absent for recognised layouts.
+     */
+    unsupportedReason?: string;
 }
 /**
  * Check whether ADL is currently triggered on a slab.
  *
  * ADL triggers when pnl_pos_tot > max_pnl_cap (max_pnl_cap must be > 0).
+ * On a v2.2 (VERSION 19) market, which has no legacy slab layout, it is true
+ * when any asset's `a_long` or `a_short` differs from `ADL_ONE`. There it means
+ * "a side has been deleveraged and not yet reset", not "pnl_pos_tot is over
+ * the cap now"; `pnlPosTot`/`maxPnlCap` are not read for v2.2.
  *
  * @param slabData - Raw slab account bytes.
  * @returns true if ADL is triggered.
@@ -121,8 +131,10 @@ export declare function isAdlTriggered(slabData: Uint8Array): boolean;
  * - Longs: rank 0 = highest positive PnL% (most profitable long)
  * - Shorts: rank 0 = highest negative PnL% by abs value (most profitable short)
  *
- * Rank ordering matches the on-chain ADL engine in percolator-prog (PERC-8273):
- * the position at rank 0 of the dominant side is deleveraged first.
+ * This ordering is an SDK heuristic, not the on-chain rule. The v2.2 (rc23)
+ * engine picks no target: it spreads ADL pro rata across a side by shrinking
+ * that side's `A`. On a v2.2 slab (or any unknown layout) the result has empty
+ * lists and `unsupportedReason` set; `isTriggered` comes from `A != ADL_ONE`.
  *
  * @param connection - Solana connection.
  * @param slab       - Slab (market) public key.
