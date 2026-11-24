@@ -14,6 +14,9 @@
  * Token-2022 extension bytes are hand-built with spl-token's own layout encoders (AccountLayout,
  * TransferFeeAmountLayout, ...) and sized with spl.getAccountLen, so no network is needed.
  */
+import { Worker } from "node:worker_threads";
+import Module, { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { describe, it, expect } from "vitest";
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import type { AccountInfo, Connection } from "@solana/web3.js";
@@ -200,41 +203,79 @@ describe("ata.ts vs spl-token: ATA derivation on 1,000 seeded (owner, mint) pair
   const N = 1000;
   const pairs = Array.from({ length: N }, () => [walletKey(), randKey()] as const);
 
-  // spl's reference address per (program, pair); computed once and reused (derivation is the cost here).
-  const refCache = new Map<string, string[]>();
-  const ref = (label: string, program: PublicKey) => {
-    let r = refCache.get(label);
-    if (!r) {
-      r = pairs.map(([owner, mint]) => hex(spl.getAssociatedTokenAddressSync(mint, owner, false, program))!);
-      refCache.set(label, r);
-    }
-    return r;
-  };
+  // The 3 x 1,000 derivations per program (spl reference, our getAtaSync, our async getAta) are
+  // ~190 us each of pure CPU (owner curve check + PDA bump search), ~1.1 s on one thread. They run
+  // in SHARDS worker_threads instead (test/helpers/ata-derive-worker.ts, same calls, same args,
+  // seeded pairs sent as bytes), started here at collection time; every comparison below is still
+  // an expect() per pair on the main thread.
+  type Derived = { theirs: string[]; sync: string[]; async: string[] };
+  const SHARDS = 2; // per program, so 4 threads in total
+  // How the worker loads TypeScript. Node >= 22.18 / 23.6 strips types natively; then the only gap is
+  // src's `./x.js` specifiers for `./x.ts` files, which a tiny in-thread resolve hook maps (~160 ms
+  // boot for 4 workers). Older Node (CI pins 20) registers tsx's ESM loader instead (~400 ms boot).
+  // (`--import tsx` in execArgv does not reach the worker's module resolution, so it is done here.)
+  const workerFile = JSON.stringify(new URL("./helpers/ata-derive-worker.ts", import.meta.url).href);
+  const nativeTs =
+    !!(process.features as { typescript?: unknown }).typescript && typeof (Module as { registerHooks?: unknown }).registerHooks === "function";
+  const WORKER_BOOT = nativeTs
+    ? `require("node:module").registerHooks({ resolve(s, c, next) {
+         try { return next(s, c); } catch (e) {
+           if (s.startsWith(".") && s.endsWith(".js") && c.parentURL && c.parentURL.endsWith(".ts")) return next(s.slice(0, -3) + ".ts", c);
+           throw e;
+         }
+       } });
+       import(${workerFile});`
+    : `import(${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve("tsx/esm/api")).href)})
+         .then((m) => { (m.register ?? m.default.register)(); return import(${workerFile}); });`;
+  const derive = (program: PublicKey, from: number, to: number) =>
+    new Promise<Derived>((resolve, reject) => {
+      const w = new Worker(WORKER_BOOT, {
+        eval: true,
+        workerData: { program: program.toBytes(), pairs: pairs.slice(from, to).map(([o, m]) => [o.toBytes(), m.toBytes()]) },
+      });
+      w.once("message", resolve);
+      w.once("error", reject);
+      w.once("exit", (code) => reject(new Error(`ata-derive-worker exited with code ${code} before posting results`)));
+    });
+  const derived = new Map<string, Promise<Derived>>();
+  for (const [label, program] of PROGRAMS) {
+    const step = Math.ceil(N / SHARDS);
+    const shards = Array.from({ length: SHARDS }, (_, s) => derive(program, s * step, Math.min(N, (s + 1) * step)));
+    const all = Promise.all(shards).then((parts) => ({
+      theirs: parts.flatMap((p) => p.theirs),
+      sync: parts.flatMap((p) => p.sync),
+      async: parts.flatMap((p) => p.async),
+    }));
+    all.catch(() => {}); // a worker failure surfaces in the tests that await it, not as an unhandled rejection
+    derived.set(label, all);
+  }
+  /** spl's reference address per pair for this program (hex), as computed in the workers. */
+  const ref = async (label: string) => (await derived.get(label)!).theirs;
 
   for (const [label, program] of PROGRAMS) {
-    it(`${label}: getAtaSync(owner, mint) == spl.getAssociatedTokenAddressSync(mint, owner) for ${N} pairs`, () => {
-      const theirs = ref(label, program);
+    it(`${label}: getAtaSync(owner, mint) == spl.getAssociatedTokenAddressSync(mint, owner) for ${N} pairs`, async () => {
+      const { theirs, sync } = await derived.get(label)!;
       expect(theirs).toHaveLength(N);
-      for (let i = 0; i < N; i++) {
-        const [owner, mint] = pairs[i];
-        expect(hex(getAtaSync(owner, mint, false, program))).toBe(theirs[i]);
-      }
+      expect(sync).toHaveLength(N);
+      for (let i = 0; i < N; i++) expect(sync[i]).toBe(theirs[i]);
+      // And the main-thread (vitest-transformed) getAtaSync agrees on a spot check.
+      const [o, m] = pairs[N - 1];
+      expect(hex(getAtaSync(o, m, false, program))).toBe(theirs[N - 1]);
     });
 
     it(`${label}: async getAta == spl for the same ${N} pairs`, async () => {
-      const theirs = ref(label, program);
-      for (let i = 0; i < N; i++) {
-        const [owner, mint] = pairs[i];
-        expect(hex(await getAta(owner, mint, false, program))).toBe(theirs[i]);
-      }
+      const { theirs, async: ours } = await derived.get(label)!;
+      expect(ours).toHaveLength(N);
+      for (let i = 0; i < N; i++) expect(ours[i]).toBe(theirs[i]);
       // spl's async form agrees with its sync form (spot check; spl vs spl).
       const [o, m] = pairs[0];
       expect(hex(await spl.getAssociatedTokenAddress(m, o, false, program))).toBe(theirs[0]);
+      expect(hex(await getAta(o, m, false, program))).toBe(theirs[0]);
     });
   }
 
-  it("default program is TOKEN on both sides (getAtaSync(owner, mint) with no program)", () => {
-    const theirs = ref("TOKEN", TOKEN);
+  it("default program is TOKEN on both sides (getAtaSync(owner, mint) with no program)", async () => {
+    const theirs = await ref("TOKEN");
     for (let i = 0; i < 100; i++) {
       const [owner, mint] = pairs[i];
       expect(hex(getAtaSync(owner, mint))).toBe(theirs[i]);
@@ -242,9 +283,10 @@ describe("ata.ts vs spl-token: ATA derivation on 1,000 seeded (owner, mint) pair
     }
   });
 
-  it("TOKEN and TOKEN_2022 ATAs differ for every pair (program id is in the seeds)", () => {
-    const a = ref("TOKEN", TOKEN);
-    const b = ref("TOKEN_2022", T22);
+  it("TOKEN and TOKEN_2022 ATAs differ for every pair (program id is in the seeds)", async () => {
+    const a = await ref("TOKEN");
+    const b = await ref("TOKEN_2022");
+    expect([a.length, b.length]).toEqual([N, N]);
     for (let i = 0; i < N; i++) expect(a[i]).not.toBe(b[i]);
   });
 });
