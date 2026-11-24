@@ -13,7 +13,7 @@
  *     v12.x encoders on 36/56/101 would be misread, not rejected. The tag-7 pin is SDK-only.
  *   - stake tags, Deposit/Withdraw v5 lists and the "stake_pool" seed: percolator-stake
  *     release/v22-stake @ 49e27e7, src/instruction.rs (`unpack`, account docs 106..172) and
- *     src/cpi.rs (`[b"stake_pool", slab, bump]`). Rust documents account 0 as `[signer]`;
+ *     src/state.rs (`find_program_address(&[b"stake_pool", slab], ..)`). Rust documents account 0 as `[signer]`;
  *     the SDK marks it writable as well (it pays for the deposit PDA; QA 2026-10-15).
  *   - NFT tags and Mint/Burn/EmergencyBurn flags: percolator-nft main @ ba73df7,
  *     src/instruction.rs (TAG_* consts, account docs 17..113).
@@ -57,13 +57,13 @@ import { parseEngineLight } from "../src/solana/discovery.js";
 describe("killers: instructions", () => {
   // I04-I08: every other removed wrapper encoder must throw and name its dead tag.
   it.each([
-    ["UnresolveMarket", () => encodeUnresolveMarket({ confirmation: "1" }), 36],
-    ["SetRiskThreshold", () => encodeSetRiskThreshold({ newThreshold: "1" }), 11],
-    ["UpdateConfig", () => encodeUpdateConfig({} as never), 14],
+    ["UnresolveMarket", 36, () => encodeUnresolveMarket({ confirmation: "1" })],
+    ["SetRiskThreshold", 11, () => encodeSetRiskThreshold({ newThreshold: "1" })],
+    ["UpdateConfig", 14, () => encodeUpdateConfig({} as never)],
     // tag 56 is TopUpInsuranceDomain in v2.2: serializing it is misread, not rejected
-    ["PauseMarket", () => encodePauseMarket(), 56],
-    ["ExecuteAdl", () => encodeExecuteAdl({ targetIdx: 0 } as never), 101],
-  ])("%s throws instead of serializing tag %#", (_n, fn, tag) => {
+    ["PauseMarket", 56, () => encodePauseMarket()],
+    ["ExecuteAdl", 101, () => encodeExecuteAdl({ targetIdx: 0 } as never)],
+  ] as const)("%s throws instead of serializing tag %i", (_n, tag, fn) => {
     expect(fn).toThrow(new RegExp(`\\(tag ${tag}\\)`));
   });
 
@@ -74,8 +74,8 @@ describe("killers: instructions", () => {
     expect(() => encodeTradeCpiV2({ lpIdx: 1, userIdx: 2, size: "3", bump: 4 })).toThrow(/\(tag 105\)/);
   });
 
-  // I12-I15: retained core tags not pinned in drift-check.
-  it("retained core tags 7/8/9/13", () => {
+  // I12-I15: core tags 8/9/13 (Rust decode arms) + the removed LiquidateAtOracle still numbered 7 (SDK-only).
+  it("core tags 8/9/13 and removed tag 7 keep their numbers", () => {
     expect(IX_TAG.LiquidateAtOracle).toBe(7);
     expect(IX_TAG.ClosePortfolio).toBe(8);
     expect(IX_TAG.CloseAccount).toBe(8);
