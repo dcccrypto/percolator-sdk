@@ -14,7 +14,7 @@
  *     STAKE_DEPLOYED for the cross-program suites).
  *
  * Result: every value is inside every rc23 bound. The bounds did not change since bc657392 /
- * 0e19e36; only line numbers moved (prog +13..+68 lines, stake state.rs +1).
+ * 0e19e36; only line numbers moved (prog handlers +13..+68 lines, constants unmoved; stake state.rs +1).
  *
  * Scope: the table has exactly four fields per class (staleWindowSlots, stakeCooldownSlots,
  * stakePoolMode, earnRedemptionCooldownSlots) plus the major-mint list. It holds NO leverage,
@@ -67,6 +67,7 @@ const RUST = {
  * Tag 38 ConfigurePermissionlessResolve (decoded at prog src/v16_program.rs:10471,
  * `handle_configure_permissionless_resolve` :29302): :29315-29316
  * `stale_slots < MIN || stale_slots > MAX` -> InvalidInstruction. Inclusive range.
+ * (:29317-29318 also bound `force_close_delay_slots`; that value is not in the table.)
  */
 const tag38AcceptsStale = (s: number) => s >= RUST.MIN_STALE && s <= RUST.MAX_STALE;
 
@@ -79,6 +80,8 @@ const stakeAcceptsCooldown = (c: number) => c !== 0 && c <= RUST.STAKE_MAX_COOLD
 /**
  * stake src/processor.rs:548-555 `V5Init::validate` (called first in `process_init_pool`):
  * FIRST_LOSS (:550) and FEE_ONLY (:554) are creatable, anything else hits `_ => false` (:555).
+ * (FEE_ONLY also needs deploy_target_bps == 0 and the hysteresis / buffer caps at :554-557; those
+ * are InitPoolV5 builder inputs, not table fields.)
  */
 const stakeAcceptsMode = (m: number) => m === RUST.RISK_MODE_FIRST_LOSS || m === RUST.RISK_MODE_FEE_ONLY;
 
@@ -217,8 +220,9 @@ function grepSrc(dir: string, sha: string, needle: string): string[] {
     })
       .split("\n")
       .filter(Boolean);
-  } catch {
-    return []; // git grep exits 1 on no match
+  } catch (e) {
+    if ((e as { status?: number }).status === 1) return []; // git grep exits 1 on no match
+    throw e; // any other git error must not pass as "no match"
   }
 }
 
