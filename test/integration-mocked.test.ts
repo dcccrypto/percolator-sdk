@@ -25,6 +25,7 @@ import {
   rankAdlPositions,
   isAdlTriggered,
   parseAdlEvent,
+  selectAdlTarget,
 } from "../src/solana/adl.js";
 import {
   parseErrorFromLogs,
@@ -1097,5 +1098,130 @@ describe("isAdlTriggered + rankAdlPositions — pure path (PERC-8339)", () => {
     expect(event!.targetIdx).toBe(targetIdx);
     expect(event!.price).toBe(price);
     expect(event!.closedAbs).toBe(closedAbs);
+  });
+});
+
+// ============================================================================
+// 7. Mutation killers: wrapper fee offsets, mixed-layout discovery, ADL across sides
+//    (each block pins behaviour the tests above could not see)
+// ============================================================================
+
+describe("v17 wrapper config fee/share fields through discoverMarkets (sentinel bytes)", () => {
+  // The devnet fixture has zeros at most fee offsets, and the existing test compares
+  // parseWrapperConfigV17 against itself, so it can't see a wrong offset. Write a
+  // distinct sentinel at each field AND at its neighbours, then pin literals.
+  const V22_PROGRAM = new PublicKey(V22_DEVNET.program_id);
+  const B = 16; // V17_HEADER_LEN — the wrapper config starts here
+  function sentinelMarket() {
+    const base = fixtureAccount("market");
+    const data = Buffer.from(base.account.data); // copy; the fixture stays untouched
+    const u16 = (o: number, v: number) => data.writeUInt16LE(v, B + o);
+    const u64 = (o: number, v: bigint) => data.writeBigUInt64LE(v, B + o);
+    const u128 = (o: number, v: bigint) => { data.writeBigUInt64LE(v & 0xffff_ffff_ffff_ffffn, B + o); data.writeBigUInt64LE(v >> 64n, B + o + 8); };
+    u128(96, 1_001n);   // maintenanceFeePerSlot
+    u128(112, 2_002n);  // permissionlessMarketInitFee
+    u64(128, 33n);      // tradeFeeBps
+    u64(136, 4_004n);   // permissionlessResolveStaleSlots (neighbour)
+    u16(182, 11);       // backingTradeFeeBpsLong
+    u16(190, 22);       // backingTradeFeeBpsShort
+    u16(428, 44);       // backingTradeFeeInsuranceShareBpsShort (neighbour)
+    u16(430, 55);       // feeRedirectToMarket0Bps
+    u128(464, 6_006n);  // protocolFeeAccruedAtoms
+    u128(480, 7_007n);  // protocolFeeWithdrawnAtoms
+    u128(496, 8_008n);  // lpFeeAccruedAtoms
+    u128(512, 9_009n);  // lpFeeWithdrawnAtoms
+    u16(560, 1_100);    // creatorShareBps
+    u16(562, 2_200);    // lpShareBps
+    u16(564, 3_300);    // insuranceShareBps
+    u64(568, 12_345n);  // creatorFeeClaimableAtoms
+    return { ...base, account: { ...base.account, data } };
+  }
+
+  it("pins every fee/share field to its WrapperConfigV16 offset", async () => {
+    const market = sentinelMarket();
+    const conn = { getProgramAccounts: async (p: PublicKey, c?: unknown) => rpcGetProgramAccounts([market], p, c) } as unknown as Connection;
+    const [m] = await discoverMarkets(conn, V22_PROGRAM);
+    const c = m.configV17!;
+    expect(c.maintenanceFeePerSlot).toBe(1_001n);
+    expect(c.permissionlessMarketInitFee).toBe(2_002n);
+    expect(c.tradeFeeBps).toBe(33n);
+    expect(c.backingTradeFeeBpsLong).toBe(11);
+    expect(c.backingTradeFeeBpsShort).toBe(22);
+    expect(c.feeRedirectToMarket0Bps).toBe(55);
+    expect(c.protocolFeeAccruedAtoms).toBe(6_006n);
+    expect(c.protocolFeeWithdrawnAtoms).toBe(7_007n);
+    expect(c.lpFeeAccruedAtoms).toBe(8_008n);
+    expect(c.lpFeeWithdrawnAtoms).toBe(9_009n);
+    expect(c.creatorShareBps).toBe(1_100);
+    expect(c.lpShareBps).toBe(2_200);
+    expect(c.insuranceShareBps).toBe(3_300);
+    expect(c.creatorFeeClaimableAtoms).toBe(12_345n);
+  });
+});
+
+describe("discovery tier filters on a mixed-layout program", () => {
+  // A program with BOTH a V1M slab and a v17 market: the v17 memcmp is non-empty, so the
+  // TALOCREP fallback never runs. The V1M slab must be found by its own dataSize tier query,
+  // so a wrong/missing tier size can't hide behind the fallback.
+  function mixed() {
+    const v17 = fixtureAccount("market");
+    const v17Here = { ...v17, account: { ...v17.account, owner: PROGRAM_ID } };
+    const v1m = { pubkey: SLAB_KEY, account: { data: Buffer.from(buildV1SmallSlab()), owner: PROGRAM_ID, lamports: 10_000_000, executable: false, rentEpoch: 0 } };
+    return [v1m, v17Here];
+  }
+  const conn = (accts: ReturnType<typeof mixed>) => ({ getProgramAccounts: async (p: PublicKey, c?: unknown) => rpcGetProgramAccounts(accts, p, c) }) as unknown as Connection;
+
+  it("parallel mode finds the V1M slab via its 65_416 tier and the v17 market via memcmp", async () => {
+    const markets = await discoverMarkets(conn(mixed()), PROGRAM_ID);
+    expect(markets.map(m => m.slabAddress.toBase58()).sort()).toEqual([SLAB_KEY.toBase58(), fixtureAccount("market").pubkey.toBase58()].sort());
+  });
+
+  it("sequential mode finds the same two markets", async () => {
+    const markets = await discoverMarkets(conn(mixed()), PROGRAM_ID, { sequential: true, interTierDelayMs: 0, rateLimitBackoffMs: [0, 0] });
+    expect(markets.map(m => m.slabAddress.toBase58()).sort()).toEqual([SLAB_KEY.toBase58(), fixtureAccount("market").pubkey.toBase58()].sort());
+  });
+
+  it("empty tier results fall back to the TALOCREP memcmp at offset 0 and still find the slab", async () => {
+    const v1m = mixed()[0];
+    const c = {
+      // A node that knows no tier size: every dataSize query is empty, memcmp queries are honoured.
+      getProgramAccounts: async (p: PublicKey, cfg?: unknown) =>
+        (cfg as GpaConfig | undefined)?.filters?.some(f => f.dataSize !== undefined) ? [] : rpcGetProgramAccounts([v1m], p, cfg),
+    } as unknown as Connection;
+    const markets = await discoverMarkets(c, PROGRAM_ID);
+    expect(markets).toHaveLength(1);
+    expect(markets[0].slabAddress.equals(SLAB_KEY)).toBe(true);
+  });
+});
+
+describe("ADL ranking across sides, LPs and zero capital", () => {
+  function withLp(slab: Uint8Array, idx: number): Uint8Array {
+    const b = Buffer.from(slab);
+    b[1928 + idx * 248 + 24] = 1; // AccountKind.LP at ACCT_KIND_OFF (V1M small)
+    return new Uint8Array(b);
+  }
+  const slab = withLp(buildV1SmallSlab({
+    accounts: [
+      { idx: 0, positionSize:  1_000_000n, pnl: 100_000n, capital: 1_000_000n }, // long 10%
+      { idx: 1, positionSize: -1_000_000n, pnl: 400_000n, capital: 1_000_000n }, // short 40%
+      { idx: 2, positionSize: -1_000_000n, pnl: 200_000n, capital: 1_000_000n }, // short 20%
+      { idx: 3, positionSize:  1_000_000n, pnl: 900_000n, capital: 1_000_000n }, // LP — never ranked
+      { idx: 4, positionSize:  1_000_000n, pnl: 500_000n, capital: 0n },         // long, capital 0 → 0 bps
+    ],
+  }), 3);
+
+  it("ranks shorts descending, merges sides by pnlPct, skips LPs, treats capital=0 as 0 bps", () => {
+    const r = rankAdlPositions(slab);
+    expect(r.longs.map(p => [p.idx, p.adlRank])).toEqual([[0, 0], [4, 1]]);
+    expect(r.shorts.map(p => [p.idx, p.adlRank])).toEqual([[1, 0], [2, 1]]);
+    expect(r.ranked.map(p => p.idx)).toEqual([1, 2, 0, 4]);
+    expect(r.ranked.find(p => p.idx === 4)!.pnlPct).toBe(0n);
+    expect(r.ranked.some(p => p.idx === 3)).toBe(false);
+  });
+
+  it("selectAdlTarget honours preferSide", () => {
+    const r = rankAdlPositions(slab);
+    expect(selectAdlTarget(r, "long")!.idx).toBe(0);
+    expect(selectAdlTarget(r, "short")!.idx).toBe(1);
   });
 });
