@@ -27,6 +27,7 @@ import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import type { AccountMeta } from "@solana/web3.js";
 import { concatBytes, encPubkey, encU8, encU16, encU32, encU64, encU128 } from "./encode.js";
 import { MATCHER_RETURN_KNOWN_FLAGS } from "./instructions.js";
+import { MATCHER_V2_ERRORS } from "./matcher-v2-errors.js";
 
 // ============================================================================
 // Constants
@@ -95,14 +96,7 @@ export const MATCHER_V2_BLOCK_VERSION = 1;
 /** v2 config flag bit0 `STALE_ALLOW_REDUCING` (`V2_FLAG_STALE_ALLOW_REDUCING`). */
 export const MATCHER_V2_FLAG_STALE_ALLOW_REDUCING = 1;
 
-/** Matcher v2 custom error codes (`src/v2.rs`), attributed to the MATCHER program id. */
-export const MATCHER_V2_ERRORS: Readonly<Record<number, { name: string; hint: string }>> = Object.freeze({
-  8002: { name: "ERR_STALE_MARK", hint: "Matcher refused: the mark behind oracle_price_e6 is older than the ctx's max_mark_age_slots (call-extension mark_slot), or the observed-unchanged-price fallback tripped. Push a fresh mark, then retry. With STALE_ALLOW_REDUCING, reducing fills still pass." },
-  8003: { name: "ERR_MARK_SLOT_IN_FUTURE", hint: "Matcher refused: call-extension mark_slot is greater than Clock.slot. The caller built a bad extension." },
-  8004: { name: "ERR_ASSET_MISMATCH", hint: "Matcher refused: this kind-2 / observed-staleness context is bound to a different asset. One such context per asset." },
-  8005: { name: "ERR_OWNER_PROOF_MISMATCH", hint: "Matcher tag 5 owner proof failed: create_program_address(['matcher', market, lp_portfolio, lp_owner, matcher_program, matcher_ctx, [bump]], wrapper) does not equal ctx.lp_pda. Check wrapper id, market, LP portfolio, signer = LP owner, and bump (deriveMatcherDelegate)." },
-  8001: { name: "ERR_INCONSISTENT_LEG_ORACLE_PRICE", hint: "Matcher batch call: legs for the same asset carried different oracle prices." },
-});
+export { MATCHER_V2_ERRORS } from "./matcher-v2-errors.js";
 
 /**
  * Look up a matcher v2 custom error.
