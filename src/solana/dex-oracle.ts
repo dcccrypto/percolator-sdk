@@ -590,7 +590,7 @@ const POW10: bigint[] = Array.from({ length: 49 }, (_, k) => 10n ** BigInt(k));
  *   up front, because at large binSteps the top squares are huge: at binStep 10_000,
  *   sq[18] = 2^262144 * 1e18 (~32 KB).
  * - At most DLMM_SQ_MAX binSteps are kept, and their squares add up to at most
- *   DLMM_SQ_MAX_BITS (estimated, see dlmmSqBits). Going over either evicts the
+ *   DLMM_SQ_MAX_BITS (estimated, see dlmmTableBits). Going over either evicts the
  *   oldest tables first (Map keeps insertion order), never the one in use. One
  *   table is at most ~64 KB (binStep 10_000 up to sq[18]), so the byte cap holds
  *   ~64 worst-case tables. Real pools use a handful of binSteps with small tables.
@@ -598,37 +598,35 @@ const POW10: bigint[] = Array.from({ length: 49 }, (_, k) => 10n ** BigInt(k));
 const DLMM_SQ_MAX = 512;
 const DLMM_SQ_MAX_BITS = 32 * 1024 * 1024; // ~4 MB of bigint magnitude
 const DLMM_SQ = new Map<number, bigint[]>();
-/** Estimated bits held per cached table, and their total. Touched only on a miss or growth. */
-const DLMM_SQ_BITS = new Map<number, number>();
+/** Estimated bits held by all cached tables. Updated only on a miss or growth. */
 let dlmmSqTotalBits = 0;
-/** Bit length of sq[k] for this binStep, estimated: log2(1e18) + 2^k * log2(1 + binStep/1e4). */
-function dlmmSqBits(binStep: number, k: number): number {
-  return 60 + 2 ** k * Math.log2(1 + binStep / 10_000);
+/**
+ * Estimated bits in a table of `len` squares. sq[k] has about
+ * log2(1e18) + 2^k * log2(1 + binStep/1e4) bits; summed over k < len that is the closed form below.
+ */
+function dlmmTableBits(binStep: number, len: number): number {
+  return 60 * len + (2 ** len - 1) * Math.log2(1 + binStep / 10_000);
 }
 function dlmmSquares(binStep: number, topBit: number): bigint[] {
   let t = DLMM_SQ.get(binStep);
   if (t !== undefined && t.length > topBit) return t;
-  let added = 0;
   if (t === undefined) {
     t = [1_000_000_000_000_000_000n + (BigInt(binStep) * 1_000_000_000_000_000_000n) / 10_000n];
     DLMM_SQ.set(binStep, t);
-    DLMM_SQ_BITS.set(binStep, 0);
-    added = dlmmSqBits(binStep, 0);
+  } else {
+    dlmmSqTotalBits -= dlmmTableBits(binStep, t.length);
   }
   while (t.length <= topBit) {
     const last = t[t.length - 1];
     t.push((last * last) / 1_000_000_000_000_000_000n);
-    added += dlmmSqBits(binStep, t.length - 1);
   }
-  DLMM_SQ_BITS.set(binStep, (DLMM_SQ_BITS.get(binStep) as number) + added);
-  dlmmSqTotalBits += added;
+  dlmmSqTotalBits += dlmmTableBits(binStep, t.length);
   // Evict oldest first, skipping the table being returned.
-  for (const k of DLMM_SQ.keys()) {
+  for (const [k, kt] of DLMM_SQ) {
     if (DLMM_SQ.size <= DLMM_SQ_MAX && dlmmSqTotalBits <= DLMM_SQ_MAX_BITS) break;
     if (k === binStep) continue;
-    dlmmSqTotalBits -= DLMM_SQ_BITS.get(k) as number;
+    dlmmSqTotalBits -= dlmmTableBits(k, kt.length);
     DLMM_SQ.delete(k);
-    DLMM_SQ_BITS.delete(k);
   }
   return t;
 }
