@@ -28,6 +28,8 @@ import * as lite from "../src/solana/spl-token-lite.js";
 const SEED = 0xf022_2611;
 const N_UNPACK = 5_000;
 const N_ATA = 2_000;
+/** Seeded wallet / PDA owner pool size for the ATA fuzz (see the comment in that test). */
+const N_ATA_POOL = 256;
 
 /** mulberry32: deterministic so a failure reproduces. */
 function rng(seed: number) {
@@ -253,7 +255,9 @@ function outcome(f: () => spl.Account | lite.Account): unknown {
   }
 }
 
-describe("spl-token-lite fuzz-diff: unpackAccount vs @solana/spl-token", { timeout: 30_000 }, () => {
+// No per-describe timeout pin: it overrode the runner's --testTimeout (the merge gate passes 60s)
+// and the ATA case hit the 30s pin under full-suite coverage load (#698, #712).
+describe("spl-token-lite fuzz-diff: unpackAccount vs @solana/spl-token", () => {
   it(`${N_UNPACK} seeded token-account inputs decode identically (fields and throw/no-throw)`, () => {
     const counts = new Map<string, number>();
     const mismatches: string[] = [];
@@ -336,7 +340,7 @@ function big(_k: string, v: unknown) {
   return typeof v === "bigint" ? `${v}n` : v;
 }
 
-describe("spl-token-lite fuzz-diff: ATA derivation and create-idempotent ix vs @solana/spl-token", { timeout: 30_000 }, () => {
+describe("spl-token-lite fuzz-diff: ATA derivation and create-idempotent ix vs @solana/spl-token", () => {
   it(`${N_ATA} seeded (owner, mint, programId, allowOwnerOffCurve) derivations and instructions match`, () => {
     const counts = new Map<string, number>();
     const bump = (k: string) => counts.set(k, (counts.get(k) ?? 0) + 1);
@@ -355,16 +359,37 @@ describe("spl-token-lite fuzz-diff: ATA derivation and create-idempotent ix vs @
       keys: ix.keys.map((k) => `${k.pubkey.toBase58()}:${k.isSigner ? "s" : "-"}${k.isWritable ? "w" : "-"}`),
     });
 
+    // Wallet and PDA owners come from seeded pools built once: Keypair.fromSeed, the owner PDA
+    // search and isOnCurve on those were about half the case time, and neither side's ATA code
+    // depends on how the owner was made. Every case still gets a fresh random mint (and random
+    // owners stay fresh), so all N_ATA derivations differ. The pool's curve flags are measured,
+    // not assumed, and fed into the curve:on/off counts.
+    const pool = (n: number, make: () => PublicKey) =>
+      Array.from({ length: n }, () => {
+        const key = make();
+        return { key, onCurve: PublicKey.isOnCurve(key.toBuffer()) };
+      });
+    const wallets = pool(N_ATA_POOL, walletKey);
+    const pdas = pool(N_ATA_POOL, () => PublicKey.findProgramAddressSync([bytes(8)], pick(PROGRAMS))[0]);
+    expect(wallets.every((w) => w.onCurve)).toBe(true);
+    expect(pdas.some((p) => p.onCurve)).toBe(false);
+    const usedWallets = new Set<number>();
+    const usedPdas = new Set<number>();
+
     for (let i = 0; i < N_ATA; i++) {
       const ownerKind = pick(["wallet", "random", "pda"] as const);
-      const owner =
-        ownerKind === "wallet"
-          ? walletKey()
-          : ownerKind === "random"
-            ? randKey()
-            : PublicKey.findProgramAddressSync([bytes(8)], pick(PROGRAMS))[0];
+      let owner: PublicKey;
+      let onCurve: boolean;
+      if (ownerKind === "random") {
+        owner = randKey();
+        onCurve = PublicKey.isOnCurve(owner.toBuffer());
+      } else {
+        const j = int(N_ATA_POOL);
+        (ownerKind === "wallet" ? usedWallets : usedPdas).add(j);
+        ({ key: owner, onCurve } = (ownerKind === "wallet" ? wallets : pdas)[j]);
+      }
       bump(`owner:${ownerKind}`);
-      bump(`curve:${PublicKey.isOnCurve(owner.toBuffer()) ? "on" : "off"}`);
+      bump(`curve:${onCurve ? "on" : "off"}`);
       const mint = chance(0.1) ? spl.NATIVE_MINT : randKey();
       const progKind = pick(["default", "token", "token2022", "token2022", "random"] as const);
       const programId =
@@ -381,7 +406,7 @@ describe("spl-token-lite fuzz-diff: ATA derivation and create-idempotent ix vs @
       if (got !== want) mismatches.push(`ata #${i} owner=${owner.toBase58()} kind=${ownerKind} prog=${progKind} allow=${allowArg}: spl=${want} lite=${got}`);
 
       // Instruction: use the derived address when there is one, else a random one.
-      const payer = walletKey();
+      const payer = wallets[int(N_ATA_POOL)].key;
       const ata = want.startsWith("throw:") ? randKey() : new PublicKey(want);
       const wantIx = ixView(spl.createAssociatedTokenAccountIdempotentInstruction(payer, ata, owner, mint, programId, ataProg));
       const gotIx = ixView(lite.createAssociatedTokenAccountIdempotentInstruction(payer, ata, owner, mint, programId, ataProg));
@@ -392,6 +417,9 @@ describe("spl-token-lite fuzz-diff: ATA derivation and create-idempotent ix vs @
       }
     }
     expect(mismatches, mismatches.slice(0, 10).join("\n")).toEqual([]);
+    // The pools are actually spread over, not one or two keys reused.
+    expect(usedWallets.size).toBeGreaterThan(N_ATA_POOL * 0.9);
+    expect(usedPdas.size).toBeGreaterThan(N_ATA_POOL * 0.9);
 
     for (const k of [
       "owner:wallet",
