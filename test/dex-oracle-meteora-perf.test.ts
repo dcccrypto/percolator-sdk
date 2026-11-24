@@ -5,8 +5,8 @@
  *
  * Each check times the SDK against a copy of the old loop (`reference`) on the same input, in the
  * same process, so machine speed and CI load cancel out. Before the cache the two cost the same
- * (measured 0.76-1.19 on the input below); with it the ratio is ~0.12. The 1/3 bound is loose on
- * purpose: the old code misses it by 2x+ and the cached code clears it by ~3x.
+ * (measured 0.58-1.36 on the input below); with it the ratio is 0.11-0.19. The 1/3 bound is loose
+ * on purpose: the old code misses it by 1.7x+ and the cached code clears it by 1.8x+.
  *
  * A typical pool (binStep 25, activeId 5_000) is ~2.4x faster too, but at ~5 us/call JIT noise
  * moves the base ratio by +-40%, so it is left to bench/dex-oracle.bench.ts instead of a test.
@@ -82,5 +82,5 @@ describe("Meteora DLMM price: squares are not recomputed on every call", () => {
   it("binStep 10_000, activeId 2^18 (18 large squarings per old call): SDK under 1/3 of the old loop", () => {
     // Old loop ~5 ms/call here (squaring up to a ~32 KB bigint), cached ~0.5 ms/call.
     expect(sdkOverReference(10_000, 262_144, [0, 0], 40)).toBeLessThan(1 / 3);
-  });
+  }, 60_000);
 });

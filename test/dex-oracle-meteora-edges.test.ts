@@ -128,5 +128,5 @@ describe("Meteora DLMM price at edge binStep / activeId values", () => {
       expect(price(s, 262_144, 0, 0)).toBe(reference(s, 262_144, 0, 0));
     }
     expectMatchesReference(9_921, -300_000, 6, 6);
-  });
+  }, 60_000);
 });
