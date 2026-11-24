@@ -58,11 +58,11 @@ function encU128(val) {
   const max = (1n << 128n) - 1n;
   if (n > max) throw new Error("encU128: value exceeds u128 max");
   const buf = new Uint8Array(16);
-  const view2 = new DataView(buf.buffer);
+  const view3 = new DataView(buf.buffer);
   const lo = n & 0xffffffffffffffffn;
   const hi = n >> 64n;
-  view2.setBigUint64(0, lo, true);
-  view2.setBigUint64(8, hi, true);
+  view3.setBigUint64(0, lo, true);
+  view3.setBigUint64(8, hi, true);
   return buf;
 }
 function encI128(val) {
@@ -75,11 +75,11 @@ function encI128(val) {
     unsigned = (1n << 128n) + n;
   }
   const buf = new Uint8Array(16);
-  const view2 = new DataView(buf.buffer);
+  const view3 = new DataView(buf.buffer);
   const lo = unsigned & 0xffffffffffffffffn;
   const hi = unsigned >> 64n;
-  view2.setBigUint64(0, lo, true);
-  view2.setBigUint64(8, hi, true);
+  view3.setBigUint64(0, lo, true);
+  view3.setBigUint64(8, hi, true);
   return buf;
 }
 var B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -1199,18 +1199,18 @@ function decodeMatcherReturn(data, offset = CTX_RETURN_OFFSET) {
       `decodeMatcherReturn: data too short \u2014 need ${offset + MATCHER_RETURN_LEN} bytes, got ${data.length}`
     );
   }
-  const view2 = new DataView(data.buffer, data.byteOffset + offset, MATCHER_RETURN_LEN);
-  const abiVersion = view2.getUint32(0, true);
-  const flags = view2.getUint32(4, true);
-  const execPriceE6 = view2.getBigUint64(8, true);
-  const execSizeLo = view2.getBigUint64(16, true);
-  const execSizeHi = view2.getBigUint64(24, true);
+  const view3 = new DataView(data.buffer, data.byteOffset + offset, MATCHER_RETURN_LEN);
+  const abiVersion = view3.getUint32(0, true);
+  const flags = view3.getUint32(4, true);
+  const execPriceE6 = view3.getBigUint64(8, true);
+  const execSizeLo = view3.getBigUint64(16, true);
+  const execSizeHi = view3.getBigUint64(24, true);
   let execSize = execSizeHi << 64n | execSizeLo;
   if (execSize >= 1n << 127n) execSize -= 1n << 128n;
-  const reqId = view2.getBigUint64(32, true);
-  const lpAccountId = view2.getBigUint64(40, true);
-  const oraclePriceE6 = view2.getBigUint64(48, true);
-  const assetIndex = view2.getBigUint64(56, true);
+  const reqId = view3.getBigUint64(32, true);
+  const lpAccountId = view3.getBigUint64(40, true);
+  const oraclePriceE6 = view3.getBigUint64(48, true);
+  const assetIndex = view3.getBigUint64(56, true);
   if ((flags & ~MATCHER_RETURN_KNOWN_FLAGS) !== 0) {
     throw new Error(
       `decodeMatcherReturn: unknown flag bits set (flags=0x${flags.toString(16)}, known=0x${MATCHER_RETURN_KNOWN_FLAGS.toString(16)})`
@@ -1744,8 +1744,16 @@ function requirePositiveU64(value, field) {
     throw new Error(`${field} must be > 0`);
   }
 }
+function requireMarkE6(value, field) {
+  requirePositiveU64(value, field);
+  const n = typeof value === "string" ? BigInt(value) : value;
+  if (n > MAX_ORACLE_PRICE_E6) {
+    throw new Error(`${field} must be <= MAX_ORACLE_PRICE (${MAX_ORACLE_PRICE_E6}), got ${n}`);
+  }
+}
+var MAX_ORACLE_PRICE_E6 = 1000000000000n;
 function encodeConfigureEwmaMark(args) {
-  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
+  requireMarkE6(args.initialMarkE6, "initialMarkE6");
   requirePositiveU64(args.markEwmaHalflifeSlots, "markEwmaHalflifeSlots");
   return concatBytes(
     encU8(IX_TAG.ConfigureEwmaMark),
@@ -1759,7 +1767,7 @@ function encodeConfigureEwmaMark(args) {
   );
 }
 function encodePushEwmaMark(args) {
-  requirePositiveU64(args.markE6, "markE6");
+  requireMarkE6(args.markE6, "markE6");
   return concatBytes(
     encU8(IX_TAG.PushEwmaMark),
     encU16(args.assetIndex),
@@ -1770,7 +1778,7 @@ function encodePushEwmaMark(args) {
   );
 }
 function encodeConfigureAuthMark(args) {
-  requirePositiveU64(args.initialMarkE6, "initialMarkE6");
+  requireMarkE6(args.initialMarkE6, "initialMarkE6");
   return concatBytes(
     encU8(IX_TAG.ConfigureAuthMark),
     encU16(args.assetIndex),
@@ -1783,7 +1791,7 @@ function encodeConfigureAuthMark(args) {
 var PUSH_AUTH_MARK_LEN = 35;
 var PUSH_AUTH_MARK_DEPTH_LEN = 44;
 function encodePushAuthMark(args) {
-  requirePositiveU64(args.markE6, "markE6");
+  requireMarkE6(args.markE6, "markE6");
   const head = concatBytes(
     encU8(IX_TAG.PushAuthMark),
     encU16(args.assetIndex),
@@ -4087,9 +4095,9 @@ var POSITION_NFT_LEGACY_V2_LEN = 199;
 var POSITION_NFT_MAGIC = 0x504552434e465400n;
 var POSITION_NFT_VERSION = 3;
 var POSITION_NFT_LEGACY_VERSION = 2;
-function readI128FromView(view2, offset) {
-  const lo = view2.getBigUint64(offset, true);
-  const hi = view2.getBigUint64(offset + 8, true);
+function readI128FromView(view3, offset) {
+  const lo = view3.getBigUint64(offset, true);
+  const hi = view3.getBigUint64(offset + 8, true);
   const unsigned = hi << 64n | lo;
   const SIGN_BIT = 1n << 127n;
   if (unsigned >= SIGN_BIT) {
@@ -4103,8 +4111,8 @@ function parsePositionNftAccount(data) {
       `PositionNft account too small: ${data.length} < ${POSITION_NFT_LEGACY_V2_LEN}`
     );
   }
-  const view2 = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const magic = view2.getBigUint64(0, true);
+  const view3 = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const magic = view3.getBigUint64(0, true);
   if (magic !== POSITION_NFT_MAGIC) {
     throw new Error("PositionNft account has invalid magic");
   }
@@ -4124,18 +4132,18 @@ function parsePositionNftAccount(data) {
     bump: data[9],
     portfolioAccount: new PublicKey5(data.subarray(10, 42)),
     nftMint: new PublicKey5(data.subarray(42, 74)),
-    assetIndex: view2.getUint32(74, true),
+    assetIndex: view3.getUint32(74, true),
     sideAtMint: data[78],
-    basisPosQAtMint: readI128FromView(view2, 79),
-    fSnapAtMint: readI128FromView(view2, 95),
-    marketIdAtMint: view2.getBigUint64(111, true),
-    epochSnapAtMint: view2.getBigUint64(119, true),
+    basisPosQAtMint: readI128FromView(view3, 79),
+    fSnapAtMint: readI128FromView(view3, 95),
+    marketIdAtMint: view3.getBigUint64(111, true),
+    epochSnapAtMint: view3.getBigUint64(119, true),
     positionOwnerAtMint,
     positionOwner: positionOwnerAtMint,
-    mintedAt: view2.getBigInt64(159, true),
+    mintedAt: view3.getBigInt64(159, true),
     lastHolder: new PublicKey5(data.subarray(167, 199)),
     portfolioMarketGroup: isLegacyV2 ? null : new PublicKey5(data.subarray(199, 231)),
-    portfolioIdAtMint: isLegacyV2 ? null : view2.getBigUint64(231, true),
+    portfolioIdAtMint: isLegacyV2 ? null : view3.getBigUint64(231, true),
     isLegacyV2
   };
 }
@@ -6363,23 +6371,23 @@ function quoteMaxLeverage(input, side) {
     return out({ imrBps: e, maxLeverageX100: lev2(e) });
   }
   const cM = conservativeEquity(input.lpCapital, input.lpPnl, input.lpFeeCredits);
-  const view2 = quoteCeilingView(input, g, cM);
-  const lCeil = view2 ? view2.ceilingX100 : Math.min(g.lLaunchX100, g.lTierX100);
+  const view3 = quoteCeilingView(input, g, cM);
+  const lCeil = view3 ? view3.ceilingX100 : Math.min(g.lLaunchX100, g.lTierX100);
   meta = {
     ceilingX100: lCeil,
-    tier: view2?.tier ?? 0,
-    venueTier: view2?.venueTier ?? 0,
-    bookTier: view2?.bookTier ?? 0,
-    capDepthE6: view2?.capDepthE6 ?? null,
-    nextUnlock: view2?.nextUnlock ?? { kind: "none" },
-    nextTierUnlock: view2?.nextTierUnlock ?? { kind: "none" },
-    graduationOn: view2?.graduationOn ?? false,
-    lambdaEffBps: view2 ? view2.lambdaEffBps : g.lambdaBps
+    tier: view3?.tier ?? 0,
+    venueTier: view3?.venueTier ?? 0,
+    bookTier: view3?.bookTier ?? 0,
+    capDepthE6: view3?.capDepthE6 ?? null,
+    nextUnlock: view3?.nextUnlock ?? { kind: "none" },
+    nextTierUnlock: view3?.nextTierUnlock ?? { kind: "none" },
+    graduationOn: view3?.graduationOn ?? false,
+    lambdaEffBps: view3 ? view3.lambdaEffBps : g.lambdaBps
   };
   const base = ceilingImrBps(e, lCeil);
   if (base === null) return closed("invalid-config");
   if (!input.assetBound) return closed("not-bound", { headroomQ: 0n });
-  const nCap = quoteNCapQ(input, g, cM, view2);
+  const nCap = quoteNCapQ(input, g, cM, view3);
   const usersOi = usersSideOiQ(side === "long" ? input.oiEffLongQ : input.oiEffShortQ, lp, side === "long");
   const util = nCap === null ? null : utilizationBps(usersOi, nCap);
   const info = { nCapQ: nCap, utilizationBps: util };
@@ -6398,8 +6406,8 @@ function quoteCeilingView(input, g, cM) {
   const stress = stressLevel(v.drawOutstanding === true, realAdl(v.modeLong ?? 0, v.modeShort ?? 0), input.bankruptcyHlockActive);
   return growthCeilingView(g, v.bandBps, v.nowSlot, cM, stress, v.vol ? { engineImrBps: input.engineImrBps, liquidationFeeBps: v.vol.liquidationFeeBps, bandMaxEpochSlots: v.vol.bandMaxEpochSlots } : void 0, { rc23Caps: v.rc23Caps !== false });
 }
-function quoteNCapQ(input, g, cM, view2) {
-  return view2 ? nCapG8Q({ clamp: view2.clampEnforced, cM, lambdaBps: g.lambdaBps, tier: view2.tier, capDepth: view2.capDepthE6, priceE6: input.priceE6, posScale: input.posScale, dials: view2.dials }) : nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
+function quoteNCapQ(input, g, cM, view3) {
+  return view3 ? nCapG8Q({ clamp: view3.clampEnforced, cM, lambdaBps: g.lambdaBps, tier: view3.tier, capDepth: view3.capDepthE6, priceE6: input.priceE6, posScale: input.posScale, dials: view3.dials }) : nCapQ(cM, g.lambdaBps, input.priceE6, input.posScale ?? GROWTH_POS_SCALE);
 }
 function usersSideOiQ(oiEffSideQ, vaultLpEffQ, longSide) {
   const onSide = longSide ? vaultLpEffQ > 0n : vaultLpEffQ < 0n;
@@ -8643,8 +8651,59 @@ function lotExpOfProfileV22(data, profileOff) {
 function pythPriceToLotE6V22(price, expo, lotExp) {
   assertLotExp(lotExp);
   if (price <= 0n) throw new Error("price must be > 0");
-  const e12 = expo + 12 >= 0 ? price * pow10(expo + 12) : price / pow10(-(expo + 12));
-  return e12 * pow10(lotExp) / 1000000n;
+  const e12 = pythLegE12V22(price, expo);
+  return e12 === null ? 0n : composeOraclePriceE6V22([e12], 0, 0, 0, lotExp) ?? 0n;
+}
+var MAX_ORACLE_EXPO_ABS_V22 = 18;
+var LEG_E12_PER_E6 = 1000000n;
+var E12 = 1000000000000n;
+var U128_MAX5 = (1n << 128n) - 1n;
+var U256_MAX = (1n << 256n) - 1n;
+var ORACLE_LEG_CAP2 = 3;
+var FLAG_DIV2 = 1;
+var FLAG_DIV3 = 2;
+var FLAGS_MASK = FLAG_DIV2 | FLAG_DIV3;
+function legE12InRangeV22(e12) {
+  return e12 !== 0n && e12 / LEG_E12_PER_E6 <= MAX_ORACLE_PRICE_V22;
+}
+function pythLegE12V22(price, expo) {
+  if (price <= 0n || !Number.isInteger(expo) || expo < -MAX_ORACLE_EXPO_ABS_V22 || expo > MAX_ORACLE_EXPO_ABS_V22) return null;
+  const scale = expo + 12;
+  const out = scale >= 0 ? price * pow10(scale) : price / pow10(-scale);
+  if (out > U128_MAX5) return null;
+  return legE12InRangeV22(out) ? out : null;
+}
+function composeOraclePriceE6V22(legsE12, flags, invert, unitScale, lotExp) {
+  const n = legsE12.length;
+  if (n === 0 || n > ORACLE_LEG_CAP2 || !Number.isInteger(flags) || (flags & ~FLAGS_MASK) !== 0 || n === 1 && flags !== 0 || n === 2 && (flags & FLAG_DIV3) !== 0 || invert !== 0 && invert !== 1 || !Number.isInteger(unitScale) || unitScale < 0 || unitScale > 4294967295) {
+    throw new Error(`invalid oracle compose config (legs=${n}, flags=${flags}, invert=${invert}, unitScale=${unitScale})`);
+  }
+  assertLotExp(lotExp);
+  if (legsE12.some((p2) => !legE12InRangeV22(p2))) return null;
+  let num = legsE12[0];
+  let den = 1n;
+  for (let i = 1; i < n; i++) {
+    const divides = i === 1 ? (flags & FLAG_DIV2) !== 0 : (flags & FLAG_DIV3) !== 0;
+    if (divides) {
+      num *= E12;
+      den *= legsE12[i];
+    } else {
+      num *= legsE12[i];
+      den *= E12;
+    }
+    if (num > U256_MAX || den > U256_MAX) return null;
+  }
+  if (invert === 1) {
+    const inv = den * E12 * E12;
+    if (inv > U256_MAX) return null;
+    den = num;
+    num = inv;
+  }
+  num *= pow10(lotExp);
+  den *= LEG_E12_PER_E6 * BigInt(Math.max(unitScale, 1));
+  if (num > U256_MAX || den > U256_MAX) return null;
+  const p = num / den;
+  return p !== 0n && p <= MAX_ORACLE_PRICE_V22 ? p : null;
 }
 
 // src/abi/v22-fill-events.ts
@@ -11599,17 +11658,17 @@ function parseWrapperConfigV17(data, configOff = V17_HEADER_LEN) {
   const markMinFee = readU64LE(data, b + 256);
   const oracleTargetPriceE6 = readU64LE(data, b + 264);
   const oracleTargetPublishTime = readI64LE(data, b + 272);
-  const ORACLE_LEG_CAP2 = 3;
+  const ORACLE_LEG_CAP3 = 3;
   const oracleLegFeeds = [];
-  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP3; i++) {
     oracleLegFeeds.push(new PublicKey14(data.subarray(b + 280 + i * 32, b + 280 + (i + 1) * 32)));
   }
   const oracleLegPricesE6 = [];
-  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP3; i++) {
     oracleLegPricesE6.push(readU64LE(data, b + 376 + i * 8));
   }
   const oracleLegPublishTimes = [];
-  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP3; i++) {
     oracleLegPublishTimes.push(readI64LE(data, b + 400 + i * 8));
   }
   const backingTradeFeePolicyCount = readU16LE(data, b + 424);
@@ -11689,17 +11748,17 @@ function parseAssetOracleProfileV17(data, profileOff) {
     );
   }
   const b = profileOff;
-  const ORACLE_LEG_CAP2 = 3;
+  const ORACLE_LEG_CAP3 = 3;
   const oracleLegFeeds = [];
-  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP3; i++) {
     oracleLegFeeds.push(new PublicKey14(data.subarray(b + 224 + i * 32, b + 224 + (i + 1) * 32)));
   }
   const oracleLegPricesE6 = [];
-  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP3; i++) {
     oracleLegPricesE6.push(readU64LE(data, b + 320 + i * 8));
   }
   const oracleLegPublishTimes = [];
-  for (let i = 0; i < ORACLE_LEG_CAP2; i++) {
+  for (let i = 0; i < ORACLE_LEG_CAP3; i++) {
     oracleLegPublishTimes.push(readI64LE(data, b + 344 + i * 8));
   }
   return {
@@ -13029,7 +13088,7 @@ var MAX_MARGIN_BPS = 10000n;
 var MAX_PROTOCOL_FEE_ABS = 1000000000000000000000000000000000000n;
 var MAX_ABS_FUNDING_E9_PER_SLOT = 10000n;
 var U64_MAX6 = (1n << 64n) - 1n;
-var U128_MAX5 = (1n << 128n) - 1n;
+var U128_MAX6 = (1n << 128n) - 1n;
 var I128_MAX2 = (1n << 127n) - 1n;
 var MAX_SOLVENCY_INTERVALS = 96;
 var MAX_SOLVENCY_STEPS = 4096;
@@ -13039,7 +13098,7 @@ var Invalid = class extends Error {
 var fail = () => {
   throw new Invalid("InvalidConfig");
 };
-var u1284 = (v) => v > U128_MAX5 || v < 0n ? fail() : v;
+var u1284 = (v) => v > U128_MAX6 || v < 0n ? fail() : v;
 var ceilDivRaw = (n, d) => n / d + (n % d === 0n ? 0n : 1n);
 var ceilDiv = (n, d) => {
   if (d === 0n) return fail();
@@ -13204,10 +13263,10 @@ function checkBandSafetyLawV22(input) {
     mm: nonNeg("maintenanceMarginBps", input.maintenanceMarginBps, U64_MAX6),
     im: nonNeg("initialMarginBps", input.initialMarginBps, U64_MAX6),
     liq: nonNeg("liquidationFeeBps", input.liquidationFeeBps, U64_MAX6),
-    liqCap: nonNeg("liquidationFeeCap", input.liquidationFeeCap, U128_MAX5),
-    minLiqAbs: nonNeg("minLiquidationAbs", input.minLiquidationAbs, U128_MAX5),
-    minMm: nonNeg("minNonzeroMmReq", input.minNonzeroMmReq, U128_MAX5),
-    minIm: nonNeg("minNonzeroImReq", input.minNonzeroImReq, U128_MAX5),
+    liqCap: nonNeg("liquidationFeeCap", input.liquidationFeeCap, U128_MAX6),
+    minLiqAbs: nonNeg("minLiquidationAbs", input.minLiquidationAbs, U128_MAX6),
+    minMm: nonNeg("minNonzeroMmReq", input.minNonzeroMmReq, U128_MAX6),
+    minIm: nonNeg("minNonzeroImReq", input.minNonzeroImReq, U128_MAX6),
     pmove: nonNeg("maxPriceMoveBpsPerSlot", input.maxPriceMoveBpsPerSlot, U64_MAX6),
     dt: nonNeg("maxAccrualDtSlots", input.maxAccrualDtSlots, U64_MAX6),
     funding: nonNeg("maxAbsFundingE9PerSlot", input.maxAbsFundingE9PerSlot, U64_MAX6),
@@ -13219,7 +13278,7 @@ function checkBandSafetyLawV22(input) {
     positionsPerSide: 0n,
     minLeg: 0n
   };
-  const fee = nonNeg("maintenanceFeePerSlot", input.maintenanceFeePerSlot, U128_MAX5);
+  const fee = nonNeg("maintenanceFeePerSlot", input.maintenanceFeePerSlot, U128_MAX6);
   const price = input.initialPriceE6 === null ? null : nonNeg("initialPriceE6", input.initialPriceE6, U64_MAX6);
   const decimals = input.collateralDecimals === null ? null : intField("collateralDecimals", input.collateralDecimals, 255);
   if (price !== null && (price === 0n || price > MAX_ORACLE_PRICE)) return baseInvalid();
@@ -13731,41 +13790,41 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
   const nextAccountIdOff = Math.ceil((numUsedOff + 2) / 8) * 8;
   const canReadNumUsed = data.length >= base + numUsedOff + 2;
   const canReadNextId = data.length >= base + nextAccountIdOff + 8;
-  const view2 = dv6(data);
+  const view3 = dv6(data);
   if (isV0) {
     return {
-      vault: vU128(view2, base + 0),
+      vault: vU128(view3, base + 0),
       insuranceFund: {
-        balance: vU128(view2, base + 16),
-        feeRevenue: vU128(view2, base + 32),
+        balance: vU128(view3, base + 16),
+        feeRevenue: vU128(view3, base + 32),
         isolatedBalance: 0n,
         isolationBps: 0
       },
-      currentSlot: view2.getBigUint64(base + 104, true),
-      fundingIndexQpbE6: vI128(view2, base + 112),
-      lastFundingSlot: view2.getBigUint64(base + 128, true),
-      fundingRateBpsPerSlotLast: view2.getBigInt64(base + 136, true),
+      currentSlot: view3.getBigUint64(base + 104, true),
+      fundingIndexQpbE6: vI128(view3, base + 112),
+      lastFundingSlot: view3.getBigUint64(base + 128, true),
+      fundingRateBpsPerSlotLast: view3.getBigInt64(base + 136, true),
       fundingRateE9: 0n,
       marketMode: null,
-      lastCrankSlot: view2.getBigUint64(base + 144, true),
-      maxCrankStalenessSlots: view2.getBigUint64(base + 152, true),
-      totalOpenInterest: vU128(view2, base + 160),
+      lastCrankSlot: view3.getBigUint64(base + 144, true),
+      maxCrankStalenessSlots: view3.getBigUint64(base + 152, true),
+      totalOpenInterest: vU128(view3, base + 160),
       longOi: 0n,
       shortOi: 0n,
-      cTot: vU128(view2, base + 176),
-      pnlPosTot: vU128(view2, base + 192),
+      cTot: vU128(view3, base + 176),
+      pnlPosTot: vU128(view3, base + 192),
       pnlMaturedPosTot: 0n,
-      liqCursor: view2.getUint16(base + 208, true),
-      gcCursor: view2.getUint16(base + 210, true),
-      lastSweepStartSlot: view2.getBigUint64(base + 216, true),
-      lastSweepCompleteSlot: view2.getBigUint64(base + 224, true),
-      crankCursor: view2.getUint16(base + 232, true),
-      sweepStartIdx: view2.getUint16(base + 234, true),
-      lifetimeLiquidations: view2.getBigUint64(base + 240, true),
-      lifetimeForceCloses: view2.getBigUint64(base + 248, true),
-      netLpPos: vI128(view2, base + 256),
-      lpSumAbs: vU128(view2, base + 272),
-      lpMaxAbs: vU128(view2, base + 288),
+      liqCursor: view3.getUint16(base + 208, true),
+      gcCursor: view3.getUint16(base + 210, true),
+      lastSweepStartSlot: view3.getBigUint64(base + 216, true),
+      lastSweepCompleteSlot: view3.getBigUint64(base + 224, true),
+      crankCursor: view3.getUint16(base + 232, true),
+      sweepStartIdx: view3.getUint16(base + 234, true),
+      lifetimeLiquidations: view3.getBigUint64(base + 240, true),
+      lifetimeForceCloses: view3.getBigUint64(base + 248, true),
+      netLpPos: vI128(view3, base + 256),
+      lpSumAbs: vU128(view3, base + 272),
+      lpMaxAbs: vU128(view3, base + 288),
       lpMaxAbsSweep: 0n,
       emergencyOiMode: false,
       emergencyStartSlot: 0n,
@@ -13780,31 +13839,31 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       resolvedKLongTerminalDelta: 0n,
       resolvedKShortTerminalDelta: 0n,
       resolvedLivePrice: 0n,
-      numUsedAccounts: canReadNumUsed ? view2.getUint16(base + numUsedOff, true) : 0,
-      nextAccountId: canReadNextId ? view2.getBigUint64(base + nextAccountIdOff, true) : 0n
+      numUsedAccounts: canReadNumUsed ? view3.getUint16(base + numUsedOff, true) : 0,
+      nextAccountId: canReadNextId ? view3.getBigUint64(base + nextAccountIdOff, true) : 0n
     };
   }
   if (layout !== null) {
     const l = layout;
     const hasInsuranceIsolation = l.engineInsuranceIsolatedOff >= 0 && l.engineInsuranceIsolationBpsOff >= 0;
-    const u16At = (off) => off >= 0 ? view2.getUint16(base + off, true) : 0;
-    const u64At = (off) => off >= 0 ? view2.getBigUint64(base + off, true) : 0n;
-    const i64At = (off) => off >= 0 ? view2.getBigInt64(base + off, true) : 0n;
-    const u128At3 = (off) => off >= 0 ? vU128(view2, base + off) : 0n;
-    const i128At = (off) => off >= 0 ? vI128(view2, base + off) : 0n;
+    const u16At = (off) => off >= 0 ? view3.getUint16(base + off, true) : 0;
+    const u64At = (off) => off >= 0 ? view3.getBigUint64(base + off, true) : 0n;
+    const i64At = (off) => off >= 0 ? view3.getBigInt64(base + off, true) : 0n;
+    const u128At3 = (off) => off >= 0 ? vU128(view3, base + off) : 0n;
+    const i128At = (off) => off >= 0 ? vI128(view3, base + off) : 0n;
     return {
-      vault: vU128(view2, base + 0),
+      vault: vU128(view3, base + 0),
       insuranceFund: {
-        balance: vU128(view2, base + l.engineInsuranceOff),
-        feeRevenue: vU128(view2, base + l.engineInsuranceOff + 16),
-        isolatedBalance: hasInsuranceIsolation ? vU128(view2, base + l.engineInsuranceIsolatedOff) : 0n,
-        isolationBps: hasInsuranceIsolation ? view2.getUint16(base + l.engineInsuranceIsolationBpsOff, true) : 0
+        balance: vU128(view3, base + l.engineInsuranceOff),
+        feeRevenue: vU128(view3, base + l.engineInsuranceOff + 16),
+        isolatedBalance: hasInsuranceIsolation ? vU128(view3, base + l.engineInsuranceIsolatedOff) : 0n,
+        isolationBps: hasInsuranceIsolation ? view3.getUint16(base + l.engineInsuranceIsolationBpsOff, true) : 0
       },
-      currentSlot: view2.getBigUint64(base + l.engineCurrentSlotOff, true),
+      currentSlot: view3.getBigUint64(base + l.engineCurrentSlotOff, true),
       // engineFundingIndexOff is -1 on V12_15/17/19 (this field doesn't exist in those
       // engine structs) — guard the same way the heavy parser does (slab.ts parseEngine)
       // or `base + (-1)` reads 16 bytes starting one byte before the engine region.
-      fundingIndexQpbE6: l.engineFundingIndexOff >= 0 ? l.engineLastFundingSlotOff >= 0 && l.engineLastFundingSlotOff - l.engineFundingIndexOff === 8 ? BigInt(view2.getBigInt64(base + l.engineFundingIndexOff, true)) : vI128(view2, base + l.engineFundingIndexOff) : 0n,
+      fundingIndexQpbE6: l.engineFundingIndexOff >= 0 ? l.engineLastFundingSlotOff >= 0 && l.engineLastFundingSlotOff - l.engineFundingIndexOff === 8 ? BigInt(view3.getBigInt64(base + l.engineFundingIndexOff, true)) : vI128(view3, base + l.engineFundingIndexOff) : 0n,
       lastFundingSlot: u64At(l.engineLastFundingSlotOff),
       fundingRateBpsPerSlotLast: i64At(l.engineFundingRateBpsOff),
       fundingRateE9: 0n,
@@ -13814,8 +13873,8 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       totalOpenInterest: u128At3(l.engineTotalOiOff),
       longOi: u128At3(l.engineLongOiOff),
       shortOi: u128At3(l.engineShortOiOff),
-      cTot: vU128(view2, base + l.engineCTotOff),
-      pnlPosTot: vU128(view2, base + l.enginePnlPosTotOff),
+      cTot: vU128(view3, base + l.engineCTotOff),
+      pnlPosTot: vU128(view3, base + l.enginePnlPosTotOff),
       pnlMaturedPosTot: 0n,
       liqCursor: u16At(l.engineLiqCursorOff),
       gcCursor: u16At(l.engineGcCursorOff),
@@ -13841,8 +13900,8 @@ function parseEngineLight(data, layout, maxAccounts = 4096) {
       resolvedKLongTerminalDelta: 0n,
       resolvedKShortTerminalDelta: 0n,
       resolvedLivePrice: 0n,
-      numUsedAccounts: canReadNumUsed ? view2.getUint16(base + numUsedOff, true) : 0,
-      nextAccountId: canReadNextId ? view2.getBigUint64(base + nextAccountIdOff, true) : 0n
+      numUsedAccounts: canReadNumUsed ? view3.getUint16(base + numUsedOff, true) : 0,
+      nextAccountId: canReadNextId ? view3.getBigUint64(base + nextAccountIdOff, true) : 0n
     };
   }
   throw new Error(`parseEngineLight: unrecognized slab layout (isV0=${isV0})`);
@@ -14593,7 +14652,7 @@ function readBigUint64LE(data, off) {
 function readU32LE2(data, off) {
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(off, true);
 }
-var DEFAULT_FUTURE_TOLERANCE_SECONDS = 60;
+var DEFAULT_FUTURE_TOLERANCE_SECONDS = 0;
 function parseChainlinkPrice(data, options) {
   if (data.length < CHAINLINK_MIN_SIZE) {
     throw new Error(
@@ -14606,6 +14665,7 @@ function parseChainlinkPrice(data, options) {
       `Oracle decimals out of range: ${decimals} (max ${MAX_DECIMALS})`
     );
   }
+  assertChainlinkHeader(data);
   const answer = readBigInt64LE(data, CHAINLINK_ANSWER_OFFSET + 8) << 64n | readBigUint64LE(data, CHAINLINK_ANSWER_OFFSET);
   if (answer <= 0n) {
     throw new Error(
@@ -14640,6 +14700,7 @@ function parseChainlinkPrice(data, options) {
       );
     }
   }
+  assertChainlinkAnswerInRange(price, decimals);
   return { price, decimals, updatedAt: updatedAt > 0 ? updatedAt : void 0 };
 }
 function isValidChainlinkOracle(data) {
@@ -14649,6 +14710,118 @@ function isValidChainlinkOracle(data) {
   } catch {
     return false;
   }
+}
+var CHAINLINK_DISCRIMINATOR = [96, 179, 69, 66, 128, 129, 73, 117];
+var U128_MAX7 = (1n << 128n) - 1n;
+function view(data) {
+  return new DataView(data.buffer, data.byteOffset, data.byteLength);
+}
+function hasPrefix(data, disc) {
+  for (let i = 0; i < disc.length; i++) if (data[i] !== disc[i]) return false;
+  return true;
+}
+function readI128(v, off) {
+  return v.getBigInt64(off + 8, true) << 64n | v.getBigUint64(off, true);
+}
+function assertChainlinkHeader(data) {
+  if (!hasPrefix(data, CHAINLINK_DISCRIMINATOR)) throw new Error("Oracle account is not a Chainlink transmissions account (discriminator mismatch)");
+  const v = view(data);
+  const version = data[8];
+  const latestRoundId = v.getUint32(143, true);
+  const liveLength = v.getUint32(148, true);
+  const slot = v.getBigUint64(200, true);
+  const ts = v.getUint32(CHAINLINK_TIMESTAMP_OFFSET, true);
+  if (version === 0) throw new Error("Chainlink feed version is 0");
+  if (latestRoundId === 0) throw new Error("Chainlink feed has no round (latest_round_id=0)");
+  if (liveLength !== 1) throw new Error(`Chainlink feed live_length is ${liveLength} (the program requires 1)`);
+  if (slot === 0n) throw new Error("Chainlink transmission slot is 0");
+  if (ts <= 0) throw new Error(`Oracle has no valid publish timestamp (updatedAt=${ts})`);
+}
+function assertChainlinkAnswerInRange(answer, decimals) {
+  const e12 = decimals >= 12 ? answer / 10n ** BigInt(decimals - 12) : answer * 10n ** BigInt(12 - decimals);
+  if (e12 > U128_MAX7) throw new Error(`Oracle price ${answer} (decimals ${decimals}) overflows the program's E12 scaling`);
+  if (!legE12InRangeV22(e12)) {
+    throw new Error(`Oracle price ${answer} (decimals ${decimals}) is outside the program's range (0 < price at E12, price <= MAX_ORACLE_PRICE at E6)`);
+  }
+}
+function checkReadOptions(o) {
+  if (!Number.isSafeInteger(o.nowUnixTs)) throw new Error(`nowUnixTs must be an integer, got ${o.nowUnixTs}`);
+  if (!Number.isSafeInteger(o.maxStalenessSecs) || o.maxStalenessSecs < 0) throw new Error(`maxStalenessSecs must be a non-negative integer, got ${o.maxStalenessSecs}`);
+  if (!Number.isInteger(o.confFilterBps) || o.confFilterBps < 0 || o.confFilterBps > 1e4) throw new Error(`confFilterBps must be 0..=10000, got ${o.confFilterBps}`);
+}
+function checkAge(publishTime, o, what) {
+  const age = BigInt(o.nowUnixTs) - publishTime;
+  if (age < 0n) throw new Error(`OracleStale: ${what} publish time is ${-age}s after now`);
+  if (age > BigInt(o.maxStalenessSecs)) throw new Error(`OracleStale: ${what} is ${age}s old (max ${o.maxStalenessSecs}s)`);
+}
+var PYTH_PRICE_UPDATE_V2_MIN_LEN = 134;
+var PYTH_PRICE_UPDATE_V2_DISCRIMINATOR = [34, 241, 35, 99, 157, 126, 244, 205];
+var PYTH_OFF_VERIFICATION_LEVEL = 40;
+var PYTH_OFF_MESSAGE = 41;
+var PYTH_VERIFICATION_FULL = 1;
+function parsePythPriceUpdateV2(data, o) {
+  checkReadOptions(o);
+  if (o.feedId.length !== 32) throw new Error(`feedId must be 32 bytes, got ${o.feedId.length}`);
+  if (data.length < PYTH_PRICE_UPDATE_V2_MIN_LEN) throw new Error(`InvalidAccountData: PriceUpdateV2 is ${data.length} bytes (need ${PYTH_PRICE_UPDATE_V2_MIN_LEN})`);
+  if (!hasPrefix(data, PYTH_PRICE_UPDATE_V2_DISCRIMINATOR)) throw new Error("OracleInvalid: not a Pyth PriceUpdateV2 account (discriminator mismatch)");
+  if (data[PYTH_OFF_VERIFICATION_LEVEL] !== PYTH_VERIFICATION_FULL) throw new Error("OracleInvalid: PriceUpdateV2 verification level is not Full");
+  const m = PYTH_OFF_MESSAGE;
+  for (let i = 0; i < 32; i++) if (data[m + i] !== o.feedId[i]) throw new Error("InvalidOracleKey: PriceUpdateV2 feed id does not match");
+  const v = view(data);
+  const price = v.getBigInt64(m + 32, true);
+  const conf = v.getBigUint64(m + 40, true);
+  const exponent = v.getInt32(m + 48, true);
+  const publishTime = v.getBigInt64(m + 52, true);
+  if (price <= 0n || exponent < -MAX_ORACLE_EXPO_ABS_V22 || exponent > MAX_ORACLE_EXPO_ABS_V22) {
+    throw new Error(`OracleInvalid: Pyth price ${price} exponent ${exponent}`);
+  }
+  checkAge(publishTime, o, "Pyth update");
+  if (o.confFilterBps !== 0 && conf * 10000n > price * BigInt(o.confFilterBps)) {
+    throw new Error(`OracleConfTooWide: conf ${conf} > ${o.confFilterBps} bps of price ${price}`);
+  }
+  const priceE12 = pythLegE12V22(price, exponent);
+  if (priceE12 === null) throw new Error(`OracleInvalid: Pyth price ${price}e${exponent} is outside the program's E12 range`);
+  return { priceE12, publishTime: Number(publishTime) };
+}
+var SWITCHBOARD_DISCRIMINATOR = [196, 27, 108, 196, 10, 215, 219, 40];
+var SWITCHBOARD_MIN_LEN = 3208;
+var SB_OFF_FEED_HASH = 8 + 2112;
+var SB_OFF_MIN_SAMPLE_SIZE = 8 + 2207;
+var SB_OFF_LAST_UPDATE = 8 + 2208;
+var SB_OFF_VALUE = 8 + 2256;
+var SB_OFF_STD_DEV = 8 + 2272;
+var SB_OFF_NUM_SAMPLES = 8 + 2352;
+var SB_OFF_SUBMISSION_IDX = 8 + 2353;
+var SB_OFF_RESULT_SLOT = 8 + 2360;
+var SB_OFF_SUBMISSION_TS = 8 + 2944;
+var SB_MAX_SUBMISSIONS = 32;
+var SB_E18_PER_E12 = 1000000n;
+function parseSwitchboardPullFeedPrice(data, o) {
+  checkReadOptions(o);
+  if (data.length < SWITCHBOARD_MIN_LEN) throw new Error(`InvalidAccountData: PullFeed is ${data.length} bytes (need ${SWITCHBOARD_MIN_LEN})`);
+  if (!hasPrefix(data, SWITCHBOARD_DISCRIMINATOR)) throw new Error("OracleInvalid: not a Switchboard PullFeed account (discriminator mismatch)");
+  const v = view(data);
+  let feedHashZero = true;
+  for (let i = 0; i < 32; i++) if (data[SB_OFF_FEED_HASH + i] !== 0) feedHashZero = false;
+  const minSample = data[SB_OFF_MIN_SAMPLE_SIZE];
+  const lastUpdate = v.getBigInt64(SB_OFF_LAST_UPDATE, true);
+  const value = readI128(v, SB_OFF_VALUE);
+  const stdDev = readI128(v, SB_OFF_STD_DEV);
+  const numSamples = data[SB_OFF_NUM_SAMPLES];
+  const subIdx = data[SB_OFF_SUBMISSION_IDX];
+  const resultSlot = v.getBigUint64(SB_OFF_RESULT_SLOT, true);
+  if (feedHashZero || minSample === 0 || numSamples < minSample || subIdx >= SB_MAX_SUBMISSIONS || resultSlot === 0n || lastUpdate <= 0n || value <= 0n || stdDev < 0n) {
+    throw new Error("OracleInvalid: Switchboard feed result is not valid");
+  }
+  const publishTime = v.getBigInt64(SB_OFF_SUBMISSION_TS + subIdx * 8, true);
+  if (publishTime <= 0n) throw new Error("OracleStale: Switchboard submission has no timestamp");
+  checkAge(publishTime, o, "Switchboard submission");
+  if (o.confFilterBps !== 0 && stdDev * 10000n > value * BigInt(o.confFilterBps)) {
+    throw new Error(`OracleConfTooWide: std_dev ${stdDev} > ${o.confFilterBps} bps of value ${value}`);
+  }
+  const priceE12 = value / SB_E18_PER_E12;
+  if (!legE12InRangeV22(priceE12)) throw new Error(`OracleInvalid: Switchboard value ${value} is outside the program's E12 range`);
+  return { priceE12, publishTime: Number(publishTime) };
 }
 
 // src/solana/token-program.ts
@@ -15044,16 +15217,16 @@ function deriveDepositPda(pool, user, programId) {
   );
 }
 function readU64LE3(data, off) {
-  const view2 = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  return view2.getBigUint64(
+  const view3 = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return view3.getBigUint64(
     off,
     /* littleEndian= */
     true
   );
 }
 function readU16LE2(data, off) {
-  const view2 = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  return view2.getUint16(
+  const view3 = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return view3.getUint16(
     off,
     /* littleEndian= */
     true
@@ -15085,9 +15258,9 @@ function u128Le(v) {
   if (big4 < 0n) throw new Error(`u128Le: value must be non-negative, got ${big4}`);
   if (big4 > (1n << 128n) - 1n) throw new Error(`u128Le: value exceeds u128 max`);
   const arr = new Uint8Array(16);
-  const view2 = new DataView(arr.buffer);
-  view2.setBigUint64(0, big4 & 0xFFFFFFFFFFFFFFFFn, true);
-  view2.setBigUint64(8, big4 >> 64n, true);
+  const view3 = new DataView(arr.buffer);
+  view3.setBigUint64(0, big4 & 0xFFFFFFFFFFFFFFFFn, true);
+  view3.setBigUint64(8, big4 >> 64n, true);
   return arr;
 }
 function u16Le(v) {
@@ -16712,7 +16885,7 @@ var U16_MAX4 = 65535;
 var U64_MAX7 = BigInt("18446744073709551615");
 var I64_MIN = BigInt("-9223372036854775808");
 var I64_MAX = BigInt("9223372036854775807");
-var U128_MAX6 = (1n << 128n) - 1n;
+var U128_MAX8 = (1n << 128n) - 1n;
 var I128_MIN2 = -(1n << 127n);
 var I128_MAX3 = (1n << 127n) - 1n;
 var ValidationError = class extends Error {
@@ -16787,10 +16960,10 @@ function validateU128(value, field) {
   if (num < 0n) {
     throw new ValidationError(field, `must be non-negative, got ${num}`);
   }
-  if (num > U128_MAX6) {
+  if (num > U128_MAX8) {
     throw new ValidationError(
       field,
-      `must be <= ${U128_MAX6} (u128 max), got ${num}`
+      `must be <= ${U128_MAX8} (u128 max), got ${num}`
     );
   }
   return num;
@@ -16963,7 +17136,7 @@ function readAssetPricesP3(marketData, assetIndex) {
     effectivePriceE6: v.getBigUint64(base + g.layout.assetState.effectivePrice, true)
   };
 }
-function view(d) {
+function view2(d) {
   return new DataView(d.buffer, d.byteOffset, d.byteLength);
 }
 function u1285(v, o) {
@@ -16979,7 +17152,7 @@ function key2(d, o) {
 function decodeVaultLpStateP3(data) {
   if (data.length < VAULT_LP_STATE_ACCOUNT_LEN_P3) throw new Error(`VaultLpStateV18: need ${VAULT_LP_STATE_ACCOUNT_LEN_P3} bytes, got ${data.length}`);
   resolveLayout(data, { parser: "decodeVaultLpStateP3", kind: V18_KIND_VAULT_LP_STATE_P3 });
-  const v = view(data);
+  const v = view2(data);
   const O = VAULT_LP_STATE_OFF_P3;
   const st = {
     marketGroup: key2(data, O.marketGroup),
@@ -17009,7 +17182,7 @@ function decodeAssetVaultLpDrawP3(marketData, assetIndex) {
   const g = resolveMarketGeometry(marketData, { parser: "decodeAssetVaultLpDrawP3", strictLength: false });
   const off = assetVaultLpAccountOffsetP3(assetIndex, g.layout) - ASSET_VAULT_LP_DRAW_LEN_P3;
   if (marketData.length < off + ASSET_VAULT_LP_DRAW_LEN_P3) throw new Error(`AssetVaultLpDrawV18: market data too short for asset ${assetIndex}`);
-  const v = view(marketData);
+  const v = view2(marketData);
   const r3 = {
     pendingOutEvenAtoms: u1285(v, off),
     pendingOutOddAtoms: u1285(v, off + 16),
@@ -17020,7 +17193,7 @@ function decodeAssetVaultLpDrawP3(marketData, assetIndex) {
 }
 function decodeAssetVaultLpRecordP3(rec) {
   if (rec.length !== ASSET_VAULT_LP_LEN_P3) throw new Error(`AssetVaultLpV18 record must be 128 bytes, got ${rec.length}`);
-  const v = view(rec);
+  const v = view2(rec);
   const F = ASSET_VAULT_LP_FIELD_OFF_P3;
   const zero32 = (o) => rec.subarray(o, o + 32).every((b) => b === 0);
   const flags = rec[F.flags];
@@ -18726,9 +18899,9 @@ async function sendV1(connection, wire, opts = {}) {
   if (opts.fetchImpl === void 0 && opts.headers === void 0) {
     const transport = connection._rpcRequest;
     const seen = {};
-    const view2 = Object.create(connection);
+    const view3 = Object.create(connection);
     if (typeof transport === "function") {
-      view2._rpcRequest = async (method, args) => {
+      view3._rpcRequest = async (method, args) => {
         const res = await transport.call(connection, method, args);
         const e = res?.error;
         if (method === "sendTransaction" && e && typeof e.code === "number") seen.error = { code: e.code, message: String(e.message) };
@@ -18736,7 +18909,7 @@ async function sendV1(connection, wire, opts = {}) {
       };
     }
     try {
-      return await view2.sendRawTransaction(wire, {
+      return await view3.sendRawTransaction(wire, {
         skipPreflight: opts.skipPreflight ?? false,
         preflightCommitment: opts.preflightCommitment ?? "confirmed",
         ...opts.maxRetries !== void 0 ? { maxRetries: opts.maxRetries } : {}
@@ -20657,6 +20830,7 @@ export {
   MAX_OBSERVES_PER_TX_V22,
   MAX_OBSERVES_WITH_REFRESH_V22,
   MAX_OI_SIDE_Q_P1,
+  MAX_ORACLE_EXPO_ABS_V22,
   MAX_ORACLE_PRICE_V22,
   MAX_PRIORITY_FEE_LAMPORTS,
   MAX_RENT_E9_PER_SLOT_V22,
@@ -21044,6 +21218,7 @@ export {
   combinedTier,
   commitSlotForPendingTargetV5,
   compileV1Message,
+  composeOraclePriceE6V22,
   computeBudgetInstructions,
   computeBudgetPrelude,
   computeDexSpotPriceE6,
@@ -21544,6 +21719,7 @@ export {
   lambdaFallbackBps,
   lambdaVolBps,
   layoutHasBandRentV22,
+  legE12InRangeV22,
   levAgeBandIsYoungV22,
   levAgeBandV22,
   levBetaBpsV22,
@@ -21632,6 +21808,8 @@ export {
   parsePortfolioV17,
   parsePositionNftAccount,
   parseProtocolFeeAuthorityEpoch,
+  parsePythPriceUpdateV2,
+  parseSwitchboardPullFeedPrice,
   parseTxV1Mode,
   parseUsedIndices,
   parseWrapperConfigV17,
@@ -21653,6 +21831,7 @@ export {
   premiumFundingRateE9V22,
   previewGrowthOpenFee,
   priorityFeeLamportsFromMicroPerCu,
+  pythLegE12V22,
   pythPriceToLotE6V22,
   qToTokenQV22,
   quantizeQToLotsV22,

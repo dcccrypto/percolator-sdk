@@ -46,10 +46,20 @@ function assertThrows(fn: () => void, expectedMsg: string, testName: string): vo
  * (read_i128_le, v16_program.rs:5657). Writing only the low 8 bytes would leave
  * a negative answer encoded as a huge positive i128.
  */
+// Header fields the program checks (percolator-prog rc23 read_chainlink_price_e12,
+// v16_program.rs:12799-12816): discriminator, version, latest_round_id,
+// live_length == 1, transmission slot. The publish timestamp defaults to now
+// because the program refuses publish_time 0.
 function buildChainlinkBuffer(decimals: number, answer: bigint, size = 256): Uint8Array {
   const buf = new Uint8Array(size);
-  buf[CHAINLINK_DECIMALS_OFFSET] = decimals;
   const dv = new DataView(buf.buffer);
+  buf.set([96, 179, 69, 66, 128, 129, 73, 117], 0);
+  buf[8] = 1;
+  dv.setUint32(143, 1, true);
+  dv.setUint32(148, 1, true);
+  dv.setBigUint64(200, 1n, true);
+  dv.setUint32(208, Math.floor(Date.now() / 1000), true);
+  buf[CHAINLINK_DECIMALS_OFFSET] = decimals;
   dv.setBigUint64(CHAINLINK_ANSWER_OFFSET, BigInt.asUintN(64, answer), true);
   dv.setBigInt64(CHAINLINK_ANSWER_OFFSET + 8, answer >> 64n, true);
   return buf;
@@ -85,7 +95,7 @@ console.log("Testing Chainlink oracle parsing...\n");
 
 // Accepts 18 decimals (maximum)
 {
-  const buf18 = buildChainlinkBuffer(18, 1000n);
+  const buf18 = buildChainlinkBuffer(18, 10n ** 18n); // $1 (1000 at 18 decimals is below the program's E12 floor)
   const r18 = parseChainlinkPrice(buf18);
   assert(r18.decimals === 18, "accepts 18 decimals");
   console.log("✓ accepts 18 decimals");
@@ -218,6 +228,7 @@ function buildChainlinkBufferWithTimestamp(decimals: number, answer: bigint, upd
   // staleness check silently passed on an otherwise-blank feed.
   const now = Math.floor(Date.now() / 1000);
   const wrongOffset = buildChainlinkBuffer(8, 10012345678n);
+  new DataView(wrongOffset.buffer).setUint32(PROGRAM_TIMESTAMP_OFFSET, 0, true);
   new DataView(wrongOffset.buffer).setBigInt64(168, BigInt(now), true);
   assertThrows(
     () => parseChainlinkPrice(wrongOffset, { maxStalenessSeconds: 60 }),
@@ -230,7 +241,7 @@ function buildChainlinkBufferWithTimestamp(decimals: number, answer: bigint, upd
 {
   // A zero timestamp means the feed has never published. The program rejects
   // `publish_time <= 0` outright; the SDK must not treat it as exempt.
-  const neverPublished = buildChainlinkBuffer(8, 10012345678n);
+  const neverPublished = buildChainlinkBufferWithTimestamp(8, 10012345678n, 0);
   assertThrows(
     () => parseChainlinkPrice(neverPublished, { maxStalenessSeconds: 60 }),
     "publish timestamp",
@@ -240,12 +251,17 @@ function buildChainlinkBufferWithTimestamp(decimals: number, answer: bigint, upd
 }
 
 {
-  // A small forward skew is ordinary client-clock drift, NOT a fault: the program
-  // compares against the ON-CHAIN clock, which we cannot read here.
+  // The program refuses any publish time after its clock, so by default the SDK
+  // does too. A client clock-skew allowance is an explicit opt-in.
   const nearFuture = buildChainlinkBufferWithTimestamp(8, 10012345678n, Math.floor(Date.now() / 1000) + 5);
-  const skewed = parseChainlinkPrice(nearFuture, { maxStalenessSeconds: 60 });
-  assert(skewed.price === 10012345678n, "a few seconds of clock skew must not reject a healthy feed");
-  console.log("✓ small forward clock skew tolerated");
+  assertThrows(
+    () => parseChainlinkPrice(nearFuture, { maxStalenessSeconds: 60 }),
+    "future",
+    "a future publish time is refused by default, like the program"
+  );
+  const skewed = parseChainlinkPrice(nearFuture, { maxStalenessSeconds: 60, futureToleranceSeconds: 60 });
+  assert(skewed.price === 10012345678n, "an opted-in skew allowance accepts a few seconds ahead");
+  console.log("✓ future publish time refused by default; skew allowance is opt-in");
 
   // An implausible jump ahead is still rejected.
   const farFuture = buildChainlinkBufferWithTimestamp(8, 10012345678n, Math.floor(Date.now() / 1000) + 3600);
@@ -264,7 +280,8 @@ function buildChainlinkBufferWithTimestamp(decimals: number, answer: bigint, upd
 
 {
   // The answer is i128 on-chain and the program imposes NO i64 ceiling — it feeds
-  // the whole mantissa to scale_decimal_to_e6 and bounds only the SCALED result.
+  // the whole mantissa to scale_decimal_to_e12 and bounds only the SCALED result
+  // (here ~$18.4 at 18 decimals, well inside MAX_ORACLE_PRICE).
   // So a large mantissa must parse, at its full i128 value, not be rejected and
   // not be truncated to its low 64 bits.
   const bigAnswer = (1n << 64n) + 12345n;

@@ -108,8 +108,11 @@ export declare function lotsToTokensV22(lots: bigint, lotExp: number): bigint;
 export declare function lotExpOfProfileV22(data: Uint8Array, profileOff: number): number;
 /**
  * Convert a Pyth-style `price * 10^expo` quote into the engine per-lot e6 price: `floor(price * 10^(expo + 6 + lotExp))`.
- * Mirrors the single-leg path of prog #711: read at E12 (truncating, so feeds finer than expo -12 lose digits), then `* 10^lotExp` floored once to E6. The program's final `<= MAX_ORACLE_PRICE` check is not applied here. 0 means the program would refuse it (at lot 0 a price
- * below 1e-6 is unreadable; use a market with a larger `lotExp`).
+ * Mirrors the single-leg path of prog #711: read at E12 (truncating, so feeds finer than expo -12 lose digits), then `* 10^lotExp` floored once to E6.
+ * 0 means the program would refuse it (OracleInvalid): the leg is outside the program's E12 range
+ * ({@link pythLegE12V22}: `|expo| > 18`, E12 value 0, or above `MAX_ORACLE_PRICE`), or the per-lot price is 0 or above
+ * `MAX_ORACLE_PRICE` ({@link composeOraclePriceE6V22}). At lot 0 a price below 1e-6 is unreadable; use a market with a
+ * larger `lotExp`. No `invert` / `unit_scale` here: use {@link composeOraclePriceE6V22} for those markets.
  *
  * @param price   Pyth integer price (> 0).
  * @param expo    Pyth exponent (usually negative).
@@ -122,3 +125,53 @@ export declare function lotExpOfProfileV22(data: Uint8Array, profileOff: number)
  * ```
  */
 export declare function pythPriceToLotE6V22(price: bigint, expo: number, lotExp: number): bigint;
+/** Program `MAX_EXPO_ABS` (percolator-prog rc23 `src/v16_program.rs:12440`): a Pyth exponent or Chainlink decimals above 18 is refused. */
+export declare const MAX_ORACLE_EXPO_ABS_V22 = 18;
+/**
+ * Program `leg_e12_in_range` (`v16_program.rs:12550-12552`): an oracle leg at E12 is usable only when it is non-zero and its
+ * E6 floor is at most `MAX_ORACLE_PRICE`.
+ *
+ * @param e12  Leg price at E12.
+ * @returns `true` when the program accepts the leg.
+ * @example
+ * ```ts
+ * legE12InRangeV22(150_000_000_000_000n); // true ($150)
+ * ```
+ */
+export declare function legE12InRangeV22(e12: bigint): boolean;
+/**
+ * Pyth `price * 10^expo` to the program's E12 leg value, like `read_pyth_price_e12` (`v16_program.rs:12606-12627`):
+ * `|expo| <= 18`, price > 0, scaled to E12 (truncating below 1e-12), then {@link legE12InRangeV22}.
+ *
+ * @param price  Pyth integer price.
+ * @param expo   Pyth exponent.
+ * @returns The E12 leg, or `null` when the program would refuse it (OracleInvalid / overflow).
+ * @example
+ * ```ts
+ * pythLegE12V22(15_000_000_000n, -8); // 150_000_000_000_000n
+ * pythLegE12V22(1n, -19);             // null (|expo| > 18)
+ * ```
+ */
+export declare function pythLegE12V22(price: bigint, expo: number): bigint | null;
+/**
+ * Compose 1 to 3 E12 oracle legs into the engine per-lot e6 price, like the program's `compose_price_e12_to_e6`
+ * (`v16_program.rs:12882-12945`). Everything is rounded ONCE at the end:
+ * legs multiply (or divide, per `flags`: bit 0 = leg 2 divides, bit 1 = leg 3 divides), `invert` swaps to `1e24 * d / n`,
+ * then `* 10^lotExp / (1e6 * max(unitScale, 1))`, floored.
+ *
+ * @param legsE12    Leg prices at E12 (each must pass {@link legE12InRangeV22}).
+ * @param flags      Multi-leg divide flags (0 for a single leg).
+ * @param invert     Profile `invert` (0 or 1).
+ * @param unitScale  Profile `unit_scale` (0 and 1 both mean "no scaling").
+ * @param lotExp     Market `lot_exp`.
+ * @returns Per-lot e6 price, or `null` when the program would refuse it (a leg out of range, overflow, or a result of
+ *   0 or above `MAX_ORACLE_PRICE`: OracleInvalid / EngineArithmeticOverflow).
+ * @throws `Error` for a config the program refuses as EngineInvalidConfig (0 or more than 3 legs, `invert > 1`, bad flags,
+ *   `lotExp` above 15).
+ * @example
+ * ```ts
+ * composeOraclePriceE6V22([150_000_000_000_000n], 0, 1, 0, 0);    // 6_666n   (1 / $150)
+ * composeOraclePriceE6V22([150_000_000_000_000n], 0, 0, 1000, 0); // 150_000n ($150 / 1000)
+ * ```
+ */
+export declare function composeOraclePriceE6V22(legsE12: readonly bigint[], flags: number, invert: number, unitScale: number, lotExp: number): bigint | null;
