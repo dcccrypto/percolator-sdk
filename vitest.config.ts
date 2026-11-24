@@ -14,7 +14,7 @@ export default defineConfig({
       "**/.git/**",
       "test/devnet-*.test.ts", // need a live devnet RPC cluster; run via vitest.devnet.config.ts
       "test/mainnet-harness.test.ts", // live-cluster harness; run via vitest.devnet.config.ts
-      // Plain tsx scripts (no vitest suites); already run by `pnpm test` via tsx before vitest.
+      // Plain tsx scripts (no vitest suites); run by `pnpm test` via test/tsx-steps.ts before vitest.
       "test/abi.test.ts",
       "test/slab.test.ts",
       "test/validation.test.ts",
