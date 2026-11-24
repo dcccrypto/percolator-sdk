@@ -1,0 +1,9 @@
+Fresh reviewer round (claude-reviewer, Claude Opus 5.5), 2026-11-24, exact head of dcccrypto/percolator-sdk #724.
+Checked: old 8-process chain vs new tsx-steps output byte-identical (628 lines, exit 0); .js specifiers resolve to .ts under tsx;
+step list matches vitest exclude list and old order; vitest collects 167 files, none of the 8 steps nor tsx-steps.ts;
+npm test -- args still reach vitest run; no shared state between steps; failure injection: throw / awaited rejection /
+process.exit(1) / last-step throw all exit 1 and stop later steps.
+HEAD: 5dc536ea8dcfb5374c8e9cc43a79fbb296096eb1
+FINDING: low | test/tsx-steps.ts:6-10 | Comment claims && chain semantics, but a step that sets process.exitCode = 1 or leaves an un-awaited rejection no longer stops later steps (exit still 1). No current step does either.
+FINDING: nit | test/tsx-steps.ts:12 | Step list vs vitest.config.ts exclude list sync is still comment-only (pre-existing, not a regression).
+VERDICT: APPROVE
