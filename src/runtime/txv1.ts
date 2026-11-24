@@ -58,6 +58,7 @@ import {
 } from "@solana/web3.js";
 import { V17_WRAPPER_HEAP_FRAME_BYTES } from "./tx.js";
 import { assertUintNumber } from "../validation.js";
+import { withRpcDeadline, type RpcDeadlineOptions } from "./deadline.js";
 
 const U32_MAX = 0xffff_ffff;
 
@@ -847,7 +848,9 @@ export async function simulateV1(connection: Connection, wire: Uint8Array, o: Ra
  *
  * @param connection - Connection; sent through `connection.sendRawTransaction` (its transport and send guards apply).
  * @param wire - Serialized, fully signed v1 transaction.
- * @param opts - `skipPreflight` / `maxRetries` plus raw RPC options.
+ * @param opts - `skipPreflight` / `maxRetries` plus raw RPC options, and an optional `signal` / `timeoutMs`
+ *   deadline (rejects with `RpcDeadlineError`; the send may still reach the node, so check the
+ *   signature from {@link v1TransactionSignature} before resending). Default: none.
  * @returns Transaction signature.
  * @throws On any JSON-RPC error. On the raw-fetch path (`fetchImpl`/`headers` given) errors are {@link V1RpcError}s and format
  *   rejections satisfy {@link isTxV1FormatRejection}. On the default path (`connection.sendRawTransaction`) web3.js 1.x drops
@@ -857,8 +860,16 @@ export async function simulateV1(connection: Connection, wire: Uint8Array, o: Ra
 export async function sendV1(
   connection: Connection,
   wire: Uint8Array,
-  opts: RawRpcOptions & { skipPreflight?: boolean; maxRetries?: number; preflightCommitment?: "processed" | "confirmed" | "finalized" } = {},
+  opts: SendV1Options = {},
 ): Promise<string> {
+  return withRpcDeadline("sendV1", opts, () => sendV1Inner(connection, wire, opts));
+}
+
+/** Options for {@link sendV1}. */
+export type SendV1Options = RawRpcOptions &
+  RpcDeadlineOptions & { skipPreflight?: boolean; maxRetries?: number; preflightCommitment?: "processed" | "confirmed" | "finalized" };
+
+async function sendV1Inner(connection: Connection, wire: Uint8Array, opts: SendV1Options): Promise<string> {
   if (opts.fetchImpl === undefined && opts.headers === undefined) {
     // web3.js `sendRawTransaction` only base64-encodes the bytes (it never parses them), so it carries v1 fine and,
     // unlike a raw fetch, goes through the Connection's own transport and any send guard (e.g. a dry-run override).
