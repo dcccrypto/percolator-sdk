@@ -9866,7 +9866,9 @@ function buildLayoutV1DPre306(maxAccounts) {
     // InsuranceFund is {balance, fee_revenue} only — no isolation fields before PERC-306.
     hasInsuranceIsolation: false,
     engineInsuranceIsolatedOff: -1,
-    engineInsuranceIsolationBpsOff: -1
+    engineInsuranceIsolationBpsOff: -1,
+    engineInsuranceFeeRevenueOff: V1D_PRE306_ENGINE_INSURANCE_OFF + 16
+    // engine+32
   };
 }
 function buildLayoutV2(maxAccounts) {
@@ -11263,8 +11265,9 @@ function parseEngine(data) {
     vault: readU128LE(data, base),
     insuranceFund: {
       balance: readU128LE(data, base + layout.engineInsuranceOff),
-      // feeRevenue: only exists in percolator-core (80-byte InsuranceFund), not deployed (16-byte)
-      feeRevenue: layout.hasInsuranceIsolation ? readU128LE(data, base + layout.engineInsuranceOff + 16) : 0n,
+      // feeRevenue: U128 right after balance on isolation layouts and on V1D-pre306
+      // (engine a235a5f2 InsuranceFund = {balance, fee_revenue}); 0n on other layouts.
+      feeRevenue: layout.hasInsuranceIsolation ? readU128LE(data, base + layout.engineInsuranceOff + 16) : layout.engineInsuranceFeeRevenueOff !== void 0 ? readU128LE(data, base + layout.engineInsuranceFeeRevenueOff) : 0n,
       isolatedBalance: layout.hasInsuranceIsolation ? readU128LE(data, base + layout.engineInsuranceIsolatedOff) : 0n,
       isolationBps: layout.hasInsuranceIsolation ? readU16LE(data, base + layout.engineInsuranceIsolationBpsOff) : 0
     },
